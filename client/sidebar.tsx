@@ -7,27 +7,30 @@ import { attentionBadgeText, attentionFromSources, attentionScreenParams } from 
 import { listAgents } from "./resources";
 import { CountPill, Theme } from "./ui";
 
-/** Restrained background refresh; the board itself polls faster while open. */
-const SIDEBAR_POLL_MS = 10_000;
+/**
+ * Restrained background refresh. The queries share the board's keys, so while
+ * the board is open both read one cache (the board's faster interval wins).
+ */
+const SIDEBAR_POLL_MS = 15_000;
 
 /** Same sources and rule as the board Attention button; null while unavailable or failed. */
-function useAttentionCount(hostId: string) {
+function useAttentionCount() {
   const read = useRpc(readBoard),
     reads = useRpc(readSessionReceipts),
     paseo = usePaseo();
   const poll = { refetchInterval: SIDEBAR_POLL_MS, retry: 1 } as const;
   const board = useQuery({
-    queryKey: ["ultra", "sidebar", hostId, "board"],
+    queryKey: ["ultra", "board"],
     queryFn: () => read({}),
     ...poll,
   });
   const agents = useQuery({
-    queryKey: ["ultra", "sidebar", hostId, "agents"],
+    queryKey: ["ultra", "activity"],
     queryFn: () => listAgents(paseo),
     ...poll,
   });
   const receipts = useQuery({
-    queryKey: ["ultra", "sidebar", hostId, "sessionReads"],
+    queryKey: ["ultra", "sessionReads"],
     queryFn: () => reads({}),
     ...poll,
   });
@@ -40,8 +43,8 @@ function useAttentionCount(hostId: string) {
   return items ? items.length : null;
 }
 
-export function SidebarEntry({ currentScreen, openScreen, host, theme }: PluginSidebarItemProps) {
-  const count = useAttentionCount(host.id);
+export function SidebarEntry({ currentScreen, openScreen, theme }: PluginSidebarItemProps) {
+  const count = useAttentionCount();
   const text = attentionBadgeText(count);
   return (
     <SidebarRow
@@ -53,8 +56,8 @@ export function SidebarEntry({ currentScreen, openScreen, host, theme }: PluginS
           <Theme.Provider value={theme}>
             <Pressable
               accessibilityRole="button"
-              accessibilityLabel={`Open needs attention, ${count} cards`}
-              hitSlop={6}
+              accessibilityLabel={`Open Needs attention, ${text} ${count === 1 ? "card" : "cards"}`}
+              hitSlop={10}
               onPress={() =>
                 openScreen({
                   screenId: "board",

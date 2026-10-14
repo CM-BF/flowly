@@ -66,6 +66,9 @@ import {
   type SessionEntry,
 } from "./session-link";
 
+// Module scope: a remounted board must not reopen a modal for a token it already handled.
+const appliedAttentionTokens = new Set<string>();
+
 export function BoardScreen(
   props: PluginSurfaceProps & { workspaceId?: string; params?: PluginScreenParams },
 ) {
@@ -158,10 +161,10 @@ function BoardContent(
     if (input.error || resolvedLink.error) setTask("");
   }, [linkKey, input.error, resolvedLink.error]);
   const attentionToken = attentionOpenToken(props.params);
-  const appliedAttention = useRef("");
+
   useEffect(() => {
-    if (!attentionToken || appliedAttention.current === attentionToken) return;
-    appliedAttention.current = attentionToken;
+    if (!attentionToken || appliedAttentionTokens.has(attentionToken)) return;
+    appliedAttentionTokens.add(attentionToken);
     setMenu("attention");
   }, [attentionToken]);
   useEffect(() => {
