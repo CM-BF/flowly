@@ -1,5 +1,12 @@
 import { expect, test } from "vitest";
-import { attentionItems, lastSessionSettings } from "./attention";
+import {
+  attentionBadgeText,
+  attentionFromSources,
+  attentionItems,
+  attentionOpenToken,
+  attentionScreenParams,
+  lastSessionSettings,
+} from "./attention";
 
 const now = "2026-10-14T10:00:00.000Z";
 const project = (id: string, archivedAt: string | null = null) => ({
@@ -56,4 +63,34 @@ test("last session settings come from the newest active session in a card worksp
     { ...base, workspaceId: "wa", createdAt: "2026-10-06T00:00:00Z", archivedAt: "2026-10-07T00:00:00Z", provider: "y" },
   ], new Set(["wa", "wb"]))).toEqual({ provider: "claude", model: "sonnet", mode: "full-access" });
   expect(lastSessionSettings([], new Set())).toBeNull();
+});
+
+test("board button and sidebar badge share one count; unavailable sources hide the badge", () => {
+  const board = { projects: [project("p")], tasks: [task("a", "wa"), task("b", "wb"), task("c", "wc")], events: [] };
+  const agents = [
+    agent("s1", "wa", finished),
+    agent("s2", "wb", { pendingPermissions: [{}] }),
+    agent("s3", "wc", { status: "running" }),
+  ];
+  const sources = { board, agents, receipts: [], readUnavailable: false };
+  const items = attentionFromSources(sources);
+  expect(items).toEqual(attentionItems(board, agents, [], false));
+  expect(attentionBadgeText(items?.length)).toBe("2");
+  // Read state unavailable: same rule as the board, approvals/errors only.
+  expect(attentionBadgeText(attentionFromSources({ ...sources, readUnavailable: true })?.length)).toBe("1");
+  expect(attentionFromSources({ ...sources, board: undefined })).toBeNull();
+  expect(attentionFromSources({ ...sources, agents: null })).toBeNull();
+  expect(attentionBadgeText(attentionFromSources({ ...sources, agents: [] })?.length)).toBeNull();
+  expect(attentionBadgeText(null)).toBeNull();
+  expect(attentionBadgeText(99)).toBe("99");
+  expect(attentionBadgeText(100)).toBe("99+");
+});
+
+test("sidebar badge params open the attention modal once per token without touching session links", () => {
+  expect(attentionOpenToken(attentionScreenParams("t1"))).toBe("t1");
+  expect(attentionOpenToken(attentionScreenParams("t2"))).not.toBe(attentionOpenToken(attentionScreenParams("t1")));
+  expect(attentionOpenToken({ view: "attention" })).toBeNull();
+  expect(attentionOpenToken({ view: "other", open: "t1" })).toBeNull();
+  expect(attentionOpenToken({ taskId: "a", sessionId: "s", workspaceId: "w", requestId: "r" })).toBeNull();
+  expect(attentionOpenToken(undefined)).toBeNull();
 });

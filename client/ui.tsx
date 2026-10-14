@@ -459,6 +459,28 @@ export function Badge({ children, color }: { children: string; color?: string })
   );
 }
 
+/** Solid warning count pill used by the board Attention button and the sidebar badge. */
+export function CountPill({ text }: { text: string }) {
+  const { colors } = useTheme();
+  return (
+    <View
+      style={{
+        minWidth: 16,
+        height: 16,
+        paddingHorizontal: 4,
+        borderRadius: 8,
+        alignItems: "center",
+        justifyContent: "center",
+        backgroundColor: colors.statusWarning,
+      }}
+    >
+      <Label size={font.xs} bold color={colors.surface0} selectable={false}>
+        {text}
+      </Label>
+    </View>
+  );
+}
+
 /** Host-style list row for menus and pickers. */
 export function Row({
   title,

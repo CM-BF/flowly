@@ -64,6 +64,39 @@ export function attentionItems(
   );
 }
 
+type AttentionBoard = Parameters<typeof attentionItems>[0];
+
+/**
+ * The one counting rule shared by the board Attention button and the sidebar badge.
+ * Returns null while the board or agent list is unavailable (loading or failed).
+ * Read receipts that are pending or failed only drop finished-but-unread sessions.
+ */
+export function attentionFromSources(sources: {
+  board: AttentionBoard | null | undefined;
+  agents: readonly Agent[] | null | undefined;
+  receipts: readonly SessionReadReceipt[];
+  readUnavailable: boolean;
+}): AttentionItem[] | null {
+  if (!sources.board || !sources.agents) return null;
+  return attentionItems(sources.board, sources.agents, sources.receipts, sources.readUnavailable);
+}
+
+/** Badge text for a count; null hides the badge. */
+export function attentionBadgeText(count: number | null | undefined): string | null {
+  if (!count || count < 0) return null;
+  return count > 99 ? "99+" : String(count);
+}
+
+/** Board screen params that open the Needs attention modal; the token makes each press distinct. */
+export function attentionScreenParams(token: string) {
+  return { view: "attention", open: token };
+}
+
+/** The open token when params ask for the Needs attention modal, else null. */
+export function attentionOpenToken(params: Record<string, string> | undefined): string | null {
+  return params?.view === "attention" && params.open ? params.open : null;
+}
+
 /** Provider/model/mode of the most recently created session in any card workspace. */
 export function lastSessionSettings(
   agents: readonly {

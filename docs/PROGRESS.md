@@ -1,5 +1,13 @@
 # Implementation progress
 
+## Sidebar attention badge (F2) — 2026-10-15
+
+- [x] Wrote [sidebar badge spec](SIDEBAR-BADGE-SPEC.md) before code. Confirmed from the 0.11.2 public types and installed app bundle that `SidebarRow.trailing` renders nothing when null and otherwise sits in a non-accessible host Pressable sharing the row press; nested pressables press on their own.
+- [x] Sidebar row shows a warning count pill (`99+` cap) only when the count is > 0; pressing the row still opens the board, pressing the pill opens the board with the Needs attention modal (unique `view=attention&open=<token>` per press). Board and sidebar both count through the shared pure `attentionFromSources`; badge pill extracted to `CountPill` and reused by the board button.
+- [x] Sidebar polls board/agents/read receipts every 10 s with host-scoped query keys through plugin `useRpc`/`usePaseo` only; observers end on unmount. Board/agent failure hides the badge.
+- [x] PASS: `npm run typecheck`; `npm test` 95 passed / 56 renderer-only skipped (2 new focused tests in `client/attention.test.ts`).
+- [ ] UNRUN: plugin install/reload, real desktop/compact sidebar rendering, pill press and modal opening in the app, screen-reader focus of the pill. Not permitted in this card (no install/reload, no UI driving).
+
 ## Compact task status label — 2026-10-14
 
 - [x] Updated [drawer spec](DRAWER-SPEC.md) before implementation. The [user capture](verification/fixtures/status-label/before.png) showed `T...`: installed host `SettingsSelect` reserves a 160 pt label while the plugin capped its wrapper at 240 pt.
