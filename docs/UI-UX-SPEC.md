@@ -24,6 +24,8 @@ Keep project CRUD, task search/priority/archive/finished filters, task creation/
 
 ## 3. Desktop drag to change status
 
+2026-10-15 amendment: drops now also choose a position (same-column reorder or cross-column slot) through `tasks.place`; see [DRAG-REORDER-SPEC.md](DRAG-REORDER-SPEC.md).
+
 - Updated per the user's whole-card request: enable drag from the entire card on expanded web/desktop layouts. Record a primary mouse pointer press through React Native pointer events; moving at least 8 points while it is held starts a drag. Touch/pen, right-button presses and presses originating on Actions are ineligible, preserving touch scrolling and button operation. A normal body click opens details; a drag suppresses that click.
 - All card text, including priority, title and session metadata, is explicitly non-selectable in both desktop and compact layouts. Use React Native `Text.selectable=false` and its `userSelect: none` style; the floating drag preview is also non-selectable. Text selection in task details and inputs keeps its existing behavior.
 - Use host React Native `PanResponder` and measured layout, with no HTML drag events, DOM APIs, global browser listeners or new runtime dependencies. Mobile/touch layouts do not install the board drag responder.

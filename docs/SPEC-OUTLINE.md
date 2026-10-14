@@ -2,6 +2,7 @@
 
 2026-10-15 侧边栏入口待处理数：Ultra Kanban 侧边栏行显示与看板 Attention 同口径的数量角标（0 不显示），点角标直接打开 Needs attention；10 秒轮询。[增量 spec](SIDEBAR-BADGE-SPEC.md)。
 2026-10-15 卡片最近 agent 输出：卡片标题下单行显示所在 workspace 最近活跃 session 的最新 assistant 文本摘要与相对时间；仅可见卡片按 session updatedAt 限量 tail 拉取，并发 ≤3，异常时安静。[增量 spec](CARD-OUTPUT-SPEC.md)和[验证](verification/card-output.md)。
+2026-10-15 F3 列内拖拽排序：桌面拖拽显示插入线，同列重排或跨列定点放置，经 `tasks.place` 单次 CAS 写入；手机仍用菜单。[增量 spec](DRAG-REORDER-SPEC.md)。
 
 2026-10-14 v2 路线图（规划草案，未实施）：对标 Multica 的人机协作工作流——agent 自行切换阶段、需要人时在卡片提醒并进入 Review、人确认后自动收尾。[ROADMAP-V2](ROADMAP-V2.md)。
 

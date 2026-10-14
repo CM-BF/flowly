@@ -147,3 +147,15 @@ export const taskEdit = z.strictObject({
 export type ProjectInput = z.infer<typeof projectInput>;
 export type TaskInput = z.infer<typeof taskInput>;
 export type TaskEdit = z.infer<typeof taskEdit>;
+export const taskPlacement = z
+  .strictObject({
+    id: z.string().min(1),
+    revision: z.number().int().positive(),
+    status: statusSchema,
+    beforeId: z.string().min(1).nullable(),
+    afterId: z.string().min(1).nullable(),
+  })
+  .refine((input) => !(input.beforeId && input.afterId), {
+    message: "Choose one drop anchor.",
+  });
+export type TaskPlacement = z.infer<typeof taskPlacement>;

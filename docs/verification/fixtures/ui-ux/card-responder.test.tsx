@@ -179,7 +179,7 @@ describe.skipIf(!rendererPath)("TaskCard whole-card pointer responder (synthetic
     act(() => root.props.onPanResponderGrant({ nativeEvent: { pageX: 120, pageY: 120 } }));
     act(() => root.props.onPanResponderRelease({ nativeEvent: { pageX: 420, pageY: 120 } }));
     expect(onDrop).toHaveBeenCalledTimes(1);
-    expect(onDrop).toHaveBeenCalledWith({ id: "t7", revision: 9, status: "in_progress" });
+    expect(onDrop).toHaveBeenCalledWith({ id: "t7", revision: 9, status: "in_progress", beforeId: null, afterId: null });
     tree.unmount();
 
     onDrop.mockClear();

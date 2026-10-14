@@ -14,6 +14,13 @@
 - [x] PASS: typecheck; full `npm test` 99 passed / 59 renderer-only skipped; focused helpers 6/6; synthetic renderer card 3/3; legacy card responder 8/8 after fixing its stale mock. [Verification](verification/card-output.md).
 - [ ] FAIL (pre-existing, unchanged): session-attention renderer fixture 4 failures from stale mock, same on baseline.
 - [ ] UNRUN: plugin install/reload, real desktop/phone UI, screen reader, live request rate.
+## F3 drag reorder within/between columns — 2026-10-15
+
+- [x] Wrote [drag reorder spec](DRAG-REORDER-SPEC.md) before implementation: insertion line, midline hit testing, `tasks.place` contract (CAS, single serialized atomic write, position/status only, no-op without write).
+- [x] Implemented `tasks.place` (`BoardStore.placeTask`, fractional neighbor midpoint, normalization only when neighbors tie), pure `dropSlot`/`placementUpdate`, column insertion line and drop wiring; new cards append after the column's max position. Menu up/down and phone/touch paths unchanged.
+- [x] PASS: typecheck; `npm test` 110 passed / 60 renderer-only skipped; focused store 10/10, geometry 12/12, service append 1/1, columns renderer 4/4 (temp `react-test-renderer`). [Evidence](verification/drag-reorder.md).
+- [ ] FAIL (pre-existing, unchanged): 45 legacy renderer fixtures fail identically on the base commit due to stale `client/ui` mocks.
+- [ ] UNRUN: actual desktop UI/drag feel and live conflict error — no plugin install/reload by instruction.
 
 ## Compact task status label — 2026-10-14
 

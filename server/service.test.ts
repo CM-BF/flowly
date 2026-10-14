@@ -338,3 +338,15 @@ test("worktree card without a branch name uses the generated branch", async () =
     source: { kind: "worktree", branchName: expect.stringMatching(/^kanban\/new-card-[0-9a-f]{6}$/) },
   });
 });
+test("a new card is appended after fractional or reordered positions in its column", async () => {
+  const x = await setup();
+  let n = 0;
+  x.create.mockImplementation(async () => ({ id: `workspace-${++n}` }));
+  const first = await x.service.createTask({ ...x.input, operationId: "o1" }, x.paseo);
+  const second = await x.service.createTask({ ...x.input, operationId: "o2" }, x.paseo);
+  await x.store.placeTask({ id: first.id, revision: first.revision, status: "todo", beforeId: null, afterId: second.id });
+  const third = await x.service.createTask({ ...x.input, operationId: "o3" }, x.paseo);
+  const column = (await x.store.read()).tasks.sort((a, b) => a.position - b.position).map((t) => t.id);
+  expect(column).toEqual([second.id, first.id, third.id]);
+  expect(third.position).toBeGreaterThan(first.position);
+});

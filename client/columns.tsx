@@ -11,14 +11,30 @@ import {
   columnAtPoint,
   columnGap,
   columnWidth,
-  dropUpdate,
+  contentY,
+  dropSlot,
   edgeScroll,
+  placementUpdate,
   type ColumnBounds,
+  type DropSlot,
   type Point,
   type Rect,
 } from "./geometry";
 
-type DragState = { task: Task; point: Point; target: Status | null; sequence: number };
+type DragState = { task: Task; point: Point; target: Status | null; slot: DropSlot | null; sequence: number };
+export type Placement = NonNullable<ReturnType<typeof placementUpdate>>;
+
+/** Insertion line positioned absolutely in the column content, so showing it never shifts cards. */
+function InsertLine({ y }: { y: number | null }) {
+  const { colors } = useTheme();
+  const last = useRef(0);
+  if (y !== null) last.current = Math.max(0, y - 1);
+  const opacity = useMotionValue(y === null ? 0 : 1);
+  return <Animated.View testID="card-insert-line" pointerEvents="none" style={{
+    position: "absolute", left: space[2], right: space[2], top: last.current, height: 2,
+    borderRadius: 1, backgroundColor: colors.accent, opacity,
+  }} />;
+}
 
 function LaneAccent({ active }: { active: boolean }) {
   const { colors } = useTheme();
@@ -43,15 +59,21 @@ export function DesktopColumns({
   cancelKey: string;
   renderCard(task: Task, drag: CardDrag, dragging: boolean): ReactNode;
   onAdd(status: Status): void;
-  onDrop(input: { id: string; revision: number; status: Status }): void;
+  onDrop(input: Placement): void;
 }) {
   const { colors } = useTheme();
+  const cardGap = space[2];
   const viewportRef = useRef<View>(null),
     scrollRef = useRef<NativeScrollView>(null);
   const viewport = useRef<Rect>({ x: 0, y: 0, width: 0, height: 0 });
   const columns = useRef<ColumnBounds[]>([]),
     offset = useRef(0),
     contentWidth = useRef(0);
+  const cards = useRef<Record<string, { y: number; height: number }>>({}),
+    order = useRef<Partial<Record<Status, string[]>>>({}),
+    lists = useRef<Partial<Record<Status, View | null>>>({}),
+    listTops = useRef<Partial<Record<Status, number>>>({}),
+    scrollY = useRef<Partial<Record<Status, number>>>({});
   const live = useRef<DragState | null>(null);
   const sequence = useRef(0);
   const [dragging, setDragging] = useState<DragState | null>(null);
@@ -69,28 +91,49 @@ export function DesktopColumns({
       offset.current,
       columns.current.filter((c) => statuses.includes(c.status)),
     );
+  const slot = (task: Task, status: Status | null, point: Point) => {
+    const top = status ? listTops.current[status] : undefined;
+    if (!status || top === undefined) return null;
+    const bounds = (order.current[status] || []).flatMap((id) =>
+      cards.current[id] ? [{ id, ...cards.current[id] }] : [],
+    );
+    return dropSlot(contentY(point.y, top, scrollY.current[status] || 0), bounds, task.id, cardGap);
+  };
   const move = (point: Point) => {
     if (!live.current) return;
-    const next = { ...live.current, point, target: target(point) };
+    const status = target(point);
+    const next = { ...live.current, point, target: status, slot: slot(live.current.task, status, point) };
     live.current = next;
     setDragging(next);
   };
   const drag: CardDrag = {
     start(task, point) {
       if (current.current.disabled || task.archivedAt) return;
-      live.current = { task: { ...task }, point, target: target(point), sequence: ++sequence.current };
+      live.current = { task: { ...task }, point, target: target(point), slot: null, sequence: ++sequence.current };
       setDragging(live.current);
+      listTops.current = {};
       viewportRef.current?.measureInWindow((x, y, width, height) => {
         viewport.current = { x, y, width, height };
         if (live.current) move(live.current.point);
       });
+      for (const [status, list] of Object.entries(lists.current) as [Status, View | null][])
+        list?.measureInWindow((_x, y) => {
+          listTops.current[status] = y;
+          if (live.current) move(live.current.point);
+        });
     },
     move,
     end(point) {
       const snapshot = live.current;
       cancel();
       if (!snapshot || current.current.disabled) return;
-      const input = dropUpdate(snapshot.task, target(point));
+      const status = target(point);
+      const input = placementUpdate(
+        snapshot.task,
+        status,
+        slot(snapshot.task, status, point),
+        status ? order.current[status] || [] : [],
+      );
       if (input) current.current.onDrop(input);
     },
     cancel,
@@ -162,8 +205,14 @@ export function DesktopColumns({
                 a.position - b.position ||
                 a.createdAt.localeCompare(b.createdAt),
             );
+          order.current[status] = column.map((t) => t.id);
           const highlighted =
             dragging?.target === status && dragging.task.status !== status;
+          const line =
+            dragging?.target === status &&
+            placementUpdate(dragging.task, status, dragging.slot, order.current[status])
+              ? (dragging.slot?.lineY ?? null)
+              : null;
           return (
             <View
               key={status}
@@ -209,21 +258,40 @@ export function DesktopColumns({
                   onPress={() => onAdd(status)}
                 />
               </View>
+              <View
+                ref={(list) => {
+                  lists.current[status] = list;
+                }}
+                style={{ flex: 1, minHeight: 0 }}
+              >
               <ScrollView
                 {...verticalScroll}
                 style={{ flex: 1, minHeight: 0 }}
                 nestedScrollEnabled
                 keyboardShouldPersistTaps="handled"
+                scrollEventThrottle={16}
+                onScroll={(e) => {
+                  scrollY.current[status] = e.nativeEvent.contentOffset.y;
+                  if (live.current) move(live.current.point);
+                }}
                 contentContainerStyle={{
                   ...verticalContent,
                   paddingHorizontal: space[2],
                   paddingBottom: space[4],
-                  gap: space[2],
+                  gap: cardGap,
                 }}
               >
-                {column.map((t) =>
-                  renderCard(t, drag, dragging?.task.id === t.id),
-                )}
+                {column.map((t) => (
+                  <View
+                    key={t.id}
+                    onLayout={(e) => {
+                      const { y, height } = e.nativeEvent.layout;
+                      cards.current[t.id] = { y, height };
+                    }}
+                  >
+                    {renderCard(t, drag, dragging?.task.id === t.id)}
+                  </View>
+                ))}
                 {!column.length && !!dragging && (
                   <View
                     style={{
@@ -241,7 +309,9 @@ export function DesktopColumns({
                     </Label>
                   </View>
                 )}
+                <InsertLine y={line} />
               </ScrollView>
+              </View>
               <LaneAccent active={!!highlighted} />
             </View>
           );
@@ -290,7 +360,10 @@ export function DesktopColumns({
           <Label muted size={font.sm} selectable={false}>
             {ghost.item.target && ghost.item.target !== ghost.item.task.status
               ? `Move to ${statusLabels[ghost.item.target]}`
-              : "Drag to another column"}
+              : ghost.item.target &&
+                  placementUpdate(ghost.item.task, ghost.item.target, ghost.item.slot, order.current[ghost.item.target] || [])
+                ? `Reorder in ${statusLabels[ghost.item.target]}`
+                : "Drag to reorder or move"}
           </Label>
         </Animated.View>
       )}
