@@ -2,12 +2,14 @@ import type { PluginServerContext } from "@getpaseo/plugin/server";
 import { BoardStore, columnOrder } from "./server/store";
 import { BoardService, dataDirectory } from "./server/service";
 import * as rpc from "./shared/rpc";
+import { boardViewSettings } from "./shared/settings";
 import { ToolServer } from "./server/tool-server";
 import { SessionReadStore, SessionReadService } from "./server/session-reads";
 import { WrapupService } from "./server/wrapup";
 import { applyTurnStarted, recordLifecycle } from "./server/progress-rules";
 
 export default function contribute(server: PluginServerContext) {
+  server.registerSettings(boardViewSettings);
   const store = new BoardStore(dataDirectory());
   const service = new BoardService(store);
   const sessionReads = new SessionReadStore(store.directory);

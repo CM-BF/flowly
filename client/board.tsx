@@ -5,11 +5,13 @@ import { Modal } from "./modal";
 import {
   usePaseo,
   useRpc,
+  useSettings,
   type PluginSurfaceProps,
   type PluginWorkspacePanelProps,
   type PluginScreenParams,
 } from "@getpaseo/plugin/client";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { boardViewSettings } from "../shared/settings";
 import * as rpc from "../shared/rpc";
 import {
   statuses,
@@ -164,6 +166,7 @@ function BoardContent(
     queryFn: () => listAgents(paseo),
     refetchInterval: 5000,
   });
+  const viewSettings = useSettings(boardViewSettings);
   const [projectId, setProject] = useState(""),
     [taskId, setTask] = useState(""),
     [search, setSearch] = useState(""),
@@ -269,7 +272,17 @@ function BoardContent(
   const projects = (board?.projects || []).filter(
     (p) => archived || !p.archivedAt,
   );
-  const project = projects.find((p) => p.id === projectId) || projects[0];
+  const remembered = viewSettings.status === "ready" ? viewSettings.values.lastProjectId : "";
+  const project =
+    projects.find((p) => p.id === projectId) ||
+    projects.find((p) => p.id === remembered) ||
+    projects[0];
+  // Remember an explicit project choice for the next time the board opens.
+  const chooseProject = (id: string) => {
+    setProject(id);
+    if (viewSettings.status === "ready" && viewSettings.values.lastProjectId !== id)
+      void viewSettings.save({ lastProjectId: id }, viewSettings.revision);
+  };
   useEffect(() => {
     setActionTask(null);
   }, [project?.id]);
@@ -730,7 +743,7 @@ function BoardContent(
                   selected={project?.id === p.id}
                   trailing={p.archivedAt ? <Badge>Archived</Badge> : undefined}
                   onPress={() => {
-                    setProject(p.id);
+                    chooseProject(p.id);
                     setTask("");
                     projectMenuClose();
                   }}
@@ -1052,7 +1065,7 @@ function BoardContent(
             project={projectForm === "edit" ? project : undefined}
             onClose={() => setProjectForm(null)}
             onSaved={(id) => {
-              setProject(id);
+              chooseProject(id);
               setProjectForm(null);
               refresh();
             }}
