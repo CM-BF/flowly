@@ -1,5 +1,5 @@
 import type { PluginServerContext } from "@getpaseo/plugin/server";
-import { BoardStore } from "./server/store";
+import { BoardStore, columnOrder } from "./server/store";
 import { BoardService, dataDirectory } from "./server/service";
 import * as rpc from "./shared/rpc";
 import { ToolServer } from "./server/tool-server";
@@ -74,37 +74,35 @@ export default function contribute(server: PluginServerContext) {
       return p;
     });
   });
-  server.handle(rpc.moveTask, (input) =>
-    store.mutate((board) => {
-      const task = board.tasks.find((t) => t.id === input.id);
-      if (!task) throw new Error("Task not found.");
+  // Menu up/down shares the drag placement path: one ordering rule, and only
+  // the moved card's revision changes.
+  server.handle(rpc.moveTask, async (input) => {
+    const board = await store.read();
+    const task = board.tasks.find((t) => t.id === input.id);
+    if (!task) throw new Error("Task not found.");
+    const visible = board.tasks
+      .filter(
+        (t) =>
+          t.projectId === task.projectId &&
+          t.status === task.status &&
+          !t.archivedAt,
+      )
+      .sort(columnOrder);
+    const index = visible.findIndex((t) => t.id === task.id);
+    const other = visible[index + (input.direction === "up" ? -1 : 1)];
+    if (!other) {
       if (task.revision !== input.revision)
         throw new Error("Revision conflict: reload before moving.");
-      const peers = board.tasks
-        .filter(
-          (t) =>
-            t.projectId === task.projectId &&
-            t.status === task.status &&
-            !t.archivedAt,
-        )
-        .sort(
-          (a, b) =>
-            a.position - b.position || a.createdAt.localeCompare(b.createdAt),
-        );
-      const index = peers.indexOf(task),
-        other = peers[index + (input.direction === "up" ? -1 : 1)];
-      if (other) {
-        peers.splice(index, 1);
-        peers.splice(index + (input.direction === "up" ? -1 : 1), 0, task);
-        peers.forEach((t, i) => {
-          t.position = i;
-          t.revision++;
-          t.updatedAt = new Date().toISOString();
-        });
-      }
       return task;
-    }),
-  );
+    }
+    return store.placeTask({
+      id: task.id,
+      revision: input.revision,
+      status: task.status,
+      beforeId: input.direction === "up" ? other.id : null,
+      afterId: input.direction === "up" ? null : other.id,
+    });
+  });
   for (const name of [
     "agent.turn_started",
     "agent.turn_ended",

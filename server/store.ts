@@ -16,7 +16,7 @@ import {
 
 export class StoreInvalidError extends Error {}
 
-const columnOrder = (a: Task, b: Task) =>
+export const columnOrder = (a: Task, b: Task) =>
   a.position - b.position || a.createdAt.localeCompare(b.createdAt);
 
 /** Position strictly between the neighbors at `index`, or null when equal neighbors leave no room. */

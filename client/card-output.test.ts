@@ -109,3 +109,14 @@ test("aborted queued work never starts and frees its place", async () => {
   expect(work).not.toHaveBeenCalled();
   await expect(run(work, controller.signal)).rejects.toMatchObject({ name: "AbortError" });
 });
+
+test("running sessions share one output cache key per refresh window", async () => {
+  const { outputCacheKey, RUNNING_REFRESH_MS } = await import("./card-output");
+  const base = Date.parse("2026-10-15T00:00:00.000Z");
+  const at = (ms: number) => new Date(base + ms).toISOString();
+  const run = (ms: number) => outputCacheKey({ id: "s", updatedAt: at(ms), status: "running" });
+  expect(run(1000)).toBe(run(RUNNING_REFRESH_MS - 1000));
+  expect(run(1000)).not.toBe(run(RUNNING_REFRESH_MS + 1000));
+  // Idle sessions refetch on every real change.
+  expect(outputCacheKey({ id: "s", updatedAt: at(1000), status: "idle" })).toBe(at(1000));
+});

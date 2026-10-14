@@ -64,3 +64,8 @@
 | 回归 | 横向边缘滚动、点击打开、触摸布局菜单排序不变 |
 
 实际桌面 UI（插入线外观、拖拽手感）需在宿主中人工或 Luna 验收；本卡按用户要求不 install/reload 插件，记为 UNRUN。
+
+## 2026-10-15 merge review amendments
+
+- Menu Move up / Move down now uses the same `placeTask` path as dragging (anchor = adjacent visible card). One ordering rule; only the moved card's revision changes. The old integer renumbering that bumped every peer's revision is removed.
+- When neighbors share a position, peers are renumbered in place without revision bumps. Order is preserved, positions carry no user-edited data, and placements anchor on card IDs, so a stale peer edit cannot misplace a card.

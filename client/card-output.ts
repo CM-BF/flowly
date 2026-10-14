@@ -7,7 +7,16 @@ export const OUTPUT_TAIL_LIMIT = 20;
 export const OUTPUT_CONCURRENCY = 3;
 export const OUTPUT_MAX_LENGTH = 240;
 
-export type OutputSession = { id: string; updatedAt: string };
+export type OutputSession = { id: string; updatedAt: string; status?: string };
+
+/** Running sessions update constantly; refetch them at most once per window. */
+export const RUNNING_REFRESH_MS = 15_000;
+export function outputCacheKey(session: OutputSession) {
+  const at = Date.parse(session.updatedAt);
+  return session.status === "running" && Number.isFinite(at)
+    ? `running:${Math.floor(at / RUNNING_REFRESH_MS)}`
+    : session.updatedAt;
+}
 export type CardOutput = { text: string; at: string };
 
 type SessionCandidate = {
@@ -17,6 +26,7 @@ type SessionCandidate = {
   updatedAt?: string | null;
   lastUserMessageAt?: string | null;
   createdAt?: string | null;
+  status?: string;
 };
 
 const time = (iso: string | null | undefined) => {
@@ -44,7 +54,9 @@ export function pickOutputSession(
       (agent.id > best.id ? 1 : agent.id < best.id ? -1 : 0);
     if (order > 0) best = agent;
   }
-  return best ? { id: best.id, updatedAt: best.updatedAt! } : null;
+  return best
+    ? { id: best.id, updatedAt: best.updatedAt!, ...(best.status ? { status: best.status } : {}) }
+    : null;
 }
 
 const inline = (text: string) =>
@@ -132,7 +144,7 @@ const limit = createLimiter(OUTPUT_CONCURRENCY);
 export function useCardOutput(session: OutputSession | null | undefined) {
   const paseo = usePaseo();
   const query = useQuery({
-    queryKey: ["ultra", "cardOutput", session?.id, session?.updatedAt],
+    queryKey: ["ultra", "cardOutput", session?.id, session ? outputCacheKey(session) : ""],
     queryFn: ({ signal }) =>
       limit(async () => {
         const response = await paseo.agents.ref(session!.id).timeline.refetch({
@@ -145,7 +157,7 @@ export function useCardOutput(session: OutputSession | null | undefined) {
       }, signal),
     enabled: !!session,
     staleTime: Infinity,
-    gcTime: 5 * 60_000,
+    gcTime: 30_000,
     retry: false,
     refetchOnWindowFocus: false,
     refetchOnReconnect: false,

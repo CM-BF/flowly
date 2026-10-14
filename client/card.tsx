@@ -166,7 +166,7 @@ export function TaskCard({
           summaryState === "ready" && summary
             ? `${summary.running} running, ${summary.finished} finished turns, ${summary.unread} unread sessions, ${summary.attention} need attention`
             : "",
-          output ? `Latest agent output${outputTime ? ` ${outputTime}` : ""}: ${output.text}` : "",
+          output ? `Latest agent output${outputTime ? ` ${outputTime}` : ""}: ${output.text.length > 80 ? output.text.slice(0, 80) + "…" : output.text}` : "",
         ]
           .filter(Boolean)
           .join(". ") + "."}
