@@ -1,5 +1,13 @@
 # Implementation progress
 
+## F4 desktop keyboard shortcuts — 2026-10-15
+
+- [x] Researched Paseo 0.11.2 before implementation. The plugin SDK has no shortcut API, and Command Center items have no key field. The host shortcut registry is internal, and a global DOM listener is forbidden. The trade-off is recorded in the [shortcuts spec](SHORTCUTS-SPEC.md), written before code.
+- [x] Board-scoped keys on desktop web: N new task, P projects, / or F filters, A attention, ? help, Esc (session Back, then close the sidebar), and J/K/H/L card navigation. The root `View` is focusable and receives the RN-Web `onKeyDown`. Plugin text inputs and all plugin modals block shortcuts through a ref-counted guard (`useShortcutBlock`, `client/modal.tsx`). Modifier chords, repeats and IME input pass through.
+- [x] Discoverability: a desktop header Keyboard button opens a help modal; header button labels include their key. Five global Command Center items open the board with a once-only, 30-second `intent` param.
+- [x] PASS: `npm run typecheck`. PASS: focused `client/shortcuts.test.ts` 10/10. PASS: full `npm test` (103 passed / 56 renderer-only skipped). An initial run failed 3 renderer fixtures because `Modal.Content` was read at import time and their host mocks omit `Modal`; it is now read lazily, and the re-run passed.
+- [ ] UNRUN: real desktop key handling, how focus enters the board, focus after a host modal closes, Command Center item display and navigation with params on an already-open board, and help modal appearance. Per card instructions, the plugin was not installed or reloaded and no Luna test session was created. [Verification](verification/shortcuts.md).
+
 ## Compact task status label — 2026-10-14
 
 - [x] Updated [drawer spec](DRAWER-SPEC.md) before implementation. The [user capture](verification/fixtures/status-label/before.png) showed `T...`: installed host `SettingsSelect` reserves a 160 pt label while the plugin capped its wrapper at 240 pt.

@@ -1,5 +1,7 @@
 # Paseo Kanban Plugin：Spec 大纲与路线图
 
+2026-10-15 F4 桌面快捷键：插件 SDK 没有快捷键注册能力，也不能使用全局 DOM 监听，因此采用看板内快捷键（RN-Web `View` 的 `onKeyDown`，焦点在看板内时生效）和全局 Command Center 条目两条路径。[增量 spec](SHORTCUTS-SPEC.md)和[验证](verification/shortcuts.md)。
+
 2026-10-14 v2 路线图（规划草案，未实施）：对标 Multica 的人机协作工作流——agent 自行切换阶段、需要人时在卡片提醒并进入 Review、人确认后自动收尾。[ROADMAP-V2](ROADMAP-V2.md)。
 
 2026-10-14 手机卡片 Status 文案截断：紧凑布局改为完整状态按钮和按需打开的状态弹层，沿用 CAS/Toast；宽布局扩大原生 selector 的可用宽度。[增量 spec](DRAWER-SPEC.md)和[代码验收](verification/status-label.md)。

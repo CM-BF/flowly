@@ -1,6 +1,7 @@
 import { useEffect, useId, useMemo, useRef, useState } from "react";
-import { Animated, Pressable, View } from "react-native";
-import { Icon, Modal, ScrollView, useToast } from "@getpaseo/plugin/client/react-native";
+import { Animated, Platform, Pressable, View } from "react-native";
+import { Icon, ScrollView, useToast } from "@getpaseo/plugin/client/react-native";
+import { Modal } from "./modal";
 import {
   usePaseo,
   useRpc,
@@ -29,6 +30,7 @@ import {
   Badge,
   Divider,
   Actions,
+  IconButton,
   message,
   font,
   radius,
@@ -58,6 +60,28 @@ import {
   sessionLinkKey,
   type SessionEntry,
 } from "./session-link";
+import {
+  navigateGrid,
+  parseBoardIntent,
+  resolveShortcut,
+  shortcutHelp,
+  shortcutsBlocked,
+  taskGrid,
+  type BoardIntent,
+} from "./shortcuts";
+
+/** RN-Web forwards React keyboard events on View; React Native's types omit them. */
+type WebKeyEvent = {
+  key: string;
+  metaKey: boolean;
+  ctrlKey: boolean;
+  altKey: boolean;
+  shiftKey: boolean;
+  repeat: boolean;
+  nativeEvent?: { isComposing?: boolean };
+  preventDefault(): void;
+  stopPropagation(): void;
+};
 
 export function BoardScreen(
   props: PluginSurfaceProps & { workspaceId?: string; params?: PluginScreenParams },
@@ -131,7 +155,8 @@ function BoardContent(
     [priority, setPriority] = useState("all"),
     [archived, setArchived] = useState(false),
     [hideFinished, setHideFinished] = useState(true),
-    [menu, setMenu] = useState<"projects" | "filters" | "status" | "attention" | null>(null),
+    [menu, setMenu] = useState<"projects" | "filters" | "status" | "attention" | "shortcuts" | null>(null),
+    [escapeRequest, setEscapeRequest] = useState<{ taskId: string; key: string } | null>(null),
     [startRequest, setStartRequest] = useState<{ taskId: string; key: string } | null>(null),
     [mobileStatus, setMobileStatus] = useState<Status>("todo"),
     [actionTask, setActionTask] = useState<Task | null>(null),
@@ -353,9 +378,60 @@ function BoardContent(
     );
   };
   const projectMenuClose = () => setMenu(null);
+  const shortcutsOn = Platform.OS === "web" && !compact;
+  const withKey = (text: string, key: string) =>
+    shortcutsOn ? `${text} (${key})` : text;
+  function runIntent(intent: BoardIntent | "escape" | "next" | "previous" | "left" | "right") {
+    switch (intent) {
+      case "new-task":
+        if (!project || project.archivedAt) return false;
+        setTaskForm({ status: compact ? mobileStatus : "todo" });
+        return true;
+      case "filters":
+        if (!project) return false;
+        setMenu("filters");
+        return true;
+      case "projects":
+      case "attention":
+      case "shortcuts":
+        setMenu(intent);
+        return true;
+      case "escape":
+        if (!task) return false;
+        setEscapeRequest({ taskId: task.id, key: `escape-${Date.now()}` });
+        return true;
+      default: {
+        if (compact) return false;
+        const next = navigateGrid(taskGrid(shownStatuses, visible), task?.id || "", intent);
+        if (!next) return false;
+        if (next !== task?.id) setTask(next);
+        return true;
+      }
+    }
+  }
+  const onKeyDown = (e: WebKeyEvent) => {
+    const action = resolveShortcut(
+      { ...e, isComposing: e.nativeEvent?.isComposing },
+      shortcutsOn && !shortcutsBlocked(),
+    );
+    if (action && runIntent(action)) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+  };
+  const keyboardProps = shortcutsOn ? { focusable: true, onKeyDown } : {};
+  const consumedIntent = useRef("");
+  useEffect(() => {
+    if (data.isPending) return;
+    const parsed = parseBoardIntent(props.params);
+    if (!parsed || consumedIntent.current === parsed.key) return;
+    consumedIntent.current = parsed.key;
+    runIntent(parsed.intent);
+  }, [props.params?.intent, props.params?.at, data.isPending]);
   return (
     <Theme.Provider value={props.theme}>
       <View
+        {...(keyboardProps as {})}
         onLayout={(e) => setSurfaceWidth(e.nativeEvent.layout.width)}
         style={{ flex: 1, minHeight: 0, overflow: "hidden", backgroundColor: colors.surface0 }}
       >
@@ -374,6 +450,7 @@ function BoardContent(
             <ProjectSwitcher
               title={project?.title || "Projects"}
               archived={!!project?.archivedAt}
+              shortcut={shortcutsOn ? "P" : ""}
               onPress={() => setMenu("projects")}
             />
             {!compact && !!project && (
@@ -382,21 +459,30 @@ function BoardContent(
               </Label>
             )}
             <View style={{ flex: 1 }} />
+            {shortcutsOn && (
+              <IconButton
+                icon="Keyboard"
+                label={withKey("Keyboard shortcuts", "?")}
+                onPress={() => setMenu("shortcuts")}
+              />
+            )}
             <AttentionButton
               count={attention.length}
               compact={compact}
+              shortcut={shortcutsOn ? "A" : ""}
               onPress={() => setMenu("attention")}
             />
             <FilterButton
               count={filterCount}
               compact={compact}
+              shortcut={shortcutsOn ? "/" : ""}
               onPress={() => setMenu("filters")}
             />
             {project && (
               <Button
                 primary
                 icon="Plus"
-                label="New task"
+                label={withKey("New task", "N")}
                 disabled={!!project.archivedAt}
                 onPress={() =>
                   setTaskForm({ status: compact ? mobileStatus : "todo" })
@@ -573,6 +659,9 @@ function BoardContent(
                   onEdit={() => task && setTaskForm({ task, status: task.status })}
                   refresh={refresh}
                   sessionDefaults={sessionDefaults}
+                  escapeRequest={
+                    escapeRequest?.taskId === drawer.item.task.id ? escapeRequest.key : undefined
+                  }
                   startRequest={
                     startRequest?.taskId === drawer.item.task.id ? startRequest.key : undefined
                   }
@@ -777,6 +866,41 @@ function BoardContent(
           </Modal.Content>
         </Modal>
         <Modal
+          open={menu === "shortcuts"}
+          title="Keyboard shortcuts"
+          onOpenChange={(open) => {
+            if (!open) setMenu(null);
+          }}
+        >
+          <Modal.Content contentContainerStyle={{ padding: space[4], gap: space[3] }}>
+            <Theme.Provider value={props.theme}>
+              <Label muted size={font.md}>
+                Board shortcuts work on desktop while focus is inside the board: click an
+                empty part of the board or a card first. They pause while typing or while a
+                dialog is open. From anywhere in Paseo, open the Command Center and search
+                “Ultra Kanban”.
+              </Label>
+              <View style={{ gap: space[1] }}>
+                {shortcutHelp.map((item) => (
+                  <View
+                    key={item.title}
+                    style={{ flexDirection: "row", alignItems: "center", gap: space[3], minHeight: 32 }}
+                  >
+                    <View style={{ flex: 1, minWidth: 0 }}>
+                      <Label size={font.base} selectable={false}>{item.title}</Label>
+                    </View>
+                    <View style={{ flexDirection: "row", gap: space[1] }}>
+                      {item.keys.map((key) => (
+                        <KeyHint key={key}>{key}</KeyHint>
+                      ))}
+                    </View>
+                  </View>
+                ))}
+              </View>
+            </Theme.Provider>
+          </Modal.Content>
+        </Modal>
+        <Modal
           open={menu === "status"}
           title="Status"
           onOpenChange={(open) => {
@@ -925,17 +1049,19 @@ function BoardContent(
 function ProjectSwitcher({
   title,
   archived,
+  shortcut,
   onPress,
 }: {
   title: string;
   archived: boolean;
+  shortcut: string;
   onPress(): void;
 }) {
   const { colors } = useTheme();
   return (
     <Pressable
       accessibilityRole="button"
-      accessibilityLabel={`Project: ${title}. Choose or manage project`}
+      accessibilityLabel={`Project: ${title}. Choose or manage project${shortcut ? ` (${shortcut})` : ""}`}
       onPress={onPress}
       style={(state) => {
         const { pressed, hovered } = state as typeof state & { hovered?: boolean };
@@ -967,17 +1093,19 @@ function ProjectSwitcher({
 function AttentionButton({
   count,
   compact,
+  shortcut,
   onPress,
 }: {
   count: number;
   compact: boolean;
+  shortcut: string;
   onPress(): void;
 }) {
   const { colors } = useTheme();
   return (
     <Pressable
       accessibilityRole="button"
-      accessibilityLabel={count ? `Needs attention, ${count} cards` : "Needs attention"}
+      accessibilityLabel={`${count ? `Needs attention, ${count} cards` : "Needs attention"}${shortcut ? ` (${shortcut})` : ""}`}
       onPress={onPress}
       style={(state) => {
         const { pressed, hovered } = state as typeof state & { hovered?: boolean };
@@ -1024,17 +1152,19 @@ function AttentionButton({
 function FilterButton({
   count,
   compact,
+  shortcut,
   onPress,
 }: {
   count: number;
   compact: boolean;
+  shortcut: string;
   onPress(): void;
 }) {
   const { colors } = useTheme();
   return (
     <Pressable
       accessibilityRole="button"
-      accessibilityLabel={count ? `Task filters, ${count} active` : "Task filters"}
+      accessibilityLabel={`${count ? `Task filters, ${count} active` : "Task filters"}${shortcut ? ` (${shortcut})` : ""}`}
       onPress={onPress}
       style={(state) => {
         const { pressed, hovered } = state as typeof state & { hovered?: boolean };
@@ -1075,6 +1205,27 @@ function FilterButton({
         </View>
       )}
     </Pressable>
+  );
+}
+
+function KeyHint({ children }: { children: string }) {
+  const { colors } = useTheme();
+  return (
+    <View
+      style={{
+        minWidth: 22,
+        height: 22,
+        paddingHorizontal: space[1.5],
+        borderRadius: radius.sm,
+        borderWidth: 1,
+        borderColor: colors.border,
+        backgroundColor: colors.surface1,
+        alignItems: "center",
+        justifyContent: "center",
+      }}
+    >
+      <Label size={font.sm} medium selectable={false}>{children}</Label>
+    </View>
   );
 }
 

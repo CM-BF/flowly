@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Pressable, View } from "react-native";
-import { Icon, Modal, ScrollView, useToast } from "@getpaseo/plugin/client/react-native";
+import { Icon, ScrollView, useToast } from "@getpaseo/plugin/client/react-native";
+import { Modal } from "./modal";
 import {
   usePaseo,
   useRpc,
@@ -59,6 +60,7 @@ export function TaskDrawer({
   active = true,
   sessionDefaults,
   startRequest,
+  escapeRequest,
 }: {
   task: Task;
   project: Project;
@@ -76,6 +78,8 @@ export function TaskDrawer({
   sessionDefaults?: { provider: string; model: string; mode: string } | null;
   /** Changes when the card's action menu asks to start a session. */
   startRequest?: string;
+  /** Changes on each board Esc shortcut: leave the session preview, else close. */
+  escapeRequest?: string;
 }) {
   const toast = useToast();
   const theme = useTheme();
@@ -131,6 +135,13 @@ export function TaskDrawer({
     setSelected("");
     setShowNew(true);
   }, [active, startRequest]);
+  const consumedEscape = useRef(escapeRequest);
+  useEffect(() => {
+    if (!active || !escapeRequest || consumedEscape.current === escapeRequest) return;
+    consumedEscape.current = escapeRequest;
+    if (selected) setSelected("");
+    else onClose();
+  }, [active, escapeRequest]);
   const workspace = useQuery({
     queryKey: ["ultra", "workspace", task.workspaceId],
     queryFn: () => paseo.workspaces.ref(task.workspaceId).refresh(),

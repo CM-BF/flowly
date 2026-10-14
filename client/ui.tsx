@@ -11,6 +11,7 @@ import {
   type ViewStyle,
 } from "react-native";
 import { Icon, TextInput } from "@getpaseo/plugin/client/react-native";
+import { useShortcutBlock } from "./shortcuts";
 
 /** Host Paseo scale (0.11.2): 4pt grid, 12–18 type, 4–12 radii. */
 export const space = { 1: 4, 1.5: 6, 2: 8, 3: 12, 4: 16, 5: 20, 6: 24 } as const;
@@ -247,6 +248,7 @@ export function Field({
 }) {
   const { colors } = useTheme();
   const [focused, setFocused] = useState(false);
+  useShortcutBlock(focused);
   return (
     <View style={{ gap: space[1.5] }}>
       <Label medium size={font.sm} muted>
