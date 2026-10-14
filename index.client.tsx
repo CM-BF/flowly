@@ -1,20 +1,8 @@
-import type {
-  PluginClientContext,
-  PluginSidebarItemProps,
-} from "@getpaseo/plugin/client";
-import { SidebarRow } from "@getpaseo/plugin/client/ui";
+import type { PluginClientContext } from "@getpaseo/plugin/client";
 import { BoardScreen, WorkspaceBoard } from "./client/board";
 import { registerSessionChips } from "./client/session-link";
+import { SidebarEntry } from "./client/sidebar";
 
-function Sidebar({ currentScreen, openScreen }: PluginSidebarItemProps) {
-  return (
-    <SidebarRow
-      icon="PanelsTopLeft"
-      active={currentScreen?.screenId === "board"}
-      onPress={() => openScreen({ screenId: "board" })}
-    />
-  );
-}
 export default function contribute(client: PluginClientContext) {
   client.addScreen({
     id: "board",
@@ -24,7 +12,7 @@ export default function contribute(client: PluginClientContext) {
   client.addSidebarHeaderItem({
     id: "board",
     title: "Ultra Kanban",
-    Component: Sidebar,
+    Component: SidebarEntry,
   });
   client.addWorkspacePanel({
     id: "board",

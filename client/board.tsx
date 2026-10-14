@@ -20,6 +20,7 @@ import {
 import {
   Theme,
   Label,
+  CountPill,
   Button,
   Field,
   Choices,
@@ -39,7 +40,13 @@ import {
   verticalContent,
 } from "./ui";
 import { StatusIcon, priorityLabels } from "./status";
-import { attentionItems, lastSessionSettings, type AttentionItem } from "./attention";
+import {
+  attentionBadgeText,
+  attentionFromSources,
+  attentionOpenToken,
+  lastSessionSettings,
+  type AttentionItem,
+} from "./attention";
 import { relativeTime } from "./ui";
 import { ProjectForm, TaskForm } from "./forms";
 import { TaskDrawer } from "./drawer";
@@ -150,6 +157,13 @@ function BoardContent(
     setActionTask(null);
     if (input.error || resolvedLink.error) setTask("");
   }, [linkKey, input.error, resolvedLink.error]);
+  const attentionToken = attentionOpenToken(props.params);
+  const appliedAttention = useRef("");
+  useEffect(() => {
+    if (!attentionToken || appliedAttention.current === attentionToken) return;
+    appliedAttention.current = attentionToken;
+    setMenu("attention");
+  }, [attentionToken]);
   useEffect(() => {
     const target = resolvedLink.data;
     if (
@@ -255,9 +269,7 @@ function BoardContent(
   const readUnavailable = readState.isPending || readState.isError;
   const attention = useMemo(
     () =>
-      board && agents.data
-        ? attentionItems(board, agents.data, receipts, readUnavailable)
-        : [],
+      attentionFromSources({ board, agents: agents.data, receipts, readUnavailable }) || [],
     [board, agents.data, receipts, readUnavailable],
   );
   const sessionDefaults = useMemo(
@@ -1000,23 +1012,7 @@ function AttentionButton({
           Attention
         </Label>
       )}
-      {!!count && (
-        <View
-          style={{
-            minWidth: 16,
-            height: 16,
-            paddingHorizontal: 4,
-            borderRadius: 8,
-            alignItems: "center",
-            justifyContent: "center",
-            backgroundColor: colors.statusWarning,
-          }}
-        >
-          <Label size={font.xs} bold color={colors.surface0} selectable={false}>
-            {String(count)}
-          </Label>
-        </View>
-      )}
+      {!!count && <CountPill text={attentionBadgeText(count) || ""} />}
     </Pressable>
   );
 }
