@@ -62,6 +62,12 @@ Status: authorized by the user's 2026-10-14 request to redesign the whole Kanban
 
 - User report: provider/model chip walls (15 providers, 20+ models) were hard to scan. The New session form now shows an always-visible "Agent" group with three rows — Provider, Model, Permissions — each showing its current value. Tapping a row expands one inline vertical list at a time (label, description, Default tag, check for the selected item, scroll-bounded); lists longer than 8 get a search field. Provider labels/descriptions come from the provider snapshot, falling back to the id; unselectable models are hidden; model descriptions drop a repeated name prefix. Selection logic (remembered defaults, fallbacks, creation) is unchanged. Pure option builders/filter live in `client/options.ts` with tests.
 
+## 7e. 2026-10-15 refinements
+
+- **Remembered project**: the board reopens on the last project chosen through the project chooser or created there (host-scoped plugin setting `board-view.lastProjectId`); links, Attention and workspace panels still select their own target without overwriting it.
+- **Status-change flash**: when a card's status differs from the previous board snapshot (often an automatic A1 move or another client), the card shows a 1.5pt accent border with a 6% accent wash that fades in quickly and out over ~0.9s, then clears after 1.6s. Never on first load; each flash owns its timer; reduce-motion snaps; timers cleared on unmount.
+- **Activity**: routine turn start/end records are hidden from the timeline (they still drive rules and markers); failed turns, questions (shown as "asked", full text emphasized) and rule changes ("Auto" badge with reason) are shown.
+
 ## 8. Acceptance
 
 | Check | Expected |

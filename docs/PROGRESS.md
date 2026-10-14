@@ -140,6 +140,16 @@ Testing session: `c8bfb6b3-40c8-40ec-8a0c-82a1909abe04`, `codex/gpt-6-luna`, cre
 
 2026-10-14 清理：此前验收留下的 11 个测试看板 project、22 张卡片、7 个托管 worktree、4 个验收 session 和隔离临时目录均已移除；对应原生 fixture project 在清理开始前已不在 Paseo 列表。插件恢复 running/ready，当前看板为空。今后的测试必须在结束时清理自身 fixture。[清理记录](verification/cleanup-20261014.md)。
 
+## 2026-10-15 合并、自动进度 v1 与体验迭代
+
+- [x] F1–F4 由 4 个只读 code-reviewer 审查，结论均为 MERGE WITH FIXES，已合入 main 并修复：F1 运行中 session 输出刷新节流（15s 窗口）与无障碍文案截断；F2 侧边栏复用看板查询缓存（15s）、attention token 模块级去重、单复数与热区；F3 菜单上/下移统一走 placeTask 单一排序路径；F4 intent 模块级去重且有效期 5s、picker 搜索框阻止快捷键
+- [x] F1–F4 卡片经 Wrap up 真实收尾：worktree 已由 Paseo 移除，分支保留后已合并删除；收尾检查改为只报告“仅存在于该分支”的提交
+- [x] 自动进度 v1（[AUTO-STATUS-SPEC](AUTO-STATUS-SPEC.md)）：只为看板管理 session 记录生命周期；规则 A1；question/静默标记；活动 Auto 标签；项目开关
+- [x] 记住上次项目（host settings）、状态变化高亮、活动时间线降噪
+- [x] Typecheck；`npm test` 142 passed / 63 skipped；只 reload 本插件；web 客户端：桌面/深色/420pt 手机渲染、收尾流程、项目记忆
+- [ ] UNRUN：A1/question 在真实 agent 回合中的端到端触发；状态变化高亮的实际观感；原生 iOS/Android；Luna 验收
+- [ ] 已知：绑定到仓库主 workspace 的卡片，其输出摘要会显示该 workspace 中普通对话的内容（摘要尚未区分看板管理 session）
+
 ## M2.5 多任务人工管理 — 2026-10-14
 
 - [x] Spec: [MULTITASK-SPEC.md](MULTITASK-SPEC.md)（A 需要关注总览、B 一键开 session、D 手动收尾；C/E 不做）

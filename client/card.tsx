@@ -6,7 +6,7 @@ import { Badge, Dot, IconButton, Label, font, radius, relativeTime, space, tint,
 import { PriorityIcon, priorityLabels } from "./status";
 import type { Point } from "./geometry";
 import type { SessionAttentionSummary } from "../shared/session-attention";
-import { useMotionValue } from "./motion";
+import { motionDuration, useMotionValue } from "./motion";
 import { useCardOutput, type CardOutput, type OutputSession } from "./card-output";
 
 export type CardDrag = {
@@ -38,6 +38,7 @@ export function TaskCard({
   summaryState = "ready",
   output,
   questions = 0,
+  flash = false,
   dragging,
   disabled,
   drag,
@@ -55,6 +56,8 @@ export function TaskCard({
   output?: CardOutput | null;
   /** Open agent questions awaiting the user's reply. */
   questions?: number;
+  /** Briefly emphasize a card whose status just changed (often an automatic move). */
+  flash?: boolean;
   dragging?: boolean;
   disabled?: boolean;
   drag?: CardDrag;
@@ -65,6 +68,8 @@ export function TaskCard({
   const outputTime = output ? relativeTime(output.at) : "";
   const opacity = useMotionValue(dragging ? 0.45 : 1, undefined, 0.65);
   const [hovered, setHovered] = useState(false);
+  // Quick in, slow out: noticeable without holding attention.
+  const flashOpacity = useMotionValue(flash ? 1 : 0, flash ? motionDuration.forward : 900);
   const current = useRef({ task, drag, disabled });
   current.current = { task, drag, disabled };
   const suppressUntil = useRef(0);
@@ -206,6 +211,21 @@ export function TaskCard({
           questions={questions}
         />
       </Pressable>
+      <Animated.View
+        pointerEvents="none"
+        style={{
+          position: "absolute",
+          top: -1,
+          left: -1,
+          right: -1,
+          bottom: -1,
+          borderRadius: radius.lg + 1,
+          borderWidth: 1.5,
+          borderColor: colors.accent,
+          backgroundColor: tint(colors.accent, 0.06),
+          opacity: flashOpacity,
+        }}
+      />
       <View
         style={{ position: "absolute", top: 4, right: 4, opacity: showActions ? 1 : 0 }}
         onPointerDown={

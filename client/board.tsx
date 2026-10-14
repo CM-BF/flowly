@@ -60,6 +60,7 @@ import { isLegacyScope } from "../shared/scope";
 import { LiveTaskCard, type CardDrag } from "./card";
 import { pickOutputSession } from "./card-output";
 import { cardQuestions } from "../shared/progress";
+import { statusChanges } from "./changes";
 import { DesktopColumns, type Placement } from "./columns";
 import { ResizeGrip } from "./resize";
 import { drawerWidth, isCompactLayout } from "./geometry";
@@ -312,6 +313,30 @@ function BoardContent(
       (a, b) =>
         a.position - b.position || a.createdAt.localeCompare(b.createdAt),
     );
+  // Status-change flash: remember the last snapshot, emphasize cards that moved.
+  const statusMemory = useRef<Map<string, string> | null>(null);
+  const [flashing, setFlashing] = useState<ReadonlySet<string>>(new Set());
+  const flashTimers = useRef(new Set<ReturnType<typeof setTimeout>>());
+  useEffect(() => {
+    if (!board) return;
+    const { next, changed } = statusChanges(statusMemory.current, board.tasks);
+    statusMemory.current = next;
+    if (!changed.length) return;
+    setFlashing((current) => new Set([...current, ...changed]));
+    // Each flash owns its timer; a quick refetch must not cancel an earlier one.
+    const timer = setTimeout(() => {
+      flashTimers.current.delete(timer);
+      setFlashing((current) => new Set([...current].filter((id) => !changed.includes(id))));
+    }, 1600);
+    flashTimers.current.add(timer);
+  }, [board]);
+  useEffect(
+    () => () => {
+      flashTimers.current.forEach(clearTimeout);
+      flashTimers.current.clear();
+    },
+    [],
+  );
   const readUnavailable = readState.isPending || readState.isError;
   const attention = useMemo(
     () =>
@@ -411,6 +436,7 @@ function BoardContent(
         summaryState={summaryState}
         outputSession={pickOutputSession(sessions, t.workspaceId)}
         questions={board ? cardQuestions(t, board.events).length : 0}
+        flash={flashing.has(t.id)}
         drag={drag}
         dragging={dragging}
         disabled={pending || !!project?.archivedAt || !!t.archivedAt}
