@@ -24,6 +24,17 @@ vi.mock("../../../../client/ui", () => ({
   Button: ({ children, onPress }: any) => React.createElement("Button", { onPress }, children),
   Label: ({ children, selectable, ...props }: any) => React.createElement("Label", { selectable, ...props }, children),
   useTheme: () => ({ colors: { accent: "a", border: "b", surface0: "s", foregroundMuted: "m", foreground: "f" } }),
+  Badge: "Badge",
+  Dot: "Dot",
+  IconButton: ({ onPress, label }: any) => React.createElement("Button", { onPress, label }),
+  verticalScroll: {},
+  verticalContent: {},
+  font: { sm: 12, base: 14, md: 13 },
+  radius: { lg: 10 },
+  space: [0, 4, 8, 12, 16, 20, 24],
+  tint: (c: string) => c,
+  touch: false,
+  relativeTime: (iso: string) => (iso ? "now" : ""),
 }));
 
 const rendererPath = process.env.UIUX_TEST_RENDERER;
@@ -133,7 +144,7 @@ describe.skipIf(!rendererPath)("TaskCard whole-card pointer responder (synthetic
   test("all card Labels opt out of selection", () => {
     (globalThis as any).__uiuxPanConfigs = [];
     let tree: any;
-    act(() => { tree = create(<TaskCard task={cardTask("t6", "Text")} selected={false} legacy={false} available sessions={0} running={0} drag={dragCallbacks()} onOpen={() => {}} onActions={() => {}} />); });
+    act(() => { tree = create(<TaskCard task={cardTask("t6", "Text")} selected={false} legacy={false} available sessions={1} running={0} output={{ text: "Latest output", at: "2026-10-14T00:00:00Z" }} drag={dragCallbacks()} onOpen={() => {}} onActions={() => {}} />); });
     const labels = tree.root.findAllByType("Label");
     expect(labels.length).toBeGreaterThanOrEqual(3);
     expect(labels.every((label: any) => label.props.selectable === false)).toBe(true);

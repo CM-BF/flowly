@@ -45,7 +45,8 @@ import { ProjectForm, TaskForm } from "./forms";
 import { TaskDrawer } from "./drawer";
 import { listAgents } from "./resources";
 import { isLegacyScope } from "../shared/scope";
-import { TaskCard, type CardDrag } from "./card";
+import { LiveTaskCard, type CardDrag } from "./card";
+import { pickOutputSession } from "./card-output";
 import { DesktopColumns } from "./columns";
 import { ResizeGrip } from "./resize";
 import { drawerWidth, isCompactLayout } from "./geometry";
@@ -329,7 +330,7 @@ function BoardContent(
             : "unavailable"
           : "ready";
     return (
-      <TaskCard
+      <LiveTaskCard
         key={t.id}
         task={t}
         selected={taskId === t.id}
@@ -344,6 +345,7 @@ function BoardContent(
           board?.events || [],
         )}
         summaryState={summaryState}
+        outputSession={pickOutputSession(sessions, t.workspaceId)}
         drag={drag}
         dragging={dragging}
         disabled={pending || !!project?.archivedAt || !!t.archivedAt}

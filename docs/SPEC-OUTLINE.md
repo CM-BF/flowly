@@ -1,5 +1,7 @@
 # Paseo Kanban Plugin：Spec 大纲与路线图
 
+2026-10-15 卡片最近 agent 输出：卡片标题下单行显示所在 workspace 最近活跃 session 的最新 assistant 文本摘要与相对时间；仅可见卡片按 session updatedAt 限量 tail 拉取，并发 ≤3，异常时安静。[增量 spec](CARD-OUTPUT-SPEC.md)和[验证](verification/card-output.md)。
+
 2026-10-14 v2 路线图（规划草案，未实施）：对标 Multica 的人机协作工作流——agent 自行切换阶段、需要人时在卡片提醒并进入 Review、人确认后自动收尾。[ROADMAP-V2](ROADMAP-V2.md)。
 
 2026-10-14 手机卡片 Status 文案截断：紧凑布局改为完整状态按钮和按需打开的状态弹层，沿用 CAS/Toast；宽布局扩大原生 selector 的可用宽度。[增量 spec](DRAWER-SPEC.md)和[代码验收](verification/status-label.md)。

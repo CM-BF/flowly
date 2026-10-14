@@ -2,11 +2,12 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Animated, PanResponder, Pressable, View } from "react-native";
 import { Icon } from "@getpaseo/plugin/client/react-native";
 import type { Task } from "../shared/model";
-import { Badge, Dot, IconButton, Label, font, radius, space, tint, touch, useTheme } from "./ui";
+import { Badge, Dot, IconButton, Label, font, radius, relativeTime, space, tint, touch, useTheme } from "./ui";
 import { PriorityIcon, priorityLabels } from "./status";
 import type { Point } from "./geometry";
 import type { SessionAttentionSummary } from "../shared/session-attention";
 import { useMotionValue } from "./motion";
+import { useCardOutput, type CardOutput, type OutputSession } from "./card-output";
 
 export type CardDrag = {
   start(task: Task, point: Point): void;
@@ -14,6 +15,17 @@ export type CardDrag = {
   end(point: Point): void;
   cancel(): void;
 };
+
+type TaskCardProps = Parameters<typeof TaskCard>[0];
+
+/** TaskCard that loads its latest agent output while mounted. */
+export function LiveTaskCard({
+  outputSession,
+  ...props
+}: Omit<TaskCardProps, "output"> & { outputSession?: OutputSession | null }) {
+  const output = useCardOutput(props.available ? outputSession : null);
+  return <TaskCard {...props} output={output} />;
+}
 
 export function TaskCard({
   task,
@@ -24,6 +36,7 @@ export function TaskCard({
   sessions,
   summary,
   summaryState = "ready",
+  output,
   dragging,
   disabled,
   drag,
@@ -38,6 +51,7 @@ export function TaskCard({
   sessions: number;
   summary?: SessionAttentionSummary;
   summaryState?: "ready" | "loading" | "stale" | "unavailable";
+  output?: CardOutput | null;
   dragging?: boolean;
   disabled?: boolean;
   drag?: CardDrag;
@@ -45,6 +59,7 @@ export function TaskCard({
   onActions(): void;
 }) {
   const { colors } = useTheme();
+  const outputTime = output ? relativeTime(output.at) : "";
   const opacity = useMotionValue(dragging ? 0.45 : 1, undefined, 0.65);
   const [hovered, setHovered] = useState(false);
   const current = useRef({ task, drag, disabled });
@@ -145,7 +160,16 @@ export function TaskCard({
     >
       <Pressable
         accessibilityRole="button"
-        accessibilityLabel={`Open task ${task.title}. ${priorityLabels[task.priority]} priority${task.archivedAt ? ", archived" : ""}${legacy ? ", legacy scope" : ""}${summaryState === "ready" && summary ? `. ${summary.running} running, ${summary.finished} finished turns, ${summary.unread} unread sessions, ${summary.attention} need attention.` : ""}`}
+        accessibilityLabel={[
+          `Open task ${task.title}`,
+          `${priorityLabels[task.priority]} priority${task.archivedAt ? ", archived" : ""}${legacy ? ", legacy scope" : ""}`,
+          summaryState === "ready" && summary
+            ? `${summary.running} running, ${summary.finished} finished turns, ${summary.unread} unread sessions, ${summary.attention} need attention`
+            : "",
+          output ? `Latest agent output${outputTime ? ` ${outputTime}` : ""}: ${output.text}` : "",
+        ]
+          .filter(Boolean)
+          .join(". ") + "."}
         accessibilityHint={
           drag
             ? "Drag this card with the mouse or open task actions to change status."
@@ -166,6 +190,7 @@ export function TaskCard({
         <Label medium size={font.base} lines={3} selectable={false}>
           {task.title}
         </Label>
+        {output && <OutputLine output={output} time={outputTime} />}
         <CardSignals
           task={task}
           legacy={legacy}
@@ -195,6 +220,25 @@ export function TaskCard({
         />
       </View>
     </Animated.View>
+  );
+}
+
+function OutputLine({ output, time }: { output: CardOutput; time: string }) {
+  return (
+    <View style={{ flexDirection: "row", alignItems: "center", gap: space[2], minWidth: 0 }}>
+      <View style={{ flex: 1, minWidth: 0 }}>
+        <Label muted size={font.sm} lines={1} selectable={false}>
+          {output.text}
+        </Label>
+      </View>
+      {!!time && (
+        <View style={{ flexShrink: 0 }}>
+          <Label muted size={font.sm} lines={1} selectable={false}>
+            {time}
+          </Label>
+        </View>
+      )}
+    </View>
   );
 }
 
