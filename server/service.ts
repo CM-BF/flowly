@@ -34,6 +34,22 @@ export async function resolveWorktreeBaseRef(
 }
 export const paseoHome = () =>
   process.env.PASEO_HOME || resolve(homedir(), ".paseo");
+/**
+ * Branch for a worktree card created without an explicit name. Derived from the
+ * operation ID (not Math.random) so a retried create reuses the same branch and
+ * idempotency key instead of provisioning a second worktree.
+ */
+export function generatedBranchName(title: string, operationId: string) {
+  const slug = title
+    .normalize("NFKD")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 40)
+    .replace(/-+$/, "");
+  const suffix = createHash("sha256").update(operationId).digest("hex").slice(0, 6);
+  return `kanban/${slug || "task"}-${suffix}`;
+}
 export const dataDirectory = () =>
   process.env.ULTRA_KANBAN_DATA_DIR ||
   resolve(paseoHome(), "plugin-data/paseo-ultra-kanban");
@@ -173,8 +189,10 @@ export class BoardService {
         if (board.tasks.some((t) => t.workspaceId === workspaceId))
           throw new Error("Workspace is already bound to another card.");
       } else {
-        if (input.mode === "worktree" && !input.branchName?.trim())
-          throw new Error("Branch name is required for a worktree.");
+        const branchName =
+          input.mode === "worktree"
+            ? input.branchName?.trim() || generatedBranchName(input.title, input.operationId)
+            : undefined;
         const baseRef =
           input.mode === "worktree"
             ? await resolveWorktreeBaseRef(sourcePath, input.baseRef)
@@ -186,8 +204,7 @@ export class BoardService {
               sourcePath,
               mode: input.mode,
               baseRef,
-              branchName:
-                input.mode === "worktree" ? input.branchName : undefined,
+              branchName,
               title: input.title,
             }),
           )
@@ -209,7 +226,7 @@ export class BoardService {
                   projectId: project.paseoProjectId,
                   action: "branch-off",
                   refName: baseRef,
-                  branchName: input.branchName,
+                  branchName,
                 },
         });
         workspaceId = created.id;

@@ -333,3 +333,15 @@ test("port collision preserves discovery/key/board; after conflict removal liste
   await restored.start();
   expect(restored.health().listening).toBe(true);
 });
+test("session_open injection is limited to Kanban-managed sessions", async () => {
+  const x = await setup();
+  // A session in the card workspace that the plugin never prepared gets nothing.
+  expect(await x.server.sessionContext("unmanaged-agent", x.identity.workspaceId, x.paseo)).toBeNull();
+  expect(await x.server.secrets.hasContext("unmanaged-agent")).toBe(false);
+  expect(await x.server.secrets.hasContext("../escape")).toBe(false);
+  // Once prepared (card launch or explicit opt-in), reopening refreshes its context.
+  await x.server.secrets.writeContext(x.identity, "mcp");
+  const path = await x.server.sessionContext(x.identity.agentId, x.identity.workspaceId, x.paseo);
+  expect(path).toBe(x.server.secrets.contextFile(x.identity.agentId));
+  expect(JSON.parse(await readFile(path!, "utf8")).methods).toEqual(["mcp", "cli"]);
+});

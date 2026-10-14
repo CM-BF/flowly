@@ -333,10 +333,10 @@ export function TaskForm({
                     placeholder="Current branch of the project root"
                   />
                   <Field
-                    title="New branch"
+                    title="New branch (optional)"
                     value={branchName}
                     onChange={setBranch}
-                    placeholder="feature/task-name"
+                    placeholder="Leave empty to generate kanban/<title>-xxxxxx"
                   />
                 </>
               )}
@@ -353,8 +353,7 @@ export function TaskForm({
               disabled={
                 pending ||
                 !title.trim() ||
-                (!task && mode === "existing" && !workspaceId) ||
-                (!task && mode === "worktree" && !branchName.trim())
+                (!task && mode === "existing" && !workspaceId)
               }
               onPress={() => void save()}
             >

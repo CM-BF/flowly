@@ -58,6 +58,10 @@ Status: authorized by the user's 2026-10-14 request to redesign the whole Kanban
 - User report: on Android the IME still covered the composer. Cause (RN 0.81 `ReactRootView.checkForKeyboardEvents`): Android emits `keyboardDidShow` only when IME visibility flips, with `height = ime.bottom - systemBars.bottom`; later IME height changes (Chinese candidate bars, keyboard switches) emit nothing, so plugin-side measurement under-lifts.
 - Fix: on native platforms the session view shows a one-line composer bar (draft preview or "Message this session…", running mode, edit affordance). Tapping it opens the host `Modal` (gorhom bottom sheet with Reanimated keyboard tracking) containing the same multiline input, Steer/Interrupt control and send button; the host keeps it above the real IME. Successful send closes the sheet; failure keeps it open with the error. Draft, Enter/keyboard-send, authorization and send semantics are unchanged. Web/desktop keep the inline composer. The plugin-side keyboard inset hook was removed.
 
+## 7d. New-session agent picker (2026-10-15 correction)
+
+- User report: provider/model chip walls (15 providers, 20+ models) were hard to scan. The New session form now shows an always-visible "Agent" group with three rows — Provider, Model, Permissions — each showing its current value. Tapping a row expands one inline vertical list at a time (label, description, Default tag, check for the selected item, scroll-bounded); lists longer than 8 get a search field. Provider labels/descriptions come from the provider snapshot, falling back to the id; unselectable models are hidden; model descriptions drop a repeated name prefix. Selection logic (remembered defaults, fallbacks, creation) is unchanged. Pure option builders/filter live in `client/options.ts` with tests.
+
 ## 8. Acceptance
 
 | Check | Expected |

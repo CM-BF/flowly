@@ -319,3 +319,22 @@ test("new write contracts reject old repo/source fields", () => {
     taskEdit.parse({ id: "t", revision: 1, repoPaths: ["/other"] }),
   ).toThrow();
 });
+
+test("worktree branch is optional: generated name is stable per operation", async () => {
+  const { generatedBranchName } = await import("./service");
+  expect(generatedBranchName("Fix Login Bug!", "op-1")).toMatch(/^kanban\/fix-login-bug-[0-9a-f]{6}$/);
+  expect(generatedBranchName("F1 卡片显示摘要", "op-1")).toMatch(/^kanban\/f1-[0-9a-f]{6}$/);
+  expect(generatedBranchName("卡片显示摘要", "op-1")).toMatch(/^kanban\/task-[0-9a-f]{6}$/);
+  expect(generatedBranchName("x", "op-1")).toBe(generatedBranchName("x", "op-1"));
+  expect(generatedBranchName("x", "op-1")).not.toBe(generatedBranchName("x", "op-2"));
+  expect(generatedBranchName("a".repeat(80), "op").length).toBeLessThanOrEqual(7 + 40 + 7);
+});
+
+test("worktree card without a branch name uses the generated branch", async () => {
+  const x = await setup();
+  await git("git", ["-C", x.a, "init", "-b", "main"]);
+  await x.service.createTask({ ...x.input, mode: "worktree", branchName: "  " }, x.paseo);
+  expect(x.create.mock.calls[0][0]).toMatchObject({
+    source: { kind: "worktree", branchName: expect.stringMatching(/^kanban\/new-card-[0-9a-f]{6}$/) },
+  });
+});

@@ -1,5 +1,7 @@
 # Phase 2：Agent tools 与 skill 实施合约
 
+2026-10-15 修订（用户要求只对看板管理的 session 提供工具和 skill）：“看板管理的 session” 指两类——从卡片侧栏 Start session 创建（创建前预分配身份并写入凭据，MCP）、或用户在 session 预览中显式点击 “Send Kanban work instructions”（CLI）。`agent.session_open` 只为已有凭据文件的 session 续写环境变量，不再为卡片 workspace 中的其他 session（如普通对话、side chat、原生入口新开的 session）新建凭据。修订前已经写入的凭据文件保留，只能由用户确认后按 session 撤销。
+
 后续单根目录决策见 [SINGLE-ROOT-SPEC.md](SINGLE-ROOT-SPEC.md)：新卡片的工具上下文只使用原生 Paseo project root；已存在多 repo 卡片保留原有只读范围。以下早期多 repo 条款仅用于解释历史行为。
 
 状态：用户已授权实现和完整测试。更新时间：2026-10-13。  

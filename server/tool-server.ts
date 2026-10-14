@@ -366,6 +366,10 @@ export class ToolServer {
       task = board.tasks.find((t) => t.workspaceId === workspaceId),
       project = board.projects.find((p) => p.id === task?.projectId);
     if (!task || task.archivedAt || project?.archivedAt) return null;
+    // Only Kanban-managed sessions get tools: launched from the card (prepared
+    // with credentials) or explicitly opted in via "Send Kanban work
+    // instructions". Other sessions in a card's workspace stay untouched.
+    if (!(await this.secrets.hasContext(agentId))) return null;
     await this.start();
     return this.secrets.writeContext(
       { agentId, workspaceId, taskId: task.id },

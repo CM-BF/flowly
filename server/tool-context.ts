@@ -142,6 +142,15 @@ export class ToolSecrets {
       throw new ToolError("INVALID_INPUT", "Invalid agent ID.");
     return join(this.directory, "sessions", `${agentId}.json`);
   }
+  /** True once the plugin prepared or opted in this session; invalid IDs are never managed. */
+  async hasContext(agentId: string) {
+    try {
+      await readFile(this.contextFile(agentId), "utf8");
+      return true;
+    } catch {
+      return false;
+    }
+  }
   async writeContext(identity: ToolIdentity, method: "mcp" | "cli" = "cli") {
     const job = this.files.then(async () => {
       const path = this.contextFile(identity.agentId);

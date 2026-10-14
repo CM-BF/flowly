@@ -8,7 +8,8 @@ import type { ToolPreparation } from "../shared/tools";
 import * as rpc from "../shared/rpc";
 import { createPreparedSession } from "./session";
 import { Theme, useTheme, Button, Label, Field, Choices, Notice, Actions, message, font, radius, space } from "./ui";
-import { Icon } from "@getpaseo/plugin/client/react-native";
+import { PickerGroup, PickerRow } from "./picker";
+import { modelOptions, providerOptions } from "./options";
 import { Pressable } from "react-native";
 
 export function SessionCreate({
@@ -41,7 +42,7 @@ export function SessionCreate({
     [mode, setMode] = useState(""),
     [newTitle, setTitle] = useState(""),
     [newPrompt, setPrompt] = useState(""),
-    [showSettings, setShowSettings] = useState(false),
+    [picker, setPicker] = useState<"provider" | "model" | "mode" | null>(null),
     [sending, setSending] = useState(false),
     [error, setError] = useState(""),
     [creationPending, setCreationPending] = useState(false);
@@ -55,6 +56,7 @@ export function SessionCreate({
       setPrompt([task.title, task.description.trim()].filter(Boolean).join("\n\n"));
       setTitle("");
       setError("");
+      setPicker(null);
     }
     wasOpen.current = open;
   }, [open]);
@@ -73,6 +75,12 @@ export function SessionCreate({
     queryKey: ["ultra", "providers"],
     queryFn: () => paseo.providers.listAvailable(),
     enabled: open,
+  });
+  const providerInfo = useQuery({
+    queryKey: ["ultra", "providerSnapshot"],
+    queryFn: () => paseo.providers.snapshot(),
+    enabled: open,
+    staleTime: 60000,
   });
   const models = useQuery({
     queryKey: ["ultra", "models", provider, workspaceDirectory],
@@ -271,86 +279,70 @@ export function SessionCreate({
           placeholder="What should this session work on?"
           editable={!sending}
         />
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel={showSettings ? "Hide session settings" : "Session settings"}
-          accessibilityState={{ expanded: showSettings, disabled: sending }}
-          disabled={sending}
-          onPress={() => setShowSettings(!showSettings)}
-          style={{
-            flexDirection: "row",
-            alignItems: "center",
-            gap: space[2],
-            paddingHorizontal: space[3],
-            paddingVertical: space[2] + 2,
-            borderRadius: radius.lg,
-            borderWidth: 1,
-            borderColor: theme.colors.border,
-            backgroundColor: theme.colors.surface1,
-          }}
-        >
-          <Icon name="Bot" size={15} color={theme.colors.foregroundMuted} />
-          <View style={{ flex: 1, minWidth: 0 }}>
-            <Label size={font.md} lines={1} selectable={false}>
-              {provider} ·{" "}
-              {chosenModel ||
-                (models.isPending ? "Loading models…" : "Choose a model")}
-            </Label>
-            <Label muted size={font.sm} lines={1} selectable={false}>
-              {modes.data?.modes?.find((m) => m.id === chosenMode)?.label ||
-                "Provider default permissions"}
-            </Label>
-          </View>
-          <Label muted size={font.sm} selectable={false}>
-            {showSettings ? "Hide" : "Change"}
+        <View style={{ gap: space[1.5] }}>
+          <Label medium size={font.sm} muted>
+            Agent
           </Label>
-          <Icon name={showSettings ? "ChevronUp" : "ChevronDown"} size={14} color={theme.colors.foregroundMuted} />
-        </Pressable>
-        {showSettings && (
-          <View style={{ gap: 14 }}>
-            <Choices
+          <PickerGroup>
+            <PickerRow
+              first
               title="Provider"
+              icon="Bot"
+              open={picker === "provider"}
+              disabled={sending}
+              loading={providers.isPending}
               value={provider}
-              options={(providers.data?.providers || [])
-                .filter((p) => p.available)
-                .map((p) => ({
-                  value: p.provider,
-                  label: p.provider,
-                  disabled: sending,
-                }))}
+              placeholder="Choose a provider"
+              options={providerOptions(providers.data?.providers || [], providerInfo.data?.entries || [])}
+              onToggle={() => setPicker(picker === "provider" ? null : "provider")}
               onChange={(p) => {
-                setProvider(p);
-                setModel("");
-                setMode("");
+                if (p !== provider) {
+                  setProvider(p);
+                  setModel("");
+                  setMode("");
+                }
+                setPicker(null);
               }}
             />
-            <Choices
+            <PickerRow
               title="Model"
+              icon="Cpu"
+              open={picker === "model"}
+              disabled={sending}
+              loading={models.isPending}
               value={chosenModel}
-              options={(models.data?.models || [])
-                .filter((m) => m.isSelectable !== false)
-                .map((m) => ({
-                  value: m.id,
-                  label: m.label,
-                  disabled: sending,
-                }))}
-              onChange={setModel}
+              placeholder="Choose a model"
+              options={modelOptions(models.data?.models || [])}
+              onToggle={() => setPicker(picker === "model" ? null : "model")}
+              onChange={(m) => {
+                setModel(m);
+                setPicker(null);
+              }}
             />
-            <Choices
-              title="Permission mode"
+            <PickerRow
+              title="Permissions"
+              icon="ShieldCheck"
+              open={picker === "mode"}
+              disabled={sending}
+              loading={modes.isPending}
               value={chosenMode}
+              placeholder="Provider default"
               options={[
-                { value: "", label: "Provider default", disabled: sending },
+                { value: "", label: "Provider default", detail: "Use the provider's configured permission mode" },
                 ...(modes.data?.modes || []).map((m) => ({
                   value: m.id,
                   label: m.label,
-                  disabled: sending,
+                  detail: m.description,
                 })),
               ]}
-              onChange={setMode}
+              onToggle={() => setPicker(picker === "mode" ? null : "mode")}
+              onChange={(m) => {
+                setMode(m);
+                setPicker(null);
+              }}
             />
-          </View>
-        )}
+          </PickerGroup>
+        </View>
         <Label muted size={font.sm}>
           Includes Kanban tools and the current task's work instructions.
         </Label>
@@ -366,7 +358,7 @@ export function SessionCreate({
           !providers.data?.providers.some(
             (p) => p.available && p.provider === provider,
           ) && (
-            <Notice>Choose an available provider in Session settings.</Notice>
+            <Notice>Choose an available provider.</Notice>
           )}
         {models.isSuccess &&
           !(models.data?.models || []).some(
