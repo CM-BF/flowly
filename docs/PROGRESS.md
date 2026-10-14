@@ -7,6 +7,13 @@
 - [x] Sidebar polls board/agents/read receipts every 10 s with host-scoped query keys through plugin `useRpc`/`usePaseo` only; observers end on unmount. Board/agent failure hides the badge.
 - [x] PASS: `npm run typecheck`; `npm test` 95 passed / 56 renderer-only skipped (2 new focused tests in `client/attention.test.ts`).
 - [ ] UNRUN: plugin install/reload, real desktop/compact sidebar rendering, pill press and modal opening in the app, screen-reader focus of the pill. Not permitted in this card (no install/reload, no UI driving).
+## Card latest agent output (F1) — 2026-10-15
+
+- [x] Wrote [card output spec](CARD-OUTPUT-SPEC.md) before code. Agent snapshot has no assistant-text field, so cards use a bounded 20-entry projected tail fetch keyed by session ID + `updatedAt`, only for mounted cards, at most 3 concurrent, no polling/retry.
+- [x] Card shows one muted, non-selectable, single-line plain-text summary of the newest assistant message plus relative time; quiet for no session/loading/failure/no text; accessibility label includes it. Drag/press/Actions unchanged.
+- [x] PASS: typecheck; full `npm test` 99 passed / 59 renderer-only skipped; focused helpers 6/6; synthetic renderer card 3/3; legacy card responder 8/8 after fixing its stale mock. [Verification](verification/card-output.md).
+- [ ] FAIL (pre-existing, unchanged): session-attention renderer fixture 4 failures from stale mock, same on baseline.
+- [ ] UNRUN: plugin install/reload, real desktop/phone UI, screen reader, live request rate.
 
 ## Compact task status label — 2026-10-14
 
