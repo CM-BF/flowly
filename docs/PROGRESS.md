@@ -1,5 +1,13 @@
 # Implementation progress
 
+## F3 drag reorder within/between columns — 2026-10-15
+
+- [x] Wrote [drag reorder spec](DRAG-REORDER-SPEC.md) before implementation: insertion line, midline hit testing, `tasks.place` contract (CAS, single serialized atomic write, position/status only, no-op without write).
+- [x] Implemented `tasks.place` (`BoardStore.placeTask`, fractional neighbor midpoint, normalization only when neighbors tie), pure `dropSlot`/`placementUpdate`, column insertion line and drop wiring; new cards append after the column's max position. Menu up/down and phone/touch paths unchanged.
+- [x] PASS: typecheck; `npm test` 110 passed / 60 renderer-only skipped; focused store 10/10, geometry 12/12, service append 1/1, columns renderer 4/4 (temp `react-test-renderer`). [Evidence](verification/drag-reorder.md).
+- [ ] FAIL (pre-existing, unchanged): 45 legacy renderer fixtures fail identically on the base commit due to stale `client/ui` mocks.
+- [ ] UNRUN: actual desktop UI/drag feel and live conflict error — no plugin install/reload by instruction.
+
 ## Compact task status label — 2026-10-14
 
 - [x] Updated [drawer spec](DRAWER-SPEC.md) before implementation. The [user capture](verification/fixtures/status-label/before.png) showed `T...`: installed host `SettingsSelect` reserves a 160 pt label while the plugin capped its wrapper at 240 pt.

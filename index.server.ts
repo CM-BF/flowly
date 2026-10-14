@@ -58,6 +58,7 @@ export default function contribute(server: PluginServerContext) {
     service.context(input.id, paseo),
   );
   server.handle(rpc.updateTask, (input) => store.editTask(input));
+  server.handle(rpc.placeTask, (input) => store.placeTask(input));
   server.handle(rpc.updateProject, (input) => {
     return store.mutate((board) => {
       const p = board.projects.find((p) => p.id === input.id);

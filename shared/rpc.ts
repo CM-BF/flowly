@@ -6,6 +6,7 @@ import {
   projectEdit,
   taskInput,
   taskEdit,
+  taskPlacement,
   projectSchema,
   taskSchema,
 } from "./model";
@@ -59,6 +60,11 @@ export const moveTask = defineRpc({
     revision: z.number(),
     direction: z.enum(["up", "down"]),
   }),
+  output: taskSchema,
+});
+export const placeTask = defineRpc({
+  name: "tasks.place",
+  input: taskPlacement,
   output: taskSchema,
 });
 export const listResources = defineRpc({

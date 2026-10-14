@@ -46,7 +46,7 @@ import { TaskDrawer } from "./drawer";
 import { listAgents } from "./resources";
 import { isLegacyScope } from "../shared/scope";
 import { TaskCard, type CardDrag } from "./card";
-import { DesktopColumns } from "./columns";
+import { DesktopColumns, type Placement } from "./columns";
 import { ResizeGrip } from "./resize";
 import { drawerWidth, isCompactLayout } from "./geometry";
 import { useSessionReads } from "./session-reads";
@@ -77,6 +77,7 @@ function BoardContent(
     updateProject = useRpc(rpc.updateProject),
     updateTask = useRpc(rpc.updateTask),
     reorder = useRpc(rpc.moveTask),
+    placeTask = useRpc(rpc.placeTask),
     paseo = usePaseo();
   const queryClient = useQueryClient();
   const linkMount = useId();
@@ -313,6 +314,13 @@ function BoardContent(
       `Moved to ${statusLabels[input.status]}`,
     );
   };
+  const place = (input: Placement) => {
+    const from = data.data?.tasks.find((t) => t.id === input.id)?.status;
+    void doAction(
+      () => placeTask(input),
+      from === input.status ? "" : `Moved to ${statusLabels[input.status]}`,
+    );
+  };
   const renderCard = (t: Task, drag?: CardDrag, dragging = false) => {
     const workspace = resources.data?.workspaces.find(
       (w) => w.id === t.workspaceId,
@@ -528,7 +536,7 @@ function BoardContent(
                     cancelKey={`${project.id}|${search}|${priority}|${archived}|${hideFinished}|${taskId}|${menu}|${actionTask?.id}|${projectForm}|${!!taskForm}`}
                     renderCard={renderCard}
                     onAdd={(status) => setTaskForm({ status })}
-                    onDrop={move}
+                    onDrop={place}
                   />
                 )}
               </MotionReveal>

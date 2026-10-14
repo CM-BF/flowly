@@ -58,11 +58,54 @@ export function isCompactLayout(
   return hostCompact || platform !== "web" || (width > 0 && width < 760);
 }
 
-export function dropUpdate(
+export type CardBounds = { id: string; y: number; height: number };
+export type DropSlot = {
+  index: number;
+  beforeId: string | null;
+  afterId: string | null;
+  lineY: number | null;
+};
+
+/** Insertion slot for a pointer at `contentY` in a column's scroll content; the dragged card is ignored. */
+export function dropSlot(
+  contentY: number,
+  cards: CardBounds[],
+  draggedId: string,
+  gap: number,
+): DropSlot {
+  const others = cards.filter((c) => c.id !== draggedId);
+  let index = others.findIndex((c) => contentY < c.y + c.height / 2);
+  if (index < 0) index = others.length;
+  const next = others[index],
+    last = others[others.length - 1];
+  return {
+    index,
+    beforeId: next?.id ?? null,
+    afterId: !next && last ? last.id : null,
+    lineY: next ? next.y - gap / 2 : last ? last.y + last.height + gap / 2 : null,
+  };
+}
+
+/** Column content y for a window point, given the list's window top and vertical scroll. */
+export function contentY(pointY: number, listTop: number, scrollY: number) {
+  return pointY - listTop + scrollY;
+}
+
+/** `tasks.place` input for a drop, or null when outside the board, unmeasured in its own column, or staying in place. */
+export function placementUpdate(
   task: { id: string; revision: number; status: Status },
   target: Status | null,
+  slot: DropSlot | null,
+  columnIds: string[],
 ) {
-  return target && target !== task.status
-    ? { id: task.id, revision: task.revision, status: target }
-    : null;
+  if (!target || (!slot && target === task.status)) return null;
+  const index = slot?.index ?? columnIds.filter((id) => id !== task.id).length;
+  if (target === task.status && columnIds.indexOf(task.id) === index) return null;
+  return {
+    id: task.id,
+    revision: task.revision,
+    status: target,
+    beforeId: slot?.beforeId ?? null,
+    afterId: slot?.afterId ?? null,
+  };
 }

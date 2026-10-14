@@ -11,9 +11,26 @@ import {
   type BoardEvent,
   type Task,
   type TaskEdit,
+  type TaskPlacement,
 } from "../shared/model";
 
 export class StoreInvalidError extends Error {}
+
+const columnOrder = (a: Task, b: Task) =>
+  a.position - b.position || a.createdAt.localeCompare(b.createdAt);
+
+/** Position strictly between the neighbors at `index`, or null when equal neighbors leave no room. */
+export function slotPosition(
+  peers: readonly { position: number }[],
+  index: number,
+): number | null {
+  const previous = peers[index - 1],
+    next = peers[index];
+  if (!previous) return next ? next.position - 1 : 0;
+  if (!next) return previous.position + 1;
+  const middle = (previous.position + next.position) / 2;
+  return previous.position < middle && middle < next.position ? middle : null;
+}
 
 export class BoardStore {
   private tail: Promise<unknown> = Promise.resolve();
@@ -164,6 +181,54 @@ export class BoardStore {
         note: input.note,
       });
       return task;
+    });
+  }
+  placeTask(input: TaskPlacement): Promise<Task> {
+    return this.transaction((board) => {
+      const task = board.tasks.find((t) => t.id === input.id);
+      if (!task) throw new Error("Task not found.");
+      if (task.revision !== input.revision)
+        throw new Error(
+          "Revision conflict: this card changed. Reload before moving.",
+        );
+      const project = board.projects.find((p) => p.id === task.projectId);
+      if (task.archivedAt || !project || project.archivedAt)
+        throw new Error("Archived cards cannot be moved.");
+      const column = board.tasks
+        .filter((t) => t.projectId === task.projectId && t.status === input.status)
+        .sort(columnOrder);
+      const peers = column.filter((t) => t !== task);
+      const anchorId = input.beforeId ?? input.afterId;
+      let index = peers.length;
+      if (anchorId) {
+        const anchor = peers.findIndex((t) => t.id === anchorId);
+        if (anchor < 0)
+          throw new Error("Drop position changed. Reload and try again.");
+        index = input.beforeId ? anchor : anchor + 1;
+      }
+      if (task.status === input.status && column.indexOf(task) === index)
+        return { value: task, changed: false };
+      let position = slotPosition(peers, index);
+      if (position === null) {
+        peers.forEach((t, i) => {
+          t.position = i;
+        });
+        position = slotPosition(peers, index)!;
+      }
+      const previous = task.status;
+      task.status = input.status;
+      task.position = position;
+      task.revision++;
+      task.updatedAt = new Date().toISOString();
+      if (previous !== task.status)
+        this.event(board, {
+          taskId: task.id,
+          actor: "human",
+          action: "status_changed",
+          from: previous,
+          to: task.status,
+        });
+      return { value: task, changed: true };
     });
   }
   event(board: Board, input: Omit<BoardEvent, "id" | "at">) {

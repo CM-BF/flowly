@@ -235,9 +235,14 @@ export class BoardService {
             description: input.description,
             status: input.status,
             priority: input.priority,
-            position: current.tasks.filter(
-              (t) => t.projectId === project.id && t.status === input.status,
-            ).length,
+            position: Math.max(
+              -1,
+              ...current.tasks
+                .filter(
+                  (t) => t.projectId === project.id && t.status === input.status,
+                )
+                .map((t) => t.position),
+            ) + 1,
             revision: 1,
             operationId: input.operationId,
             createdAt: now,
