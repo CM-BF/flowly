@@ -94,3 +94,22 @@ test("sidebar badge params open the attention modal once per token without touch
   expect(attentionOpenToken({ taskId: "a", sessionId: "s", workspaceId: "w", requestId: "r" })).toBeNull();
   expect(attentionOpenToken(undefined)).toBeNull();
 });
+
+test("agent questions flag a card even when read; silent unread turns are annotated", () => {
+  const at = (s: number) => new Date(Date.parse(now) + s * 1000).toISOString();
+  const events = [
+    { id: "1", taskId: "a", actor: "system" as const, action: "agent.turn_started", agentId: "s1", at: at(1) },
+    { id: "2", taskId: "a", actor: "agent" as const, action: "progress_reported", agentId: "s1", reportKind: "question" as const, note: "?", at: at(2) },
+    { id: "3", taskId: "b", actor: "system" as const, action: "agent.turn_started", agentId: "s2", at: at(1) },
+    { id: "4", taskId: "b", actor: "system" as const, action: "agent.turn_ended", agentId: "s2", outcome: "completed" as const, at: at(2) },
+  ];
+  const board = {
+    projects: [project("p")],
+    tasks: [task("a", "wa"), { ...task("b", "wb"), status: "in_progress" as const }],
+    events,
+  };
+  const items = attentionItems(board, [agent("s1", "wa"), agent("s2", "wb", finished)], [], false);
+  expect(items.find((i) => i.task.id === "a")).toMatchObject({ questions: 1, unread: 0, sessionId: "s1" });
+  expect(items.find((i) => i.task.id === "b")).toMatchObject({ unread: 1, silent: 1 });
+  expect(items[0].task.id).toBe("a");
+});

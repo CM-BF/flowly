@@ -151,6 +151,15 @@ export class ToolSecrets {
       return false;
     }
   }
+  /** Bound identity of a Kanban-managed session, or null. */
+  async managedIdentity(agentId: string): Promise<ToolIdentity | null> {
+    try {
+      const data = JSON.parse(await readFile(this.contextFile(agentId), "utf8"));
+      return identitySchema.parse(data.identity);
+    } catch {
+      return null;
+    }
+  }
   async writeContext(identity: ToolIdentity, method: "mcp" | "cli" = "cli") {
     const job = this.files.then(async () => {
       const path = this.contextFile(identity.agentId);

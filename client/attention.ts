@@ -1,4 +1,5 @@
 import type { Project, Task, BoardEvent } from "../shared/model";
+import { openQuestion, silentTurn } from "../shared/progress";
 import {
   sessionAttention,
   type AttentionAgent,
@@ -13,6 +14,10 @@ export type AttentionItem = {
   permissions: number;
   errors: number;
   unread: number;
+  /** Open agent questions awaiting your reply (AUTO-STATUS M1). */
+  questions: number;
+  /** Unread sessions whose last turn ended without any Kanban report (M2). */
+  silent: number;
   /** Set when exactly one session needs attention, so it can be opened directly. */
   sessionId: string | null;
   updatedAt: string;
@@ -30,26 +35,34 @@ export function attentionItems(
     if (task.archivedAt) continue;
     const project = board.projects.find((p) => p.id === task.projectId);
     if (!project || project.archivedAt) continue;
+    const own = board.events.filter((e) => e.taskId === task.id);
     const flagged = agents
       .filter((a) => a.workspaceId === task.workspaceId && !a.archivedAt)
       .map((agent) => ({
         agent,
         state: sessionAttention(agent, task.id, receipts, board.events),
       }))
-      .map(({ agent, state }) => ({
-        agent,
-        permission: state.permission,
-        error: state.error,
-        unread: !readUnavailable && state.unread && !state.permission && !state.error,
-      }))
-      .filter((s) => s.permission || s.error || s.unread);
+      .map(({ agent, state }) => {
+        const unread = !readUnavailable && state.unread && !state.permission && !state.error;
+        return {
+          agent,
+          permission: state.permission,
+          error: state.error,
+          question: !!openQuestion(own, agent.id),
+          unread,
+          silent: unread && silentTurn(task, own, agent.id),
+        };
+      })
+      .filter((s) => s.permission || s.error || s.question || s.unread);
     if (!flagged.length) continue;
     items.push({
       task,
       project,
       permissions: flagged.filter((s) => s.permission).length,
       errors: flagged.filter((s) => s.error).length,
-      unread: flagged.filter((s) => s.unread).length,
+      unread: flagged.filter((s) => s.unread && !s.question).length,
+      questions: flagged.filter((s) => s.question).length,
+      silent: flagged.filter((s) => s.silent && !s.question).length,
       sessionId: flagged.length === 1 ? flagged[0].agent.id : null,
       updatedAt: flagged
         .map((s) => s.agent.updatedAt || "")
@@ -59,7 +72,8 @@ export function attentionItems(
   }
   return items.sort(
     (a, b) =>
-      Number(!!(b.permissions || b.errors)) - Number(!!(a.permissions || a.errors)) ||
+      Number(!!(b.permissions || b.errors || b.questions)) -
+        Number(!!(a.permissions || a.errors || a.questions)) ||
       b.updatedAt.localeCompare(a.updatedAt),
   );
 }

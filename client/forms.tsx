@@ -12,7 +12,7 @@ import {
   type Task,
   type Status,
 } from "../shared/model";
-import { Theme, useTheme, Button, Field, Choices, Notice, Label, Row, Actions, message, basename, font, radius } from "./ui";
+import { Theme, useTheme, Button, Field, Choices, Notice, Label, Row, Actions, Toggle, message, basename, font, radius } from "./ui";
 import { priorityLabels } from "./status";
 import { isLegacyScope } from "../shared/scope";
 
@@ -38,6 +38,7 @@ export function ProjectForm({
     [description, setDescription] = useState(project?.description || ""),
     [primaryPath, setPrimary] = useState(project?.primaryPath || ""),
     [nativeId, setNative] = useState(project?.paseoProjectId || ""),
+    [autoStatus, setAutoStatus] = useState(project?.autoStatus !== false),
     [pending, setPending] = useState(false),
     [error, setError] = useState("");
   async function save() {
@@ -50,6 +51,7 @@ export function ProjectForm({
             revision: project.revision,
             title,
             description,
+            ...(autoStatus !== (project.autoStatus !== false) ? { autoStatus } : {}),
           })
         : await create({
             title,
@@ -109,6 +111,14 @@ export function ProjectForm({
             editable={!project && !nativeId}
             placeholder="/absolute/path/to/repo"
           />
+          {project && (
+            <Toggle
+              title="Auto-update status from sessions"
+              detail="A Kanban session starting work moves the card to In progress, including after review or a blocker"
+              value={autoStatus}
+              onChange={setAutoStatus}
+            />
+          )}
           <Label muted size={font.sm}>
             For work across repositories, place them in a common directory and
             use that directory as the Paseo project root.

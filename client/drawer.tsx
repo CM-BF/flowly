@@ -176,6 +176,13 @@ export function TaskDrawer({
     refresh();
     void sessions.refetch();
   };
+  // Routine turn start/end records drive rules and markers; the timeline shows
+  // what changed or needs a person (failed turns, permission requests stay).
+  const meaningful = events.filter(
+    (e) =>
+      e.action !== "agent.turn_started" &&
+      !(e.action === "agent.turn_ended" && e.outcome !== "failed"),
+  );
   async function perform(action: () => Promise<unknown>, success = "") {
     if (!detailActive.current || lock.current) return;
     lock.current = true;
@@ -456,12 +463,12 @@ export function TaskDrawer({
               owner={scope.data?.owner}
               directories={scope.data?.directories || []}
             />
-            {events.length > 0 && (
+            {meaningful.length > 0 && (
               <View style={{ gap: space[2] }}>
                 <SectionHeader title="Activity" />
                 <View>
-                  {events
-                    .slice(-10)
+                  {meaningful
+                    .slice(-12)
                     .reverse()
                     .map((e, index, list) => (
                       <ActivityItem
@@ -604,9 +611,13 @@ function ActivityItem({
   last: boolean;
 }) {
   const { colors } = useTheme();
-  const verb =
-    activityText[event.action] ||
-    event.action.replace(/[._]/g, " ").replace(/^./, (c) => c.toUpperCase());
+  const question = event.reportKind === "question";
+  const verb = question
+    ? "Asked"
+    : event.action === "agent.turn_ended" && event.outcome === "failed"
+      ? "Turn failed"
+      : activityText[event.action] ||
+        event.action.replace(/[._]/g, " ").replace(/^./, (c) => c.toUpperCase());
   return (
     <View style={{ flexDirection: "row", gap: space[3] }}>
       <View style={{ width: 14, alignItems: "center" }}>
@@ -623,10 +634,15 @@ function ActivityItem({
           <Label medium size={font.md}>{actor}</Label>
           {` ${verb.charAt(0).toLowerCase()}${verb.slice(1)}`}
           {event.to ? ` → ${statusLabels[event.to]}` : ""}
-          {event.reportKind ? ` · ${event.reportKind}` : ""}
+          {event.reportKind && !question && event.reportKind !== "progress" ? ` · ${event.reportKind}` : ""}
         </Label>
+        {!!event.rule && (
+          <View style={{ flexDirection: "row" }}>
+            <Badge>Auto</Badge>
+          </View>
+        )}
         {!!event.note && (
-          <Label muted size={font.sm} lines={4}>
+          <Label muted={!question} size={font.sm} lines={question ? 8 : 4}>
             {event.note}
           </Label>
         )}

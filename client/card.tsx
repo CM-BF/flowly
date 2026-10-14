@@ -37,6 +37,7 @@ export function TaskCard({
   summary,
   summaryState = "ready",
   output,
+  questions = 0,
   dragging,
   disabled,
   drag,
@@ -52,6 +53,8 @@ export function TaskCard({
   summary?: SessionAttentionSummary;
   summaryState?: "ready" | "loading" | "stale" | "unavailable";
   output?: CardOutput | null;
+  /** Open agent questions awaiting the user's reply. */
+  questions?: number;
   dragging?: boolean;
   disabled?: boolean;
   drag?: CardDrag;
@@ -162,6 +165,7 @@ export function TaskCard({
         accessibilityRole="button"
         accessibilityLabel={[
           `Open task ${task.title}`,
+          questions ? `Needs you: ${questions} open question${questions === 1 ? "" : "s"}` : "",
           `${priorityLabels[task.priority]} priority${task.archivedAt ? ", archived" : ""}${legacy ? ", legacy scope" : ""}`,
           summaryState === "ready" && summary
             ? `${summary.running} running, ${summary.finished} finished turns, ${summary.unread} unread sessions, ${summary.attention} need attention`
@@ -199,6 +203,7 @@ export function TaskCard({
           summaryState={summaryState}
           running={running}
           sessions={sessions}
+          questions={questions}
         />
       </Pressable>
       <View
@@ -266,6 +271,7 @@ function CardSignals({
   summaryState,
   running,
   sessions,
+  questions,
 }: {
   task: Task;
   legacy: boolean;
@@ -274,9 +280,12 @@ function CardSignals({
   summaryState: "ready" | "loading" | "stale" | "unavailable";
   running: number;
   sessions: number;
+  questions: number;
 }) {
   const { colors } = useTheme();
   const items: ReactNode[] = [];
+  if (questions)
+    items.push(<Signal key="question" icon="MessageCircleQuestion" color={colors.statusWarning} text="Needs you" />);
   if (!available)
     items.push(<Signal key="ws" icon="TriangleAlert" color={colors.statusWarning} text="Workspace unavailable" />);
   else if (summaryState === "loading")

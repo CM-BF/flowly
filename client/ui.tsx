@@ -629,3 +629,63 @@ export const message = (error: unknown) =>
   error instanceof Error ? error.message : String(error);
 export const basename = (path: string) =>
   path.split(/[\\/]/).filter(Boolean).pop() || path;
+
+/** Switch row: title, optional detail, trailing track. */
+export function Toggle({
+  title,
+  detail,
+  value,
+  onChange,
+}: {
+  title: string;
+  detail?: string;
+  value: boolean;
+  onChange(value: boolean): void;
+}) {
+  const { colors } = useTheme();
+  return (
+    <Pressable
+      accessibilityRole="switch"
+      accessibilityLabel={title}
+      accessibilityState={{ checked: value }}
+      onPress={() => onChange(!value)}
+      style={{
+        flexDirection: "row",
+        alignItems: "center",
+        gap: space[3],
+        minHeight: touch ? 52 : 44,
+      }}
+    >
+      <View style={{ flex: 1, minWidth: 0 }}>
+        <Label size={font.base} selectable={false}>{title}</Label>
+        {!!detail && (
+          <Label muted size={font.sm} selectable={false}>
+            {detail}
+          </Label>
+        )}
+      </View>
+      <View
+        style={{
+          width: 34,
+          height: 20,
+          borderRadius: 10,
+          padding: 2,
+          justifyContent: "center",
+          alignItems: value ? "flex-end" : "flex-start",
+          backgroundColor: value ? colors.accent : colors.surface2,
+          borderWidth: value ? 0 : 1,
+          borderColor: colors.border,
+        }}
+      >
+        <View
+          style={{
+            width: 16,
+            height: 16,
+            borderRadius: 8,
+            backgroundColor: value ? colors.accentForeground : colors.surface0,
+          }}
+        />
+      </View>
+    </Pressable>
+  );
+}

@@ -21,7 +21,7 @@ export const statusInputSchema = z.strictObject({
 });
 export const progressInputSchema = z.strictObject({
   ...base,
-  kind: z.enum(["progress", "blocker", "result"]).default("progress"),
+  kind: z.enum(["progress", "blocker", "result", "question"]).default("progress"),
 });
 export const identitySchema = z.strictObject({
   agentId: z.string().min(1),

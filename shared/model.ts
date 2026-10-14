@@ -34,6 +34,8 @@ export const projectSchema = z.object({
   createdAt: timestamp,
   updatedAt: timestamp,
   archivedAt: timestamp.nullable(),
+  /** Session-driven status rules (AUTO-STATUS-SPEC). Absent means enabled. */
+  autoStatus: z.boolean().optional(),
 });
 export const taskSchema = z.object({
   id: z.string(),
@@ -61,7 +63,10 @@ export const eventSchema = z.object({
   note: z.string().max(10000).optional(),
   from: statusSchema.optional(),
   to: statusSchema.optional(),
-  reportKind: z.enum(["progress", "blocker", "result"]).optional(),
+  reportKind: z.enum(["progress", "blocker", "result", "question"]).optional(),
+  /** Set when a status rule, not a person or an agent tool, made the change. */
+  rule: z.string().max(20).optional(),
+  outcome: z.enum(["completed", "failed", "canceled"]).optional(),
   at: timestamp,
 });
 export const boardSchema = z.object({
@@ -119,6 +124,7 @@ export const projectEdit = z.strictObject({
   title: z.string().trim().min(1).max(120).optional(),
   description: z.string().max(10000).optional(),
   archived: z.boolean().optional(),
+  autoStatus: z.boolean().optional(),
 });
 export const taskInput = z.strictObject({
   projectId: z.string(),

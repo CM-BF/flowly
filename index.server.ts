@@ -5,6 +5,7 @@ import * as rpc from "./shared/rpc";
 import { ToolServer } from "./server/tool-server";
 import { SessionReadStore, SessionReadService } from "./server/session-reads";
 import { WrapupService } from "./server/wrapup";
+import { applyTurnStarted, recordLifecycle } from "./server/progress-rules";
 
 export default function contribute(server: PluginServerContext) {
   const store = new BoardStore(dataDirectory());
@@ -67,6 +68,7 @@ export default function contribute(server: PluginServerContext) {
         throw new Error("Revision conflict: reload the project before saving.");
       if (input.title !== undefined) p.title = input.title;
       if (input.description !== undefined) p.description = input.description;
+      if (input.autoStatus !== undefined) p.autoStatus = input.autoStatus;
       if (input.archived !== undefined)
         p.archivedAt = input.archived ? new Date().toISOString() : null;
       p.revision++;
@@ -103,28 +105,38 @@ export default function contribute(server: PluginServerContext) {
       afterId: input.direction === "up" ? null : other.id,
     });
   });
-  for (const name of [
-    "agent.turn_started",
-    "agent.turn_ended",
-    "agent.permission_requested",
-  ] as const) {
-    server.on(name, async (event, { paseo }) => {
-      tools.attach(paseo);
-      const board = await store.read();
-      const task = board.tasks.find(
-        (t) => t.workspaceId === event.agent.workspaceId,
-      );
-      if (!task) return;
-      await store.mutate((current) =>
-        store.event(current, {
-          taskId: task.id,
-          actor: "system",
-          action: name,
-          agentId: event.agent.id,
-        }),
-      );
+  // Lifecycle facts are recorded, and status rules run, only for
+  // Kanban-managed sessions (AUTO-STATUS-SPEC).
+  const managedTask = async (agent: { id: string; workspaceId: string | null }) => {
+    const identity = await tools.secrets.managedIdentity(agent.id);
+    if (!identity || identity.workspaceId !== agent.workspaceId) return null;
+    return identity;
+  };
+  server.on("agent.turn_started", async (event, { paseo }) => {
+    tools.attach(paseo);
+    const identity = await managedTask(event.agent);
+    if (!identity) return;
+    await store.mutate((board) => {
+      recordLifecycle(store, board, identity, "agent.turn_started");
+      applyTurnStarted(store, board, identity, event.agent.title);
     });
-  }
+  });
+  server.on("agent.turn_ended", async (event, { paseo }) => {
+    tools.attach(paseo);
+    const identity = await managedTask(event.agent);
+    if (!identity) return;
+    await store.mutate((board) =>
+      recordLifecycle(store, board, identity, "agent.turn_ended", event.outcome),
+    );
+  });
+  server.on("agent.permission_requested", async (event, { paseo }) => {
+    tools.attach(paseo);
+    const identity = await managedTask(event.agent);
+    if (!identity) return;
+    await store.mutate((board) =>
+      recordLifecycle(store, board, identity, "agent.permission_requested"),
+    );
+  });
   console.log("Ultra Kanban store ready:", store.directory);
   server.before("agent.session_open", async ({ request }, { paseo }) => {
     tools.attach(paseo);

@@ -174,7 +174,7 @@ export class ToolServer {
           "kanban_report_progress",
           {
             description:
-              "Append this session's checkpoint/blocker/result without changing card status or task revision. Copy revisions/request from get_task. Partial contribution does not complete the card.",
+              "Append this session's checkpoint/blocker/result/question without changing card status or task revision. kind=question asks the user something and marks the card Needs you until they reply. Copy revisions/request from get_task. Partial contribution does not complete the card.",
             inputSchema: progressInputSchema,
             outputSchema: toolResultSchema,
             annotations: {

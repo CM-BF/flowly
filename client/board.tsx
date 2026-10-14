@@ -27,6 +27,7 @@ import {
   Choices,
   Notice,
   Row,
+  Toggle,
   Dot,
   Badge,
   Divider,
@@ -56,6 +57,7 @@ import { listAgents } from "./resources";
 import { isLegacyScope } from "../shared/scope";
 import { LiveTaskCard, type CardDrag } from "./card";
 import { pickOutputSession } from "./card-output";
+import { cardQuestions } from "../shared/progress";
 import { DesktopColumns, type Placement } from "./columns";
 import { ResizeGrip } from "./resize";
 import { drawerWidth, isCompactLayout } from "./geometry";
@@ -395,6 +397,7 @@ function BoardContent(
         )}
         summaryState={summaryState}
         outputSession={pickOutputSession(sessions, t.workspaceId)}
+        questions={board ? cardQuestions(t, board.events).length : 0}
         drag={drag}
         dragging={dragging}
         disabled={pending || !!project?.archivedAt || !!t.archivedAt}
@@ -860,9 +863,11 @@ function BoardContent(
                     key={item.task.id}
                     title={item.task.title}
                     detail={`${item.project.title} · ${statusLabels[item.task.status]} · ${[
+                      item.questions && `${item.questions} question${item.questions === 1 ? "" : "s"}`,
                       item.permissions && `${item.permissions} approval`,
                       item.errors && `${item.errors} error`,
-                      item.unread && `${item.unread} unread`,
+                      item.unread &&
+                        `${item.unread} unread${item.silent ? ` (${item.silent === item.unread ? "" : `${item.silent} `}no report)` : ""}`,
                     ]
                       .filter(Boolean)
                       .join(" · ")}`}
@@ -871,7 +876,7 @@ function BoardContent(
                       <Dot
                         size={8}
                         color={
-                          item.permissions
+                          item.permissions || item.questions
                             ? colors.statusWarning
                             : item.errors
                               ? colors.statusDanger
@@ -1239,64 +1244,6 @@ function KeyHint({ children }: { children: string }) {
   );
 }
 
-function Toggle({
-  title,
-  detail,
-  value,
-  onChange,
-}: {
-  title: string;
-  detail?: string;
-  value: boolean;
-  onChange(value: boolean): void;
-}) {
-  const { colors } = useTheme();
-  return (
-    <Pressable
-      accessibilityRole="switch"
-      accessibilityLabel={title}
-      accessibilityState={{ checked: value }}
-      onPress={() => onChange(!value)}
-      style={{
-        flexDirection: "row",
-        alignItems: "center",
-        gap: space[3],
-        minHeight: touch ? 52 : 44,
-      }}
-    >
-      <View style={{ flex: 1, minWidth: 0 }}>
-        <Label size={font.base} selectable={false}>{title}</Label>
-        {!!detail && (
-          <Label muted size={font.sm} selectable={false}>
-            {detail}
-          </Label>
-        )}
-      </View>
-      <View
-        style={{
-          width: 34,
-          height: 20,
-          borderRadius: 10,
-          padding: 2,
-          justifyContent: "center",
-          alignItems: value ? "flex-end" : "flex-start",
-          backgroundColor: value ? colors.accent : colors.surface2,
-          borderWidth: value ? 0 : 1,
-          borderColor: colors.border,
-        }}
-      >
-        <View
-          style={{
-            width: 16,
-            height: 16,
-            borderRadius: 8,
-            backgroundColor: value ? colors.accentForeground : colors.surface0,
-          }}
-        />
-      </View>
-    </Pressable>
-  );
-}
 
 export function WorkspaceBoard(props: PluginWorkspacePanelProps) {
   return <BoardScreen {...props} workspaceId={props.workspaceId} />;
