@@ -8,9 +8,10 @@ import {
 import {
   ScrollView,
   Icon,
-  Modal,
   TextInput,
 } from "@getpaseo/plugin/client/react-native";
+import { Modal } from "./modal";
+import { useShortcutBlock } from "./shortcuts";
 import {
   usePaseo,
   useRpc,
@@ -105,6 +106,7 @@ export function SessionPreview({
     [focused, setFocused] = useState(false),
     [composerOpen, setComposerOpen] = useState(false),
     [sendMode, setSendMode] = useState<"steer" | "interrupt">("steer");
+  useShortcutBlock(focused);
   const lock = useRef(false);
   const tail = useSessionFollowTail();
   const mounted = useRef(visible);

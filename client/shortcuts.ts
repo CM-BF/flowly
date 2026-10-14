@@ -1,0 +1,145 @@
+import { useEffect } from "react";
+import type { PluginScreenParams } from "@getpaseo/plugin/client";
+import type { Status, Task } from "../shared/model";
+
+/** Board-scoped desktop shortcuts. See docs/SHORTCUTS-SPEC.md. */
+export type ShortcutAction =
+  | "new-task"
+  | "projects"
+  | "filters"
+  | "attention"
+  | "shortcuts"
+  | "escape"
+  | "next"
+  | "previous"
+  | "left"
+  | "right";
+
+export type BoardIntent = Extract<
+  ShortcutAction,
+  "new-task" | "projects" | "filters" | "attention" | "shortcuts"
+>;
+
+export const shortcutHelp: readonly { keys: string[]; title: string }[] = [
+  { keys: ["N"], title: "New task" },
+  { keys: ["P"], title: "Switch project" },
+  { keys: ["/", "F"], title: "Search and filter" },
+  { keys: ["A"], title: "Needs attention" },
+  { keys: ["J", "K"], title: "Next / previous card in column" },
+  { keys: ["H", "L"], title: "Card in left / right column" },
+  { keys: ["Esc"], title: "Back from session, then close sidebar" },
+  { keys: ["?"], title: "Show keyboard shortcuts" },
+];
+
+const letters: Record<string, ShortcutAction> = {
+  n: "new-task",
+  p: "projects",
+  f: "filters",
+  a: "attention",
+  j: "next",
+  k: "previous",
+  h: "left",
+  l: "right",
+};
+
+export interface ShortcutKey {
+  key: string;
+  metaKey?: boolean;
+  ctrlKey?: boolean;
+  altKey?: boolean;
+  shiftKey?: boolean;
+  repeat?: boolean;
+  isComposing?: boolean;
+}
+
+export function resolveShortcut(
+  event: ShortcutKey,
+  enabled: boolean,
+): ShortcutAction | null {
+  if (!enabled || event.repeat || event.isComposing) return null;
+  if (event.metaKey || event.ctrlKey || event.altKey) return null;
+  const key = event.key;
+  if (key === "Escape") return "escape";
+  if (key === "/") return "filters";
+  if (key === "?") return "shortcuts";
+  if (key.length !== 1 || event.shiftKey) return null;
+  return letters[key.toLowerCase()] ?? null;
+}
+
+/** Visible desktop columns in display order, each sorted like DesktopColumns. */
+export function taskGrid(statuses: readonly Status[], tasks: readonly Task[]) {
+  return statuses.map((status) =>
+    tasks
+      .filter((t) => t.status === status)
+      .sort(
+        (a, b) =>
+          a.position - b.position || a.createdAt.localeCompare(b.createdAt),
+      )
+      .map((t) => t.id),
+  );
+}
+
+export function navigateGrid(
+  grid: readonly (readonly string[])[],
+  current: string,
+  action: "next" | "previous" | "left" | "right",
+): string | null {
+  const filled = grid.filter((column) => column.length);
+  if (!filled.length) return null;
+  const col = filled.findIndex((column) => column.includes(current));
+  if (col < 0) return filled[0][0];
+  const row = filled[col].indexOf(current);
+  if (action === "next" || action === "previous") {
+    const next = row + (action === "next" ? 1 : -1);
+    return filled[col][Math.max(0, Math.min(filled[col].length - 1, next))];
+  }
+  const target = filled[col + (action === "right" ? 1 : -1)];
+  if (!target) return current;
+  return target[Math.min(row, target.length - 1)];
+}
+
+const intents: readonly BoardIntent[] = [
+  "new-task",
+  "projects",
+  "filters",
+  "attention",
+  "shortcuts",
+];
+export const intentMaxAgeMs = 5_000;
+
+export function intentParams(intent: BoardIntent, now = Date.now()) {
+  return { intent, at: String(now) };
+}
+
+/** A fresh Command Center intent, or null for absent, stale or unknown params. */
+export function parseBoardIntent(
+  params: PluginScreenParams | undefined,
+  now = Date.now(),
+): { intent: BoardIntent; key: string } | null {
+  const intent = params?.intent as BoardIntent | undefined;
+  const at = params?.at;
+  if (!intent || !intents.includes(intent) || !at || !/^\d{1,16}$/.test(at))
+    return null;
+  const age = now - Number(at);
+  if (age < -intentMaxAgeMs || age > intentMaxAgeMs) return null;
+  return { intent, key: `${intent}|${at}` };
+}
+
+/**
+ * Plugin-owned text inputs and modals block board shortcuts while focused/open.
+ * Counted here instead of reading DOM focus, which the plugin may not touch.
+ */
+const blockers = new Set<object>();
+export function shortcutsBlocked() {
+  return blockers.size > 0;
+}
+export function useShortcutBlock(active: boolean) {
+  useEffect(() => {
+    if (!active) return;
+    const token = {};
+    blockers.add(token);
+    return () => {
+      blockers.delete(token);
+    };
+  }, [active]);
+}

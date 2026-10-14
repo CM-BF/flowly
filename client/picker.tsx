@@ -3,6 +3,7 @@ import { Pressable, View } from "react-native";
 import { Icon, ScrollView, TextInput } from "@getpaseo/plugin/client/react-native";
 import { Label, font, radius, space, touch, useTheme } from "./ui";
 import { filterOptions, type PickerOption } from "./options";
+import { useShortcutBlock } from "./shortcuts";
 export type { PickerOption } from "./options";
 
 /** Grouped settings rows; each row shows its value and expands an inline option list. */
@@ -48,7 +49,9 @@ export function PickerRow({
   onChange(value: string): void;
 }) {
   const { colors } = useTheme();
-  const [query, setQuery] = useState("");
+  const [query, setQuery] = useState(""),
+    [searching, setSearching] = useState(false);
+  useShortcutBlock(searching);
   const selected = options.find((o) => o.value === value);
   const shown = filterOptions(options, query);
   const searchable = options.length > 8;
@@ -118,6 +121,8 @@ export function PickerRow({
                 accessibilityLabel={`Search ${title.toLowerCase()}`}
                 value={query}
                 onChangeText={setQuery}
+                onFocus={() => setSearching(true)}
+                onBlur={() => setSearching(false)}
                 placeholder={`Search ${title.toLowerCase()}`}
                 placeholderTextColor={colors.foregroundMuted}
                 autoCorrect={false}

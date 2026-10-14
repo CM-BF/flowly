@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { View } from "react-native";
-import { Modal } from "@getpaseo/plugin/client/react-native";
+import { Modal } from "./modal";
 import { usePaseo, useRpc } from "@getpaseo/plugin/client";
 import { useQuery } from "@tanstack/react-query";
 import type { Task } from "../shared/model";
