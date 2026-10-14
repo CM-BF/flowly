@@ -58,10 +58,15 @@ export class WrapupService {
     let git: WrapupCheck["git"] = null;
     if (kind === "worktree" && directory) {
       try {
-        const [branch, status, unpushed] = await Promise.all([
+        const [branch, status] = await Promise.all([
           this.git(directory, ["rev-parse", "--abbrev-ref", "HEAD"]),
           this.git(directory, ["status", "--porcelain"]),
-          this.git(directory, ["rev-list", "--count", "HEAD", "--not", "--remotes"]),
+        ]);
+        // Commits reachable from no other local branch or remote, e.g. not yet
+        // merged into main and not pushed. Merged work is not reported.
+        const unpushed = await this.git(directory, [
+          "rev-list", "--count", "HEAD", "--not",
+          `--exclude=${branch.trim()}`, "--branches", "--remotes",
         ]);
         git = {
           branch: branch.trim(),
@@ -74,7 +79,7 @@ export class WrapupService {
           );
         if (git.unpushed)
           warnings.push(
-            `${git.unpushed} commit${git.unpushed === 1 ? "" : "s"} on ${git.branch} ${git.unpushed === 1 ? "is" : "are"} not on any remote. The branch is kept.`,
+            `${git.unpushed} commit${git.unpushed === 1 ? "" : "s"} exist${git.unpushed === 1 ? "s" : ""} only on ${git.branch} (not merged or pushed elsewhere). The branch is kept.`,
           );
       } catch {
         warnings.push("Git status of the worktree could not be read.");

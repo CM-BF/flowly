@@ -136,4 +136,7 @@ test("real git: uncommitted and local-only commits are detected", async () => {
   const check = await service.check("t", x.paseo);
   expect(check.git).toMatchObject({ branch: "main", unpushed: 1 });
   expect(check.git!.uncommitted).toBeGreaterThanOrEqual(1);
+  // Once another branch contains the commit (merged), it is no longer reported.
+  await run("git", ["-C", x.root, "branch", "integration"]);
+  expect((await service.check("t", x.paseo)).git).toMatchObject({ unpushed: 0 });
 });
