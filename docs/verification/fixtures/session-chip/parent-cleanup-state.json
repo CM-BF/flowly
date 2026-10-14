@@ -1,0 +1,51 @@
+{
+  "checkedAt": "2026-10-14T05:22:53.309Z",
+  "agentId": "d380e718-8a0a-42a6-bc1e-cabe0ef8f483",
+  "agentDeleted": true,
+  "registryErrorCode": "AGENT_NOT_FOUND",
+  "plugin": {
+    "id": "paseo-ultra-kanban",
+    "enabled": true,
+    "status": "running"
+  },
+  "board": {
+    "projects": 2,
+    "tasks": 2,
+    "sha256": "465094810b30fd5f667551464b68cce9559f4090decb11b264f51d376268a24a",
+    "unchangedSinceBaseline": false,
+    "testAgentEvents": 4,
+    "baselineTestAgentEvents": 3
+  },
+  "readState": {
+    "exists": true,
+    "sha256": "58b4dff2c65b6c1d581eab1e0999520d4c4edbe408f3f8a8081e5f0ad60a81de",
+    "unchangedSinceBaseline": true,
+    "testAgentReceipts": 0
+  },
+  "temporaryRendererDirectories": [
+    {
+      "path": "/var/folders/0b/f1crzdg95g5fwbq49s_3pw9c0000gq/T/kanban-session-chip-renderer-s2GQLJ",
+      "exists": false
+    },
+    {
+      "path": "/var/folders/0b/f1crzdg95g5fwbq49s_3pw9c0000gq/T/kanban-session-chip-regressions-1qPBi6",
+      "exists": false
+    }
+  ],
+  "remainingScopedTemporaryDirectories": [],
+  "sourceHashes": {
+    "index.client.tsx": "ac546b5ebae5fd1323bb718ce453a7fedc9aa8d95bdf1b7c02cae771d3db0fdc",
+    "client/session-link.ts": "e3c7b2e71bd87365104da52234a3ed1dd5bb410c70f0a21c39c0083444e1ab55",
+    "client/resources.ts": "36aa9655ea036ad02a0d944018bd6c6281c6b16b4bbb3a2b17e127565914cdcf",
+    "client/board.tsx": "dbda59d9c2233325e48e813672b192202e1231ecb1d6f860ff88138f3c114125",
+    "client/drawer.tsx": "421612439ab18251bc68c8ed1467c4148832e7408d61b633e4b1b685d01fcd42"
+  },
+  "createdNativeProjects": 0,
+  "createdNativeWorkspaces": 0,
+  "createdBoardCards": 0,
+  "derivedTestSessionContext": {
+    "path": "/Users/bofan.wang/.paseo/plugin-data/paseo-ultra-kanban/sessions/d380e718-8a0a-42a6-bc1e-cabe0ef8f483.json",
+    "existedBeforeCleanup": false,
+    "existsAfterCleanup": false
+  }
+}

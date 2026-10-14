@@ -1,0 +1,148 @@
+{
+  "taskId": "e4c3d4df-0311-4e2c-bcc1-e9ab2bc7181f",
+  "workspaceId": "wks_3fd5d552d4f98cd2",
+  "agents": [
+    {
+      "label": "B",
+      "agentId": "dfce7003-6351-4e0c-b3ea-4d4148824478",
+      "modeAtCreation": "full-access",
+      "provider": "codex/gpt-6-luna",
+      "setupStatus": "idle"
+    },
+    {
+      "label": "A",
+      "agentId": "383cb799-767c-43ac-ab69-bcf16c5374b1",
+      "modeAtCreation": "full-access",
+      "provider": "codex/gpt-6-luna",
+      "setupStatus": "idle"
+    }
+  ],
+  "toolsListed": [
+    "kanban_get_task",
+    "kanban_update_status",
+    "kanban_report_progress"
+  ],
+  "sameRevisionStateRace": {
+    "inputRevisionA": {
+      "task": 3,
+      "project": 3
+    },
+    "inputRevisionB": {
+      "task": 3,
+      "project": 3
+    },
+    "results": [
+      {
+        "isError": false,
+        "code": null,
+        "replayed": false,
+        "status": "blocked",
+        "revision": {
+          "task": 4,
+          "project": 3
+        }
+      },
+      {
+        "isError": true,
+        "code": "REVISION_CONFLICT",
+        "replayed": null,
+        "status": null,
+        "revision": null
+      }
+    ],
+    "successCount": 1,
+    "conflictCount": 1,
+    "winnerStatus": "blocked",
+    "taskRevisionAfterRace": 4
+  },
+  "parallelProgress": {
+    "resultA": {
+      "isError": false,
+      "code": null,
+      "replayed": false,
+      "status": "blocked",
+      "revision": {
+        "task": 4,
+        "project": 3
+      }
+    },
+    "resultB": {
+      "isError": false,
+      "code": null,
+      "replayed": false,
+      "status": "blocked",
+      "revision": {
+        "task": 4,
+        "project": 3
+      }
+    },
+    "revisionBefore": 4,
+    "revisionAfter": 4,
+    "progressEventsBefore": 1,
+    "progressEventsAfter": 3,
+    "passed": true
+  },
+  "replay": {
+    "first": {
+      "isError": false,
+      "code": null,
+      "replayed": false,
+      "status": "blocked",
+      "revision": {
+        "task": 4,
+        "project": 3
+      }
+    },
+    "replay": {
+      "isError": false,
+      "code": null,
+      "replayed": true,
+      "status": "blocked",
+      "revision": {
+        "task": 4,
+        "project": 3
+      }
+    },
+    "eventCountBefore": 15,
+    "eventCountAfterFirst": 16,
+    "eventCountAfterReplay": 16,
+    "passed": true
+  },
+  "requestReuse": {
+    "result": {
+      "isError": true,
+      "code": "REQUEST_REUSED",
+      "replayed": null,
+      "status": null,
+      "revision": null
+    },
+    "eventCountAfterReplay": 16,
+    "eventCountAfterReuse": 16,
+    "passed": true
+  },
+  "crossSessionRequest": {
+    "result": {
+      "isError": true,
+      "code": "SESSION_MISMATCH",
+      "replayed": null,
+      "status": null,
+      "revision": null
+    },
+    "passed": true
+  },
+  "humanEditConflict": {
+    "humanPriority": "high",
+    "humanRevision": 5,
+    "staleResult": {
+      "isError": true,
+      "code": "REVISION_CONFLICT",
+      "replayed": null,
+      "status": null,
+      "revision": null
+    },
+    "finalRevision": 5,
+    "finalPriority": "high",
+    "passed": true
+  },
+  "error": null
+}

@@ -1,0 +1,31 @@
+{
+  "sdk": "0.11.2",
+  "source": "import { AgentPane, AgentPanel, AgentCreatePane } from \"@getpaseo/plugin/client/react-native\";\nimport type { PluginSurfaceProps } from \"@getpaseo/plugin/client\";\ndeclare const p: PluginSurfaceProps;\np.navigation?.openAgent({agentId:\"fixture\"});\np.navigation?.openWorkspace({workspaceId:\"fixture\"});\np.navigation?.openAgentDraft({workspaceId:\"fixture\"});\n",
+  "diagnostics": [
+    {
+      "code": 2305,
+      "line": 1,
+      "message": "Module '\"@getpaseo/plugin/client/react-native\"' has no exported member 'AgentPane'."
+    },
+    {
+      "code": 2305,
+      "line": 1,
+      "message": "Module '\"@getpaseo/plugin/client/react-native\"' has no exported member 'AgentPanel'."
+    },
+    {
+      "code": 2305,
+      "line": 1,
+      "message": "Module '\"@getpaseo/plugin/client/react-native\"' has no exported member 'AgentCreatePane'."
+    },
+    {
+      "code": 2339,
+      "line": 6,
+      "message": "Property 'openAgentDraft' does not exist on type '{ readonly openBrowser?: ((input: { readonly url: string; readonly workspaceId: string; readonly serverId?: string | undefined; }) => void) | undefined; readonly openAgent: (input: { readonly agentId: string; readonly serverId?: string | undefined; }) => void; readonly openWorkspace: (input: { ...; }) => void; }'."
+    }
+  ],
+  "openAgentSupported": true,
+  "openWorkspaceSupported": true,
+  "nativePaneEmbeddingSupported": false,
+  "nativeDraftNavigationSupported": false,
+  "kind": "compile contract probe; no app or resource mutation"
+}

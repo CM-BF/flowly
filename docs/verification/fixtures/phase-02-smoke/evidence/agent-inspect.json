@@ -1,0 +1,43 @@
+{
+  "Id": "a87d7587-a62c-4ed4-b5b5-b1b03f643368",
+  "Name": "Phase 2 isolated MCP smoke",
+  "Provider": "codex",
+  "Model": "gpt-6-luna",
+  "Thinking": "xhigh",
+  "Status": "idle",
+  "Archived": false,
+  "ArchivedAt": null,
+  "Mode": "full-access",
+  "Cwd": "/tmp/ultra-kanban-phase2-20261013/repo",
+  "CreatedAt": "2026-10-13T06:26:26.581Z",
+  "UpdatedAt": "2026-10-13T06:31:48.801Z",
+  "LastUsage": {
+    "InputTokens": 42704,
+    "OutputTokens": 166,
+    "CachedTokens": 41728,
+    "CostUsd": 0
+  },
+  "Capabilities": {
+    "Streaming": true,
+    "Persistence": true,
+    "DynamicModes": false,
+    "McpServers": true
+  },
+  "AvailableModes": [
+    {
+      "id": "auto",
+      "label": "Default Permissions"
+    },
+    {
+      "id": "auto-review",
+      "label": "Auto-review"
+    },
+    {
+      "id": "full-access",
+      "label": "Full Access"
+    }
+  ],
+  "PendingPermissions": [],
+  "Worktree": null,
+  "ParentAgentId": null
+}

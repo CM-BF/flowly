@@ -1,0 +1,89 @@
+# Board interaction and layout refinement
+
+Status: implementation authorized by the user's 2026-10-14 UI/UX request. This amends Phase 1/2 presentation only and follows `SINGLE-ROOT-SPEC.md`.
+
+2026-10-14 amendment: [MOTION-SPEC.md](MOTION-SPEC.md) supersedes inline success feedback with native toasts, extends non-selection to lane text, and defines shared navigation/drag motion plus reduced-motion and interruption behavior.
+
+2026-10-14 drawer amendment: [DRAWER-SPEC.md](DRAWER-SPEC.md) removes width buttons and workspace navigation, groups Status/Edit/Archive and collapses metadata/workspace. Its measured accordion height animation is the bounded exception to the default motion policy.
+
+2026-10-14 Android modal theme correction: the compact project chooser exposed `Error: Theme missing` from the plugin's own `useTheme` in a modal `Button`. Paseo's host Modal may render its body across a native context boundary. Every plugin-owned host `Modal.Content` that contains plugin `Button`, `Label`, `Field`, `Choices`, or `Notice` must install a fresh provider for the current `PluginTheme` **inside** the modal body. The board passes its screen theme; project/task/session forms capture their theme before entering the host Modal and bridge it into its content. Changing theme while a modal is open updates that provider. This is a client-only correction: project selection, forms, filters, status and task actions keep their existing behavior, RPC contracts and board data. Acceptance requires typecheck before reload, source inspection of every host modal body, and an Android open/dismiss interaction for the project chooser plus other affected forms when a safe device target is available. A running plugin or desktop-only render does not prove the Android crash fixed.
+
+## 1. Goal and scope
+
+Make the task board the primary surface. Reduce persistent project-management chrome, support desktop mouse drag between status columns, resize the desktop task drawer, and give phones a reliable vertical task list without a horizontal board gesture competing with Paseo navigation.
+
+Keep project CRUD, task search/priority/archive/finished filters, task creation/edit/archive/reorder, workspace ownership, selected-session follow-up, tool access and activity available. Resource contracts, one-root scope, storage v3 and agent completion rules remain as currently specified.
+
+## 2. Board toolbar and secondary controls
+
+- One compact toolbar contains the selected project (opens a project chooser), task count, Filters, and the primary Add task action. Paseo already supplies the screen title; remove the duplicated large plugin title and tagline.
+- Project chooser is a host Modal with a vertical project list, the current root/description, Create project, Edit project and Archive/Restore project. Archived records are discoverable through the filter control. An empty board offers project creation directly.
+- Filters are collapsed by default and open in a host Modal: search, priority, show archived, show finished and refresh. Active filters have a concise toolbar indication and a clear reset action. Changing the project closes its card drawer and cancels any drag.
+- The board body fills the remaining bounded height (`flex: 1`, `minHeight: 0` throughout its parent chain). Error/feedback are concise and actionable. Secondary controls do not form permanent extra header rows.
+- Cards show priority, title, session activity/workspace availability and archive/legacy indicators. Remove the repeated project-root label from every ordinary card. A card action menu contains explicit status selection and existing up/down reorder actions, so dragging is optional and keyboard/touch users retain equivalent controls.
+
+## 3. Desktop drag to change status
+
+- Updated per the user's whole-card request: enable drag from the entire card on expanded web/desktop layouts. Record a primary mouse pointer press through React Native pointer events; moving at least 8 points while it is held starts a drag. Touch/pen, right-button presses and presses originating on Actions are ineligible, preserving touch scrolling and button operation. A normal body click opens details; a drag suppresses that click.
+- All card text, including priority, title and session metadata, is explicitly non-selectable in both desktop and compact layouts. Use React Native `Text.selectable=false` and its `userSelect: none` style; the floating drag preview is also non-selectable. Text selection in task details and inputs keeps its existing behavior.
+- Use host React Native `PanResponder` and measured layout, with no HTML drag events, DOM APIs, global browser listeners or new runtime dependencies. Mobile/touch layouts do not install the board drag responder.
+- Drag carries a snapshot of task ID, project ID, status and task revision. Show a floating task label and accent the currently eligible target column. Source card becomes subdued. Header/filters/drawer are never drop targets.
+- A drop inside a visible status column different from the source calls the existing schema-validated `tasks.update` once with `{id, revision, status}`. It changes business status only; no workspace/session is created, moved or instructed. Existing position semantics are retained. Same-column, outside-board, cancelled/terminated gestures do not write.
+- Horizontal desktop edge scrolling makes offscreen columns reachable during a drag. Scroll offsets participate in hit testing; targets outside the board viewport are rejected. Regular wheel/trackpad scrolling remains available when not dragging.
+- Archived tasks/projects and an in-flight mutation cannot start a drag. During a pending drop disable further drag/reorder writes; refresh after success. Report the destination status on success. On failure, refresh and show the error without optimistic status changes or retrying against a newer revision. Concurrent changes return the existing stale-revision error.
+- Leaving the surface, a dragged card disappearing, changing project/filter/layout or losing the responder cancels drag and stops edge-scroll timers. Releasing after cancellation cannot submit an old drag.
+
+## 4. Resizable task drawer
+
+- Expanded layout has a visible vertical resize grip between board and right drawer. Mouse drag changes width immediately; accessible Narrower/Wider/Reset controls provide the same operation without dragging.
+- Preferred initial width is 440 points. Clamp to a minimum of 340, maximum of 720 and enough remaining board width (at least 300 points plus grip). Re-clamp on window resize. Store preferred width in component state for the open board surface; do not add persisted board fields or localStorage.
+- If host layout is compact, platform is iOS/Android, or measured surface width is below 760, show task detail at full width with Back to board; hide the resize grip. Preserve the selected card and session when crossing the breakpoint.
+- Drawer content has a bounded vertical host ScrollView. Status/session/model/mode choices wrap instead of requiring horizontal swipe; headers/action rows wrap on narrow widths. The latest output remains bounded and vertically scrollable.
+
+## 5. Phone and narrow layouts
+
+- Replace horizontally swiped status columns with one full-width vertical task list for the selected status. A tappable status control opens a vertical status chooser showing counts. Select a status explicitly; no custom horizontal pager, swipe-to-change-status or card drag responder.
+- Default selected status is Todo. Backlog/In progress/In review/Blocked and optionally Done/Cancelled remain reachable. If finished statuses become hidden while selected, return to Todo. Status selection is view state, not a task update.
+- A single host ScrollView owns task-list vertical scrolling. It has explicit flex bounds, keyboard tap handling, nested scrolling support and no horizontal parent. Header stays small and fixed. Cards/actions are reachable at the end of a long list.
+- Host Modal handles safe areas, keyboard, back/dismiss and its own sheet gestures. Use host ScrollView/TextInput in modal/forms and wrap choices rather than horizontal scroll strips. Preserve Paseo's navigation and edge gestures; do not intercept native horizontal touches.
+
+## 6. Compatibility, errors and architecture
+
+- No RPC/schema/storage migration. Use existing CAS mutation semantics and public SDK. Current one-root and legacy read-only scope rules remain intact.
+- New client-only geometry helpers contain pure drag hit testing, edge scroll and drawer clamping. Components stay under `client/`; root entry registration stays small. All surfaces use host theme colors in both appearances.
+- Surface width measurements are local layout state. Until measured, use host compact/platform hint and safe drawer limits; do not guess native device identity.
+- Project/form/agent service failures retain current draft/error handling. A mutation rejection never reports successful movement. Invalid/outside drop simply returns the card to its current column.
+
+## 7. Implementation order
+
+1. Write this complete contract; inspect pinned host modules and existing UI.
+2. Build compact toolbar/chooser/filter and adaptive board/card components.
+3. Implement measured desktop drag and width control; adapt drawer/forms scrolling.
+4. Typecheck, focused geometry/interaction tests, full existing regression suite, then reload only `paseo-ultra-kanban`.
+5. Explicit full-access Paseo `codex/gpt-6-luna` independent verification and user review. Test resources must be recorded and removed at the end; prefer synthetic client fixtures when native resources are unnecessary.
+
+## 8. Acceptance and evidence
+
+Record PASS / FAIL / UNRUN separately in `docs/verification/ui-ux.md`.
+
+| Check | Expected result |
+| --- | --- |
+| Expanded toolbar | One small row; project CRUD/filter/refresh remain reachable; tasks fill remaining space |
+| Drag vs click | Click opens; threshold drag does not open; target feedback matches column |
+| Whole-card pointer origin | Primary mouse drag can start at title/priority/metadata/background; touch, pen, right button and Actions do not start drag |
+| Card text selection | Every card text node and drag preview explicitly disallows selection |
+| Drop rules | Cross-status writes once with captured revision; same/outside/cancel/archived does not write |
+| CAS failure | Original server status remains authoritative; error shown, no automatic retry |
+| Edge scrolling | Offscreen columns reachable; viewport/offset hit test correct; timers stop |
+| Drawer | Grip and buttons resize within bounds; resize window clamps; compact details full-width |
+| Mobile list | Long list scrolls to last task; no horizontal board/choice scroll strips; status chooser works |
+| Mobile detail/forms | Vertical content and keyboard usable; status/session selection/follow-up reachable |
+| Appearance/accessibility | Light/dark text and drop/grip contrast; labelled alternatives; touch targets |
+| Regression | Existing invariants/tools/session/resource tests and typecheck pass |
+| Native resource cleanup | No new test project/workspace/card/session/directory remains after verification |
+
+Actual Paseo UI tests may operate only on the identified non-fullscreen window (actual ID/title/geometry). If computer-use cannot bind it unambiguously, stop UI actions and record UNRUN. A synthetic render/interaction harness is useful component evidence, not proof of real Paseo gestures or a phone. Do not count old screenshots as verification of this revision. No daemon restart.
+
+## 9. References
+
+Implementation checked against installed Paseo SDK 0.11.2 contracts and the current [plugin reference](https://paseo.sh/docs/plugins/reference), including host scroll integration. Gesture and bounded-height behavior follow primary [React Native PanResponder](https://reactnative.dev/docs/0.81/panresponder) and [ScrollView](https://reactnative.dev/docs/0.81/scrollview) documentation. Installed host version remains the compatibility authority.

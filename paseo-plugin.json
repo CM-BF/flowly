@@ -1,0 +1,8 @@
+{
+  "id": "paseo-ultra-kanban",
+  "name": "Ultra Kanban",
+  "description": "Projects, task workspaces and agent sessions in one board",
+  "requirements": {
+    "paseo": ">=0.11.2 <0.12.0"
+  }
+}

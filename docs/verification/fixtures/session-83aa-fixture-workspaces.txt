@@ -1,0 +1,72 @@
+[
+  {
+    "workspaceId": "wks_03edb11a97acb9c6",
+    "name": "Ultra Kanban Acceptance: directory workspace",
+    "project": "repo-one",
+    "cwd": "/private/tmp/ultra-kanban-acceptance-20261013/repo-one",
+    "isolation": "local"
+  },
+  {
+    "workspaceId": "wks_38692b1890571f2f",
+    "name": "Ultra Kanban Acceptance: directory workspace",
+    "project": "repo-one",
+    "cwd": "/private/tmp/ultra-kanban-acceptance-20261013/repo-one",
+    "isolation": "local"
+  },
+  {
+    "workspaceId": "wks_3bc59e6341a37b37",
+    "name": "Ultra Kanban Acceptance: existing link target",
+    "project": "repo-one",
+    "cwd": "/tmp/ultra-kanban-acceptance-20261013/repo-two",
+    "isolation": "local"
+  },
+  {
+    "workspaceId": "wks_4174eefbcfc7d955",
+    "name": "Ultra Kanban Acceptance: non-default named branch base",
+    "project": "repo-nondefault-base",
+    "cwd": "/Users/bofan.wang/.paseo/worktrees/1fktzgz3/acceptance-worktree-from-nondefault-20261013",
+    "isolation": "worktree"
+  },
+  {
+    "workspaceId": "wks_7fef56e741778cb3",
+    "name": "Ultra Kanban Acceptance: external repo-two managed worktree",
+    "project": "repo-two",
+    "cwd": "/Users/bofan.wang/.paseo/worktrees/2wp43niw/acceptance-external-managed-worktree-20261013",
+    "isolation": "worktree"
+  },
+  {
+    "workspaceId": "wks_88fa464b23f8a27d",
+    "name": "Ultra Kanban Acceptance: repo-two default base retest",
+    "project": "repo-one",
+    "cwd": "/Users/bofan.wang/.paseo/worktrees/2wp43niw/ultra-kanban-acceptance-repo-two-default-20261013",
+    "isolation": "worktree"
+  },
+  {
+    "workspaceId": "wks_9364e4929fe1d442",
+    "name": "Ultra Kanban Acceptance: fixed operationId retry",
+    "project": "repo-one",
+    "cwd": "/private/tmp/ultra-kanban-acceptance-20261013/repo-one",
+    "isolation": "local"
+  },
+  {
+    "workspaceId": "wks_9971e291bf5ff148",
+    "name": "Ultra Kanban Acceptance: unrestricted scope markers",
+    "project": "repo-one",
+    "cwd": "/private/tmp/ultra-kanban-acceptance-20261013/repo-one",
+    "isolation": "local"
+  },
+  {
+    "workspaceId": "wks_9dbd697a8a45ec49",
+    "name": "Ultra Kanban Acceptance: repo-two worktree",
+    "project": "repo-one",
+    "cwd": "/Users/bofan.wang/.paseo/worktrees/2wp43niw/ultra-kanban-acceptance-repo-two",
+    "isolation": "worktree"
+  },
+  {
+    "workspaceId": "wks_e194c715415378f0",
+    "name": "Ultra Kanban Acceptance: secondary repo native workspace",
+    "project": "repo-two",
+    "cwd": "/tmp/ultra-kanban-acceptance-20261013/repo-two",
+    "isolation": "local"
+  }
+]

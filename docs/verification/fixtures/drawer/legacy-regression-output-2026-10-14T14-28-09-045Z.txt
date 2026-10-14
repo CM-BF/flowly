@@ -1,0 +1,141 @@
+
+ RUN  v4.1.11 /Users/bofan.wang/Developer/personal/paseo-utlra-kanban
+
+ ❯ docs/verification/fixtures/session-chip/session-entry-components.test.tsx (1 test | 1 failed) 8ms
+     × same requestId with a different session consumes and previews the new exact session 7ms
+ ❯ docs/verification/fixtures/session-pane/session-components.test.tsx (8 tests | 5 failed) 48ms
+     × SessionCard selects its actor and TaskDrawer sorts newest first, opens native exact actor/host, and Back restores overview 21ms
+     × Creation modal starts with settings collapsed, surfaces payload errors/empty states, and hides unselectable models 1ms
+     × Creation submission has a synchronous lock and retry recovers prepared actor without losing the draft or replaying create 0ms
+     × Native navigation does not fire when Back unmounts preview during fresh membership check 2ms
+     × TaskDrawer keeps per-actor drafts and parent send lock across Back/reopen; Back releases preview subscription 2ms
+
+ Test Files  2 failed | 7 passed (9)
+      Tests  6 failed | 37 passed (43)
+   Start at  22:28:10
+   Duration  398ms (transform 549ms, setup 0ms, import 1.18s, tests 199ms, environment 0ms)
+
+stderr | docs/verification/fixtures/session-chip/session-entry-components.test.tsx > TaskDrawer session entry identity > same requestId with a different session consumes and previews the new exact session
+react-test-renderer is deprecated. See https://react.dev/warnings/react-test-renderer
+
+stderr | docs/verification/fixtures/session-pane/session-components.test.tsx > session pane components (temporary React renderer) > SessionCard selects its actor and TaskDrawer sorts newest first, opens native exact actor/host, and Back restores overview
+react-test-renderer is deprecated. See https://react.dev/warnings/react-test-renderer
+
+stderr | docs/verification/fixtures/session-pane/session-components.test.tsx > session pane components (temporary React renderer) > SessionCard selects its actor and TaskDrawer sorts newest first, opens native exact actor/host, and Back restores overview
+An update to Root inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+react-test-renderer is deprecated. See https://react.dev/warnings/react-test-renderer
+
+stderr | docs/verification/fixtures/session-pane/session-components.test.tsx > session pane components (temporary React renderer) > Creation modal starts with settings collapsed, surfaces payload errors/empty states, and hides unselectable models
+react-test-renderer is deprecated. See https://react.dev/warnings/react-test-renderer
+
+stderr | docs/verification/fixtures/session-pane/session-components.test.tsx > session pane components (temporary React renderer) > Creation submission has a synchronous lock and retry recovers prepared actor without losing the draft or replaying create
+react-test-renderer is deprecated. See https://react.dev/warnings/react-test-renderer
+
+stderr | docs/verification/fixtures/session-pane/session-components.test.tsx > session pane components (temporary React renderer) > Native navigation does not fire when Back unmounts preview during fresh membership check
+react-test-renderer is deprecated. See https://react.dev/warnings/react-test-renderer
+
+stderr | docs/verification/fixtures/session-pane/session-components.test.tsx > session pane components (temporary React renderer) > TaskDrawer keeps per-actor drafts and parent send lock across Back/reopen; Back releases preview subscription
+react-test-renderer is deprecated. See https://react.dev/warnings/react-test-renderer
+
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 6 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  docs/verification/fixtures/session-chip/session-entry-components.test.tsx > TaskDrawer session entry identity > same requestId with a different session consumes and previews the new exact session
+Error: [vitest] No "Modal" export is defined on the "@getpaseo/plugin/client/react-native" mock. Did you forget to return it from "vi.mock"?
+If you need to partially mock a module, you can use "importOriginal" helper inside:
+
+vi.mock(import("@getpaseo/plugin/client/react-native"), async (importOriginal) => {
+  const actual = await importOriginal()
+  return {
+    ...actual,
+    // your mocked methods
+  }
+})
+
+ ❯ TaskDrawer client/drawer.tsx:403:8
+    401|       )}
+    402|       </MotionReveal>
+    403|       <Modal
+       |        ^
+    404|         open={compact && statusMenuOpen && active && !selected}
+    405|         title="Task status"
+ ❯ react-stack-bottom-frame ../../../../../private/var/folders/0b/f1crzdg95g5fwbq49s_3pw9c0000gq/T/paseo-drawer-renderer-k0tTFF/node_modules/react-test-renderer/cjs/react-test-renderer.development.js:13976:20
+ ❯ renderWithHooks ../../../../../private/var/folders/0b/f1crzdg95g5fwbq49s_3pw9c0000gq/T/paseo-drawer-renderer-k0tTFF/node_modules/react-test-renderer/cjs/react-test-renderer.development.js:2866:22
+ ❯ updateFunctionComponent ../../../../../private/var/folders/0b/f1crzdg95g5fwbq49s_3pw9c0000gq/T/paseo-drawer-renderer-k0tTFF/node_modules/react-test-renderer/cjs/react-test-renderer.development.js:6006:19
+ ❯ beginWork ../../../../../private/var/folders/0b/f1crzdg95g5fwbq49s_3pw9c0000gq/T/paseo-drawer-renderer-k0tTFF/node_modules/react-test-renderer/cjs/react-test-renderer.development.js:7474:18
+ ❯ runWithFiberInDEV ../../../../../private/var/folders/0b/f1crzdg95g5fwbq49s_3pw9c0000gq/T/paseo-drawer-renderer-k0tTFF/node_modules/react-test-renderer/cjs/react-test-renderer.development.js:1574:13
+ ❯ performUnitOfWork ../../../../../private/var/folders/0b/f1crzdg95g5fwbq49s_3pw9c0000gq/T/paseo-drawer-renderer-k0tTFF/node_modules/react-test-renderer/cjs/react-test-renderer.development.js:10980:22
+ ❯ workLoopSync ../../../../../private/var/folders/0b/f1crzdg95g5fwbq49s_3pw9c0000gq/T/paseo-drawer-renderer-k0tTFF/node_modules/react-test-renderer/cjs/react-test-renderer.development.js:10816:41
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/6]⎯
+
+ FAIL  docs/verification/fixtures/session-pane/session-components.test.tsx > session pane components (temporary React renderer) > SessionCard selects its actor and TaskDrawer sorts newest first, opens native exact actor/host, and Back restores overview
+ FAIL  docs/verification/fixtures/session-pane/session-components.test.tsx > session pane components (temporary React renderer) > Native navigation does not fire when Back unmounts preview during fresh membership check
+ FAIL  docs/verification/fixtures/session-pane/session-components.test.tsx > session pane components (temporary React renderer) > TaskDrawer keeps per-actor drafts and parent send lock across Back/reopen; Back releases preview subscription
+Error: [vitest] No "Theme" export is defined on the "../../../../client/ui" mock. Did you forget to return it from "vi.mock"?
+If you need to partially mock a module, you can use "importOriginal" helper inside:
+
+vi.mock(import("../../../../client/ui"), async (importOriginal) => {
+  const actual = await importOriginal()
+  return {
+    ...actual,
+    // your mocked methods
+  }
+})
+
+ ❯ TaskDrawer client/drawer.tsx:411:12
+    409|       >
+    410|         <Modal.Content>
+    411|           <Theme.Provider value={theme}>
+       |            ^
+    412|             {statuses.map((status) => (
+    413|               <Button
+ ❯ react-stack-bottom-frame ../../../../../private/var/folders/0b/f1crzdg95g5fwbq49s_3pw9c0000gq/T/paseo-drawer-renderer-k0tTFF/node_modules/react-test-renderer/cjs/react-test-renderer.development.js:13976:20
+ ❯ renderWithHooks ../../../../../private/var/folders/0b/f1crzdg95g5fwbq49s_3pw9c0000gq/T/paseo-drawer-renderer-k0tTFF/node_modules/react-test-renderer/cjs/react-test-renderer.development.js:2866:22
+ ❯ updateFunctionComponent ../../../../../private/var/folders/0b/f1crzdg95g5fwbq49s_3pw9c0000gq/T/paseo-drawer-renderer-k0tTFF/node_modules/react-test-renderer/cjs/react-test-renderer.development.js:6006:19
+ ❯ beginWork ../../../../../private/var/folders/0b/f1crzdg95g5fwbq49s_3pw9c0000gq/T/paseo-drawer-renderer-k0tTFF/node_modules/react-test-renderer/cjs/react-test-renderer.development.js:7474:18
+ ❯ runWithFiberInDEV ../../../../../private/var/folders/0b/f1crzdg95g5fwbq49s_3pw9c0000gq/T/paseo-drawer-renderer-k0tTFF/node_modules/react-test-renderer/cjs/react-test-renderer.development.js:1574:13
+ ❯ performUnitOfWork ../../../../../private/var/folders/0b/f1crzdg95g5fwbq49s_3pw9c0000gq/T/paseo-drawer-renderer-k0tTFF/node_modules/react-test-renderer/cjs/react-test-renderer.development.js:10980:22
+ ❯ workLoopSync ../../../../../private/var/folders/0b/f1crzdg95g5fwbq49s_3pw9c0000gq/T/paseo-drawer-renderer-k0tTFF/node_modules/react-test-renderer/cjs/react-test-renderer.development.js:10816:41
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/6]⎯
+
+ FAIL  docs/verification/fixtures/session-pane/session-components.test.tsx > session pane components (temporary React renderer) > Creation modal starts with settings collapsed, surfaces payload errors/empty states, and hides unselectable models
+ FAIL  docs/verification/fixtures/session-pane/session-components.test.tsx > session pane components (temporary React renderer) > Creation submission has a synchronous lock and retry recovers prepared actor without losing the draft or replaying create
+Error: [vitest] No "Theme" export is defined on the "../../../../client/ui" mock. Did you forget to return it from "vi.mock"?
+If you need to partially mock a module, you can use "importOriginal" helper inside:
+
+vi.mock(import("../../../../client/ui"), async (importOriginal) => {
+  const actual = await importOriginal()
+  return {
+    ...actual,
+    // your mocked methods
+  }
+})
+
+ ❯ SessionCreate client/session-create.tsx:219:10
+    217|     >
+    218|       <Modal.Content>
+    219|         <Theme.Provider value={theme}>
+       |          ^
+    220|         <Field
+    221|           title="Session title (optional)"
+ ❯ react-stack-bottom-frame ../../../../../private/var/folders/0b/f1crzdg95g5fwbq49s_3pw9c0000gq/T/paseo-drawer-renderer-k0tTFF/node_modules/react-test-renderer/cjs/react-test-renderer.development.js:13976:20
+ ❯ renderWithHooks ../../../../../private/var/folders/0b/f1crzdg95g5fwbq49s_3pw9c0000gq/T/paseo-drawer-renderer-k0tTFF/node_modules/react-test-renderer/cjs/react-test-renderer.development.js:2866:22
+ ❯ updateFunctionComponent ../../../../../private/var/folders/0b/f1crzdg95g5fwbq49s_3pw9c0000gq/T/paseo-drawer-renderer-k0tTFF/node_modules/react-test-renderer/cjs/react-test-renderer.development.js:6006:19
+ ❯ beginWork ../../../../../private/var/folders/0b/f1crzdg95g5fwbq49s_3pw9c0000gq/T/paseo-drawer-renderer-k0tTFF/node_modules/react-test-renderer/cjs/react-test-renderer.development.js:7474:18
+ ❯ runWithFiberInDEV ../../../../../private/var/folders/0b/f1crzdg95g5fwbq49s_3pw9c0000gq/T/paseo-drawer-renderer-k0tTFF/node_modules/react-test-renderer/cjs/react-test-renderer.development.js:1574:13
+ ❯ performUnitOfWork ../../../../../private/var/folders/0b/f1crzdg95g5fwbq49s_3pw9c0000gq/T/paseo-drawer-renderer-k0tTFF/node_modules/react-test-renderer/cjs/react-test-renderer.development.js:10980:22
+ ❯ workLoopSync ../../../../../private/var/folders/0b/f1crzdg95g5fwbq49s_3pw9c0000gq/T/paseo-drawer-renderer-k0tTFF/node_modules/react-test-renderer/cjs/react-test-renderer.development.js:10816:41
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/6]⎯
+

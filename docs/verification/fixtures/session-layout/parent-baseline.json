@@ -1,0 +1,11 @@
+{
+  "checkedAt": "2026-10-14T04:14:21.118Z",
+  "testAgentId": "1ea62ff1-6a08-4e88-bd17-1873cd76e53b",
+  "provider": "codex/gpt-6-luna",
+  "modeId": "full-access",
+  "workspaceId": "wks_1b4e2fc48dd38d30",
+  "sha256": "3a86fffd5aa1e989d3a0f49a859b2bf0f63074766cea4053b3076c7e12a2db11",
+  "projects": 1,
+  "tasks": 1,
+  "testAgentEvents": 0
+}

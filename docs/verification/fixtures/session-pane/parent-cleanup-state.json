@@ -1,0 +1,23 @@
+{
+  "checkedAt": "2026-10-14T03:58:40.196Z",
+  "agentId": "18121ba1-252f-4a1c-93d7-2253918805ba",
+  "agentDeleted": true,
+  "registryErrorCode": "AGENT_NOT_FOUND",
+  "plugin": {
+    "id": "paseo-ultra-kanban",
+    "status": "running",
+    "enabled": true
+  },
+  "board": {
+    "projects": 1,
+    "tasks": 1
+  },
+  "testAgentLifecycleEvents": 0,
+  "rendererTemp": {
+    "path": "/var/folders/0b/f1crzdg95g5fwbq49s_3pw9c0000gq/T/paseo-session-pane-renderer-x9EIQ2",
+    "exists": false
+  },
+  "createdNativeProjects": 0,
+  "createdNativeWorkspaces": 0,
+  "createdBoardCards": 0
+}

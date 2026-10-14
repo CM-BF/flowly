@@ -1,0 +1,38 @@
+{
+  "checkedAt": "2026-10-14T04:25:30.614Z",
+  "agentId": "1ea62ff1-6a08-4e88-bd17-1873cd76e53b",
+  "agentDeleted": true,
+  "registryErrorCode": "AGENT_NOT_FOUND",
+  "plugin": {
+    "id": "paseo-ultra-kanban",
+    "status": "running",
+    "enabled": true
+  },
+  "board": {
+    "projects": 1,
+    "tasks": 1,
+    "sha256": "3a86fffd5aa1e989d3a0f49a859b2bf0f63074766cea4053b3076c7e12a2db11",
+    "unchangedSinceBaseline": true,
+    "testAgentEvents": 0
+  },
+  "temporaryRendererDirectories": [
+    {
+      "path": "/var/folders/0b/f1crzdg95g5fwbq49s_3pw9c0000gq/T/paseo-session-layout-renderer-w8O04f",
+      "exists": false
+    },
+    {
+      "path": "/var/folders/0b/f1crzdg95g5fwbq49s_3pw9c0000gq/T/paseo-session-layout-renderer-Dtsxkm",
+      "exists": false
+    }
+  ],
+  "verifiedSourceHashes": {
+    "client/session-follow.ts": "1fa3e398167ebce46583cca99daa873892328690647880ff0ca6a01536fde105",
+    "client/session-markdown.ts": "bff425a5f07738e9fd9f6237d63a725aebdd85b45a3bd4d86a6f338205598a1c",
+    "client/session-content.tsx": "a8916f8c3437e2af673c906532d65001f1e88462b1ad441b5a381c13fe9984ae",
+    "client/session-preview.tsx": "98a9e8b13bc9c68feab79a504cfa7055f27d9d2a374c947234ef00400756c0b8",
+    "client/session-state.ts": "41344879d394c4cdc2fd9efb9b54ad571e1387af45b9295aa764e152b2e06b60"
+  },
+  "createdNativeProjects": 0,
+  "createdNativeWorkspaces": 0,
+  "createdBoardCards": 0
+}

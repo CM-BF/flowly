@@ -1,0 +1,15 @@
+{
+  "removed": [
+    {
+      "path": "/var/folders/0b/f1crzdg95g5fwbq49s_3pw9c0000gq/T/ultra-kanban-migration-v1-VNgqAp",
+      "created": "2026-10-14T02:36:57.909Z",
+      "existsAfter": false
+    },
+    {
+      "path": "/var/folders/0b/f1crzdg95g5fwbq49s_3pw9c0000gq/T/ultra-kanban-migration-v1-QgqDcL",
+      "created": "2026-10-14T02:44:40.233Z",
+      "existsAfter": false
+    }
+  ],
+  "reason": "Exact directories created by the current UI UX full-suite runs; historical pre-existing migration directories preserved."
+}

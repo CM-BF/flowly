@@ -1,0 +1,174 @@
+{
+  "createdAt": "2026-10-13T08:46:38.025Z",
+  "fixtureRoot": "/tmp/ultra-kanban-single-root-20261013/run-03",
+  "session": {
+    "id": "2113042d-0934-454d-bf58-af71751f926c",
+    "provider": "codex",
+    "model": "gpt-6-luna",
+    "mode": "full-access"
+  },
+  "method": "test-only Paseo DaemonClient SDK + plugin RPC",
+  "checks": [
+    {
+      "name": "legacy-multirepo-fixture-available",
+      "status": "PASS",
+      "projectId": "00aebed7-d778-4a5b-ba01-94b63eaa5196",
+      "taskId": "2790b6b0-c79e-4e36-8c7f-e9a0e7c57f0b",
+      "scopeCount": 2
+    },
+    {
+      "name": "deprecated-project-repos-rejected",
+      "status": "PASS",
+      "rejected": true,
+      "error": "Request failed: [\n  {\n    \"code\": \"unrecognized_keys\",\n    \"keys\": [\n      \"repos\"\n    ],\n    \"path\": [],\n    \"message\": \"Unrecognized key: \\\"repos\\\"\"\n  }\n] requestType=plugin.rpc.invoke.request code=handler_error",
+      "noMutation": true
+    },
+    {
+      "name": "native-common-parent-project-single-root",
+      "status": "PASS",
+      "boardProjectId": "45c7807d-8cce-4d8c-8e97-5505ce7eb635",
+      "nativeProjectId": "prj_13036dd24dd2254c",
+      "primaryPathIsFixtureRoot": true,
+      "repoCount": 1,
+      "onlyRepoIsFixtureRoot": true
+    },
+    {
+      "name": "new-directory-card-root-source-scope-owner-and-agent-context",
+      "status": "PASS",
+      "taskId": "a1d85c23-33bd-440f-9d07-cb112b6d8a4e",
+      "workspaceId": "wks_89e6ac8e06074901",
+      "sourcePathIsFixtureRoot": true,
+      "repoPathsCount": 1,
+      "repoPathsOnlyFixtureRoot": true,
+      "workspaceOwnerIsNativeRootProject": true,
+      "workspacePathIsFixtureRoot": true,
+      "contextDirectoriesAreFixtureRootOnly": true,
+      "contextSha256": "8f56f59f9988693f076ffa3176ec8d03d65bf8040895d62f7e9c2fc660e6f6ec"
+    },
+    {
+      "name": "deprecated-card-source-and-scope-rejected",
+      "status": "PASS",
+      "rejected": true,
+      "error": "Request failed: [\n  {\n    \"code\": \"unrecognized_keys\",\n    \"keys\": [\n      \"sourcePath\",\n      \"repoPaths\"\n    ],\n    \"path\": [],\n    \"message\": \"Unrecognized keys: \\\"sourcePath\\\", \\\"repoPaths\\\"\"\n  }\n] requestType=plugin.rpc.invoke.request code=handler_error",
+      "noMutation": true
+    },
+    {
+      "name": "link-parent-directory-workspace-preserve-native-owner",
+      "status": "PASS",
+      "taskId": "c2010109-7d87-42cd-97f8-bfd05431e531",
+      "workspaceId": "wks_572cccd6f0a30c6f",
+      "sourcePathIsFixtureRoot": true,
+      "repoPathsOnlyFixtureRoot": true,
+      "originalNativeOwnerPreserved": true,
+      "contextOnlyListsFixtureRoot": true,
+      "contextSha256": "69a0ba613a03c7d7de71e4a01a198d4d561cd3be42890847fd8e955d4b50178e"
+    },
+    {
+      "name": "outside-root-workspace-cannot-be-card-source-or-scope",
+      "status": "PASS",
+      "rejected": true,
+      "error": "Request failed: Workspace is unavailable or outside this project's repositories. requestType=plugin.rpc.invoke.request code=handler_error",
+      "noMutation": true
+    },
+    {
+      "name": "non-git-common-root-worktree-rejected-before-provisioning",
+      "status": "PASS",
+      "rejected": true,
+      "error": "Request failed: Cannot determine the selected repository's current named branch. Enter a valid base ref (such as main or origin/main); detached HEAD and non-Git directories have no automatic branch. requestType=plugin.rpc.invoke.request code=handler_error",
+      "noMutation": true,
+      "childRepositoriesAreGit": true,
+      "nativeRootIsGit": false
+    },
+    {
+      "name": "git-native-root-worktree-uses-only-root",
+      "status": "PASS",
+      "taskId": "187f705d-e70d-4e85-86f9-49965374867e",
+      "workspaceId": "wks_c15136e64c76978c",
+      "sourcePathIsFixtureRoot": true,
+      "repoPathsOnlyFixtureRoot": true,
+      "workspaceOwnerIsNativeRootProject": true,
+      "workspaceIsSeparateWorktree": true,
+      "contextOnlyListsFixtureRoot": true,
+      "contextSha256": "fa3f1455e779307bd17e724dbe3b284537af5ecabaf0d0ffb3018955c16ecc1b"
+    },
+    {
+      "name": "project-edit-cannot-add-secondary-repo-or-change-root",
+      "status": "PASS",
+      "rejected": true,
+      "error": "Request failed: [\n  {\n    \"code\": \"unrecognized_keys\",\n    \"keys\": [\n      \"repos\"\n    ],\n    \"path\": [],\n    \"message\": \"Unrecognized key: \\\"repos\\\"\"\n  }\n] requestType=plugin.rpc.invoke.request code=handler_error",
+      "rootAndWorkspaceUnchanged": true
+    },
+    {
+      "name": "plugin-reload-board-bytes-and-read-view-unchanged",
+      "status": "PASS",
+      "bytesUnchanged": true,
+      "boardReadUnchanged": true,
+      "beforeSha256": "49e8b08a7161fa1f44e9f4bdd20f0d88004c99ffede8871456bf14dbae06e0a5",
+      "afterSha256": "49e8b08a7161fa1f44e9f4bdd20f0d88004c99ffede8871456bf14dbae06e0a5"
+    },
+    {
+      "name": "fixture-project-card-persistence-after-reload",
+      "status": "PASS",
+      "projectsPersisted": true,
+      "cardsPersisted": true
+    },
+    {
+      "name": "legacy-multirepo-card-context-and-native-owner-preserved-after-reload",
+      "status": "PASS",
+      "projectId": "00aebed7-d778-4a5b-ba01-94b63eaa5196",
+      "taskId": "2790b6b0-c79e-4e36-8c7f-e9a0e7c57f0b",
+      "projectUnchanged": true,
+      "cardUnchanged": true,
+      "contextUnchanged": true,
+      "nativeOwnerUnchanged": true,
+      "scopeCount": 2
+    }
+  ],
+  "resourcesRetained": true,
+  "daemonRestarted": false,
+  "ui": "UNRUN: macOS CUA did not provide a window ID and geometry for safe targeting.",
+  "before": {
+    "projects": 7,
+    "tasks": 16,
+    "workspaces": 45
+  },
+  "beforeBoardSha256": "312aa20264260de72253c5fbbcaac1179478b811fc89d3b36b570f1fb0e5ec38",
+  "legacyBaseline": {
+    "project": {
+      "id": "00aebed7-d778-4a5b-ba01-94b63eaa5196",
+      "nativeId": "prj_8859e85f82a61739",
+      "hash": "3c208237c52cef0dc2be980d4f9f841d5a31103dd69aaf1dcfd4358b51f7282b"
+    },
+    "task": {
+      "id": "2790b6b0-c79e-4e36-8c7f-e9a0e7c57f0b",
+      "workspaceId": "wks_03edb11a97acb9c6",
+      "hash": "e4ef8b044f5baf1138724b20a7d2b18cd679c7d6b3db84aac3e80f759103d569"
+    },
+    "contextHash": "d4b46c3c00239830d59e9a4f3e77c5d2f24ea323e4733b48662c3bd3926e2162",
+    "workspaceOwner": "prj_8859e85f82a61739",
+    "scopeCount": 2
+  },
+  "fixtureNativeProjectId": "prj_13036dd24dd2254c",
+  "fixtureRootSha256": "16f824240fbaf3efa16c6a3fb2aed800f192687e5f7da8a5a35d5b958bd12d20",
+  "boardProjectId": "45c7807d-8cce-4d8c-8e97-5505ce7eb635",
+  "directoryTaskId": "a1d85c23-33bd-440f-9d07-cb112b6d8a4e",
+  "directoryWorkspaceId": "wks_89e6ac8e06074901",
+  "boardSha256BeforeReload": "49e8b08a7161fa1f44e9f4bdd20f0d88004c99ffede8871456bf14dbae06e0a5",
+  "boardRevisionBeforeReload": 89,
+  "legacyReloadBaseline": {
+    "projectHash": "3c208237c52cef0dc2be980d4f9f841d5a31103dd69aaf1dcfd4358b51f7282b",
+    "taskHash": "e4ef8b044f5baf1138724b20a7d2b18cd679c7d6b3db84aac3e80f759103d569",
+    "contextHash": "d4b46c3c00239830d59e9a4f3e77c5d2f24ea323e4733b48662c3bd3926e2162",
+    "workspaceOwner": "prj_8859e85f82a61739"
+  },
+  "reloadCommand": "paseo plugin reload paseo-ultra-kanban",
+  "reloadOutputSha256": "6031540a088eafffb4657679451b93ccbc0e4e3a72ef545edad239beb8dcd174",
+  "boardSha256AfterReload": "49e8b08a7161fa1f44e9f4bdd20f0d88004c99ffede8871456bf14dbae06e0a5",
+  "boardRevisionAfterReload": 89,
+  "afterReload": {
+    "projects": 9,
+    "tasks": 19,
+    "workspaces": 49
+  },
+  "completedAt": "2026-10-13T08:46:55.568Z"
+}

@@ -1,0 +1,40 @@
+
+> paseo-ultra-kanban@0.3.0 test
+> vitest run
+
+
+ RUN  v4.1.11 /Users/bofan.wang/Developer/personal/paseo-utlra-kanban
+
+ ❯ docs/verification/fixtures/session-pane/session-components.test.tsx (0 test)
+
+⎯⎯⎯⎯⎯⎯ Failed Suites 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  docs/verification/fixtures/session-pane/session-components.test.tsx [ docs/verification/fixtures/session-pane/session-components.test.tsx ]
+Error: [vitest] No "Platform" export is defined on the "react-native" mock. Did you forget to return it from "vi.mock"?
+If you need to partially mock a module, you can use "importOriginal" helper inside:
+
+vi.mock(import("react-native"), async (importOriginal) => {
+  const actual = await importOriginal()
+  return {
+    ...actual,
+    // your mocked methods
+  }
+})
+
+ ❯ client/session-content.tsx:7:14
+      5| import { Label, useTheme } from "./ui";
+      6|
+      7| const mono = Platform.OS === "ios" ? "Menlo" : "monospace";
+       |              ^
+      8|
+      9| function Inline({
+ ❯ client/session-preview.tsx:28:1
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed | 10 passed | 1 skipped (12)
+      Tests  55 passed | 16 skipped (71)
+   Start at  12:19:59
+   Duration  1.91s (transform 734ms, setup 0ms, import 1.35s, tests 5.04s, environment 1ms)
+

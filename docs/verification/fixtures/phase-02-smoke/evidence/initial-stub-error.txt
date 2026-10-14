@@ -1,0 +1,8 @@
+First provider connection reached the loopback stub: 2026-10-13T06:26:26.905Z, method=initialize.
+The handler then failed before returning a response:
+TypeError: handler is not a function
+    at Server.<anonymous> (probe-server.mjs:62:26)
+
+Cause: @modelcontextprotocol/server 2.3.1 createMcpHandler() returns an object with a fetch() method. The initial runner called the object as a function. The stub has since been corrected to await handler.fetch(request). No tools/list or probe call is inferred from this failed exchange.
+
+The first runner's cleanup then hit an unsettled top-level await because it awaited an already-emitted child-process exit event. The runner now checks child exitCode before registering an exit listener. It has a one-shot marker and must not be rerun to avoid creating another agent.

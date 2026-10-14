@@ -1,0 +1,33 @@
+
+ RUN  v4.1.11 /Users/bofan.wang/Developer/personal/paseo-utlra-kanban
+
+ ❯ docs/verification/fixtures/session-layout/session-layout-components.test.tsx (10 tests | 1 failed) 50ms
+     × successful send clears the submitted draft and resumes tail; failure retains draft and position; duplicate send is locked 12ms
+
+ Test Files  1 failed | 7 passed (8)
+      Tests  1 failed | 45 passed (46)
+   Start at  14:44:17
+   Duration  453ms (transform 654ms, setup 0ms, import 1.48s, tests 289ms, environment 0ms)
+
+stderr | docs/verification/fixtures/session-layout/session-layout-components.test.tsx > session preview layout focused renderer > successful send clears the submitted draft and resumes tail; failure retains draft and position; duplicate send is locked
+react-test-renderer is deprecated. See https://react.dev/warnings/react-test-renderer
+
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  docs/verification/fixtures/session-layout/session-layout-components.test.tsx > session preview layout focused renderer > successful send clears the submitted draft and resumes tail; failure retains draft and position; duplicate send is locked
+AssertionError: expected 'Back to task Fixture agent Idle provi…' to contain 'send failed'
+
+Expected: "send failed"
+Received: "Back to task Fixture agent Idle provider-name-provider-name-provider-name-provider-name-provider-name-provider-name-provider-name-provider-name-provider-name-provider-name-provider-name-provider-name-provider-name-provider-name-provider-name-provider-name-provider-name-provider-name-provider-name-provider-name-provider-name-provider-name-provider-name-provider-name-provider-name-provider-name-provider-name-provider-name-provider-name-provider-name-  / provider-name-provider-name-provider-name-provider-name-provider-name-provider-name-provider-name-provider-name-provider-name-provider-name-provider-name-provider-name-provider-name-provider-name-provider-name-provider-name-provider-name-provider-name-provider-name-provider-name-provider-name-provider-name-provider-name-provider-name-provider-name-provider-name-provider-name-provider-name-provider-name-provider-name- Read state unknown Recent output · open in Paseo for the full conversation Refresh output No text output yet. Kanban tools Follow-up instruction Use keyboard Send or the Send instruction button Send instruction"
+
+ ❯ docs/verification/fixtures/session-layout/session-layout-components.test.tsx:228:46
+    226|     await act(async () => { button(tree, "Send instruction").props.onP…
+    227|     expect(p.onDraftChange).not.toHaveBeenCalled();
+    228|     expect(strings(tree.toJSON()).join(" ")).toContain("send failed");
+       |                                              ^
+    229|     expect(state.scrollToEnd).not.toHaveBeenCalled();
+    230|     tree.unmount();
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+

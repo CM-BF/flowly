@@ -1,0 +1,321 @@
+import { afterEach, expect, test, vi } from "vitest";
+import type { PaseoApi } from "@getpaseo/client";
+import { mkdtemp, mkdir, rm, realpath } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { BoardStore } from "./store";
+import { BoardService, resolveWorktreeBaseRef } from "./service";
+import {
+  projectInput,
+  taskInput,
+  taskEdit,
+  projectEdit,
+} from "../shared/model";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
+
+const git = promisify(execFile),
+  roots: string[] = [];
+async function setup() {
+  const root = await realpath(
+    await mkdtemp(join(tmpdir(), "ultra-single-root-")),
+  );
+  roots.push(root);
+  const a = join(root, "project-root"),
+    b = join(root, "old-second-repo");
+  await mkdir(a);
+  await mkdir(b);
+  const store = new BoardStore(join(root, "data")),
+    service = new BoardService(store),
+    now = new Date().toISOString();
+  await store.mutate((board) =>
+    board.projects.push({
+      id: "p",
+      paseoProjectId: "native",
+      title: "Legacy project",
+      description: "",
+      primaryPath: a,
+      repos: [a, b],
+      revision: 1,
+      createdAt: now,
+      updatedAt: now,
+      archivedAt: null,
+    }),
+  );
+  const create = vi.fn(async (_options: unknown) => ({ id: "workspace" }));
+  const refresh = vi.fn(async () => ({
+    id: "workspace",
+    projectId: "foreign-native",
+    workspaceDirectory: a,
+    workspaceKind: "directory",
+    status: "done",
+  }));
+  const paseo = {
+    workspaces: { create, ref: () => ({ refresh }) },
+  } as unknown as PaseoApi;
+  const input = {
+    projectId: "p",
+    operationId: "op",
+    title: "New card",
+    description: "",
+    status: "todo" as const,
+    priority: "normal" as const,
+    mode: "directory" as const,
+    baseRef: "",
+  };
+  return { root, a, b, store, service, paseo, create, refresh, input };
+}
+afterEach(async () => {
+  await Promise.all(
+    roots.splice(0).map((p) => rm(p, { recursive: true, force: true })),
+  );
+});
+
+test("new card uses only native root even in a previously multi-repo project", async () => {
+  const x = await setup(),
+    card = await x.service.createTask(x.input, x.paseo);
+  expect(card).toMatchObject({ sourcePath: x.a, repoPaths: [x.a] });
+  expect(x.create.mock.calls[0][0]).toMatchObject({
+    source: { kind: "directory", path: x.a, projectId: "native" },
+  });
+  expect((await x.service.context(card.id, x.paseo)).directories).toEqual([
+    { repo: x.a, directory: x.a },
+  ]);
+  expect((await x.service.createTask(x.input, x.paseo)).id).toBe(card.id);
+  expect(x.create).toHaveBeenCalledTimes(1);
+});
+test("a common parent directory contains two repositories without registering each separately", async () => {
+  const x = await setup();
+  await mkdir(join(x.a, "repo-one"));
+  await mkdir(join(x.a, "repo-two"));
+  const card = await x.service.createTask(x.input, x.paseo);
+  expect(card.sourcePath).toBe(x.a);
+  expect((await x.service.context(card.id, x.paseo)).context).toContain(
+    "Native Paseo project root: " + x.a,
+  );
+  expect(x.create.mock.calls[0][0]).toMatchObject({ source: { path: x.a } });
+});
+test("new board project links the exact native Paseo root and persists only that directory", async () => {
+  const x = await setup(),
+    nativeRoot = join(x.root, "common-root");
+  await mkdir(nativeRoot);
+  await mkdir(join(nativeRoot, "repo-one"));
+  await mkdir(join(nativeRoot, "repo-two"));
+  const native = {
+    projectId: "new-native",
+    projectRootPath: nativeRoot,
+    projectDisplayName: "Common root",
+  };
+  const paseo = {
+    projects: { list: async () => ({ projects: [native] }) },
+  } as unknown as PaseoApi;
+  const created = await x.service.createProject(
+    {
+      title: "Combined",
+      description: "",
+      primaryPath: nativeRoot,
+      paseoProjectId: "new-native",
+    },
+    paseo,
+  );
+  expect(created).toMatchObject({
+    paseoProjectId: "new-native",
+    primaryPath: nativeRoot,
+    repos: [nativeRoot],
+  });
+  await expect(
+    x.service.createProject(
+      {
+        title: "Again",
+        description: "",
+        primaryPath: nativeRoot,
+        paseoProjectId: "new-native",
+      },
+      paseo,
+    ),
+  ).rejects.toThrow("already linked");
+  await expect(
+    x.service.createProject(
+      {
+        title: "Wrong root",
+        description: "",
+        primaryPath: x.a,
+        paseoProjectId: "new-native",
+      },
+      paseo,
+    ),
+  ).rejects.toThrow("root does not match");
+});
+test("existing workspace inside a child repo is eligible through common project root", async () => {
+  const x = await setup(),
+    child = join(x.a, "repo-one");
+  await mkdir(child);
+  x.refresh.mockResolvedValue({
+    ...(await x.refresh()),
+    workspaceDirectory: child,
+  });
+  const card = await x.service.createTask(
+    { ...x.input, mode: "existing", workspaceId: "workspace" },
+    x.paseo,
+  );
+  expect(card).toMatchObject({ sourcePath: x.a, repoPaths: [x.a] });
+  expect(
+    (await x.service.context(card.id, x.paseo)).workspaceRepoPaths,
+  ).toEqual([x.a]);
+});
+test("worktree originates from native root and default base resolves its named branch", async () => {
+  const x = await setup();
+  await git("git", ["-C", x.a, "init", "-b", "root-main"]);
+  await git("git", ["-C", x.b, "init", "-b", "secondary-release"]);
+  const card = await x.service.createTask(
+    { ...x.input, mode: "worktree", branchName: "single-root", baseRef: "" },
+    x.paseo,
+  );
+  expect(card.sourcePath).toBe(x.a);
+  expect(x.create.mock.calls[0][0]).toMatchObject({
+    source: {
+      kind: "worktree",
+      cwd: x.a,
+      projectId: "native",
+      refName: "refs/heads/root-main",
+    },
+  });
+  expect(await resolveWorktreeBaseRef(x.a, "HEAD")).toBe(
+    "refs/heads/root-main",
+  );
+});
+test("non-Git common root requires a directory workspace", async () => {
+  const x = await setup();
+  await expect(
+    x.service.createTask(
+      { ...x.input, mode: "worktree", branchName: "feature" },
+      x.paseo,
+    ),
+  ).rejects.toThrow("Enter a valid base ref");
+  expect(x.create).not.toHaveBeenCalled();
+  await x.service.createTask(x.input, x.paseo);
+  expect(x.create).toHaveBeenCalledTimes(1);
+});
+test("corrected base ref uses a new native request key in the same card operation", async () => {
+  const x = await setup(),
+    input = {
+      ...x.input,
+      mode: "worktree" as const,
+      branchName: "feature",
+      baseRef: "invalid",
+    };
+  x.create.mockRejectedValueOnce(new Error("Invalid base ref"));
+  await expect(x.service.createTask(input, x.paseo)).rejects.toThrow(
+    "Invalid base ref",
+  );
+  await x.service.createTask({ ...input, baseRef: "main" }, x.paseo);
+  const first = x.create.mock.calls[0][0] as { idempotencyKey: string },
+    second = x.create.mock.calls[1][0] as { idempotencyKey: string };
+  expect(first.idempotencyKey).not.toBe(second.idempotencyKey);
+  expect((await x.store.read()).tasks).toHaveLength(1);
+});
+test("existing root workspace retains foreign native owner and cannot bind twice", async () => {
+  const x = await setup(),
+    input = { ...x.input, mode: "existing" as const, workspaceId: "workspace" };
+  const card = await x.service.createTask(input, x.paseo);
+  expect(card).toMatchObject({
+    sourcePath: x.a,
+    repoPaths: [x.a],
+    workspaceId: "workspace",
+  });
+  await expect(
+    x.service.createTask({ ...input, operationId: "other" }, x.paseo),
+  ).rejects.toThrow("already bound");
+  expect(x.create).not.toHaveBeenCalled();
+  expect((await x.refresh()).projectId).toBe("foreign-native");
+});
+test("new card cannot link workspace in secondary legacy repo or outside root", async () => {
+  const x = await setup(),
+    input = { ...x.input, mode: "existing" as const, workspaceId: "workspace" };
+  x.refresh.mockResolvedValue({
+    ...(await x.refresh()),
+    workspaceDirectory: x.b,
+  });
+  await expect(x.service.createTask(input, x.paseo)).rejects.toThrow("outside");
+  x.refresh.mockResolvedValue({
+    ...(await x.refresh()),
+    workspaceDirectory: x.store.directory,
+  });
+  await expect(x.service.createTask(input, x.paseo)).rejects.toThrow("outside");
+  x.refresh.mockResolvedValue(null as never);
+  await expect(x.service.createTask(input, x.paseo)).rejects.toThrow(
+    "unavailable",
+  );
+  expect((await x.store.read()).tasks).toHaveLength(0);
+});
+test("legacy card retains saved two-directory context and workspace", async () => {
+  const x = await setup(),
+    now = new Date().toISOString();
+  x.refresh.mockResolvedValue({
+    ...(await x.refresh()),
+    workspaceDirectory: x.b,
+    workspaceKind: "directory",
+  });
+  await x.store.mutate((board) =>
+    board.tasks.push({
+      id: "old",
+      projectId: "p",
+      workspaceId: "workspace",
+      sourcePath: x.b,
+      repoPaths: [],
+      title: "Old",
+      description: "",
+      status: "todo",
+      priority: "normal",
+      position: 0,
+      revision: 1,
+      operationId: "old-op",
+      createdAt: now,
+      updatedAt: now,
+      archivedAt: null,
+    }),
+  );
+  const context = await x.service.context("old", x.paseo);
+  expect(context.available).toBe(true);
+  expect(context.directories).toEqual([
+    { repo: x.a, directory: x.a },
+    { repo: x.b, directory: x.b },
+  ]);
+  expect(context.context).toContain("Legacy card scope retained");
+  await x.store.editTask({
+    id: "old",
+    revision: 1,
+    title: "Edited",
+    actor: "human",
+  });
+  expect((await x.store.read()).tasks[0]).toMatchObject({
+    sourcePath: x.b,
+    repoPaths: [],
+    workspaceId: "workspace",
+  });
+});
+test("new write contracts reject old repo/source fields", () => {
+  expect(() =>
+    projectInput.parse({
+      title: "P",
+      primaryPath: "/root",
+      repos: ["/root", "/other"],
+    }),
+  ).toThrow();
+  expect(() =>
+    projectEdit.parse({ id: "p", revision: 1, repos: ["/root", "/other"] }),
+  ).toThrow();
+  expect(() =>
+    taskInput.parse({
+      projectId: "p",
+      operationId: "o",
+      title: "T",
+      mode: "directory",
+      repoPaths: ["/other"],
+      sourcePath: "/other",
+    }),
+  ).toThrow();
+  expect(() =>
+    taskEdit.parse({ id: "t", revision: 1, repoPaths: ["/other"] }),
+  ).toThrow();
+});

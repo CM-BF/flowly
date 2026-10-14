@@ -1,0 +1,43 @@
+{
+  "Id": "cd656f5b-8245-4aef-b4de-59e23456765f",
+  "Name": "Phase 2 MCP provider probe retry 2026-10-13",
+  "Provider": "codex",
+  "Model": "gpt-6-luna",
+  "Thinking": "xhigh",
+  "Status": "idle",
+  "Archived": false,
+  "ArchivedAt": null,
+  "Mode": "full-access",
+  "Cwd": "/tmp/ultra-kanban-phase2-20261013/repo",
+  "CreatedAt": "2026-10-13T06:43:48.062Z",
+  "UpdatedAt": "2026-10-13T06:44:15.414Z",
+  "LastUsage": {
+    "InputTokens": 41527,
+    "OutputTokens": 69,
+    "CachedTokens": 40704,
+    "CostUsd": 0
+  },
+  "Capabilities": {
+    "Streaming": true,
+    "Persistence": true,
+    "DynamicModes": false,
+    "McpServers": true
+  },
+  "AvailableModes": [
+    {
+      "id": "auto",
+      "label": "Default Permissions"
+    },
+    {
+      "id": "auto-review",
+      "label": "Auto-review"
+    },
+    {
+      "id": "full-access",
+      "label": "Full Access"
+    }
+  ],
+  "PendingPermissions": [],
+  "Worktree": null,
+  "ParentAgentId": null
+}

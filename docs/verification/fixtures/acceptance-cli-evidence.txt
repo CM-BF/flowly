@@ -1,0 +1,111 @@
+Phase 1 Paseo fixture resource evidence (2026-10-13)
+
+Board JSON (filtered from ~/.paseo/plugin-data/paseo-ultra-kanban/board.json):
+{
+  "revision": 15,
+  "project": {
+    "id": "00aebed7-d778-4a5b-ba01-94b63eaa5196",
+    "title": "Ultra Kanban Acceptance 2026-10-13",
+    "paseoProjectId": "prj_8859e85f82a61739",
+    "primaryPath": "/private/tmp/ultra-kanban-acceptance-20261013/repo-one",
+    "repos": [
+      "/private/tmp/ultra-kanban-acceptance-20261013/repo-one",
+      "/private/tmp/ultra-kanban-acceptance-20261013/repo-two"
+    ],
+    "archivedAt": null
+  },
+  "tasks": [
+    {
+      "id": "2790b6b0-c79e-4e36-8c7f-e9a0e7c57f0b",
+      "title": "Ultra Kanban Acceptance: directory workspace",
+      "workspaceId": "wks_03edb11a97acb9c6",
+      "sourcePath": "/private/tmp/ultra-kanban-acceptance-20261013/repo-one",
+      "status": "todo",
+      "archivedAt": null,
+      "revision": 3
+    },
+    {
+      "id": "4b5014e4-1e4e-4415-9730-f93d56f8d9ec",
+      "title": "Ultra Kanban Acceptance: repo-two worktree",
+      "workspaceId": "wks_9dbd697a8a45ec49",
+      "sourcePath": "/private/tmp/ultra-kanban-acceptance-20261013/repo-two",
+      "status": "todo",
+      "archivedAt": null,
+      "revision": 1
+    },
+    {
+      "id": "d8a7e082-2cd5-4217-93e8-15df4658506e",
+      "title": "Ultra Kanban Acceptance: existing workspace link",
+      "workspaceId": "wks_3bc59e6341a37b37",
+      "sourcePath": "/private/tmp/ultra-kanban-acceptance-20261013/repo-two",
+      "status": "todo",
+      "archivedAt": null,
+      "revision": 1
+    },
+    {
+      "id": "330d653a-7035-45bf-84dd-bdf26e7d3ea4",
+      "title": "Ultra Kanban Acceptance: repo-two default base retest",
+      "workspaceId": "wks_88fa464b23f8a27d",
+      "sourcePath": "/private/tmp/ultra-kanban-acceptance-20261013/repo-two",
+      "status": "todo",
+      "archivedAt": null,
+      "revision": 1
+    }
+  ]
+}
+
+Paseo native project (from `paseo project ls --json`, matching fixture root):
+{
+  "projectId": "prj_8859e85f82a61739",
+  "name": "repo-one",
+  "kind": "git",
+  "path": "/private/tmp/ultra-kanban-acceptance-20261013/repo-one"
+}
+
+Paseo fixture workspaces (from `paseo workspace ls --json`, exact test titles only):
+[
+  {
+    "workspaceId": "wks_03edb11a97acb9c6",
+    "project": "repo-one",
+    "name": "Ultra Kanban Acceptance: directory workspace",
+    "isolation": "local",
+    "cwd": "/private/tmp/ultra-kanban-acceptance-20261013/repo-one"
+  },
+  {
+    "workspaceId": "wks_38692b1890571f2f",
+    "project": "repo-one",
+    "name": "Ultra Kanban Acceptance: directory workspace",
+    "isolation": "local",
+    "cwd": "/private/tmp/ultra-kanban-acceptance-20261013/repo-one"
+  },
+  {
+    "workspaceId": "wks_3bc59e6341a37b37",
+    "project": "repo-one",
+    "name": "Ultra Kanban Acceptance: existing link target",
+    "isolation": "local",
+    "cwd": "/tmp/ultra-kanban-acceptance-20261013/repo-two"
+  },
+  {
+    "workspaceId": "wks_88fa464b23f8a27d",
+    "project": "repo-one",
+    "name": "Ultra Kanban Acceptance: repo-two default base retest",
+    "isolation": "worktree",
+    "cwd": "/Users/bofan.wang/.paseo/worktrees/2wp43niw/ultra-kanban-acceptance-repo-two-default-20261013"
+  },
+  {
+    "workspaceId": "wks_9dbd697a8a45ec49",
+    "project": "repo-one",
+    "name": "Ultra Kanban Acceptance: repo-two worktree",
+    "isolation": "worktree",
+    "cwd": "/Users/bofan.wang/.paseo/worktrees/2wp43niw/ultra-kanban-acceptance-repo-two"
+  }
+]
+
+repo-two selected source HEAD:
+refs/heads/main
+
+Default-base retest worktree:
+## ultra-kanban/acceptance-repo-two-default-20261013
+/Users/bofan.wang/.paseo/worktrees/2wp43niw/ultra-kanban-acceptance-repo-two-default-20261013
+1b16710baa85d0e18a7f653e564612832d4fb191
+1b16710baa85d0e18a7f653e564612832d4fb191

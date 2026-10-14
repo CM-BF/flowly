@@ -1,0 +1,27 @@
+import type { Task, Project } from "./model";
+
+export function effectiveRepos(
+  task: Pick<Task, "repoPaths">,
+  project: Pick<Project, "repos">,
+) {
+  return task.repoPaths.length ? task.repoPaths : project.repos;
+}
+export function includesRepo(task: Pick<Task, "repoPaths">, repo: string) {
+  return !task.repoPaths.length || task.repoPaths.includes(repo);
+}
+export function isLegacyScope(
+  task: Pick<Task, "repoPaths">,
+  project: Pick<Project, "primaryPath" | "repos">,
+) {
+  return task.repoPaths.length
+    ? task.repoPaths.length !== 1 || task.repoPaths[0] !== project.primaryPath
+    : project.repos.length > 1;
+}
+export function sessionContext(
+  task: Task,
+  project: Project,
+  paths: { repo: string; directory: string }[],
+  workspaceDirectory: string,
+) {
+  return `Kanban task: ${task.title}\nTask ID: ${task.id}\n${task.description}\nProject: ${project.title}\nNative Paseo project root: ${project.primaryPath}\n${isLegacyScope(task, project) ? "Legacy card scope retained from the previous board version." : "Project-root task scope."}\nWork directories for this task:\n${paths.map((p) => `${p.repo} -> ${p.directory}`).join("\n")}\nWorkspace starting directory: ${workspaceDirectory}\nWork only in the listed task directories. A common project root can contain multiple child repositories managed by the user. A worktree isolates only the Git project root. Provider permissions still apply; report denied access. Card business status is independent of session status.`;
+}

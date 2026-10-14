@@ -1,0 +1,19 @@
+{
+  "title": "Phase 2 acceptance Luna MCP lifecycle 2026-10-13",
+  "provider": "codex/gpt-6-luna",
+  "requestedModeId": "full-access",
+  "taskId": "2d375c34-7f1c-421b-b304-b70943a8e034",
+  "workspaceId": "wks_e99ea8780a50167e",
+  "preallocatedAgentId": "85914006-1bfe-4743-9683-b1104e04f554",
+  "createdAgentId": "85914006-1bfe-4743-9683-b1104e04f554",
+  "createStartedAt": "2026-10-13T07:10:28.173Z",
+  "createReturnedAt": "2026-10-13T07:10:28.893Z",
+  "modeAtCreation": "full-access",
+  "completionStatus": "idle",
+  "finalPaseoAgentId": "85914006-1bfe-4743-9683-b1104e04f554",
+  "error": null,
+  "timelineRefetch": {
+    "requestId": "b77d57f3-8380-415c-9735-7d05473bd288",
+    "agentId": "85914006-1bfe-4743-9683-b1104e04f554"
+  }
+}

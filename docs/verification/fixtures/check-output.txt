@@ -1,0 +1,18 @@
+Run: 2026-10-13 12:45 Asia/Singapore
+
+$ npm run typecheck
+> paseo-ultra-kanban@0.1.0 typecheck
+> tsc --noEmit
+
+Result: exit 0
+
+$ npm test
+> paseo-ultra-kanban@0.1.0 test
+> vitest run
+
+RUN v4.1.11
+Test Files 2 passed (2)
+Tests 12 passed (12)
+Duration 1.46s
+
+Plugin reload evidence: `paseo plugin logs paseo-ultra-kanban` showed Stopping plugin, Plugin stopped, Loading plugin, `Ultra Kanban store ready: /Users/bofan.wang/.paseo/plugin-data/paseo-ultra-kanban`, Plugin ready (2026-10-13T04:37:25Z). Daemon was not restarted.

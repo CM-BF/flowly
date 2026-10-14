@@ -1,0 +1,791 @@
+{
+  "checks": [
+    {
+      "name": "reject-remove-secondary-source-and-explicit-scope-repo",
+      "status": "passed",
+      "attemptedRepos": [
+        "/private/tmp/ultra-kanban-acceptance-20261013/repo-one"
+      ],
+      "error": "Request failed: A primary, workspace source or explicitly scoped directory cannot be removed. requestType=plugin.rpc.invoke.request code=handler_error",
+      "before": {
+        "project": {
+          "id": "00aebed7-d778-4a5b-ba01-94b63eaa5196",
+          "revision": 3,
+          "repos": [
+            "/private/tmp/ultra-kanban-acceptance-20261013/repo-one",
+            "/private/tmp/ultra-kanban-acceptance-20261013/repo-two"
+          ]
+        },
+        "tasks": [
+          {
+            "id": "2790b6b0-c79e-4e36-8c7f-e9a0e7c57f0b",
+            "workspaceId": "wks_03edb11a97acb9c6",
+            "sourcePath": "/private/tmp/ultra-kanban-acceptance-20261013/repo-one",
+            "repoPaths": [],
+            "revision": 8,
+            "archivedAt": null
+          },
+          {
+            "id": "330d653a-7035-45bf-84dd-bdf26e7d3ea4",
+            "workspaceId": "wks_88fa464b23f8a27d",
+            "sourcePath": "/private/tmp/ultra-kanban-acceptance-20261013/repo-two",
+            "repoPaths": [],
+            "revision": 3,
+            "archivedAt": null
+          },
+          {
+            "id": "44ac3475-11b6-43a7-8348-dcae6bfaacb8",
+            "workspaceId": "wks_9364e4929fe1d442",
+            "sourcePath": "/private/tmp/ultra-kanban-acceptance-20261013/repo-one",
+            "repoPaths": [],
+            "revision": 1,
+            "archivedAt": null
+          },
+          {
+            "id": "4b5014e4-1e4e-4415-9730-f93d56f8d9ec",
+            "workspaceId": "wks_9dbd697a8a45ec49",
+            "sourcePath": "/private/tmp/ultra-kanban-acceptance-20261013/repo-two",
+            "repoPaths": [],
+            "revision": 3,
+            "archivedAt": null
+          },
+          {
+            "id": "6a69cddf-f193-4635-8a0b-12fe7b17387f",
+            "workspaceId": "wks_7fef56e741778cb3",
+            "sourcePath": "/private/tmp/ultra-kanban-acceptance-20261013/repo-two",
+            "repoPaths": [],
+            "revision": 6,
+            "archivedAt": null
+          },
+          {
+            "id": "84bed110-9c9f-4c76-9086-43a6caea9d92",
+            "workspaceId": "wks_e194c715415378f0",
+            "sourcePath": "/private/tmp/ultra-kanban-acceptance-20261013/repo-two",
+            "repoPaths": [],
+            "revision": 3,
+            "archivedAt": null
+          },
+          {
+            "id": "d8a7e082-2cd5-4217-93e8-15df4658506e",
+            "workspaceId": "wks_3bc59e6341a37b37",
+            "sourcePath": "/private/tmp/ultra-kanban-acceptance-20261013/repo-two",
+            "repoPaths": [],
+            "revision": 3,
+            "archivedAt": null
+          },
+          {
+            "id": "fa8ba46a-ac0a-44bd-a2e1-2f95dfa5d743",
+            "workspaceId": "wks_9971e291bf5ff148",
+            "sourcePath": "/private/tmp/ultra-kanban-acceptance-20261013/repo-one",
+            "repoPaths": [
+              "/private/tmp/ultra-kanban-acceptance-20261013/repo-two"
+            ],
+            "revision": 5,
+            "archivedAt": null
+          }
+        ],
+        "workspaces": [
+          {
+            "id": "wks_03edb11a97acb9c6",
+            "owner": "prj_8859e85f82a61739",
+            "path": "/private/tmp/ultra-kanban-acceptance-20261013/repo-one",
+            "status": "attention",
+            "repoPaths": [
+              "/private/tmp/ultra-kanban-acceptance-20261013/repo-one"
+            ]
+          },
+          {
+            "id": "wks_3bc59e6341a37b37",
+            "owner": "prj_8859e85f82a61739",
+            "path": "/tmp/ultra-kanban-acceptance-20261013/repo-two",
+            "status": "done",
+            "repoPaths": [
+              "/private/tmp/ultra-kanban-acceptance-20261013/repo-two"
+            ]
+          },
+          {
+            "id": "wks_7fef56e741778cb3",
+            "owner": "prj_959652485680186c",
+            "path": "/Users/bofan.wang/.paseo/worktrees/2wp43niw/acceptance-external-managed-worktree-20261013",
+            "status": "done",
+            "repoPaths": [
+              "/private/tmp/ultra-kanban-acceptance-20261013/repo-two"
+            ]
+          },
+          {
+            "id": "wks_88fa464b23f8a27d",
+            "owner": "prj_8859e85f82a61739",
+            "path": "/Users/bofan.wang/.paseo/worktrees/2wp43niw/ultra-kanban-acceptance-repo-two-default-20261013",
+            "status": "done",
+            "repoPaths": [
+              "/private/tmp/ultra-kanban-acceptance-20261013/repo-two"
+            ]
+          },
+          {
+            "id": "wks_9364e4929fe1d442",
+            "owner": "prj_8859e85f82a61739",
+            "path": "/private/tmp/ultra-kanban-acceptance-20261013/repo-one",
+            "status": "done",
+            "repoPaths": [
+              "/private/tmp/ultra-kanban-acceptance-20261013/repo-one"
+            ]
+          },
+          {
+            "id": "wks_9971e291bf5ff148",
+            "owner": "prj_8859e85f82a61739",
+            "path": "/private/tmp/ultra-kanban-acceptance-20261013/repo-one",
+            "status": "attention",
+            "repoPaths": [
+              "/private/tmp/ultra-kanban-acceptance-20261013/repo-one"
+            ]
+          },
+          {
+            "id": "wks_9dbd697a8a45ec49",
+            "owner": "prj_8859e85f82a61739",
+            "path": "/Users/bofan.wang/.paseo/worktrees/2wp43niw/ultra-kanban-acceptance-repo-two",
+            "status": "done",
+            "repoPaths": [
+              "/private/tmp/ultra-kanban-acceptance-20261013/repo-two"
+            ]
+          },
+          {
+            "id": "wks_e194c715415378f0",
+            "owner": "prj_959652485680186c",
+            "path": "/tmp/ultra-kanban-acceptance-20261013/repo-two",
+            "status": "done",
+            "repoPaths": [
+              "/private/tmp/ultra-kanban-acceptance-20261013/repo-two"
+            ]
+          }
+        ]
+      },
+      "after": {
+        "project": {
+          "id": "00aebed7-d778-4a5b-ba01-94b63eaa5196",
+          "revision": 3,
+          "repos": [
+            "/private/tmp/ultra-kanban-acceptance-20261013/repo-one",
+            "/private/tmp/ultra-kanban-acceptance-20261013/repo-two"
+          ]
+        },
+        "tasks": [
+          {
+            "id": "2790b6b0-c79e-4e36-8c7f-e9a0e7c57f0b",
+            "workspaceId": "wks_03edb11a97acb9c6",
+            "sourcePath": "/private/tmp/ultra-kanban-acceptance-20261013/repo-one",
+            "repoPaths": [],
+            "revision": 8,
+            "archivedAt": null
+          },
+          {
+            "id": "330d653a-7035-45bf-84dd-bdf26e7d3ea4",
+            "workspaceId": "wks_88fa464b23f8a27d",
+            "sourcePath": "/private/tmp/ultra-kanban-acceptance-20261013/repo-two",
+            "repoPaths": [],
+            "revision": 3,
+            "archivedAt": null
+          },
+          {
+            "id": "44ac3475-11b6-43a7-8348-dcae6bfaacb8",
+            "workspaceId": "wks_9364e4929fe1d442",
+            "sourcePath": "/private/tmp/ultra-kanban-acceptance-20261013/repo-one",
+            "repoPaths": [],
+            "revision": 1,
+            "archivedAt": null
+          },
+          {
+            "id": "4b5014e4-1e4e-4415-9730-f93d56f8d9ec",
+            "workspaceId": "wks_9dbd697a8a45ec49",
+            "sourcePath": "/private/tmp/ultra-kanban-acceptance-20261013/repo-two",
+            "repoPaths": [],
+            "revision": 3,
+            "archivedAt": null
+          },
+          {
+            "id": "6a69cddf-f193-4635-8a0b-12fe7b17387f",
+            "workspaceId": "wks_7fef56e741778cb3",
+            "sourcePath": "/private/tmp/ultra-kanban-acceptance-20261013/repo-two",
+            "repoPaths": [],
+            "revision": 6,
+            "archivedAt": null
+          },
+          {
+            "id": "84bed110-9c9f-4c76-9086-43a6caea9d92",
+            "workspaceId": "wks_e194c715415378f0",
+            "sourcePath": "/private/tmp/ultra-kanban-acceptance-20261013/repo-two",
+            "repoPaths": [],
+            "revision": 3,
+            "archivedAt": null
+          },
+          {
+            "id": "d8a7e082-2cd5-4217-93e8-15df4658506e",
+            "workspaceId": "wks_3bc59e6341a37b37",
+            "sourcePath": "/private/tmp/ultra-kanban-acceptance-20261013/repo-two",
+            "repoPaths": [],
+            "revision": 3,
+            "archivedAt": null
+          },
+          {
+            "id": "fa8ba46a-ac0a-44bd-a2e1-2f95dfa5d743",
+            "workspaceId": "wks_9971e291bf5ff148",
+            "sourcePath": "/private/tmp/ultra-kanban-acceptance-20261013/repo-one",
+            "repoPaths": [
+              "/private/tmp/ultra-kanban-acceptance-20261013/repo-two"
+            ],
+            "revision": 5,
+            "archivedAt": null
+          }
+        ],
+        "workspaces": [
+          {
+            "id": "wks_03edb11a97acb9c6",
+            "owner": "prj_8859e85f82a61739",
+            "path": "/private/tmp/ultra-kanban-acceptance-20261013/repo-one",
+            "status": "attention",
+            "repoPaths": [
+              "/private/tmp/ultra-kanban-acceptance-20261013/repo-one"
+            ]
+          },
+          {
+            "id": "wks_3bc59e6341a37b37",
+            "owner": "prj_8859e85f82a61739",
+            "path": "/tmp/ultra-kanban-acceptance-20261013/repo-two",
+            "status": "done",
+            "repoPaths": [
+              "/private/tmp/ultra-kanban-acceptance-20261013/repo-two"
+            ]
+          },
+          {
+            "id": "wks_7fef56e741778cb3",
+            "owner": "prj_959652485680186c",
+            "path": "/Users/bofan.wang/.paseo/worktrees/2wp43niw/acceptance-external-managed-worktree-20261013",
+            "status": "done",
+            "repoPaths": [
+              "/private/tmp/ultra-kanban-acceptance-20261013/repo-two"
+            ]
+          },
+          {
+            "id": "wks_88fa464b23f8a27d",
+            "owner": "prj_8859e85f82a61739",
+            "path": "/Users/bofan.wang/.paseo/worktrees/2wp43niw/ultra-kanban-acceptance-repo-two-default-20261013",
+            "status": "done",
+            "repoPaths": [
+              "/private/tmp/ultra-kanban-acceptance-20261013/repo-two"
+            ]
+          },
+          {
+            "id": "wks_9364e4929fe1d442",
+            "owner": "prj_8859e85f82a61739",
+            "path": "/private/tmp/ultra-kanban-acceptance-20261013/repo-one",
+            "status": "done",
+            "repoPaths": [
+              "/private/tmp/ultra-kanban-acceptance-20261013/repo-one"
+            ]
+          },
+          {
+            "id": "wks_9971e291bf5ff148",
+            "owner": "prj_8859e85f82a61739",
+            "path": "/private/tmp/ultra-kanban-acceptance-20261013/repo-one",
+            "status": "attention",
+            "repoPaths": [
+              "/private/tmp/ultra-kanban-acceptance-20261013/repo-one"
+            ]
+          },
+          {
+            "id": "wks_9dbd697a8a45ec49",
+            "owner": "prj_8859e85f82a61739",
+            "path": "/Users/bofan.wang/.paseo/worktrees/2wp43niw/ultra-kanban-acceptance-repo-two",
+            "status": "done",
+            "repoPaths": [
+              "/private/tmp/ultra-kanban-acceptance-20261013/repo-two"
+            ]
+          },
+          {
+            "id": "wks_e194c715415378f0",
+            "owner": "prj_959652485680186c",
+            "path": "/tmp/ultra-kanban-acceptance-20261013/repo-two",
+            "status": "done",
+            "repoPaths": [
+              "/private/tmp/ultra-kanban-acceptance-20261013/repo-two"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "unrestricted-scope-follows-project-repo-list",
+      "status": "passed",
+      "taskId": "2790b6b0-c79e-4e36-8c7f-e9a0e7c57f0b",
+      "dummyRepo": "/private/tmp/ultra-kanban-acceptance-20261013/repo-edit-guard-dummy-20261013",
+      "contextReposAfterAdd": [
+        "/private/tmp/ultra-kanban-acceptance-20261013/repo-one",
+        "/private/tmp/ultra-kanban-acceptance-20261013/repo-two",
+        "/private/tmp/ultra-kanban-acceptance-20261013/repo-edit-guard-dummy-20261013"
+      ],
+      "contextReposAfterRemove": [
+        "/private/tmp/ultra-kanban-acceptance-20261013/repo-one",
+        "/private/tmp/ultra-kanban-acceptance-20261013/repo-two"
+      ],
+      "before": {
+        "project": {
+          "id": "00aebed7-d778-4a5b-ba01-94b63eaa5196",
+          "revision": 3,
+          "repos": [
+            "/private/tmp/ultra-kanban-acceptance-20261013/repo-one",
+            "/private/tmp/ultra-kanban-acceptance-20261013/repo-two"
+          ]
+        },
+        "tasks": [
+          {
+            "id": "2790b6b0-c79e-4e36-8c7f-e9a0e7c57f0b",
+            "workspaceId": "wks_03edb11a97acb9c6",
+            "sourcePath": "/private/tmp/ultra-kanban-acceptance-20261013/repo-one",
+            "repoPaths": [],
+            "revision": 8,
+            "archivedAt": null
+          },
+          {
+            "id": "330d653a-7035-45bf-84dd-bdf26e7d3ea4",
+            "workspaceId": "wks_88fa464b23f8a27d",
+            "sourcePath": "/private/tmp/ultra-kanban-acceptance-20261013/repo-two",
+            "repoPaths": [],
+            "revision": 3,
+            "archivedAt": null
+          },
+          {
+            "id": "44ac3475-11b6-43a7-8348-dcae6bfaacb8",
+            "workspaceId": "wks_9364e4929fe1d442",
+            "sourcePath": "/private/tmp/ultra-kanban-acceptance-20261013/repo-one",
+            "repoPaths": [],
+            "revision": 1,
+            "archivedAt": null
+          },
+          {
+            "id": "4b5014e4-1e4e-4415-9730-f93d56f8d9ec",
+            "workspaceId": "wks_9dbd697a8a45ec49",
+            "sourcePath": "/private/tmp/ultra-kanban-acceptance-20261013/repo-two",
+            "repoPaths": [],
+            "revision": 3,
+            "archivedAt": null
+          },
+          {
+            "id": "6a69cddf-f193-4635-8a0b-12fe7b17387f",
+            "workspaceId": "wks_7fef56e741778cb3",
+            "sourcePath": "/private/tmp/ultra-kanban-acceptance-20261013/repo-two",
+            "repoPaths": [],
+            "revision": 6,
+            "archivedAt": null
+          },
+          {
+            "id": "84bed110-9c9f-4c76-9086-43a6caea9d92",
+            "workspaceId": "wks_e194c715415378f0",
+            "sourcePath": "/private/tmp/ultra-kanban-acceptance-20261013/repo-two",
+            "repoPaths": [],
+            "revision": 3,
+            "archivedAt": null
+          },
+          {
+            "id": "d8a7e082-2cd5-4217-93e8-15df4658506e",
+            "workspaceId": "wks_3bc59e6341a37b37",
+            "sourcePath": "/private/tmp/ultra-kanban-acceptance-20261013/repo-two",
+            "repoPaths": [],
+            "revision": 3,
+            "archivedAt": null
+          },
+          {
+            "id": "fa8ba46a-ac0a-44bd-a2e1-2f95dfa5d743",
+            "workspaceId": "wks_9971e291bf5ff148",
+            "sourcePath": "/private/tmp/ultra-kanban-acceptance-20261013/repo-one",
+            "repoPaths": [
+              "/private/tmp/ultra-kanban-acceptance-20261013/repo-two"
+            ],
+            "revision": 5,
+            "archivedAt": null
+          }
+        ],
+        "workspaces": [
+          {
+            "id": "wks_03edb11a97acb9c6",
+            "owner": "prj_8859e85f82a61739",
+            "path": "/private/tmp/ultra-kanban-acceptance-20261013/repo-one",
+            "status": "attention",
+            "repoPaths": [
+              "/private/tmp/ultra-kanban-acceptance-20261013/repo-one"
+            ]
+          },
+          {
+            "id": "wks_3bc59e6341a37b37",
+            "owner": "prj_8859e85f82a61739",
+            "path": "/tmp/ultra-kanban-acceptance-20261013/repo-two",
+            "status": "done",
+            "repoPaths": [
+              "/private/tmp/ultra-kanban-acceptance-20261013/repo-two"
+            ]
+          },
+          {
+            "id": "wks_7fef56e741778cb3",
+            "owner": "prj_959652485680186c",
+            "path": "/Users/bofan.wang/.paseo/worktrees/2wp43niw/acceptance-external-managed-worktree-20261013",
+            "status": "done",
+            "repoPaths": [
+              "/private/tmp/ultra-kanban-acceptance-20261013/repo-two"
+            ]
+          },
+          {
+            "id": "wks_88fa464b23f8a27d",
+            "owner": "prj_8859e85f82a61739",
+            "path": "/Users/bofan.wang/.paseo/worktrees/2wp43niw/ultra-kanban-acceptance-repo-two-default-20261013",
+            "status": "done",
+            "repoPaths": [
+              "/private/tmp/ultra-kanban-acceptance-20261013/repo-two"
+            ]
+          },
+          {
+            "id": "wks_9364e4929fe1d442",
+            "owner": "prj_8859e85f82a61739",
+            "path": "/private/tmp/ultra-kanban-acceptance-20261013/repo-one",
+            "status": "done",
+            "repoPaths": [
+              "/private/tmp/ultra-kanban-acceptance-20261013/repo-one"
+            ]
+          },
+          {
+            "id": "wks_9971e291bf5ff148",
+            "owner": "prj_8859e85f82a61739",
+            "path": "/private/tmp/ultra-kanban-acceptance-20261013/repo-one",
+            "status": "attention",
+            "repoPaths": [
+              "/private/tmp/ultra-kanban-acceptance-20261013/repo-one"
+            ]
+          },
+          {
+            "id": "wks_9dbd697a8a45ec49",
+            "owner": "prj_8859e85f82a61739",
+            "path": "/Users/bofan.wang/.paseo/worktrees/2wp43niw/ultra-kanban-acceptance-repo-two",
+            "status": "done",
+            "repoPaths": [
+              "/private/tmp/ultra-kanban-acceptance-20261013/repo-two"
+            ]
+          },
+          {
+            "id": "wks_e194c715415378f0",
+            "owner": "prj_959652485680186c",
+            "path": "/tmp/ultra-kanban-acceptance-20261013/repo-two",
+            "status": "done",
+            "repoPaths": [
+              "/private/tmp/ultra-kanban-acceptance-20261013/repo-two"
+            ]
+          }
+        ]
+      },
+      "during": {
+        "project": {
+          "id": "00aebed7-d778-4a5b-ba01-94b63eaa5196",
+          "revision": 4,
+          "repos": [
+            "/private/tmp/ultra-kanban-acceptance-20261013/repo-one",
+            "/private/tmp/ultra-kanban-acceptance-20261013/repo-two",
+            "/private/tmp/ultra-kanban-acceptance-20261013/repo-edit-guard-dummy-20261013"
+          ]
+        },
+        "tasks": [
+          {
+            "id": "2790b6b0-c79e-4e36-8c7f-e9a0e7c57f0b",
+            "workspaceId": "wks_03edb11a97acb9c6",
+            "sourcePath": "/private/tmp/ultra-kanban-acceptance-20261013/repo-one",
+            "repoPaths": [],
+            "revision": 8,
+            "archivedAt": null
+          },
+          {
+            "id": "330d653a-7035-45bf-84dd-bdf26e7d3ea4",
+            "workspaceId": "wks_88fa464b23f8a27d",
+            "sourcePath": "/private/tmp/ultra-kanban-acceptance-20261013/repo-two",
+            "repoPaths": [],
+            "revision": 3,
+            "archivedAt": null
+          },
+          {
+            "id": "44ac3475-11b6-43a7-8348-dcae6bfaacb8",
+            "workspaceId": "wks_9364e4929fe1d442",
+            "sourcePath": "/private/tmp/ultra-kanban-acceptance-20261013/repo-one",
+            "repoPaths": [],
+            "revision": 1,
+            "archivedAt": null
+          },
+          {
+            "id": "4b5014e4-1e4e-4415-9730-f93d56f8d9ec",
+            "workspaceId": "wks_9dbd697a8a45ec49",
+            "sourcePath": "/private/tmp/ultra-kanban-acceptance-20261013/repo-two",
+            "repoPaths": [],
+            "revision": 3,
+            "archivedAt": null
+          },
+          {
+            "id": "6a69cddf-f193-4635-8a0b-12fe7b17387f",
+            "workspaceId": "wks_7fef56e741778cb3",
+            "sourcePath": "/private/tmp/ultra-kanban-acceptance-20261013/repo-two",
+            "repoPaths": [],
+            "revision": 6,
+            "archivedAt": null
+          },
+          {
+            "id": "84bed110-9c9f-4c76-9086-43a6caea9d92",
+            "workspaceId": "wks_e194c715415378f0",
+            "sourcePath": "/private/tmp/ultra-kanban-acceptance-20261013/repo-two",
+            "repoPaths": [],
+            "revision": 3,
+            "archivedAt": null
+          },
+          {
+            "id": "d8a7e082-2cd5-4217-93e8-15df4658506e",
+            "workspaceId": "wks_3bc59e6341a37b37",
+            "sourcePath": "/private/tmp/ultra-kanban-acceptance-20261013/repo-two",
+            "repoPaths": [],
+            "revision": 3,
+            "archivedAt": null
+          },
+          {
+            "id": "fa8ba46a-ac0a-44bd-a2e1-2f95dfa5d743",
+            "workspaceId": "wks_9971e291bf5ff148",
+            "sourcePath": "/private/tmp/ultra-kanban-acceptance-20261013/repo-one",
+            "repoPaths": [
+              "/private/tmp/ultra-kanban-acceptance-20261013/repo-two"
+            ],
+            "revision": 5,
+            "archivedAt": null
+          }
+        ],
+        "workspaces": [
+          {
+            "id": "wks_03edb11a97acb9c6",
+            "owner": "prj_8859e85f82a61739",
+            "path": "/private/tmp/ultra-kanban-acceptance-20261013/repo-one",
+            "status": "attention",
+            "repoPaths": [
+              "/private/tmp/ultra-kanban-acceptance-20261013/repo-one"
+            ]
+          },
+          {
+            "id": "wks_3bc59e6341a37b37",
+            "owner": "prj_8859e85f82a61739",
+            "path": "/tmp/ultra-kanban-acceptance-20261013/repo-two",
+            "status": "done",
+            "repoPaths": [
+              "/private/tmp/ultra-kanban-acceptance-20261013/repo-two"
+            ]
+          },
+          {
+            "id": "wks_7fef56e741778cb3",
+            "owner": "prj_959652485680186c",
+            "path": "/Users/bofan.wang/.paseo/worktrees/2wp43niw/acceptance-external-managed-worktree-20261013",
+            "status": "done",
+            "repoPaths": [
+              "/private/tmp/ultra-kanban-acceptance-20261013/repo-two"
+            ]
+          },
+          {
+            "id": "wks_88fa464b23f8a27d",
+            "owner": "prj_8859e85f82a61739",
+            "path": "/Users/bofan.wang/.paseo/worktrees/2wp43niw/ultra-kanban-acceptance-repo-two-default-20261013",
+            "status": "done",
+            "repoPaths": [
+              "/private/tmp/ultra-kanban-acceptance-20261013/repo-two"
+            ]
+          },
+          {
+            "id": "wks_9364e4929fe1d442",
+            "owner": "prj_8859e85f82a61739",
+            "path": "/private/tmp/ultra-kanban-acceptance-20261013/repo-one",
+            "status": "done",
+            "repoPaths": [
+              "/private/tmp/ultra-kanban-acceptance-20261013/repo-one"
+            ]
+          },
+          {
+            "id": "wks_9971e291bf5ff148",
+            "owner": "prj_8859e85f82a61739",
+            "path": "/private/tmp/ultra-kanban-acceptance-20261013/repo-one",
+            "status": "attention",
+            "repoPaths": [
+              "/private/tmp/ultra-kanban-acceptance-20261013/repo-one"
+            ]
+          },
+          {
+            "id": "wks_9dbd697a8a45ec49",
+            "owner": "prj_8859e85f82a61739",
+            "path": "/Users/bofan.wang/.paseo/worktrees/2wp43niw/ultra-kanban-acceptance-repo-two",
+            "status": "done",
+            "repoPaths": [
+              "/private/tmp/ultra-kanban-acceptance-20261013/repo-two"
+            ]
+          },
+          {
+            "id": "wks_e194c715415378f0",
+            "owner": "prj_959652485680186c",
+            "path": "/tmp/ultra-kanban-acceptance-20261013/repo-two",
+            "status": "done",
+            "repoPaths": [
+              "/private/tmp/ultra-kanban-acceptance-20261013/repo-two"
+            ]
+          }
+        ]
+      },
+      "after": {
+        "project": {
+          "id": "00aebed7-d778-4a5b-ba01-94b63eaa5196",
+          "revision": 5,
+          "repos": [
+            "/private/tmp/ultra-kanban-acceptance-20261013/repo-one",
+            "/private/tmp/ultra-kanban-acceptance-20261013/repo-two"
+          ]
+        },
+        "tasks": [
+          {
+            "id": "2790b6b0-c79e-4e36-8c7f-e9a0e7c57f0b",
+            "workspaceId": "wks_03edb11a97acb9c6",
+            "sourcePath": "/private/tmp/ultra-kanban-acceptance-20261013/repo-one",
+            "repoPaths": [],
+            "revision": 8,
+            "archivedAt": null
+          },
+          {
+            "id": "330d653a-7035-45bf-84dd-bdf26e7d3ea4",
+            "workspaceId": "wks_88fa464b23f8a27d",
+            "sourcePath": "/private/tmp/ultra-kanban-acceptance-20261013/repo-two",
+            "repoPaths": [],
+            "revision": 3,
+            "archivedAt": null
+          },
+          {
+            "id": "44ac3475-11b6-43a7-8348-dcae6bfaacb8",
+            "workspaceId": "wks_9364e4929fe1d442",
+            "sourcePath": "/private/tmp/ultra-kanban-acceptance-20261013/repo-one",
+            "repoPaths": [],
+            "revision": 1,
+            "archivedAt": null
+          },
+          {
+            "id": "4b5014e4-1e4e-4415-9730-f93d56f8d9ec",
+            "workspaceId": "wks_9dbd697a8a45ec49",
+            "sourcePath": "/private/tmp/ultra-kanban-acceptance-20261013/repo-two",
+            "repoPaths": [],
+            "revision": 3,
+            "archivedAt": null
+          },
+          {
+            "id": "6a69cddf-f193-4635-8a0b-12fe7b17387f",
+            "workspaceId": "wks_7fef56e741778cb3",
+            "sourcePath": "/private/tmp/ultra-kanban-acceptance-20261013/repo-two",
+            "repoPaths": [],
+            "revision": 6,
+            "archivedAt": null
+          },
+          {
+            "id": "84bed110-9c9f-4c76-9086-43a6caea9d92",
+            "workspaceId": "wks_e194c715415378f0",
+            "sourcePath": "/private/tmp/ultra-kanban-acceptance-20261013/repo-two",
+            "repoPaths": [],
+            "revision": 3,
+            "archivedAt": null
+          },
+          {
+            "id": "d8a7e082-2cd5-4217-93e8-15df4658506e",
+            "workspaceId": "wks_3bc59e6341a37b37",
+            "sourcePath": "/private/tmp/ultra-kanban-acceptance-20261013/repo-two",
+            "repoPaths": [],
+            "revision": 3,
+            "archivedAt": null
+          },
+          {
+            "id": "fa8ba46a-ac0a-44bd-a2e1-2f95dfa5d743",
+            "workspaceId": "wks_9971e291bf5ff148",
+            "sourcePath": "/private/tmp/ultra-kanban-acceptance-20261013/repo-one",
+            "repoPaths": [
+              "/private/tmp/ultra-kanban-acceptance-20261013/repo-two"
+            ],
+            "revision": 5,
+            "archivedAt": null
+          }
+        ],
+        "workspaces": [
+          {
+            "id": "wks_03edb11a97acb9c6",
+            "owner": "prj_8859e85f82a61739",
+            "path": "/private/tmp/ultra-kanban-acceptance-20261013/repo-one",
+            "status": "attention",
+            "repoPaths": [
+              "/private/tmp/ultra-kanban-acceptance-20261013/repo-one"
+            ]
+          },
+          {
+            "id": "wks_3bc59e6341a37b37",
+            "owner": "prj_8859e85f82a61739",
+            "path": "/tmp/ultra-kanban-acceptance-20261013/repo-two",
+            "status": "done",
+            "repoPaths": [
+              "/private/tmp/ultra-kanban-acceptance-20261013/repo-two"
+            ]
+          },
+          {
+            "id": "wks_7fef56e741778cb3",
+            "owner": "prj_959652485680186c",
+            "path": "/Users/bofan.wang/.paseo/worktrees/2wp43niw/acceptance-external-managed-worktree-20261013",
+            "status": "done",
+            "repoPaths": [
+              "/private/tmp/ultra-kanban-acceptance-20261013/repo-two"
+            ]
+          },
+          {
+            "id": "wks_88fa464b23f8a27d",
+            "owner": "prj_8859e85f82a61739",
+            "path": "/Users/bofan.wang/.paseo/worktrees/2wp43niw/ultra-kanban-acceptance-repo-two-default-20261013",
+            "status": "done",
+            "repoPaths": [
+              "/private/tmp/ultra-kanban-acceptance-20261013/repo-two"
+            ]
+          },
+          {
+            "id": "wks_9364e4929fe1d442",
+            "owner": "prj_8859e85f82a61739",
+            "path": "/private/tmp/ultra-kanban-acceptance-20261013/repo-one",
+            "status": "done",
+            "repoPaths": [
+              "/private/tmp/ultra-kanban-acceptance-20261013/repo-one"
+            ]
+          },
+          {
+            "id": "wks_9971e291bf5ff148",
+            "owner": "prj_8859e85f82a61739",
+            "path": "/private/tmp/ultra-kanban-acceptance-20261013/repo-one",
+            "status": "attention",
+            "repoPaths": [
+              "/private/tmp/ultra-kanban-acceptance-20261013/repo-one"
+            ]
+          },
+          {
+            "id": "wks_9dbd697a8a45ec49",
+            "owner": "prj_8859e85f82a61739",
+            "path": "/Users/bofan.wang/.paseo/worktrees/2wp43niw/ultra-kanban-acceptance-repo-two",
+            "status": "done",
+            "repoPaths": [
+              "/private/tmp/ultra-kanban-acceptance-20261013/repo-two"
+            ]
+          },
+          {
+            "id": "wks_e194c715415378f0",
+            "owner": "prj_959652485680186c",
+            "path": "/tmp/ultra-kanban-acceptance-20261013/repo-two",
+            "status": "done",
+            "repoPaths": [
+              "/private/tmp/ultra-kanban-acceptance-20261013/repo-two"
+            ]
+          }
+        ]
+      }
+    }
+  ],
+  "fixture": {
+    "dummyRepo": "/private/tmp/ultra-kanban-acceptance-20261013/repo-edit-guard-dummy-20261013"
+  }
+}

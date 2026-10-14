@@ -1,0 +1,40 @@
+{
+  "title": "Phase 2 MCP reload receipt Luna fixture",
+  "provider": "codex/gpt-6-luna",
+  "modeAtCreation": "full-access",
+  "taskId": "e4c3d4df-0311-4e2c-bcc1-e9ab2bc7181f",
+  "workspaceId": "wks_3fd5d552d4f98cd2",
+  "agentId": "307401d3-6e81-4cd9-94cc-1f3d53409d16",
+  "portBefore": 56670,
+  "portAfter": 56670,
+  "preReloadWrite": {
+    "isError": false,
+    "code": null,
+    "replayed": false,
+    "status": "blocked",
+    "taskRevision": 5
+  },
+  "unauthorizedAfterReloadStatus": 401,
+  "coldReadError": "PASEO_UNAVAILABLE",
+  "healthAfterContext": {
+    "listening": true,
+    "sdkReady": true,
+    "ready": true,
+    "reason": "",
+    "version": 1
+  },
+  "recoveredRead": true,
+  "replayResult": {
+    "isError": false,
+    "code": null,
+    "replayed": true,
+    "status": "blocked",
+    "taskRevision": 5
+  },
+  "eventCountAfterFirst": 20,
+  "eventCountAfterReplay": 20,
+  "readyAfterReload": true,
+  "error": null,
+  "portStable": true,
+  "receiptReplayPassed": true
+}

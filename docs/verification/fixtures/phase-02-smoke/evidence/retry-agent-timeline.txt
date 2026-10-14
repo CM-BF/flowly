@@ -1,0 +1,8 @@
+[User] Immediately read PASEO_AGENT_ID from your own process environment, call the phase-02-smoke probe tool with that exact value, and report the value and result. Do not infer your ID from this prompt or filesystem. Do not do any other work.
+I’m reading `PASEO_AGENT_ID` from this process, then I’ll call only the phase-02-smoke probe.
+[Shell] printenv PASEO_AGENT_ID
+[phase-02-smoke.probe] {"agentId":"cd656f5b-8245-4aef-b4de-59e23456765f"}
+---
+
+`PASEO_AGENT_ID`: `cd656f5b-8245-4aef-b4de-59e23456765f`  
+Probe result: `ok` (`probe-ok:cd656f5b-8245-4aef-b4de-59e23456765f`).

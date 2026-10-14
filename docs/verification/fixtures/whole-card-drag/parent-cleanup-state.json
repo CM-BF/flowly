@@ -1,0 +1,18 @@
+{
+  "checkedAt": "2026-10-14T03:14:34.834Z",
+  "agentId": "2fdbb024-4ddb-4793-bad5-d281470910ae",
+  "agentDeleted": true,
+  "registryErrorCode": "AGENT_NOT_FOUND",
+  "plugin": {
+    "id": "paseo-ultra-kanban",
+    "status": "running",
+    "enabled": true
+  },
+  "board": {
+    "projects": 1,
+    "tasks": 1
+  },
+  "createdNativeProjects": 0,
+  "createdNativeWorkspaces": 0,
+  "createdBoardCards": 0
+}

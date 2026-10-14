@@ -1,0 +1,157 @@
+import type { PluginServerContext } from "@getpaseo/plugin/server";
+import { BoardStore } from "./server/store";
+import { BoardService, dataDirectory } from "./server/service";
+import * as rpc from "./shared/rpc";
+import { ToolServer } from "./server/tool-server";
+import { SessionReadStore, SessionReadService } from "./server/session-reads";
+import { WrapupService } from "./server/wrapup";
+
+export default function contribute(server: PluginServerContext) {
+  const store = new BoardStore(dataDirectory());
+  const service = new BoardService(store);
+  const sessionReads = new SessionReadStore(store.directory);
+  const readService = new SessionReadService(store, sessionReads);
+  server.handle(rpc.readSessionReceipts, () => sessionReads.read());
+  server.handle(rpc.markSessionRead, (input, { paseo }) =>
+    readService.mark(input, paseo),
+  );
+  const wrapups = new WrapupService(store);
+  server.handle(rpc.wrapupCheck, (input, { paseo }) =>
+    wrapups.check(input.id, paseo),
+  );
+  server.handle(rpc.wrapup, (input, { paseo }) => wrapups.run(input, paseo));
+  const tools = new ToolServer(store);
+  void tools
+    .start()
+    .catch((e) =>
+      console.error(
+        "Kanban tools unavailable:",
+        e instanceof Error ? e.message : String(e),
+      ),
+    );
+  server.handle(rpc.readBoard, (_, { paseo }) => {
+    tools.attach(paseo);
+    return store.view();
+  });
+  server.handle(rpc.toolsHealth, async (_, { paseo }) => {
+    tools.attach(paseo);
+    await tools.start().catch(() => undefined);
+    return tools.health();
+  });
+  server.handle(rpc.prepareSession, (input, { paseo }) =>
+    tools.prepareSession(input.id, input.operationId, paseo),
+  );
+  server.handle(rpc.prepareExisting, (input, { paseo }) =>
+    tools.prepareExisting(input.id, input.agentId, paseo),
+  );
+  server.handle(rpc.accessState, (input, { paseo }) =>
+    tools.accessState(input.id, input.agentId, paseo),
+  );
+  server.handle(rpc.listResources, (_, { paseo }) => service.resources(paseo));
+  server.handle(rpc.createProject, (input, { paseo }) =>
+    service.createProject(input, paseo),
+  );
+  server.handle(rpc.createTask, (input, { paseo }) =>
+    service.createTask(input, paseo),
+  );
+  server.handle(rpc.taskContext, (input, { paseo }) =>
+    service.context(input.id, paseo),
+  );
+  server.handle(rpc.updateTask, (input) => store.editTask(input));
+  server.handle(rpc.updateProject, (input) => {
+    return store.mutate((board) => {
+      const p = board.projects.find((p) => p.id === input.id);
+      if (!p) throw new Error("Project not found.");
+      if (p.revision !== input.revision)
+        throw new Error("Revision conflict: reload the project before saving.");
+      if (input.title !== undefined) p.title = input.title;
+      if (input.description !== undefined) p.description = input.description;
+      if (input.archived !== undefined)
+        p.archivedAt = input.archived ? new Date().toISOString() : null;
+      p.revision++;
+      p.updatedAt = new Date().toISOString();
+      return p;
+    });
+  });
+  server.handle(rpc.moveTask, (input) =>
+    store.mutate((board) => {
+      const task = board.tasks.find((t) => t.id === input.id);
+      if (!task) throw new Error("Task not found.");
+      if (task.revision !== input.revision)
+        throw new Error("Revision conflict: reload before moving.");
+      const peers = board.tasks
+        .filter(
+          (t) =>
+            t.projectId === task.projectId &&
+            t.status === task.status &&
+            !t.archivedAt,
+        )
+        .sort(
+          (a, b) =>
+            a.position - b.position || a.createdAt.localeCompare(b.createdAt),
+        );
+      const index = peers.indexOf(task),
+        other = peers[index + (input.direction === "up" ? -1 : 1)];
+      if (other) {
+        peers.splice(index, 1);
+        peers.splice(index + (input.direction === "up" ? -1 : 1), 0, task);
+        peers.forEach((t, i) => {
+          t.position = i;
+          t.revision++;
+          t.updatedAt = new Date().toISOString();
+        });
+      }
+      return task;
+    }),
+  );
+  for (const name of [
+    "agent.turn_started",
+    "agent.turn_ended",
+    "agent.permission_requested",
+  ] as const) {
+    server.on(name, async (event, { paseo }) => {
+      tools.attach(paseo);
+      const board = await store.read();
+      const task = board.tasks.find(
+        (t) => t.workspaceId === event.agent.workspaceId,
+      );
+      if (!task) return;
+      await store.mutate((current) =>
+        store.event(current, {
+          taskId: task.id,
+          actor: "system",
+          action: name,
+          agentId: event.agent.id,
+        }),
+      );
+    });
+  }
+  console.log("Ultra Kanban store ready:", store.directory);
+  server.before("agent.session_open", async ({ request }, { paseo }) => {
+    tools.attach(paseo);
+    if (request.purpose !== "interactive") return;
+    try {
+      const contextFile = await tools.sessionContext(
+        request.agentId,
+        request.workspaceId,
+        paseo,
+      );
+      if (contextFile)
+        return {
+          ...request,
+          env: {
+            ...request.env,
+            ULTRA_KANBAN_CONTEXT_FILE: contextFile,
+            ULTRA_KANBAN_CLI: store.directory + "/ultra-kanban.mjs",
+            ULTRA_KANBAN_SKILL: store.directory + "/SKILL.md",
+          },
+        };
+    } catch (e) {
+      console.error(
+        "Kanban session CLI unavailable:",
+        e instanceof Error ? e.message : String(e),
+      );
+    }
+  });
+  return () => tools.stop();
+}

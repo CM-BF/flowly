@@ -1,0 +1,73 @@
+# M2.5：多任务人工管理
+
+状态：用户于 2026-10-14 授权（选定 A、B、D；C、E 暂不做；要求先把看板基础功能做好）。上游：[ROADMAP-V2 §0/§8](ROADMAP-V2.md)。
+本阶段只用人工操作和 Paseo 已有的 session 信号，不新增 agent 工具，不改变 agent 的状态权限。存储结构不变（board v3），也不引入新的持久化文件。
+
+## A. “需要关注”总览
+
+- 看板工具栏新增 Attention 按钮（铃铛图标）。有待处理项时显示数量角标。
+- 弹窗按卡片列出所有需要关注的 session：
+  - 范围：未归档项目中未归档的卡片。不受当前项目、搜索、优先级、Finished 筛选的影响。
+  - 判定沿用现有 `sessionAttention`：等待授权、出错、回合结束未读。running 不算。
+  - 读状态不可用时不判定未读，只列授权和错误，并在弹窗顶部说明。
+- 每行显示：卡片标题、项目名、卡片状态、各项原因（如 “1 approval · 2 unread”）、最近 session 更新时间。排序规则：
+  1. 有授权或错误的卡片排前；
+  2. 同一档内，最近更新的排前。
+- 点击一行：切到该项目，打开卡片侧栏。
+  - 若该卡只有一个需要关注的 session，直接打开它的预览。复用 session chip 的一次性入口机制，“Back” 回到卡片详情。
+  - 有多个需要关注的 session 时停在卡片详情，由用户选择。
+- 打开 session 不会自动标为已读；已读仍由现有 “Mark as read” 操作完成。
+- 空状态显示 “Nothing needs your attention.”。数据随看板现有轮询（≤5s）刷新。
+
+## B. 一键开 session
+
+- 入口有三个：
+  - 侧栏 Sessions 区标题旁的 “Start session”（原 “New session”）；
+  - 卡片无 session 时，空状态里的主按钮；
+  - 卡片操作菜单中的 “Start session”：打开侧栏并直接弹出创建框。
+- 创建框预填以下内容，均可修改：
+  - **Provider / model / mode**：沿用最近一次创建的 session，即所有卡片 workspace 中 `createdAt` 最新、未归档的 session。若它的 provider 不可用或 model 不可选，回退到 provider 默认 model；若 mode 不在可选列表，回退到 provider 默认权限。没有历史时保持现状（codex + 默认 model）。
+  - **初始指令**：卡片标题加描述（空描述时只有标题）。
+  - **标题**：留空，即使用卡片标题。
+- 创建逻辑、Kanban 工具注入、幂等与恢复行为不变。
+
+## D. 手动收尾（Wrap up）
+
+- 卡片状态为 Done 或 Cancelled 且未归档时，侧栏 “Needs” 位置显示 “Wrap up” 区块和按钮。其他状态不显示。
+- 点击后先做检查（RPC `tasks.wrapup-check`），再弹窗展示结果：
+
+| 检查 | 级别 | 说明 |
+| --- | --- | --- |
+| session 运行中/启动中 | 阻止 | 先停止或等待结束 |
+| workspace 正在归档或不可用 | 阻止（不可用时只允许归档看板记录） | — |
+| 未提交改动（仅 worktree） | 警告 | 归档后 Paseo 可能删除 worktree 目录，改动会丢失 |
+| 未推送提交 `git rev-list --count HEAD --not --remotes`（仅 worktree） | 警告 | 分支保留，但提交只在本地 |
+| Git 状态无法读取（仅 worktree） | 警告 | — |
+
+- 收尾动作按 workspace 类型区分：
+  - **worktree**：归档该 workspace。Paseo 会同时归档其 session 和终端；当它是该 worktree 的最后一个活动引用时，Paseo 会移除 worktree 目录，分支保留。
+  - **directory / checkout / local_checkout**：不归档 workspace（它可能是项目根或用户的常用目录），只逐个归档该 workspace 内未归档的 session。
+  - 两种情况最后都把卡片标为已归档，记录活动 `wrapped_up`（含已归档的 session 数、是否归档了 workspace、被确认的警告）。
+- 确认：
+  - 有阻止项时，“Wrap up” 不可点。
+  - 有警告时，按钮为危险样式，文案为 “Wrap up anyway”；请求带 `acknowledgeWarnings=true`。
+  - 服务端执行前重新检查。若出现新的阻止项，或警告变化且未被确认，则拒绝并返回最新检查结果。
+- 请求带卡片 `revision`，卡片已被他人修改时返回冲突。
+- 执行顺序：资源归档在前，卡片归档在后。
+  - 任一 session 或 workspace 归档失败：卡片不归档，返回已完成与失败的明细，可再次重试（已归档的资源会被跳过）。
+- 卡片原有的 Archive（只归档看板记录）保持不变。收尾成功用原生 toast 提示。
+- 这是用户显式操作，符合“归档看板记录不隐式归档 Paseo 资源”的约束；AGENTS.md 增补一行说明此显式例外。
+
+## 不做
+
+agent 自动推进、阶段、提问、自动启动（见 ROADMAP-V2 远期）、卡片排序/筛选增强（C）、卡片备注（E）、自动/延迟收尾。
+
+## 验收
+
+- 先 typecheck，再跑聚焦测试和全量 `npm test`，然后只 reload 本插件。
+- 聚焦测试：
+  - 关注列表的计算：范围、排序、读状态不可用；
+  - 默认 session 设置的推导；
+  - 收尾检查与执行（git 临时仓库 + fake SDK）：阻止、警告确认、worktree/directory 分支、部分失败不归档卡片、revision 冲突、重复执行。
+- 真实渲染检查：桌面和手机宽度的 Attention 弹窗、侧栏 Start/Wrap up。不对用户的真实卡片执行收尾。
+- 按用户此前决定，Luna 验收暂不运行，记为 UNRUN。

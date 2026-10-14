@@ -1,0 +1,13 @@
+
+> paseo-ultra-kanban@0.1.0 test
+> vitest run
+
+
+ RUN  v4.1.11 /Users/bofan.wang/Developer/personal/paseo-utlra-kanban
+
+
+ Test Files  4 passed (4)
+      Tests  21 passed (21)
+   Start at  13:37:07
+   Duration  2.28s (transform 109ms, setup 0ms, import 274ms, tests 3.18s, environment 0ms)
+

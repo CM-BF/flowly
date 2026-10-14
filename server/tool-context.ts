@@ -1,0 +1,204 @@
+import { mkdir, readFile, writeFile, rename } from "node:fs/promises";
+import { join } from "node:path";
+import {
+  randomBytes,
+  randomUUID,
+  createHmac,
+  timingSafeEqual,
+  createHash,
+} from "node:crypto";
+import { z } from "zod";
+import {
+  identitySchema,
+  revisionSchema,
+  type ToolIdentity,
+} from "../shared/tools";
+import { ToolError } from "./tool-error";
+
+export const digest = (value: string) =>
+  createHash("sha256").update(value).digest("hex");
+export async function writePrivate(path: string, data: string, mode = 0o600) {
+  const tmp = `${path}.${randomUUID()}.tmp`;
+  await writeFile(tmp, data, { mode });
+  await rename(tmp, path);
+}
+const signedRequestSchema = identitySchema.extend({
+  nonce: z.string(),
+  issuedAt: z.string().datetime(),
+  revision: revisionSchema,
+});
+export class ToolSecrets {
+  private key = "";
+  private files = Promise.resolve<unknown>(undefined);
+  constructor(
+    readonly directory: string,
+    readonly now = () => Date.now(),
+  ) {}
+  async initialize() {
+    await mkdir(this.directory, { recursive: true, mode: 0o700 });
+    await mkdir(join(this.directory, "sessions"), {
+      recursive: true,
+      mode: 0o700,
+    });
+    await mkdir(join(this.directory, "preparations"), {
+      recursive: true,
+      mode: 0o700,
+    });
+    const path = join(this.directory, "tool-key.json");
+    try {
+      this.key = z
+        .object({
+          version: z.literal(1),
+          key: z.string().regex(/^[a-f0-9]{64}$/),
+        })
+        .parse(JSON.parse(await readFile(path, "utf8"))).key;
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code !== "ENOENT")
+        throw new ToolError(
+          "TOOLS_UNAVAILABLE",
+          `Tool key is invalid; preserved at ${path}.`,
+        );
+      this.key = randomBytes(32).toString("hex");
+      await writePrivate(path, JSON.stringify({ version: 1, key: this.key }));
+    }
+  }
+  seal(purpose: string, data: unknown) {
+    if (!this.key)
+      throw new ToolError("TOOLS_UNAVAILABLE", "Tool key is not ready.", true);
+    const body = Buffer.from(JSON.stringify({ purpose, data })).toString(
+      "base64url",
+    );
+    return `${body}.${createHmac("sha256", this.key).update(body).digest("base64url")}`;
+  }
+  private unseal(purpose: string, token: string): unknown {
+    if (!this.key)
+      throw new ToolError("TOOLS_UNAVAILABLE", "Tool key is not ready.", true);
+    try {
+      if (token.length > 4096) throw new Error();
+      const [body, signature, extra] = token.split(".");
+      if (!body || !signature || extra) throw new Error();
+      const wanted = createHmac("sha256", this.key).update(body).digest();
+      const actual = Buffer.from(signature, "base64url");
+      if (actual.length !== wanted.length || !timingSafeEqual(actual, wanted))
+        throw new Error();
+      const parsed = JSON.parse(
+        Buffer.from(body, "base64url").toString("utf8"),
+      );
+      if (parsed.purpose !== purpose) throw new Error();
+      return parsed.data;
+    } catch {
+      throw new ToolError(
+        "UNAUTHORIZED",
+        "Invalid Kanban connection or request signature.",
+      );
+    }
+  }
+  credential(identity: ToolIdentity) {
+    return this.seal("session", identitySchema.parse(identity));
+  }
+  authenticate(token: string) {
+    return identitySchema.parse(this.unseal("session", token));
+  }
+  request(identity: ToolIdentity, revision: z.infer<typeof revisionSchema>) {
+    const issuedAt = new Date(this.now()).toISOString();
+    return {
+      id: this.seal("write", {
+        ...identity,
+        nonce: randomUUID(),
+        issuedAt,
+        revision,
+      }),
+      issuedAt,
+    };
+  }
+  validateRequest(
+    identity: ToolIdentity,
+    request: { id: string; issuedAt: string },
+    revision: z.infer<typeof revisionSchema>,
+  ) {
+    const parsed = signedRequestSchema.parse(this.unseal("write", request.id));
+    if (
+      parsed.agentId !== identity.agentId ||
+      parsed.taskId !== identity.taskId ||
+      parsed.workspaceId !== identity.workspaceId
+    )
+      throw new ToolError(
+        "SESSION_MISMATCH",
+        "Request belongs to another session/card.",
+      );
+    if (
+      parsed.issuedAt !== request.issuedAt ||
+      parsed.revision.task !== revision.task ||
+      parsed.revision.project !== revision.project
+    )
+      throw new ToolError(
+        "INVALID_INPUT",
+        "Copy the request and both revisions from kanban_get_task; do not change signed fields.",
+      );
+    return parsed;
+  }
+  contextFile(agentId: string) {
+    if (!/^[A-Za-z0-9_-]{1,100}$/.test(agentId))
+      throw new ToolError("INVALID_INPUT", "Invalid agent ID.");
+    return join(this.directory, "sessions", `${agentId}.json`);
+  }
+  async writeContext(identity: ToolIdentity, method: "mcp" | "cli" = "cli") {
+    const job = this.files.then(async () => {
+      const path = this.contextFile(identity.agentId);
+      let methods: string[] = [];
+      try {
+        const old = JSON.parse(await readFile(path, "utf8"));
+        if (
+          JSON.stringify(identitySchema.parse(old.identity)) !==
+          JSON.stringify(identitySchema.parse(identity))
+        )
+          throw new ToolError(
+            "SESSION_MISMATCH",
+            "Existing session context has a different card binding.",
+          );
+        methods = z.array(z.enum(["cli", "mcp"])).parse(old.methods || []);
+      } catch (e) {
+        if ((e as NodeJS.ErrnoException).code !== "ENOENT") throw e;
+      }
+      await writePrivate(
+        path,
+        JSON.stringify({
+          version: 1,
+          identity,
+          credential: this.credential(identity),
+          discoveryFile: join(this.directory, "tool-endpoint.json"),
+          methods: [...new Set([...methods, method])],
+        }),
+      );
+      return path;
+    });
+    this.files = job.then(
+      () => undefined,
+      () => undefined,
+    );
+    return job;
+  }
+  async prepared(taskId: string, workspaceId: string, operationId: string) {
+    const path = join(
+      this.directory,
+      "preparations",
+      `${digest(operationId)}.json`,
+    );
+    try {
+      const existing = identitySchema.parse(
+        JSON.parse(await readFile(path, "utf8")),
+      );
+      if (existing.taskId !== taskId || existing.workspaceId !== workspaceId)
+        throw new ToolError(
+          "REQUEST_REUSED",
+          "Session preparation operation was used for another card.",
+        );
+      return existing;
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code !== "ENOENT") throw e;
+      const identity = { taskId, workspaceId, agentId: randomUUID() };
+      await writePrivate(path, JSON.stringify(identity));
+      return identity;
+    }
+  }
+}

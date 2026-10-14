@@ -1,0 +1,1 @@
+Fresh CUA getState on 2026-10-14: Paseo sh.paseo.desktop running, only apps/browsers inventory. No native window ID/title/geometry/fullscreen state, so required non-fullscreen target cannot be identified. No app/window selected and no GUI interaction. Real keyboard/IME/Shift/native focus/message delivery remains UNRUN; synthetic events establish code behavior only.

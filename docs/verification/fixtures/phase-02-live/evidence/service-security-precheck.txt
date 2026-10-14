@@ -1,0 +1,6 @@
+Paseo plugin: paseo-ultra-kanban (status running); daemon: 0.11.2 (status reachable; no restart performed).
+Discovery: http://127.0.0.1:56670/ (discovery JSON version 1; port 56670).
+Unauthenticated POST /mcp: 401.
+Unauthenticated POST /api: 401.
+Authenticated tools.health via schema-validated plugin RPC: listening=true, sdkReady=true, ready=true, version=1.
+No credential values are stored in this evidence.

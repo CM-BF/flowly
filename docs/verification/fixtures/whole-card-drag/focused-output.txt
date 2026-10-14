@@ -1,0 +1,57 @@
+
+ RUN  v4.1.11 /Users/bofan.wang/Developer/personal/paseo-utlra-kanban
+
+stderr | docs/verification/fixtures/ui-ux/card-responder.test.tsx > TaskCard whole-card pointer responder (synthetic renderer) > root arms only primary mouse; touch, pen, right button, and Actions cannot capture
+react-test-renderer is deprecated. See https://react.dev/warnings/react-test-renderer
+The current testing environment is not configured to support act(...)
+
+stderr | docs/verification/fixtures/ui-ux/card-responder.test.tsx > TaskCard whole-card pointer responder (synthetic renderer) > body click opens, a drag suppresses its click, and release ends once
+react-test-renderer is deprecated. See https://react.dev/warnings/react-test-renderer
+The current testing environment is not configured to support act(...)
+
+stderr | docs/verification/fixtures/ui-ux/card-responder.test.tsx > TaskCard whole-card pointer responder (synthetic renderer) > pointer cancel and responder termination cancel at most once; disabled card cannot capture
+react-test-renderer is deprecated. See https://react.dev/warnings/react-test-renderer
+The current testing environment is not configured to support act(...)
+react-test-renderer is deprecated. See https://react.dev/warnings/react-test-renderer
+The current testing environment is not configured to support act(...)
+react-test-renderer is deprecated. See https://react.dev/warnings/react-test-renderer
+The current testing environment is not configured to support act(...)
+
+stderr | docs/verification/fixtures/ui-ux/card-responder.test.tsx > TaskCard whole-card pointer responder (synthetic renderer) > all card Labels opt out of selection
+react-test-renderer is deprecated. See https://react.dev/warnings/react-test-renderer
+The current testing environment is not configured to support act(...)
+
+stderr | docs/verification/fixtures/ui-ux/card-responder.test.tsx > TaskCard whole-card pointer responder (synthetic renderer) > actual Label forwards selectable=false and sets userSelect:none
+react-test-renderer is deprecated. See https://react.dev/warnings/react-test-renderer
+The current testing environment is not configured to support act(...)
+
+stderr | docs/verification/fixtures/ui-ux/card-responder.test.tsx > TaskCard whole-card pointer responder (synthetic renderer) > a valid cross-column end writes once with captured revision; pending disables drag
+react-test-renderer is deprecated. See https://react.dev/warnings/react-test-renderer
+The current testing environment is not configured to support act(...)
+Each child in a list should have a unique "key" prop.
+
+Check the render method of `ScrollView`. It was passed a child from DesktopColumns. See https://react.dev/link/warning-keys for more information.
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+react-test-renderer is deprecated. See https://react.dev/warnings/react-test-renderer
+The current testing environment is not configured to support act(...)
+
+stderr | docs/verification/fixtures/ui-ux/card-responder.test.tsx > TaskCard whole-card pointer responder (synthetic renderer) > resize grip responds from its captured starting width
+react-test-renderer is deprecated. See https://react.dev/warnings/react-test-renderer
+The current testing environment is not configured to support act(...)
+
+ ✓ docs/verification/fixtures/ui-ux/card-responder.test.tsx > TaskCard whole-card pointer responder (synthetic renderer) > root arms only primary mouse; touch, pen, right button, and Actions cannot capture 5ms
+ ✓ docs/verification/fixtures/ui-ux/card-responder.test.tsx > TaskCard whole-card pointer responder (synthetic renderer) > body click opens, a drag suppresses its click, and release ends once 3ms
+ ✓ docs/verification/fixtures/ui-ux/card-responder.test.tsx > TaskCard whole-card pointer responder (synthetic renderer) > pointer cancel and responder termination cancel at most once; disabled card cannot capture 1ms
+ ✓ docs/verification/fixtures/ui-ux/card-responder.test.tsx > TaskCard whole-card pointer responder (synthetic renderer) > all card Labels opt out of selection 0ms
+ ✓ docs/verification/fixtures/ui-ux/card-responder.test.tsx > TaskCard whole-card pointer responder (synthetic renderer) > actual Label forwards selectable=false and sets userSelect:none 8ms
+ ✓ docs/verification/fixtures/ui-ux/card-responder.test.tsx > TaskCard whole-card pointer responder (synthetic renderer) > a valid cross-column end writes once with captured revision; pending disables drag 4ms
+ ✓ docs/verification/fixtures/ui-ux/card-responder.test.tsx > TaskCard whole-card pointer responder (synthetic renderer) > resize grip responds from its captured starting width 0ms
+ ✓ docs/verification/fixtures/ui-ux/card-responder.test.tsx > card text selection source contract > the host Label maps selectable=false to Text selectable and userSelect none 0ms
+
+ Test Files  1 passed (1)
+      Tests  8 passed (8)
+   Start at  11:13:03
+   Duration  210ms (transform 48ms, setup 0ms, import 91ms, tests 23ms, environment 0ms)
+

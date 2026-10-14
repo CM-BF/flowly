@@ -1,0 +1,3 @@
+# Paseo window inventory blocker
+
+The documented `cua.getState()` and `cua.listApps({emit:false})` inventories identified the running Paseo app by bundle ID `sh.paseo.desktop`, but neither returned window records. On this macOS CUA runtime, `cua.listWindows` is undefined. The documented `WindowInfo` inventory with IDs/titles is therefore unavailable, and no window geometry or fullscreen state can be checked. Because there are two Paseo windows and this API cannot bind one uniquely to the non-fullscreen window, no Paseo UI action was attempted. UI acceptance remains UNRUN; continue non-UI checks.

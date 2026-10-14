@@ -1,0 +1,268 @@
+
+ RUN  v4.1.11 /Users/bofan.wang/Developer/personal/paseo-utlra-kanban
+
+ ❯ docs/verification/fixtures/session-input/session-preview-keyboard.test.tsx (6 tests | 5 failed) 37ms
+     × captures onChangeText synchronously before rerender and preserves newer draft while a send is pending 8ms
+     × synchronous lock deduplicates keyboard/button; failure retains draft and permits retry 7ms
+     × stale key callbacks recheck pending, availability, membership and visibility; Back/unmount fences callbacks 3ms
+     × native keyboard Send is configured and routes IME-aware submit once; mode and tools purpose stay correct 7ms
+     × empty and moved/archived/provider unavailable actors cannot send 4ms
+
+ Test Files  1 failed | 1 passed (2)
+      Tests  5 failed | 12 passed (17)
+   Start at  14:41:46
+   Duration  236ms (transform 76ms, setup 0ms, import 148ms, tests 39ms, environment 0ms)
+
+stderr | docs/verification/fixtures/session-input/session-preview-keyboard.test.tsx > SessionPreview keyboard submission > captures onChangeText synchronously before rerender and preserves newer draft while a send is pending
+react-test-renderer is deprecated. See https://react.dev/warnings/react-test-renderer
+
+stderr | docs/verification/fixtures/session-input/session-preview-keyboard.test.tsx > SessionPreview keyboard submission > captures onChangeText synchronously before rerender and preserves newer draft while a send is pending
+An update to Root inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+
+stderr | docs/verification/fixtures/session-input/session-preview-keyboard.test.tsx > SessionPreview keyboard submission > synchronous lock deduplicates keyboard/button; failure retains draft and permits retry
+react-test-renderer is deprecated. See https://react.dev/warnings/react-test-renderer
+
+stderr | docs/verification/fixtures/session-input/session-preview-keyboard.test.tsx > SessionPreview keyboard submission > stale key callbacks recheck pending, availability, membership and visibility; Back/unmount fences callbacks
+react-test-renderer is deprecated. See https://react.dev/warnings/react-test-renderer
+
+stderr | docs/verification/fixtures/session-input/session-preview-keyboard.test.tsx > SessionPreview keyboard submission > stale key callbacks recheck pending, availability, membership and visibility; Back/unmount fences callbacks
+An update to Root inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to SessionPreview inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to SessionPreview inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to SessionPreview inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to Root inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to Root inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+
+stderr | docs/verification/fixtures/session-input/session-preview-keyboard.test.tsx > SessionPreview keyboard submission > stale key callbacks recheck pending, availability, membership and visibility; Back/unmount fences callbacks
+An update to SessionPreview inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+
+stderr | docs/verification/fixtures/session-input/session-preview-keyboard.test.tsx > SessionPreview keyboard submission > native keyboard Send is configured and routes IME-aware submit once; mode and tools purpose stay correct
+react-test-renderer is deprecated. See https://react.dev/warnings/react-test-renderer
+
+stderr | docs/verification/fixtures/session-input/session-preview-keyboard.test.tsx > SessionPreview keyboard submission > native keyboard Send is configured and routes IME-aware submit once; mode and tools purpose stay correct
+An update to SessionPreview inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to SessionPreview inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to SessionPreview inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+
+stderr | docs/verification/fixtures/session-input/session-preview-keyboard.test.tsx > SessionPreview keyboard submission > native keyboard Send is configured and routes IME-aware submit once; mode and tools purpose stay correct
+An update to Root inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+
+stderr | docs/verification/fixtures/session-input/session-preview-keyboard.test.tsx > SessionPreview keyboard submission > empty and moved/archived/provider unavailable actors cannot send
+react-test-renderer is deprecated. See https://react.dev/warnings/react-test-renderer
+
+stderr | docs/verification/fixtures/session-input/session-preview-keyboard.test.tsx > SessionPreview keyboard submission > empty and moved/archived/provider unavailable actors cannot send
+An update to Root inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+react-test-renderer is deprecated. See https://react.dev/warnings/react-test-renderer
+
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 5 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  docs/verification/fixtures/session-input/session-preview-keyboard.test.tsx > SessionPreview keyboard submission > captures onChangeText synchronously before rerender and preserves newer draft while a send is pending
+AssertionError: expected 'old' to be 'newer while pending' // Object.is equality
+
+Expected: "newer while pending"
+Received: "old"
+
+ ❯ docs/verification/fixtures/session-input/session-preview-keyboard.test.tsx:92:59
+     90|     expect(input.props.value).toBe("old"); // the parent has not ackno…
+     91|     tree.update(<SessionPreview {...p} draft="newer while pending" />);
+     92|     expect(tree.root.findByType("TextInput").props.value).toBe("newer …
+       |                                                           ^
+     93|     expect(state.tail.jumpToLatest).toHaveBeenCalledTimes(1);
+     94|     tree.unmount();
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/5]⎯
+
+ FAIL  docs/verification/fixtures/session-input/session-preview-keyboard.test.tsx > SessionPreview keyboard submission > synchronous lock deduplicates keyboard/button; failure retains draft and permits retry
+AssertionError: expected "vi.fn()" to be called 2 times, but got 1 times
+ ❯ docs/verification/fixtures/session-input/session-preview-keyboard.test.tsx:108:73
+    106|     expect(asText(tree.root)).toContain("send failed"); expect(state.t…
+    107|     await act(async () => { button(tree, "Send instruction").props.onP…
+    108|     expect(state.send).toHaveBeenCalledTimes(2); expect(p.endOperation…
+       |                                                                         ^
+    109|     tree.unmount();
+    110|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/5]⎯
+
+ FAIL  docs/verification/fixtures/session-input/session-preview-keyboard.test.tsx > SessionPreview keyboard submission > stale key callbacks recheck pending, availability, membership and visibility; Back/unmount fences callbacks
+AssertionError: expected "vi.fn()" to not be called at all, but actually been called 1 times
+
+Received:
+
+  1st vi.fn() call:
+
+    Array [
+      Object {
+        "agents": Object {
+          "ref": [Function ref],
+        },
+      },
+      Object {
+        "id": "task-fixture",
+        "revision": 1,
+        "title": "Fixture task",
+        "workspaceId": "workspace-fixture",
+      },
+      "agent-fixture",
+      [Function Mock],
+      "draft",
+      "steer",
+    ]
+
+
+Number of calls: 1
+
+ ❯ docs/verification/fixtures/session-input/session-preview-keyboard.test.tsx:119:28
+    117|     tree.update(<SessionPreview {...p} unavailable />); oldKey({ nativ…
+    118|     tree.update(<SessionPreview {...p} visible={false} />); oldKey({ n…
+    119|     expect(state.send).not.toHaveBeenCalled();
+       |                            ^
+    120|     tree.unmount(); oldKey({ nativeEvent: { key: "Enter" }, preventDef…
+    121|     expect(state.send).not.toHaveBeenCalled();
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/5]⎯
+
+ FAIL  docs/verification/fixtures/session-input/session-preview-keyboard.test.tsx > SessionPreview keyboard submission > native keyboard Send is configured and routes IME-aware submit once; mode and tools purpose stay correct
+TypeError: Cannot read properties of undefined (reading '5')
+ ❯ docs/verification/fixtures/session-input/session-preview-keyboard.test.tsx:138:36
+    136|     tree.update(<SessionPreview {...p} draft="second" />);
+    137|     await act(async () => { tree.root.findByType("TextInput").props.on…
+    138|     expect(state.send.mock.calls[1][5]).toBe("interrupt");
+       |                                    ^
+    139|     button(tree, "Kanban tools").props.onPress();
+    140|     expect(asText(tree.root)).toContain("The Agent can");
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/5]⎯
+
+ FAIL  docs/verification/fixtures/session-input/session-preview-keyboard.test.tsx > SessionPreview keyboard submission > empty and moved/archived/provider unavailable actors cannot send
+Error: No instances found with node type: "TextInput"
+ ❯ expectOne ../../../../../private/var/folders/0b/f1crzdg95g5fwbq49s_3pw9c0000gq/T/kanban-session-input-2026-10-14T06-41-45.327Z-cW34oK/node_modules/react-test-renderer/cjs/react-test-renderer.development.js:12559:13
+ ❯ process.env.NODE_ENV._proto.findByType ../../../../../private/var/folders/0b/f1crzdg95g5fwbq49s_3pw9c0000gq/T/kanban-session-input-2026-10-14T06-41-45.327Z-cW34oK/node_modules/react-test-renderer/cjs/react-test-renderer.development.js:14473:18
+ ❯ docs/verification/fixtures/session-input/session-preview-keyboard.test.tsx:153:17
+    151|       state.actor = unavailableActor;
+    152|       await act(async () => { tree = create(<SessionPreview {...setup(…
+    153|       tree.root.findByType("TextInput").props.onKeyPress({ nativeEvent…
+       |                 ^
+    154|       expect(state.send).not.toHaveBeenCalled(); tree.unmount();
+    155|     }
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/5]⎯
+

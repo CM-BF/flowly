@@ -1,0 +1,22 @@
+[User] Immediately use the Kanban MCP tools in this order: (1) kanban_get_task and confirm this is your current task; (2) kanban_update_status to in_progress with a short note; (3) kanban_report_progress with kind progress; (4) kanban_update_status to in_review with a short delivery note. After each write use the returned current context/request for the next call. Do not set done/cancelled. Make no file changes. Finally report your PASEO_AGENT_ID, each operation's success/failure and current card status, but never quote credentials or signed request IDs.
+I’ll use only the Kanban read and write tools in the requested order, carrying forward the refreshed context after each write. No repository or browser actions.
+[ultra-kanban.kanban_get_task] [arguments redacted]
+[ultra-kanban.kanban_get_task] [arguments redacted]
+[ultra-kanban.kanban_update_status] [arguments redacted]
+[ultra-kanban.kanban_get_task] [arguments redacted]
+[ultra-kanban.kanban_report_progress] [arguments redacted]
+---
+
+The read confirmed the assigned card and session. The in-progress transition and progress checkpoint both succeeded; I’m submitting the card for review now.
+[ultra-kanban.kanban_get_task] [arguments redacted]
+[ultra-kanban.kanban_update_status] [arguments redacted]
+---
+
+PASEO_AGENT_ID: `85914006-1bfe-4743-9683-b1104e04f554`
+
+- `kanban_get_task`: succeeded; confirmed this is the assigned task.
+- `kanban_update_status` → `in_progress`: succeeded.
+- `kanban_report_progress` (`progress`): succeeded.
+- `kanban_update_status` → `in_review`: succeeded.
+- Current card status: **In review**.
+- No files changed.

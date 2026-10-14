@@ -1,0 +1,161 @@
+import { z } from "zod";
+import type { BoardEvent } from "./model";
+
+export const sessionReadReceiptSchema = z.strictObject({
+  taskId: z.string().min(1).max(200),
+  workspaceId: z.string().min(1).max(200),
+  agentId: z.string().min(1).max(200),
+  token: z.string().min(1).max(512),
+  readAt: z.string().datetime(),
+});
+export type SessionReadReceipt = z.infer<typeof sessionReadReceiptSchema>;
+export const sessionReadStateSchema = z
+  .strictObject({
+    version: z.literal(1),
+    receipts: z.array(sessionReadReceiptSchema).max(10000),
+  })
+  .refine(
+    (state) =>
+      new Set(
+        state.receipts.map((receipt) =>
+          JSON.stringify([
+            receipt.taskId,
+            receipt.workspaceId,
+            receipt.agentId,
+          ]),
+        ),
+      ).size === state.receipts.length,
+    "Duplicate session read watermark.",
+  );
+export const markSessionReadInput = z.strictObject({
+  taskId: z.string().min(1).max(200),
+  agentId: z.string().min(1).max(200),
+  token: z.string().min(1).max(512),
+});
+export type MarkSessionReadInput = z.infer<typeof markSessionReadInput>;
+
+export interface AttentionAgent {
+  id: string;
+  workspaceId?: string;
+  status: "idle" | "running" | "initializing" | "error" | "closed";
+  archivedAt?: string | null;
+  pendingPermissions?: readonly unknown[];
+  lastUserMessageAt?: string | null;
+  requiresAttention?: boolean;
+  attentionReason?: "finished" | "error" | "permission" | null;
+  attentionTimestamp?: string | null;
+}
+
+export function nativeAttentionToken(agent: AttentionAgent): string | null {
+  if (
+    agent.requiresAttention !== true ||
+    !agent.attentionReason ||
+    !agent.attentionTimestamp ||
+    !Number.isFinite(Date.parse(agent.attentionTimestamp))
+  )
+    return null;
+  return JSON.stringify([
+    agent.id,
+    agent.attentionReason,
+    agent.attentionTimestamp,
+  ]);
+}
+
+export function sessionAttention(
+  agent: AttentionAgent,
+  taskId: string,
+  receipts: readonly SessionReadReceipt[] = [],
+  events: readonly BoardEvent[] = [],
+) {
+  const token = nativeAttentionToken(agent);
+  const archived = !!agent.archivedAt;
+  const unread =
+    !archived &&
+    agent.requiresAttention === true &&
+    (!token ||
+      !receipts.some(
+        (r) =>
+          r.taskId === taskId &&
+          r.workspaceId === agent.workspaceId &&
+          r.agentId === agent.id &&
+          r.token === token,
+      ));
+  const permission =
+    !archived &&
+    (!!agent.pendingPermissions?.length ||
+      (agent.requiresAttention === true &&
+        agent.attentionReason === "permission"));
+  const error =
+    !archived &&
+    (agent.status === "error" ||
+      (agent.requiresAttention === true && agent.attentionReason === "error"));
+  const latest = events
+    .filter(
+      (e) =>
+        e.agentId === agent.id &&
+        e.taskId === taskId &&
+        (e.action === "agent.turn_started" || e.action === "agent.turn_ended"),
+    )
+    .at(-1);
+  const promptAt = agent.lastUserMessageAt
+    ? Date.parse(agent.lastUserMessageAt)
+    : Number.NEGATIVE_INFINITY;
+  const finishedSignal =
+    agent.attentionReason === "finished" &&
+    (!agent.attentionTimestamp ||
+      Date.parse(agent.attentionTimestamp) >= promptAt) &&
+    (latest?.action !== "agent.turn_started" ||
+      (!!agent.attentionTimestamp &&
+        Date.parse(agent.attentionTimestamp) >= Date.parse(latest.at)));
+  const endedSignal =
+    latest?.action === "agent.turn_ended" && Date.parse(latest.at) >= promptAt;
+  const finished =
+    !archived &&
+    agent.status === "idle" &&
+    !permission &&
+    !error &&
+    !!(finishedSignal || endedSignal);
+  return {
+    token,
+    unread,
+    permission,
+    error,
+    finished,
+    running: !archived && agent.status === "running",
+    starting: !archived && agent.status === "initializing",
+    readKnown: agent.requiresAttention !== undefined,
+    needsAttention: unread || permission || error,
+  };
+}
+
+export function sessionAttentionSummary(
+  agents: readonly AttentionAgent[],
+  task: { id: string; workspaceId: string },
+  receipts: readonly SessionReadReceipt[] = [],
+  events: readonly BoardEvent[] = [],
+) {
+  const current = [
+    ...new Map(
+      agents
+        .filter((a) => a.workspaceId === task.workspaceId)
+        .map((a) => [a.id, a]),
+    ).values(),
+  ].filter((a) => !a.archivedAt);
+  const states = current.map((a) =>
+    sessionAttention(a, task.id, receipts, events),
+  );
+  return {
+    total: current.length,
+    running: states.filter((s) => s.running).length,
+    starting: states.filter((s) => s.starting).length,
+    finished: states.filter((s) => s.finished).length,
+    unread: states.filter((s) => s.unread).length,
+    attention: states.filter((s) => s.needsAttention).length,
+    permissions: states.filter((s) => s.permission).length,
+    errors: states.filter((s) => s.error).length,
+    unknownRead: states.filter((s) => !s.readKnown).length,
+  };
+}
+export type SessionAttentionSummary = ReturnType<
+  typeof sessionAttentionSummary
+>;

@@ -1,0 +1,1 @@
+The first evidence summary marked the one-repo and external-worktree path comparisons false because the harness compared `/tmp/...` strings with Paseo's canonical `/private/tmp/...` values on macOS. I recomputed those comparisons with `realpathSync` on the already captured paths. Both checks pass; the task source/scope/worktree paths and Paseo results were not modified.

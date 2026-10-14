@@ -1,0 +1,417 @@
+{
+  "testName": "Phase 2 MCP provider probe retry 2026-10-13",
+  "provider": "codex/gpt-6-luna",
+  "modeId": "full-access",
+  "workspaceId": "wks_11b1087c2ef29080",
+  "fixtureDir": "/tmp/ultra-kanban-phase2-20261013/repo",
+  "originalSessionId": "a87d7587-a62c-4ed4-b5b5-b1b03f643368",
+  "originalCredentialReused": true,
+  "originalCredentialSha256": "b547875e9388d6efd73de7bb564405906997c684582d7f15a214ba05d542820c",
+  "originalCredentialLength": 79,
+  "port": 41983,
+  "control": {
+    "listedTools": [
+      "probe"
+    ],
+    "probeSucceeded": true,
+    "events": [
+      {
+        "at": "2026-10-13T06:43:47.141Z",
+        "kind": "request",
+        "sequence": 1,
+        "method": "initialize",
+        "requestId": 0,
+        "protocolVersion": "2025-11-25"
+      },
+      {
+        "at": "2026-10-13T06:43:47.152Z",
+        "kind": "factory_context",
+        "authenticated": true,
+        "protocolHeader": null
+      },
+      {
+        "at": "2026-10-13T06:43:47.168Z",
+        "kind": "request",
+        "sequence": 2,
+        "method": "notifications/initialized",
+        "requestId": null,
+        "protocolVersion": "2025-11-25"
+      },
+      {
+        "at": "2026-10-13T06:43:47.168Z",
+        "kind": "factory_context",
+        "authenticated": true,
+        "protocolHeader": "2025-11-25"
+      },
+      {
+        "at": "2026-10-13T06:43:47.172Z",
+        "kind": "request",
+        "sequence": 3,
+        "method": "tools/list",
+        "requestId": 1,
+        "protocolVersion": "2025-11-25"
+      },
+      {
+        "at": "2026-10-13T06:43:47.173Z",
+        "kind": "factory_context",
+        "authenticated": true,
+        "protocolHeader": "2025-11-25"
+      },
+      {
+        "at": "2026-10-13T06:43:47.178Z",
+        "kind": "request",
+        "sequence": 4,
+        "method": "tools/call",
+        "requestId": 2,
+        "protocolVersion": "2025-11-25",
+        "toolName": "probe",
+        "requestedAgentId": "control-agent"
+      },
+      {
+        "at": "2026-10-13T06:43:47.178Z",
+        "kind": "factory_context",
+        "authenticated": true,
+        "protocolHeader": "2025-11-25"
+      },
+      {
+        "at": "2026-10-13T06:43:47.179Z",
+        "kind": "probe_result",
+        "ok": true,
+        "receivedAgentId": "control-agent"
+      }
+    ]
+  },
+  "retry": {
+    "preallocatedAgentId": "cd656f5b-8245-4aef-b4de-59e23456765f",
+    "createdAgentId": "cd656f5b-8245-4aef-b4de-59e23456765f",
+    "createStartedAt": "2026-10-13T06:43:47.388Z",
+    "createReturnedAt": "2026-10-13T06:43:48.346Z",
+    "initialStatus": "running",
+    "finalStatus": "idle",
+    "firstToolCallResult": true,
+    "reportedAgentId": "cd656f5b-8245-4aef-b4de-59e23456765f",
+    "events": [
+      {
+        "at": "2026-10-13T06:43:48.281Z",
+        "kind": "request",
+        "sequence": 1,
+        "method": "initialize",
+        "requestId": 0,
+        "protocolVersion": "2025-06-18"
+      },
+      {
+        "at": "2026-10-13T06:43:48.289Z",
+        "kind": "factory_context",
+        "authenticated": true,
+        "protocolHeader": null
+      },
+      {
+        "at": "2026-10-13T06:43:48.303Z",
+        "kind": "request",
+        "sequence": 2,
+        "method": "notifications/initialized",
+        "requestId": null,
+        "protocolVersion": "2025-06-18"
+      },
+      {
+        "at": "2026-10-13T06:43:48.304Z",
+        "kind": "factory_context",
+        "authenticated": true,
+        "protocolHeader": "2025-06-18"
+      },
+      {
+        "at": "2026-10-13T06:43:48.308Z",
+        "kind": "request",
+        "sequence": 3,
+        "method": "tools/list",
+        "requestId": 1,
+        "protocolVersion": "2025-06-18"
+      },
+      {
+        "at": "2026-10-13T06:43:48.309Z",
+        "kind": "factory_context",
+        "authenticated": true,
+        "protocolHeader": "2025-06-18"
+      },
+      {
+        "at": "2026-10-13T06:44:12.101Z",
+        "kind": "request",
+        "sequence": 4,
+        "method": "tools/call",
+        "requestId": 2,
+        "protocolVersion": "2025-06-18",
+        "toolName": "probe",
+        "requestedAgentId": "cd656f5b-8245-4aef-b4de-59e23456765f"
+      },
+      {
+        "at": "2026-10-13T06:44:12.106Z",
+        "kind": "factory_context",
+        "authenticated": true,
+        "protocolHeader": "2025-06-18"
+      },
+      {
+        "at": "2026-10-13T06:44:12.112Z",
+        "kind": "probe_result",
+        "ok": true,
+        "receivedAgentId": "cd656f5b-8245-4aef-b4de-59e23456765f"
+      }
+    ],
+    "timeline": {
+      "requestId": "4284e4be-ef59-4a45-8824-b103bf83fcc6",
+      "agentId": "cd656f5b-8245-4aef-b4de-59e23456765f",
+      "agent": {
+        "id": "cd656f5b-8245-4aef-b4de-59e23456765f",
+        "provider": "codex",
+        "cwd": "/tmp/ultra-kanban-phase2-20261013/repo",
+        "workspaceId": "wks_11b1087c2ef29080",
+        "model": "gpt-6-luna",
+        "thinkingOptionId": null,
+        "effectiveThinkingOptionId": "xhigh",
+        "runtimeInfo": {
+          "provider": "codex",
+          "sessionId": "01a13400-c4f5-7f33-81a6-a15b6c413535",
+          "model": "gpt-6-luna",
+          "thinkingOptionId": "xhigh",
+          "modeId": "full-access",
+          "extra": {
+            "collaborationMode": "Default"
+          }
+        },
+        "createdAt": "2026-10-13T06:43:48.062Z",
+        "updatedAt": "2026-10-13T06:44:15.414Z",
+        "lastUserMessageAt": "2026-10-13T06:43:53.148Z",
+        "status": "idle",
+        "activeTurn": null,
+        "capabilities": {
+          "supportsStreaming": true,
+          "supportsSessionPersistence": true,
+          "supportsSessionListing": true,
+          "supportsDynamicModes": false,
+          "supportsMcpServers": true,
+          "supportsReasoningStream": true,
+          "supportsToolInvocations": true,
+          "supportsRewindConversation": true,
+          "supportsRewindFiles": false,
+          "supportsRewindBoth": false
+        },
+        "currentModeId": "full-access",
+        "availableModes": [
+          {
+            "id": "auto",
+            "label": "Default Permissions",
+            "description": "Edit files and run commands with Codex's default approval flow."
+          },
+          {
+            "id": "auto-review",
+            "label": "Auto-review",
+            "description": "Same workspace-write permissions as Default, but eligible `on-request` approvals are routed through the auto-reviewer subagent."
+          },
+          {
+            "id": "full-access",
+            "label": "Full Access",
+            "description": "Edit files, run commands, and access the network without additional prompts."
+          }
+        ],
+        "features": [
+          {
+            "type": "toggle",
+            "id": "plan_mode",
+            "label": "Plan",
+            "description": "Switch Codex into planning-only collaboration mode",
+            "tooltip": "Toggle plan mode",
+            "icon": "list-todo",
+            "value": false
+          }
+        ],
+        "pendingPermissions": [],
+        "persistence": {
+          "provider": "codex",
+          "sessionId": "01a13400-c4f5-7f33-81a6-a15b6c413535",
+          "nativeHandle": "01a13400-c4f5-7f33-81a6-a15b6c413535",
+          "metadata": {
+            "provider": "codex",
+            "cwd": "/tmp/ultra-kanban-phase2-20261013/repo",
+            "title": "Phase 2 MCP provider probe retry 2026-10-13",
+            "threadId": "01a13400-c4f5-7f33-81a6-a15b6c413535",
+            "modeId": "full-access",
+            "model": "gpt-6-luna",
+            "thinkingOptionId": "xhigh",
+            "systemPrompt": "This is an isolated MCP compatibility probe. Do not edit or create files. Do not use browser, GUI, CUA, or any Paseo window; do not create or delegate to children/subagents; do not call unrelated tools. Read PASEO_AGENT_ID from your own process environment, call only the phase-02-smoke probe with that exact value, then report the value and probe result.",
+            "asyncQuestions": []
+          }
+        },
+        "title": "Phase 2 MCP provider probe retry 2026-10-13",
+        "labels": {},
+        "lastUsage": {
+          "inputTokens": 41527,
+          "cachedInputTokens": 40704,
+          "outputTokens": 69,
+          "contextWindowMaxTokens": 512000,
+          "contextWindowUsedTokens": 41596
+        },
+        "requiresAttention": true,
+        "attentionReason": "finished",
+        "attentionTimestamp": "2026-10-13T06:44:15.413Z",
+        "archivedAt": null
+      },
+      "direction": "tail",
+      "projection": "projected",
+      "epoch": "689c5843-6443-4194-b4be-7138c1d835d7",
+      "reset": false,
+      "staleCursor": false,
+      "gap": false,
+      "window": {
+        "minSeq": 1,
+        "maxSeq": 27,
+        "nextSeq": 28
+      },
+      "startCursor": {
+        "epoch": "689c5843-6443-4194-b4be-7138c1d835d7",
+        "seq": 1
+      },
+      "endCursor": {
+        "epoch": "689c5843-6443-4194-b4be-7138c1d835d7",
+        "seq": 27
+      },
+      "hasOlder": false,
+      "hasNewer": false,
+      "entries": [
+        {
+          "provider": "codex",
+          "item": {
+            "type": "user_message",
+            "text": "Immediately read PASEO_AGENT_ID from your own process environment, call the phase-02-smoke probe tool with that exact value, and report the value and result. Do not infer your ID from this prompt or filesystem. Do not do any other work.",
+            "messageId": "01a13400-d8b9-7561-af50-57210244bd9e"
+          },
+          "timestamp": "2026-10-13T06:43:53.148Z",
+          "seqStart": 1,
+          "seqEnd": 1,
+          "sourceSeqRanges": [
+            {
+              "startSeq": 1,
+              "endSeq": 1
+            }
+          ],
+          "turnId": "codex-turn-0",
+          "collapsed": []
+        },
+        {
+          "provider": "codex",
+          "item": {
+            "type": "assistant_message",
+            "text": "I’m reading `PASEO_AGENT_ID` from this process, then I’ll call only the phase-02-smoke probe.",
+            "messageId": "msg_0e80a3d842db77b0016acdd32d0ba487d1a0e345665884c289"
+          },
+          "timestamp": "2026-10-13T06:43:57.463Z",
+          "seqStart": 2,
+          "seqEnd": 7,
+          "sourceSeqRanges": [
+            {
+              "startSeq": 2,
+              "endSeq": 7
+            }
+          ],
+          "turnId": "codex-turn-0",
+          "collapsed": [
+            "assistant_merge"
+          ]
+        },
+        {
+          "provider": "codex",
+          "item": {
+            "type": "tool_call",
+            "callId": "exec-944db7e4-45a2-4c73-8b22-b17e0002f58e",
+            "name": "shell",
+            "status": "completed",
+            "error": null,
+            "detail": {
+              "type": "shell",
+              "command": "printenv PASEO_AGENT_ID",
+              "cwd": "/tmp/ultra-kanban-phase2-20261013/repo",
+              "output": "cd656f5b-8245-4aef-b4de-59e23456765f\n",
+              "exitCode": 0
+            }
+          },
+          "timestamp": "2026-10-13T06:43:58.810Z",
+          "seqStart": 8,
+          "seqEnd": 9,
+          "sourceSeqRanges": [
+            {
+              "startSeq": 8,
+              "endSeq": 9
+            }
+          ],
+          "turnId": "codex-turn-0",
+          "collapsed": [
+            "tool_lifecycle"
+          ]
+        },
+        {
+          "provider": "codex",
+          "item": {
+            "type": "tool_call",
+            "callId": "exec-9e12c963-cfb3-44bc-98e2-d36f70f8b908",
+            "name": "phase-02-smoke.probe",
+            "status": "completed",
+            "error": null,
+            "detail": {
+              "type": "unknown",
+              "input": {
+                "agentId": "cd656f5b-8245-4aef-b4de-59e23456765f"
+              },
+              "output": {
+                "content": [
+                  {
+                    "type": "text",
+                    "text": "probe-ok:cd656f5b-8245-4aef-b4de-59e23456765f"
+                  }
+                ],
+                "structuredContent": {
+                  "ok": true,
+                  "agentId": "cd656f5b-8245-4aef-b4de-59e23456765f"
+                },
+                "_meta": null
+              }
+            }
+          },
+          "timestamp": "2026-10-13T06:44:12.120Z",
+          "seqStart": 10,
+          "seqEnd": 11,
+          "sourceSeqRanges": [
+            {
+              "startSeq": 10,
+              "endSeq": 11
+            }
+          ],
+          "turnId": "codex-turn-0",
+          "collapsed": [
+            "tool_lifecycle"
+          ]
+        },
+        {
+          "provider": "codex",
+          "item": {
+            "type": "assistant_message",
+            "text": "\n\n---\n\n`PASEO_AGENT_ID`: `cd656f5b-8245-4aef-b4de-59e23456765f`  \nProbe result: `ok` (`probe-ok:cd656f5b-8245-4aef-b4de-59e23456765f`).",
+            "messageId": "msg_0e80a3d842db77b0016acdd33dfc6487d1b8a2dc84cfff6f7a"
+          },
+          "timestamp": "2026-10-13T06:44:15.173Z",
+          "seqStart": 12,
+          "seqEnd": 27,
+          "sourceSeqRanges": [
+            {
+              "startSeq": 12,
+              "endSeq": 27
+            }
+          ],
+          "turnId": "codex-turn-0",
+          "collapsed": [
+            "assistant_merge"
+          ]
+        }
+      ],
+      "error": null
+    }
+  },
+  "error": null
+}

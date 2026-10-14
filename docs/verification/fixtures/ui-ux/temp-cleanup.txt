@@ -1,0 +1,2 @@
+/tmp/kanban-ui-ux-renderer.XXXXXX	exists=false
+/var/folders/0b/f1crzdg95g5fwbq49s_3pw9c0000gq/T/kanban-uiux-final-renderer-Eti4ED	exists=false

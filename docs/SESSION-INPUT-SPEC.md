@@ -1,0 +1,35 @@
+# Follow-up composer keyboard submission
+
+Status: authorized by the 2026-10-14 follow-up on `kanban v1 basic functions`. This amends session UX only and follows single-root, Phase 2, drawer and motion contracts.
+
+## Behavior
+
+- On desktop/web, plain Enter in the session follow-up composer sends the current instruction. Shift+Enter inserts a newline. Other modifiers preserve host behavior. Composition/IME candidate confirmation (`isComposing` or key code 229) never submits or prevents the input method's normal action. Repeated held-Enter events are suppressed without another send.
+- On native clients, the public multiline TextInput `submitBehavior=submit` and `returnKeyType=send` expose the keyboard Send action without blurring. Native `onSubmitEditing` shares the same submission function. Web uses React Native `onKeyPress` and `preventDefault`, because RN Web 0.21 does not use the newer submitBehavior prop. Web ignores the submit callback, preventing duplicate dispatch. No DOM/HTML, browser listeners or private host imports.
+- Button and keyboard use one guarded send path: require mounted/visible/writable membership, nonempty current draft, and the existing synchronous per-preview/per-session operation locks. Fresh SDK/scope checks remain in `sendCardInstruction`; keep the selected Steer/Interrupt mode. Empty, pending, archived, unavailable or wrong-workspace previews do not send. Old input handlers cannot bypass the latest writable state after membership/visibility changes or Back/unmount.
+- Ordinary follow-up delivery sends exactly the text in the composer. `sendCardInstruction` still refreshes the selected native actor and reads the latest task context to reject unavailable/moved/archived scope, but does not concatenate `scope.context`, a task header or `User follow-up instruction:` onto the user message. The card/session identity and provider active-turn behavior remain unchanged. A new session receives initial task context when created; the explicit **Send Kanban work instructions** action remains available to prepare an existing session's scoped tools and send task instructions when the user chooses it. This keeps ordinary chat readable in Paseo's native timeline and avoids repeating long project paths on every turn.
+- Capture the latest draft at submit, including an onChangeText update before the parent has rendered. Clear only that submitted draft after success, preserving newer edits and the existing parent expected-draft guard. Failure keeps the draft and current scroll/follow state; success resumes follow tail. No task status, read acknowledgement, resource creation or automatic retry.
+- Composer stays at the bottom and retains its bounded multiline size. Desktop hint: Enter to send; Shift+Enter for a new line. On compact layouts, the persistent hint is replaced by an accessible input hint and a visible Send control to reclaim conversation space, as specified in `SESSION-UX-SPEC.md` section 9. Shift/IME behavior for native hardware keyboards depends on the public host events and remains a device-verification boundary.
+
+## Kanban tools explanation
+
+The existing collapsed tools section receives a plain explanation: the Agent can read its linked task, report progress and update task status. Agent status targets are In progress, Blocked and In review; the user confirms Done/Cancelled. New tool-configured sessions receive MCP/skill; the existing-session work-instructions action prepares its scoped CLI/skill access and sends those instructions. A session finishing its part does not complete the card. Keep existing controls, identity guards and configuration/last-call diagnostics.
+
+## Architecture
+
+- `client/session-input.ts`: runtime-neutral key classification and a latest-draft buffer; no React/Node/DOM dependency.
+- `client/session-preview.tsx`: thin RN key/native submit handlers, latest writable/mode guard and shared existing send path; purpose/hint copy.
+- `client/session.ts`: retain fresh membership/scope authorization, send the exact instruction argument as the native user message.
+- No SDK/dependency/RPC/store migration or agent orchestration.
+
+## Verification and delivery
+
+Use one discovered `codex/gpt-6-luna` Paseo test session created with `modeId=full-access` in the existing dev workspace. Testing owns new `docs/verification/session-input.md`, `fixtures/session-input/**` and minimal fixture compatibility updates. Preserve others' source/evidence and user resources; no native projects/workspaces/cards, extra sessions or children are needed. Never send prompts/acks to existing sessions. Record/clean exact testing actor, its derived context, and each unique temporary renderer path; retain standard lifecycle history and read-state.
+
+Focused cases: Enter once and no newline/default submit, Shift newline, IME flags/229, other modifiers, held repeat, native Send, latest text before render, same synchronous keyboard+button lock, empty/whitespace/pending/read-only/inactive/moved actor no sends, stale key callbacks/unmount, success clears only snapshot/resumes tail, failure preserves draft/follow state and retry after failure, current Steer/Interrupt, tools explanation. Regression composer layout, session Back/drafts/locks/attention/chip and drawer. Record failures and raw evidence; final typecheck and one full suite after source stabilizes, reload only the own plugin, verify running and cleanup. Stop for user review.
+
+Prompt contract checks additionally verify exact raw follow-up bytes for both Enter and button, including intentional newlines, and absence of the old task preamble/label. Native actor refresh and latest scoped context lookup must still occur before a send; failed membership/scope prevents `agent.send`. Running-session Steer/Interrupt options and explicit existing-session work-instructions behavior remain covered. Update the existing unit assertion for the intentional wire-payload change; do not treat an old preamble expectation as a product regression.
+
+Actual desktop and native keyboard/IME/focus/message delivery require the exact non-fullscreen Paseo window ID/title/geometry. If unavailable, perform no GUI action; mark real-device checks UNRUN. Synthetic RN callbacks do not prove real IME behavior or focus. Native hardware-keyboard modifiers remain unverified if the SDK does not expose them.
+
+References: pinned public SDK TextInput accepts RN props; [RN 0.81 TextInput](https://reactnative.dev/docs/0.81/textinput) defines submit behavior. [RN Web 0.21 TextInput](https://github.com/necolas/react-native-web/blob/0.21.0/packages/react-native-web/src/exports/TextInput/index.js) invokes onKeyPress before default submit and guards composing/229 and Shift. The host version remains the compatibility authority; these source contracts do not replace live keyboard acceptance.

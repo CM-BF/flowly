@@ -1,0 +1,39 @@
+{
+  "date": "2026-10-14",
+  "plugin": {
+    "id": "paseo-ultra-kanban",
+    "reloadExitCode": 0,
+    "enabled": true,
+    "statusAfterReload": "running"
+  },
+  "testingSession": {
+    "id": "6cbf1980-bcac-4b6b-9693-2731c7b611c4",
+    "provider": "codex/gpt-6-luna",
+    "modeAtCreation": "full-access",
+    "deleteCount": 1,
+    "deletedIds": ["6cbf1980-bcac-4b6b-9693-2731c7b611c4"],
+    "inspectAfterDelete": "AGENT_NOT_FOUND",
+    "derivedCliContextRemoved": true
+  },
+  "rendererCleanup": {
+    "recordedPaths": 7,
+    "recordedPathsRemaining": 0,
+    "currentPrefixInventoryRemaining": 0
+  },
+  "boardAfterCleanup": {
+    "projects": 2,
+    "tasks": 2,
+    "revision": 158,
+    "sha256": "44153e931a2a2b9dd74756a937a8c3cd431414cc67d07573016a296f39f41489",
+    "testingSessionEventsPreserved": {
+      "agent.turn_started": 3,
+      "agent.turn_ended": 3
+    },
+    "testingSessionAgentReceipts": 0
+  },
+  "sessionReadsAfterCleanup": {
+    "sha256": "58b4dff2c65b6c1d581eab1e0999520d4c4edbe408f3f8a8081e5f0ad60a81de",
+    "testingSessionIdMentions": 0
+  },
+  "liveUi": "UNRUN: CUA did not expose the exact non-fullscreen window ID, title, and geometry"
+}

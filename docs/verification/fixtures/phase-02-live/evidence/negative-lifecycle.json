@@ -1,0 +1,78 @@
+{
+  "tasks": {
+    "done": "2d375c34-7f1c-421b-b304-b70943a8e034",
+    "cancelled": "1866313c-fb43-4cd8-84c2-96785db62c26",
+    "archived": "dedebc1d-f13d-4411-880b-5f5dcf31b61d"
+  },
+  "sessions": [
+    {
+      "label": "cancelled-card",
+      "agentId": "1af3d88e-50a6-473b-b175-9cfc9832ff0d",
+      "taskId": "1866313c-fb43-4cd8-84c2-96785db62c26",
+      "provider": "codex/gpt-6-luna",
+      "modeAtCreation": "full-access"
+    },
+    {
+      "label": "archived-card",
+      "agentId": "158a5367-a74f-42d7-9774-c988fa9cf09a",
+      "taskId": "dedebc1d-f13d-4411-880b-5f5dcf31b61d",
+      "provider": "codex/gpt-6-luna",
+      "modeAtCreation": "full-access"
+    }
+  ],
+  "finishedWrites": {
+    "done": {
+      "readWritable": false,
+      "write": {
+        "isError": true,
+        "code": "TASK_FINISHED",
+        "writable": null,
+        "reason": null
+      }
+    },
+    "cancelled": {
+      "humanStatus": "cancelled",
+      "readWritable": false,
+      "write": {
+        "isError": true,
+        "code": "TASK_FINISHED",
+        "writable": null,
+        "reason": null
+      }
+    }
+  },
+  "archivedWrite": {
+    "cardArchived": true,
+    "readWritable": false,
+    "write": {
+      "isError": true,
+      "code": "ARCHIVED",
+      "writable": null,
+      "reason": null
+    },
+    "workspaceStillExists": true,
+    "workspaceStillActive": true,
+    "directoryStillExists": true
+  },
+  "missingAgent": {
+    "preallocatedButNotCreated": true,
+    "agentId": "a6bea8f2-797c-4506-97e0-13484c17866a",
+    "result": {
+      "isError": true,
+      "code": "SESSION_MISMATCH",
+      "writable": null,
+      "reason": null
+    }
+  },
+  "missingWorkspace": {
+    "rejected": true,
+    "message": "Request failed: Workspace is unavailable or outside this project's repositories. requestType=plugin.rpc.invoke.request code=handler_error"
+  },
+  "incompatibleWorkspace": {
+    "rejected": true,
+    "workspaceId": "wks_cebc6ef7dd95f2b9",
+    "message": "Request failed: Workspace is unavailable or outside this project's repositories. requestType=plugin.rpc.invoke.request code=handler_error"
+  },
+  "workspacePreserved": null,
+  "error": null
+}

@@ -1,0 +1,91 @@
+{
+  "fixtureRoot": "/tmp/ultra-kanban-phase2-20261013/live-acceptance-01",
+  "projectId": "fb402dce-e8e6-44e6-987e-d004a370d16f",
+  "initialProjectRevision": 1,
+  "checks": {
+    "defaultAllReposAfterAdd": {
+      "projectRevision": 2,
+      "paths": [
+        "/private/tmp/ultra-kanban-phase2-20261013/live-acceptance-01/repo-one",
+        "/private/tmp/ultra-kanban-phase2-20261013/live-acceptance-01/repo-two",
+        "/private/tmp/ultra-kanban-phase2-20261013/live-acceptance-01/repo-three"
+      ],
+      "includesRepoThree": true
+    },
+    "multiRepo": {
+      "taskId": "1866313c-fb43-4cd8-84c2-96785db62c26",
+      "sourcePath": "/private/tmp/ultra-kanban-phase2-20261013/live-acceptance-01/repo-one",
+      "repoPaths": [
+        "/private/tmp/ultra-kanban-phase2-20261013/live-acceptance-01/repo-one",
+        "/private/tmp/ultra-kanban-phase2-20261013/live-acceptance-01/repo-two"
+      ],
+      "directories": [
+        {
+          "repo": "/private/tmp/ultra-kanban-phase2-20261013/live-acceptance-01/repo-one",
+          "directory": "/private/tmp/ultra-kanban-phase2-20261013/live-acceptance-01/repo-one"
+        },
+        {
+          "repo": "/private/tmp/ultra-kanban-phase2-20261013/live-acceptance-01/repo-two",
+          "directory": "/private/tmp/ultra-kanban-phase2-20261013/live-acceptance-01/repo-two"
+        }
+      ],
+      "passes": true
+    },
+    "externalWorktreeOwner": {
+      "taskId": "dedebc1d-f13d-4411-880b-5f5dcf31b61d",
+      "workspaceId": "wks_9a4a3fd5c48af981",
+      "boardNativeProjectId": "prj_1afef1b7823a1da7",
+      "workspaceNativeProjectId": "prj_c10d3c7d0870b4f6",
+      "workspaceDirectory": "/tmp/ultra-kanban-phase2-20261013/live-acceptance-01/repo-two-external-worktree",
+      "sourcePath": "/private/tmp/ultra-kanban-phase2-20261013/live-acceptance-01/repo-two",
+      "scope": [
+        {
+          "repo": "/private/tmp/ultra-kanban-phase2-20261013/live-acceptance-01/repo-two",
+          "directory": "/tmp/ultra-kanban-phase2-20261013/live-acceptance-01/repo-two-external-worktree"
+        }
+      ],
+      "workspaceRepoPaths": [
+        "/private/tmp/ultra-kanban-phase2-20261013/live-acceptance-01/repo-two"
+      ],
+      "ownerUnchanged": true,
+      "worktreeMapsToRepoTwo": true
+    },
+    "singleRepo": {
+      "taskId": "e4c3d4df-0311-4e2c-bcc1-e9ab2bc7181f",
+      "repoPaths": [
+        "/private/tmp/ultra-kanban-phase2-20261013/live-acceptance-01/repo-two"
+      ],
+      "path": "/private/tmp/ultra-kanban-phase2-20261013/live-acceptance-01/repo-two",
+      "passes": true
+    },
+    "defaultAllReposAfterRemove": {
+      "projectRevision": 3,
+      "paths": [
+        "/private/tmp/ultra-kanban-phase2-20261013/live-acceptance-01/repo-one",
+        "/private/tmp/ultra-kanban-phase2-20261013/live-acceptance-01/repo-two"
+      ],
+      "repoThreeAbsent": true
+    }
+  },
+  "createdResources": {
+    "repoThree": "/tmp/ultra-kanban-phase2-20261013/live-acceptance-01/repo-three",
+    "multiTaskId": "1866313c-fb43-4cd8-84c2-96785db62c26",
+    "externalWorktreePath": "/tmp/ultra-kanban-phase2-20261013/live-acceptance-01/repo-two-external-worktree",
+    "externalWorkspaceId": "wks_9a4a3fd5c48af981",
+    "externalTaskId": "dedebc1d-f13d-4411-880b-5f5dcf31b61d"
+  },
+  "staleWrite": {
+    "beforeRevision": {
+      "task": 3,
+      "project": 2
+    },
+    "expectedCode": "REVISION_CONFLICT",
+    "actualCode": "REVISION_CONFLICT",
+    "exitCode": 1,
+    "message": "Card/project changed (current task=3, project=3). Re-read before deciding whether to retry.",
+    "projectRevisionAfterRemoval": 3,
+    "cardUnchangedAfterConflict": true
+  },
+  "error": null,
+  "pathNormalization": "realpathSync: macOS /tmp and /private/tmp aliases compared by canonical filesystem path"
+}

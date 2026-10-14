@@ -1,0 +1,46 @@
+
+ RUN  v4.1.11 /Users/bofan.wang/Developer/personal/paseo-utlra-kanban
+
+ ❯ docs/verification/fixtures/session-chip/session-entry-components.test.tsx (1 test | 1 failed) 21ms
+     × same requestId with a different session consumes and previews the new exact session 20ms
+
+ Test Files  1 failed | 6 passed | 1 skipped (8)
+      Tests  1 failed | 30 passed | 4 skipped (35)
+   Start at  14:15:01
+   Duration  364ms (transform 353ms, setup 0ms, import 845ms, tests 197ms, environment 0ms)
+
+stderr | docs/verification/fixtures/session-chip/session-entry-components.test.tsx > TaskDrawer session entry identity > same requestId with a different session consumes and previews the new exact session
+react-test-renderer is deprecated. See https://react.dev/warnings/react-test-renderer
+
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  docs/verification/fixtures/session-chip/session-entry-components.test.tsx > TaskDrawer session entry identity > same requestId with a different session consumes and previews the new exact session
+Error: [vitest] No "Icon" export is defined on the "@getpaseo/plugin/client/react-native" mock. Did you forget to return it from "vi.mock"?
+If you need to partially mock a module, you can use "importOriginal" helper inside:
+
+vi.mock(import("@getpaseo/plugin/client/react-native"), async (importOriginal) => {
+  const actual = await importOriginal()
+  return {
+    ...actual,
+    // your mocked methods
+  }
+})
+
+ ❯ Disclosure client/disclosure.tsx:33:12
+     31|       >
+     32|         <Animated.View style={{ transform: [{ rotate: presence.progres…
+     33|           <Icon name="ChevronRight" size={16} color={colors.foreground…
+       |            ^
+     34|         </Animated.View>
+     35|         <View style={{ flex: 1, minWidth: 0 }}>
+ ❯ react-stack-bottom-frame ../../../../../private/var/folders/0b/f1crzdg95g5fwbq49s_3pw9c0000gq/T/paseo-drawer-renderer-2hl6yC/node_modules/react-test-renderer/cjs/react-test-renderer.development.js:13976:20
+ ❯ renderWithHooks ../../../../../private/var/folders/0b/f1crzdg95g5fwbq49s_3pw9c0000gq/T/paseo-drawer-renderer-2hl6yC/node_modules/react-test-renderer/cjs/react-test-renderer.development.js:2866:22
+ ❯ updateFunctionComponent ../../../../../private/var/folders/0b/f1crzdg95g5fwbq49s_3pw9c0000gq/T/paseo-drawer-renderer-2hl6yC/node_modules/react-test-renderer/cjs/react-test-renderer.development.js:6006:19
+ ❯ beginWork ../../../../../private/var/folders/0b/f1crzdg95g5fwbq49s_3pw9c0000gq/T/paseo-drawer-renderer-2hl6yC/node_modules/react-test-renderer/cjs/react-test-renderer.development.js:7474:18
+ ❯ runWithFiberInDEV ../../../../../private/var/folders/0b/f1crzdg95g5fwbq49s_3pw9c0000gq/T/paseo-drawer-renderer-2hl6yC/node_modules/react-test-renderer/cjs/react-test-renderer.development.js:1574:13
+ ❯ performUnitOfWork ../../../../../private/var/folders/0b/f1crzdg95g5fwbq49s_3pw9c0000gq/T/paseo-drawer-renderer-2hl6yC/node_modules/react-test-renderer/cjs/react-test-renderer.development.js:10980:22
+ ❯ workLoopSync ../../../../../private/var/folders/0b/f1crzdg95g5fwbq49s_3pw9c0000gq/T/paseo-drawer-renderer-2hl6yC/node_modules/react-test-renderer/cjs/react-test-renderer.development.js:10816:41
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+

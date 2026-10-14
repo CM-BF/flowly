@@ -1,0 +1,39 @@
+Revised repo-scope Luna session evidence — 2026-10-13
+
+Session: 6c18d210-afa6-4b36-9550-60301a87767c
+Provider/model: codex/gpt-6-luna
+Mode: full-access (the tool mode is not an OS sandbox)
+Workspace: wks_9971e291bf5ff148
+CWD: /private/tmp/ultra-kanban-acceptance-20261013/repo-one
+Status after turns: idle; pending permissions: none
+Card: fa8ba46a-ac0a-44bd-a2e1-2f95dfa5d743
+
+Initial UI-created card had repoPaths=[] (All project repositories), while its
+workspace/source remained repo-one. The selected session received a live
+instruction to create exactly one marker in each of the two fixture repos.
+Both files were verified on disk:
+
+  repo-one/PHASE1-SCOPE-UNRESTRICTED.txt = ULTRA-KANBAN-REPO-ONE
+  repo-two/PHASE1-SCOPE-UNRESTRICTED.txt = ULTRA-KANBAN-REPO-TWO
+
+SHA-256:
+  repo-one marker 718ccdf5d6348c0ecbf851001c03b195c448111f1d8858729763faac265cd205
+  repo-two marker a9af8767e2b03c685f1951c3c7e49eaab143f60a92844bb02f9fccd14f42b7dd
+
+After editing this same card's repo scope to repo-two only, the same selected
+session received a follow-up asking for one further marker only in repo-two.
+It created PHASE1-SCOPE-REPO-TWO-ONLY.txt with exact content
+ULTRA-KANBAN-REPO-TWO-ONLY. That file's SHA-256 is
+17df9567e80ede526951dcc28dcd32e2c0da73b1e4414c4fa76d5ad436c4530b.
+The corresponding repo-one-only marker was absent.
+
+The live follow-up context logged by Paseo contained:
+  Repository scope: Selected project repositories
+  Work directories for this task:
+  /private/tmp/ultra-kanban-acceptance-20261013/repo-two -> /private/tmp/ultra-kanban-acceptance-20261013/repo-two
+  Workspace starting directory: /private/tmp/ultra-kanban-acceptance-20261013/repo-one
+
+This demonstrates context routing and the agent's observed write behavior in
+the dedicated fixture. It does not demonstrate a hard filesystem sandbox.
+The original full-access session was created through Paseo UI; no token is
+stored in this evidence.

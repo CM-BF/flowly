@@ -1,0 +1,7 @@
+
+> paseo-ultra-kanban@0.3.0 typecheck
+> tsc --noEmit
+
+docs/verification/fixtures/drawer/drawer-components.test.tsx(173,12): error TS18048: 'openAnimation' is possibly 'undefined'.
+docs/verification/fixtures/drawer/drawer-components.test.tsx(175,12): error TS18048: 'openAnimation' is possibly 'undefined'.
+docs/verification/fixtures/drawer/drawer-components.test.tsx(183,29): error TS18048: 'reverse' is possibly 'undefined'.

@@ -1,0 +1,258 @@
+{
+  "createdAt": "2026-10-13T09:03:55.570Z",
+  "runRoot": "/tmp/ultra-kanban-single-root-20261013/run-04",
+  "provider": "codex/gpt-6-luna",
+  "requestedModeId": "full-access",
+  "promptScope": "one kanban_get_task MCP call; no CLI or additional tools; no writes",
+  "checks": [
+    {
+      "name": "real-luna-kanban-get-task-root-scope-and-identity",
+      "status": "PASS",
+      "agentIdMatchesPaseoAgentId": true,
+      "agentIdMatchesPreallocation": true,
+      "agentWorkspaceMatchesCard": true,
+      "toolAccessConfirmsMcpRead": true,
+      "reportedScopeOnlyFixtureRoot": true
+    },
+    {
+      "name": "kanban-read-does-not-write-card-status-or-repository",
+      "status": "PASS",
+      "cardFieldsUnchanged": true,
+      "noAgentStatusOrProgressWriteEvents": true,
+      "firstTurnTaskStatusAndRevisionUnchanged": true,
+      "filesystemUnchanged": true,
+      "lifecycleEvents": [
+        {
+          "actor": "system",
+          "action": "agent.turn_started"
+        },
+        {
+          "actor": "system",
+          "action": "agent.turn_ended"
+        }
+      ],
+      "boardRevisionMayChangeForLifecycleEvents": false,
+      "boardBytesUnchangedDuringAudit": true
+    }
+  ],
+  "bearerOrSignedRequestRecorded": false,
+  "repositoryFilesChanged": false,
+  "taskId": "6eb9ae69-66d4-4568-9741-a81080980a43",
+  "workspaceId": "wks_c7daaecaf8dc2632",
+  "boardProjectId": "73415a3e-849a-47f8-8a67-4db4a3b0478a",
+  "reusedIntent": true,
+  "root": "/private/tmp/ultra-kanban-single-root-20261013/run-04/common-parent",
+  "beforeBoard": {
+    "boardRevision": 96,
+    "projectCount": 11,
+    "taskCount": 22,
+    "task": {
+      "id": "6eb9ae69-66d4-4568-9741-a81080980a43",
+      "projectId": "73415a3e-849a-47f8-8a67-4db4a3b0478a",
+      "workspaceId": "wks_c7daaecaf8dc2632",
+      "status": "todo",
+      "revision": 1,
+      "cardFieldsSha256": "91f10990e4f3636c7727f8bf8b23b13270476d0711fa3d2bfdbaee3662527bee"
+    },
+    "taskEventCount": 3,
+    "taskEvents": [
+      {
+        "actor": "human",
+        "action": "created"
+      },
+      {
+        "actor": "system",
+        "action": "agent.turn_started"
+      },
+      {
+        "actor": "system",
+        "action": "agent.turn_ended"
+      }
+    ]
+  },
+  "filesBefore": {
+    "rootEntries": [
+      {
+        "name": "nested-native-owner",
+        "kind": "directory"
+      },
+      {
+        "name": "repo-one",
+        "kind": "directory"
+      },
+      {
+        "name": "repo-two",
+        "kind": "directory"
+      }
+    ],
+    "rootLevelFiles": 0,
+    "repos": [
+      {
+        "name": "repo-one",
+        "clean": true,
+        "changedEntryCount": 0
+      },
+      {
+        "name": "repo-two",
+        "clean": true,
+        "changedEntryCount": 0
+      }
+    ]
+  },
+  "rpcContext": {
+    "available": true,
+    "repoPaths": [
+      "/private/tmp/ultra-kanban-single-root-20261013/run-04/common-parent"
+    ],
+    "directories": [
+      {
+        "repo": "/private/tmp/ultra-kanban-single-root-20261013/run-04/common-parent",
+        "directory": "/private/tmp/ultra-kanban-single-root-20261013/run-04/common-parent"
+      }
+    ],
+    "workspaceRepoPaths": [
+      "/private/tmp/ultra-kanban-single-root-20261013/run-04/common-parent"
+    ],
+    "sha256": "48d35d49e811c24753d829e597f24d376166d0f2b71799eb7ff09e7efbfe042f"
+  },
+  "fixtureAssociation": {
+    "taskMatchesProject": true,
+    "taskMatchesWorkspace": true,
+    "workspaceOwnerMatchesNativeProject": true,
+    "workspacePathMatchesProjectRoot": true
+  },
+  "boardSha256BeforeAudit": "cb9ffe2a995341b1f4f65653391fc5374358f997bd19a7ee1ea4ce36db8cef2b",
+  "reusedActor": true,
+  "preallocatedAgentId": "193101d5-5f16-4fe1-a5db-b379b25b3e2e",
+  "createdAgentId": "193101d5-5f16-4fe1-a5db-b379b25b3e2e",
+  "agentAssociation": {
+    "idMatchesPreallocation": true,
+    "workspaceMatchesCard": true,
+    "archived": false,
+    "provider": "codex",
+    "model": "gpt-6-luna",
+    "mode": null
+  },
+  "turnStatus": "idle",
+  "turnError": null,
+  "modeAtCreation": "full-access",
+  "firstTurnEvidenceReused": true,
+  "firstTurnBoardSummary": {
+    "before": {
+      "boardRevision": 94,
+      "taskStatus": "todo",
+      "taskRevision": 1
+    },
+    "after": {
+      "boardRevision": 96,
+      "taskStatus": "todo",
+      "taskRevision": 1
+    }
+  },
+  "agentReport": {
+    "PASEO_AGENT_ID": "193101d5-5f16-4fe1-a5db-b379b25b3e2e",
+    "tool": "kanban_get_task",
+    "success": true,
+    "identity": {
+      "agentId": "193101d5-5f16-4fe1-a5db-b379b25b3e2e",
+      "taskId": "6eb9ae69-66d4-4568-9741-a81080980a43",
+      "workspaceId": "wks_c7daaecaf8dc2632"
+    },
+    "scope": {
+      "repoPaths": [
+        "/private/tmp/ultra-kanban-single-root-20261013/run-04/common-parent"
+      ],
+      "directories": [
+        {
+          "repo": "/private/tmp/ultra-kanban-single-root-20261013/run-04/common-parent",
+          "directory": "/private/tmp/ultra-kanban-single-root-20261013/run-04/common-parent"
+        }
+      ]
+    }
+  },
+  "toolAccess": {
+    "methods": [
+      "mcp",
+      "cli"
+    ],
+    "lastAction": "get",
+    "lastSuccessAt": "2026-10-13T08:57:00.549Z",
+    "ready": true
+  },
+  "afterBoard": {
+    "boardRevision": 96,
+    "projectCount": 11,
+    "taskCount": 22,
+    "task": {
+      "id": "6eb9ae69-66d4-4568-9741-a81080980a43",
+      "projectId": "73415a3e-849a-47f8-8a67-4db4a3b0478a",
+      "workspaceId": "wks_c7daaecaf8dc2632",
+      "status": "todo",
+      "revision": 1,
+      "cardFieldsSha256": "91f10990e4f3636c7727f8bf8b23b13270476d0711fa3d2bfdbaee3662527bee"
+    },
+    "taskEventCount": 3,
+    "taskEvents": [
+      {
+        "actor": "human",
+        "action": "created"
+      },
+      {
+        "actor": "system",
+        "action": "agent.turn_started"
+      },
+      {
+        "actor": "system",
+        "action": "agent.turn_ended"
+      }
+    ]
+  },
+  "filesAfter": {
+    "rootEntries": [
+      {
+        "name": "nested-native-owner",
+        "kind": "directory"
+      },
+      {
+        "name": "repo-one",
+        "kind": "directory"
+      },
+      {
+        "name": "repo-two",
+        "kind": "directory"
+      }
+    ],
+    "rootLevelFiles": 0,
+    "repos": [
+      {
+        "name": "repo-one",
+        "clean": true,
+        "changedEntryCount": 0
+      },
+      {
+        "name": "repo-two",
+        "clean": true,
+        "changedEntryCount": 0
+      }
+    ]
+  },
+  "boardSha256AfterAudit": "cb9ffe2a995341b1f4f65653391fc5374358f997bd19a7ee1ea4ce36db8cef2b",
+  "cardFieldsUnchanged": true,
+  "agentStatusOrProgressEvents": [],
+  "filesystemUnchanged": true,
+  "boardBytesUnchangedDuringAudit": true,
+  "lifecycleEvents": [
+    {
+      "actor": "system",
+      "action": "agent.turn_started"
+    },
+    {
+      "actor": "system",
+      "action": "agent.turn_ended"
+    }
+  ],
+  "originalTurnTaskStateUnchanged": true,
+  "boardEventsMayRecordAgentLifecycle": false,
+  "status": "PASS",
+  "completedAt": "2026-10-13T09:03:56.148Z"
+}

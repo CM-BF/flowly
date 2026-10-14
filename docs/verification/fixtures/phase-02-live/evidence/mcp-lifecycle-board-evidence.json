@@ -1,0 +1,139 @@
+{
+  "observedAt": "2026-10-13T07:13:30.274Z",
+  "taskId": "2d375c34-7f1c-421b-b304-b70943a8e034",
+  "workspaceId": "wks_e99ea8780a50167e",
+  "agentId": "85914006-1bfe-4743-9683-b1104e04f554",
+  "health": {
+    "listening": true,
+    "sdkReady": true,
+    "ready": true
+  },
+  "task": {
+    "id": "2d375c34-7f1c-421b-b304-b70943a8e034",
+    "projectId": "fb402dce-e8e6-44e6-987e-d004a370d16f",
+    "workspaceId": "wks_e99ea8780a50167e",
+    "sourcePath": "/private/tmp/ultra-kanban-phase2-20261013/live-acceptance-01/repo-one",
+    "repoPaths": [],
+    "title": "Phase 2 acceptance: MCP lifecycle",
+    "description": "Read the task, move to In progress, report progress, then submit to In review. No file changes.",
+    "status": "in_review",
+    "priority": "normal",
+    "position": 0,
+    "revision": 3,
+    "operationId": "phase2-live-new-mcp-card-v1",
+    "createdAt": "2026-10-13T07:09:29.854Z",
+    "updatedAt": "2026-10-13T07:10:50.790Z",
+    "archivedAt": null
+  },
+  "project": {
+    "id": "fb402dce-e8e6-44e6-987e-d004a370d16f",
+    "title": "Phase 2 live acceptance 2026-10-13",
+    "description": "Isolated disposable test fixture; preserve after verification.",
+    "paseoProjectId": "prj_1afef1b7823a1da7",
+    "primaryPath": "/private/tmp/ultra-kanban-phase2-20261013/live-acceptance-01/repo-one",
+    "repos": [
+      "/private/tmp/ultra-kanban-phase2-20261013/live-acceptance-01/repo-one",
+      "/private/tmp/ultra-kanban-phase2-20261013/live-acceptance-01/repo-two"
+    ],
+    "revision": 1,
+    "createdAt": "2026-10-13T07:09:29.647Z",
+    "updatedAt": "2026-10-13T07:09:29.647Z",
+    "archivedAt": null
+  },
+  "taskEvents": [
+    {
+      "id": "a8112c6d-d7f5-4ab1-af89-de33a382a524",
+      "taskId": "2d375c34-7f1c-421b-b304-b70943a8e034",
+      "actor": "human",
+      "action": "created",
+      "at": "2026-10-13T07:09:29.854Z"
+    },
+    {
+      "id": "dccc8550-cc36-4711-9e39-da246baf0d9d",
+      "taskId": "2d375c34-7f1c-421b-b304-b70943a8e034",
+      "actor": "system",
+      "action": "agent.turn_started",
+      "agentId": "85914006-1bfe-4743-9683-b1104e04f554",
+      "at": "2026-10-13T07:10:28.893Z"
+    },
+    {
+      "id": "e60eed3e-088e-4437-9957-387f2be29f6e",
+      "taskId": "2d375c34-7f1c-421b-b304-b70943a8e034",
+      "actor": "agent",
+      "action": "status_changed",
+      "agentId": "85914006-1bfe-4743-9683-b1104e04f554",
+      "note": "Starting the requested Kanban MCP lifecycle acceptance; no file changes.",
+      "from": "todo",
+      "to": "in_progress",
+      "reportKind": "progress",
+      "at": "2026-10-13T07:10:40.855Z"
+    },
+    {
+      "id": "35a0febe-d292-491f-b20b-dba1d427a975",
+      "taskId": "2d375c34-7f1c-421b-b304-b70943a8e034",
+      "actor": "agent",
+      "action": "progress_reported",
+      "agentId": "85914006-1bfe-4743-9683-b1104e04f554",
+      "note": "The card is in progress. Completed the Kanban task read and status transition; no files were changed.",
+      "reportKind": "progress",
+      "at": "2026-10-13T07:10:44.772Z"
+    },
+    {
+      "id": "eb0480c3-162f-45e2-af5b-6d649ea9280a",
+      "taskId": "2d375c34-7f1c-421b-b304-b70943a8e034",
+      "actor": "agent",
+      "action": "status_changed",
+      "agentId": "85914006-1bfe-4743-9683-b1104e04f554",
+      "note": "Lifecycle acceptance complete: task read, moved to In progress, and progress reported. No file changes; submitting for review.",
+      "from": "in_progress",
+      "to": "in_review",
+      "reportKind": "progress",
+      "at": "2026-10-13T07:10:50.790Z"
+    },
+    {
+      "id": "e2b1ed97-6bed-4826-8453-8fad44ceb0e7",
+      "taskId": "2d375c34-7f1c-421b-b304-b70943a8e034",
+      "actor": "system",
+      "action": "agent.turn_ended",
+      "agentId": "85914006-1bfe-4743-9683-b1104e04f554",
+      "at": "2026-10-13T07:10:54.850Z"
+    }
+  ],
+  "context": {
+    "available": true,
+    "owner": "repo-one",
+    "workspaceRepoPaths": [
+      "/private/tmp/ultra-kanban-phase2-20261013/live-acceptance-01/repo-one"
+    ],
+    "directories": [
+      {
+        "repo": "/private/tmp/ultra-kanban-phase2-20261013/live-acceptance-01/repo-one",
+        "directory": "/private/tmp/ultra-kanban-phase2-20261013/live-acceptance-01/repo-one"
+      },
+      {
+        "repo": "/private/tmp/ultra-kanban-phase2-20261013/live-acceptance-01/repo-two",
+        "directory": "/private/tmp/ultra-kanban-phase2-20261013/live-acceptance-01/repo-two"
+      }
+    ]
+  },
+  "accessState": {
+    "methods": [
+      "mcp",
+      "cli"
+    ],
+    "lastSuccessAt": "2026-10-13T07:10:50.872Z",
+    "lastAction": "status",
+    "listening": true,
+    "sdkReady": true,
+    "ready": true
+  },
+  "assertions": {
+    "taskIsInReview": true,
+    "taskRevisionIsThree": true,
+    "scopeDefaultsToAllRepos": true,
+    "mcpMethodReported": true,
+    "statusWritesRecorded": true,
+    "progressRecorded": true,
+    "turnEndDidNotCompleteCard": true
+  }
+}

@@ -1,0 +1,9 @@
+{"at":"2026-10-13T06:43:47.141Z","kind":"request","sequence":1,"method":"initialize","requestId":0,"protocolVersion":"2025-11-25"}
+{"at":"2026-10-13T06:43:47.152Z","kind":"factory_context","authenticated":true,"protocolHeader":null}
+{"at":"2026-10-13T06:43:47.168Z","kind":"request","sequence":2,"method":"notifications/initialized","requestId":null,"protocolVersion":"2025-11-25"}
+{"at":"2026-10-13T06:43:47.168Z","kind":"factory_context","authenticated":true,"protocolHeader":"2025-11-25"}
+{"at":"2026-10-13T06:43:47.172Z","kind":"request","sequence":3,"method":"tools/list","requestId":1,"protocolVersion":"2025-11-25"}
+{"at":"2026-10-13T06:43:47.173Z","kind":"factory_context","authenticated":true,"protocolHeader":"2025-11-25"}
+{"at":"2026-10-13T06:43:47.178Z","kind":"request","sequence":4,"method":"tools/call","requestId":2,"protocolVersion":"2025-11-25","toolName":"probe","requestedAgentId":"control-agent"}
+{"at":"2026-10-13T06:43:47.178Z","kind":"factory_context","authenticated":true,"protocolHeader":"2025-11-25"}
+{"at":"2026-10-13T06:43:47.179Z","kind":"probe_result","ok":true,"receivedAgentId":"control-agent"}

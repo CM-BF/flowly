@@ -1,0 +1,104 @@
+{
+  "testSession": {
+    "Id": "363ff97e-8a55-491a-bdfe-34d9e73c934b",
+    "Provider": "codex",
+    "Model": "gpt-6-luna",
+    "Mode": "full-access",
+    "Status": "running",
+    "Cwd": "/Users/bofan.wang/Developer/personal/paseo-utlra-kanban",
+    "ParentAgentId": "af65956b-64e6-4491-86e8-7fe95ebd1a52"
+  },
+  "reload": {
+    "pluginId": "paseo-ultra-kanban",
+    "status": "running",
+    "exitCode": 0
+  },
+  "finalTypecheck": "PASS",
+  "fullSuite": {
+    "passed": 72,
+    "skipped": 39
+  },
+  "baseline": {
+    "board.json": {
+      "sha256": "a73090ca66445f87d641e7d834e8818faaa9e91e9445cc9c5396128d655bcc63",
+      "projects": 2,
+      "tasks": 2,
+      "revision": 124
+    },
+    "session-reads.json": {
+      "sha256": "58b4dff2c65b6c1d581eab1e0999520d4c4edbe408f3f8a8081e5f0ad60a81de"
+    },
+    "testSession": {
+      "id": "363ff97e-8a55-491a-bdfe-34d9e73c934b",
+      "provider": "codex/gpt-6-luna",
+      "modeAtCreation": "full-access",
+      "workspaceId": "wks_1b4e2fc48dd38d30",
+      "createdNativeProjectWorkspaceCard": false
+    }
+  },
+  "nativeCleanup": {
+    "deletedCount": 1,
+    "agentIds": [
+      "363ff97e-8a55-491a-bdfe-34d9e73c934b"
+    ],
+    "inspectErrorCode": "AGENT_NOT_FOUND"
+  },
+  "derivedContextCleanup": {
+    "path": "/Users/bofan.wang/.paseo/plugin-data/paseo-ultra-kanban/sessions/363ff97e-8a55-491a-bdfe-34d9e73c934b.json",
+    "existedBeforeCleanup": true,
+    "existsAfterCleanup": false
+  },
+  "rendererPaths": {
+    "/var/folders/0b/f1crzdg95g5fwbq49s_3pw9c0000gq/T/kanban-motion-focused-0V0Z2D": {
+      "exists": false
+    },
+    "/var/folders/0b/f1crzdg95g5fwbq49s_3pw9c0000gq/T/kanban-motion-legacy-21FQFC": {
+      "exists": false
+    },
+    "/var/folders/0b/f1crzdg95g5fwbq49s_3pw9c0000gq/T/kanban-motion-preview-exit-RLKc78": {
+      "exists": false
+    },
+    "/var/folders/0b/f1crzdg95g5fwbq49s_3pw9c0000gq/T/kanban-motion-preview-exit-65vBwL": {
+      "exists": false,
+      "note": "Earlier focused-run receipt observed by parent before final focused rerun"
+    }
+  },
+  "storesAfter": {
+    "board.json": {
+      "sha256": "28c8c07b54aefcd24aa0d9d0b534695d8ab15bb0ea4711fc335e6dfdd5d2b1ca",
+      "projects": 2,
+      "tasks": 2,
+      "revision": 132,
+      "testActorLifecycleEvents": 8
+    },
+    "session-reads.json": {
+      "sha256": "58b4dff2c65b6c1d581eab1e0999520d4c4edbe408f3f8a8081e5f0ad60a81de",
+      "testActorReceipts": 0
+    }
+  },
+  "sourceHashes": {
+    "AGENTS.md": "2200fcbb97227b07b78f94acf839f2b2f858a1122359c2fb7f9058fb48eb190c",
+    "client/motion.tsx": "0f51c37c40ae2184c3d541cd15c75e9d41b61bae77374264291dd4bbb71656e0",
+    "client/board.tsx": "24d723ac68afcb3b1f4d67205101d118f02f0cabd10e896296c19781fd5a9c94",
+    "client/drawer.tsx": "c9868318201ce299e7f28754a18b55f47e03af0e867be44d92b85f6963d3c0bf",
+    "client/card.tsx": "04069080ad0dfd0f81872b005eb3fda44c2e2a3e0c2a9d3409ce053c5fe51d28",
+    "client/columns.tsx": "0fbbec43d81603516309deadf9dbb80f51c1f2fcba1ff4b2702b609852ab8ae2",
+    "client/session-preview.tsx": "a2ee9de694f80ccac10501105ff2724ab233be888c80a905b6801f609377f884",
+    "docs/MOTION-SPEC.md": "691ddb0b87e6866dfc4682665b38d6b87b9ef0f90de5d8c4f39e97e53c6bd898"
+  },
+  "installedPlugin": {
+    "id": "paseo-ultra-kanban",
+    "path": "/Users/bofan.wang/Developer/personal/paseo-utlra-kanban",
+    "enabled": true,
+    "status": "running",
+    "name": "Ultra Kanban",
+    "description": "Projects, task workspaces and agent sessions in one board",
+    "installation": {
+      "identity": {
+        "kind": "directory",
+        "path": "/Users/bofan.wang/Developer/personal/paseo-utlra-kanban"
+      }
+    }
+  },
+  "currentMotionTempDirectories": []
+}

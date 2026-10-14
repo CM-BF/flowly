@@ -1,0 +1,5 @@
+renderer_temp=/var/folders/0b/f1crzdg95g5fwbq49s_3pw9c0000gq/T/paseo-drawer-renderer-3ISZo8
+renderer_temp_exists_after_cleanup=false
+renderer_record=/Users/bofan.wang/Developer/personal/paseo-utlra-kanban/docs/verification/fixtures/drawer/renderer-path-2026-10-14T06-22-27-764Z.json
+install_status=0
+focused drawer verification_status=1

@@ -1,0 +1,49 @@
+{
+  "createdAt": "2026-10-13T08:49:49.971Z",
+  "sessionId": "2113042d-0934-454d-bf58-af71751f926c",
+  "provider": "codex/gpt-6-luna",
+  "mode": "full-access",
+  "fixtureRun": "/tmp/ultra-kanban-single-root-20261013/run-04",
+  "checks": [
+    {
+      "field": "returned-task-projectId",
+      "rejected": false,
+      "projectBindingChecks": [
+        {
+          "kind": "directory",
+          "taskExists": true,
+          "projectIdMatches": true
+        },
+        {
+          "kind": "existing-workspace",
+          "taskExists": true,
+          "projectIdMatches": true
+        },
+        {
+          "kind": "git-worktree",
+          "taskExists": true,
+          "projectIdMatches": true
+        }
+      ],
+      "pass": true
+    },
+    {
+      "field": "primaryPath",
+      "rejected": true,
+      "error": "Request failed: [\n  {\n    \"code\": \"unrecognized_keys\",\n    \"keys\": [\n      \"primaryPath\"\n    ],\n    \"path\": [],\n    \"message\": \"Unrecognized key: \\\"primaryPath\\\"\"\n  }\n] requestType=plugin.rpc.invoke.request code=handler_error"
+    },
+    {
+      "field": "paseoProjectId",
+      "rejected": true,
+      "error": "Request failed: [\n  {\n    \"code\": \"unrecognized_keys\",\n    \"keys\": [\n      \"paseoProjectId\"\n    ],\n    \"path\": [],\n    \"message\": \"Unrecognized key: \\\"paseoProjectId\\\"\"\n  }\n] requestType=plugin.rpc.invoke.request code=handler_error"
+    }
+  ],
+  "status": "PASS",
+  "boardProjectId": "73415a3e-849a-47f8-8a67-4db4a3b0478a",
+  "rootUnchanged": true,
+  "nativeBindingUnchanged": true,
+  "boardReadUnchanged": true,
+  "boardBytesUnchanged": true,
+  "boardSha256": "399dedba9972499e32f5d0ea01e718b420bf31b9fd29b01ea8b510027128bbfb",
+  "completedAt": "2026-10-13T08:49:50.087Z"
+}

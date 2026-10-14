@@ -1,0 +1,15 @@
+ RUN  v4.1.11 /Users/bofan.wang/Developer/personal/paseo-utlra-kanban
+
+ Test Files  2 passed (2)
+      Tests  10 passed (10)
+   Start at  12:41:47
+   Duration  190ms (transform 56ms, setup 0ms, import 144ms, tests 39ms, environment 0ms)
+
+Post-suite targeted rerun after adding the explicit error-read assertion:
+
+ RUN  v4.1.11 /Users/bofan.wang/Developer/personal/paseo-utlra-kanban
+
+ Test Files  1 passed (1)
+      Tests  5 passed (5)
+   Start at  12:46:13
+   Duration  150ms (transform 29ms, setup 0ms, import 71ms, tests 2ms, environment 0ms)

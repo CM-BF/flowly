@@ -1,0 +1,162 @@
+export type MarkdownBlock =
+  | { kind: "paragraph" | "quote"; text: string }
+  | { kind: "heading"; text: string; level: number }
+  | {
+      kind: "list";
+      text: string;
+      marker: string;
+      indent: number;
+      checked?: boolean;
+    }
+  | { kind: "code"; text: string; language: string }
+  | { kind: "rule" }
+  | { kind: "table"; headers: string[]; rows: string[][] };
+
+function tableCells(line: string) {
+  let trimmed = line.trim().replace(/^\|/, "");
+  if (trimmed.endsWith("|") && trimmed.at(-2) !== "\\")
+    trimmed = trimmed.slice(0, -1);
+  const cells: string[] = [];
+  let cell = "",
+    code = false;
+  for (let i = 0; i < trimmed.length; i++) {
+    if (trimmed[i] === "\\" && trimmed[i + 1] === "|") {
+      cell += "|";
+      i++;
+    } else if (trimmed[i] === "`") {
+      code = !code;
+      cell += "`";
+    } else if (trimmed[i] === "|" && !code) {
+      cells.push(cell.trim());
+      cell = "";
+    } else cell += trimmed[i];
+  }
+  cells.push(cell.trim());
+  return cells;
+}
+
+const fence = (line: string) => line.match(/^\s{0,3}(`{3,}|~{3,})(.*)$/);
+const heading = (line: string) =>
+  line.match(/^\s{0,3}(#{1,6})\s+(.+?)(?:\s+#+)?\s*$/);
+const list = (line: string) => line.match(/^(\s*)([-+*]|\d+[.)])\s+(.*)$/);
+const rule = (line: string) =>
+  /^\s{0,3}(?:\*\s*){3,}$|^\s{0,3}(?:-\s*){3,}$|^\s{0,3}(?:_\s*){3,}$/.test(
+    line,
+  );
+function startsBlock(line: string) {
+  return (
+    !line.trim() ||
+    fence(line) ||
+    heading(line) ||
+    list(line) ||
+    rule(line) ||
+    /^\s*>/.test(line)
+  );
+}
+function isTable(lines: string[], i: number) {
+  if (!lines[i]?.includes("|") || !lines[i + 1]?.includes("|")) return false;
+  return tableCells(lines[i + 1]).every((cell) => /^:?-{3,}:?$/.test(cell));
+}
+
+/** A bounded native preview subset; incomplete syntax remains readable while streaming. */
+export function parseSessionMarkdown(text: string): MarkdownBlock[] {
+  const lines = text.replace(/\r\n?/g, "\n").split("\n"),
+    blocks: MarkdownBlock[] = [];
+  for (let i = 0; i < lines.length; ) {
+    const line = lines[i];
+    if (!line.trim()) {
+      i++;
+      continue;
+    }
+    const start = fence(line);
+    if (start) {
+      const content: string[] = [],
+        marker = start[1];
+      i++;
+      while (i < lines.length) {
+        const end = fence(lines[i]);
+        if (
+          end &&
+          end[1][0] === marker[0] &&
+          end[1].length >= marker.length &&
+          !end[2].trim()
+        ) {
+          i++;
+          break;
+        }
+        content.push(lines[i++]);
+      }
+      blocks.push({
+        kind: "code",
+        language: start[2].trim(),
+        text: content.join("\n"),
+      });
+      continue;
+    }
+    if (isTable(lines, i)) {
+      const headers = tableCells(line),
+        rows: string[][] = [];
+      i += 2;
+      while (i < lines.length && lines[i].includes("|") && lines[i].trim())
+        rows.push(tableCells(lines[i++]));
+      blocks.push({ kind: "table", headers, rows });
+      continue;
+    }
+    const h = heading(line),
+      item = list(line);
+    if (h) {
+      blocks.push({ kind: "heading", level: h[1].length, text: h[2] });
+      i++;
+    } else if (rule(line)) {
+      blocks.push({ kind: "rule" });
+      i++;
+    } else if (item) {
+      const checkbox = item[3].match(/^\[([ xX])\]\s+(.*)$/);
+      blocks.push({
+        kind: "list",
+        marker: item[2],
+        indent: Math.min(item[1].length, 8),
+        text: checkbox ? checkbox[2] : item[3],
+        checked: checkbox ? checkbox[1] !== " " : undefined,
+      });
+      i++;
+    } else if (/^\s*>/.test(line)) {
+      const content: string[] = [];
+      while (i < lines.length && /^\s*>/.test(lines[i]))
+        content.push(lines[i++].replace(/^\s*>\s?/, ""));
+      blocks.push({ kind: "quote", text: content.join("\n") });
+    } else {
+      const content = [line];
+      i++;
+      while (i < lines.length && !startsBlock(lines[i]) && !isTable(lines, i))
+        content.push(lines[i++]);
+      blocks.push({ kind: "paragraph", text: content.join("\n") });
+    }
+  }
+  return blocks;
+}
+
+export type InlinePart = {
+  text: string;
+  kind: "text" | "bold" | "italic" | "code" | "link";
+  url?: string;
+};
+export function parseSessionInline(text: string): InlinePart[] {
+  const pattern =
+    /`([^`\n]+)`|\*\*([^*\n]+)\*\*|__([^_\n]+)__|\[([^\]\n]+)\]\(([^\s)]+)\)|\*([^*\n]+)\*|_([^_\n]+)_/g;
+  const parts: InlinePart[] = [];
+  let from = 0;
+  for (const match of text.matchAll(pattern)) {
+    if (match.index! > from)
+      parts.push({ kind: "text", text: text.slice(from, match.index) });
+    if (match[1]) parts.push({ kind: "code", text: match[1] });
+    else if (match[2] || match[3])
+      parts.push({ kind: "bold", text: match[2] || match[3] });
+    else if (match[4])
+      parts.push({ kind: "link", text: match[4], url: match[5] });
+    else parts.push({ kind: "italic", text: match[6] || match[7] });
+    from = match.index! + match[0].length;
+  }
+  if (from < text.length) parts.push({ kind: "text", text: text.slice(from) });
+  return parts;
+}

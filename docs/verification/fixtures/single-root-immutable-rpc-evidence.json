@@ -1,0 +1,27 @@
+{
+  "createdAt": "2026-10-13T08:48:55.613Z",
+  "sessionId": "2113042d-0934-454d-bf58-af71751f926c",
+  "provider": "codex/gpt-6-luna",
+  "mode": "full-access",
+  "fixtureRun": "/tmp/ultra-kanban-single-root-20261013/run-03",
+  "checks": [
+    {
+      "field": "primaryPath",
+      "rejected": true,
+      "error": "Request failed: [\n  {\n    \"code\": \"unrecognized_keys\",\n    \"keys\": [\n      \"primaryPath\"\n    ],\n    \"path\": [],\n    \"message\": \"Unrecognized key: \\\"primaryPath\\\"\"\n  }\n] requestType=plugin.rpc.invoke.request code=handler_error"
+    },
+    {
+      "field": "paseoProjectId",
+      "rejected": true,
+      "error": "Request failed: [\n  {\n    \"code\": \"unrecognized_keys\",\n    \"keys\": [\n      \"paseoProjectId\"\n    ],\n    \"path\": [],\n    \"message\": \"Unrecognized key: \\\"paseoProjectId\\\"\"\n  }\n] requestType=plugin.rpc.invoke.request code=handler_error"
+    }
+  ],
+  "status": "PASS",
+  "boardProjectId": "45c7807d-8cce-4d8c-8e97-5505ce7eb635",
+  "rootUnchanged": true,
+  "nativeBindingUnchanged": true,
+  "boardReadUnchanged": true,
+  "boardBytesUnchanged": true,
+  "boardSha256": "49e8b08a7161fa1f44e9f4bdd20f0d88004c99ffede8871456bf14dbae06e0a5",
+  "completedAt": "2026-10-13T08:48:55.750Z"
+}

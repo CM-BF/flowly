@@ -1,0 +1,46 @@
+{
+  "createdAt": "2026-10-13T09:01:50.400Z",
+  "runRoot": "/tmp/ultra-kanban-single-root-20261013/run-04",
+  "provider": "codex/gpt-6-luna",
+  "requestedModeId": "full-access",
+  "promptScope": "one kanban_get_task MCP call; no CLI or additional tools; no writes",
+  "checks": [],
+  "bearerOrSignedRequestRecorded": false,
+  "repositoryFilesChanged": false,
+  "taskId": "6eb9ae69-66d4-4568-9741-a81080980a43",
+  "workspaceId": "wks_c7daaecaf8dc2632",
+  "boardProjectId": "73415a3e-849a-47f8-8a67-4db4a3b0478a",
+  "reusedIntent": true,
+  "root": "/private/tmp/ultra-kanban-single-root-20261013/run-04/common-parent",
+  "beforeBoard": {
+    "boardRevision": 96,
+    "projectCount": 11,
+    "taskCount": 22,
+    "task": {
+      "id": "6eb9ae69-66d4-4568-9741-a81080980a43",
+      "projectId": "73415a3e-849a-47f8-8a67-4db4a3b0478a",
+      "workspaceId": "wks_c7daaecaf8dc2632",
+      "status": "todo",
+      "revision": 1,
+      "cardFieldsSha256": "91f10990e4f3636c7727f8bf8b23b13270476d0711fa3d2bfdbaee3662527bee"
+    },
+    "taskEventCount": 3,
+    "taskEvents": [
+      {
+        "actor": "human",
+        "action": "created"
+      },
+      {
+        "actor": "system",
+        "action": "agent.turn_started"
+      },
+      {
+        "actor": "system",
+        "action": "agent.turn_ended"
+      }
+    ]
+  },
+  "status": "FAIL",
+  "error": "[REDACTED]e[REDACTED]x[REDACTED]e[REDACTED]c[REDACTED]F[REDACTED]i[REDACTED]l[REDACTED]e[REDACTED]S[REDACTED]y[REDACTED]n[REDACTED]c[REDACTED] [REDACTED]i[REDACTED]s[REDACTED] [REDACTED]n[REDACTED]o[REDACTED]t[REDACTED] [REDACTED]d[REDACTED]e[REDACTED]f[REDACTED]i[REDACTED]n[REDACTED]e[REDACTED]d[REDACTED]",
+  "completedAt": "2026-10-13T09:01:50.884Z"
+}

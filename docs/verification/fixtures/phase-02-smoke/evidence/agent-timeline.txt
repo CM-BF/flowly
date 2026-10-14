@@ -1,0 +1,11 @@
+[User] Immediately read PASEO_AGENT_ID from your own environment, call the phase-02-smoke probe tool with that exact value, and report the value plus the tool result. Do not infer the value from this prompt or filesystem.
+I’ll read the environment variable from this process, then pass its exact value to the phase-02-smoke probe.
+[Shell] printenv PASEO_AGENT_ID
+---
+
+Environment value: `a87d7587-a62c-4ed4-b5b5-b1b03f643368`
+
+Probe result: **not run**. I couldn’t find a phase-02-smoke probe tool among the available tools.
+[User] This is a follow-up in the same smoke session. Read your PASEO_AGENT_ID environment value, call the existing phase-02-smoke probe tool once with that exact value, and report the value and result. Do not do any other work.
+[Shell] printenv PASEO_AGENT_ID
+Environment value: `a87d7587-a62c-4ed4-b5b5-b1b03f643368`. The phase-02-smoke probe tool is not available in this session, so I could not call it.

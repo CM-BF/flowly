@@ -1,0 +1,43 @@
+{
+  "checkedAt": "2026-10-14T02:48:59.389Z",
+  "agentId": "c8bfb6b3-40c8-40ec-8a0c-82a1909abe04",
+  "agentDeleted": true,
+  "registryErrorCode": "AGENT_NOT_FOUND",
+  "plugin": {
+    "id": "paseo-ultra-kanban",
+    "status": "running",
+    "enabled": true
+  },
+  "board": {
+    "version": 3,
+    "projects": 0,
+    "tasks": 0,
+    "events": 0,
+    "receipts": 0
+  },
+  "temporaryPaths": [
+    {
+      "path": "/tmp/kanban-ui-ux-renderer.XXXXXX",
+      "exists": false
+    },
+    {
+      "path": "/var/folders/0b/f1crzdg95g5fwbq49s_3pw9c0000gq/T/kanban-uiux-final-renderer-Eti4ED",
+      "exists": false
+    },
+    {
+      "path": "/var/folders/0b/f1crzdg95g5fwbq49s_3pw9c0000gq/T/ultra-kanban-migration-v1-VNgqAp",
+      "exists": false
+    },
+    {
+      "path": "/var/folders/0b/f1crzdg95g5fwbq49s_3pw9c0000gq/T/ultra-kanban-migration-v1-QgqDcL",
+      "exists": false
+    },
+    {
+      "path": "/tmp/ultra-kanban-ui-plugin-reference.md",
+      "exists": false
+    }
+  ],
+  "createdNativeProjects": 0,
+  "createdNativeWorkspaces": 0,
+  "createdBoardCards": 0
+}

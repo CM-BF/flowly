@@ -1,0 +1,199 @@
+import { afterEach, describe, expect, test } from "vitest";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { BoardStore } from "./store";
+import { emptyBoard, type Board } from "../shared/model";
+
+const directories: string[] = [];
+async function setup() {
+  const path = await mkdtemp(join(tmpdir(), "ultra-kanban-test-"));
+  directories.push(path);
+  return new BoardStore(path);
+}
+function fixture(): Board {
+  const b = emptyBoard(),
+    now = new Date().toISOString();
+  b.projects.push({
+    id: "p1",
+    paseoProjectId: "native1",
+    title: "Fixture",
+    description: "",
+    primaryPath: "/repo1",
+    repos: ["/repo1", "/repo2"],
+    revision: 1,
+    createdAt: now,
+    updatedAt: now,
+    archivedAt: null,
+  });
+  b.tasks.push({
+    id: "t1",
+    projectId: "p1",
+    workspaceId: "w1",
+    sourcePath: "/repo1",
+    repoPaths: [],
+    title: "Task",
+    description: "",
+    status: "todo",
+    priority: "normal",
+    position: 0,
+    revision: 1,
+    operationId: "op1",
+    createdAt: now,
+    updatedAt: now,
+    archivedAt: null,
+  });
+  return b;
+}
+afterEach(async () => {
+  await Promise.all(
+    directories.splice(0).map((d) => rm(d, { recursive: true, force: true })),
+  );
+});
+describe("board durability and business invariants", () => {
+  test("v2 migration preserves selected scope/history, waits for a commit, and backs up the source", async () => {
+    const s = await setup(),
+      old = { ...fixture(), version: 2 };
+    old.tasks[0].repoPaths = ["/repo2"];
+    const source = JSON.stringify(old);
+    await writeFile(s.path, source);
+    expect((await s.read()).tasks[0].repoPaths).toEqual(["/repo2"]);
+    expect(await readFile(s.path, "utf8")).toBe(source);
+    await s.transaction(() => ({
+      value: "read-only transaction",
+      changed: false,
+    }));
+    expect(await readFile(s.path, "utf8")).toBe(source);
+    await s.editTask({
+      id: "t1",
+      revision: 1,
+      title: "Migrated",
+      actor: "human",
+    });
+    expect((await new BoardStore(s.directory).read()).version).toBe(3);
+    expect(await readFile(s.path + ".bak", "utf8")).toBe(source);
+    expect((await s.read()).agentReceipts).toEqual([]);
+  });
+  test("unknown data version is preserved", async () => {
+    const s = await setup(),
+      source = JSON.stringify({ ...fixture(), version: 99 });
+    await writeFile(s.path, source);
+    await expect(s.read()).rejects.toThrow("preserved");
+    expect(await readFile(s.path, "utf8")).toBe(source);
+  });
+  test("persists across store instances and retains a backup", async () => {
+    const s = await setup();
+    await s.mutate((b) => Object.assign(b, fixture()));
+    await s.editTask({
+      id: "t1",
+      revision: 1,
+      status: "in_progress",
+      actor: "human",
+    });
+    expect((await new BoardStore(s.directory).read()).tasks[0].status).toBe(
+      "in_progress",
+    );
+    expect(
+      JSON.parse(await readFile(`${s.path}.bak`, "utf8")).tasks[0].status,
+    ).toBe("todo");
+  });
+  test("concurrent edits reject the stale revision and preserve the winner", async () => {
+    const s = await setup();
+    await s.mutate((b) => Object.assign(b, fixture()));
+    const results = await Promise.allSettled([
+      s.editTask({ id: "t1", revision: 1, title: "First", actor: "human" }),
+      s.editTask({ id: "t1", revision: 1, title: "Second", actor: "human" }),
+    ]);
+    expect(results.map((r) => r.status)).toEqual(["fulfilled", "rejected"]);
+    expect((await s.read()).tasks[0].title).toBe("First");
+  });
+  test("prevents duplicate workspace and native-project links, including archived records", async () => {
+    const s = await setup();
+    await s.mutate((b) => Object.assign(b, fixture()));
+    await expect(
+      s.mutate((b) =>
+        b.tasks.push({
+          ...b.tasks[0],
+          id: "t2",
+          operationId: "op2",
+          archivedAt: new Date().toISOString(),
+        }),
+      ),
+    ).rejects.toThrow("already bound");
+    await expect(
+      s.mutate((b) => b.projects.push({ ...b.projects[0], id: "p2" })),
+    ).rejects.toThrow("already linked");
+    expect((await s.read()).tasks).toHaveLength(1);
+  });
+  test("preserves a corrupt file instead of silently resetting it", async () => {
+    const s = await setup();
+    await writeFile(s.path, "{broken");
+    await expect(s.read()).rejects.toThrow("preserved");
+    await expect(s.mutate(() => undefined)).rejects.toThrow("preserved");
+    expect(await readFile(s.path, "utf8")).toBe("{broken");
+  });
+  test("keeps business status independent and limits history per card", async () => {
+    const s = await setup();
+    await s.mutate((b) => {
+      Object.assign(b, fixture());
+      for (let i = 0; i < 130; i++)
+        s.event(b, { taskId: "t1", actor: "system", action: "turn_ended" });
+    });
+    const b = await s.read();
+    expect(b.tasks[0].status).toBe("todo");
+    expect(b.events).toHaveLength(100);
+  });
+  test("rejects removal of a card-used repository", async () => {
+    const s = await setup();
+    await s.mutate((b) => Object.assign(b, fixture()));
+    await expect(
+      s.mutate((b) => (b.projects[0].repos = ["/repo2"])),
+    ).rejects.toThrow();
+    expect((await s.read()).projects[0].repos).toContain("/repo1");
+  });
+  test("migrates legacy cards to unrestricted scope and preserves the v1 backup", async () => {
+    const s = await setup();
+    const old = {
+      ...fixture(),
+      version: 1,
+      tasks: fixture().tasks.map(({ repoPaths, ...task }) => task),
+    };
+    await writeFile(s.path, JSON.stringify(old));
+    expect((await s.read()).tasks[0].repoPaths).toEqual([]);
+    expect(JSON.parse(await readFile(s.path, "utf8")).version).toBe(1);
+    await s.editTask({
+      id: "t1",
+      revision: 1,
+      title: "Still linked",
+      actor: "human",
+    });
+    const saved = await new BoardStore(s.directory).read();
+    expect(saved.version).toBe(3);
+    expect(saved.tasks[0]).toMatchObject({
+      repoPaths: [],
+      workspaceId: "w1",
+      sourcePath: "/repo1",
+    });
+    expect(JSON.parse(await readFile(`${s.path}.bak`, "utf8"))).toEqual(old);
+  });
+  test("preserves a selected legacy scope through card edits and rejects loss of its directory", async () => {
+    const s = await setup();
+    await s.mutate((b) => Object.assign(b, fixture()));
+    await s.mutate((b) => {
+      b.tasks[0].repoPaths = ["/repo2"];
+    });
+    await s.editTask({
+      id: "t1",
+      revision: 1,
+      title: "Changed",
+      actor: "human",
+    });
+    expect((await s.read()).tasks[0].repoPaths).toEqual(["/repo2"]);
+    await expect(
+      s.mutate((b) => {
+        b.projects[0].repos = ["/repo1"];
+      }),
+    ).rejects.toThrow("project");
+    expect((await s.read()).tasks[0].workspaceId).toBe("w1");
+  });
+});

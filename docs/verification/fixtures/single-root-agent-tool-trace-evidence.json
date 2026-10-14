@@ -1,0 +1,23 @@
+{
+  "agentId": "193101d5-5f16-4fe1-a5db-b379b25b3e2e",
+  "provider": "codex/gpt-6-luna",
+  "modeAtCreation": "full-access",
+  "source": "Paseo SDK agent timeline refetch; sanitized summary",
+  "timelineEntryCount": 4,
+  "toolCalls": [
+    {
+      "name": "ultra-kanban.kanban_get_task",
+      "status": "completed"
+    },
+    {
+      "name": "shell",
+      "status": "completed",
+      "purposeObserved": "Read PASEO_AGENT_ID for the requested report",
+      "commandContainsPaseoAgentId": true,
+      "fileOrRepoMutationPatternDetected": false,
+      "rawCommandAndOutputSaved": false
+    }
+  ],
+  "interpretation": "Exactly one Kanban MCP get call completed. One additional provider shell call read the requested agent ID; the timeline audit did not detect a file/repository mutation pattern. Repository cleanliness and card state are independently recorded in single-root-agent-tool-final-evidence.json.",
+  "credentialsOrSignedRequestsRecorded": false
+}

@@ -1,0 +1,41 @@
+export const cliSource = String.raw`#!/usr/bin/env node
+import {readFile, writeFile} from 'node:fs/promises';
+
+const args=process.argv.slice(2), opts={}, positional=[];
+const allowed=new Set(['context-file','save-request','request-file','task-revision','project-revision','note','kind']);
+function fail(message){throw new Error(message);}
+try {
+  for(let i=0;i<args.length;i++) {
+    const arg=args[i];
+    if(arg.startsWith('--')) {const key=arg.slice(2);if(!allowed.has(key)||Object.hasOwn(opts,key))fail('Unknown or duplicate flag: '+arg); const value=args[++i];if(value===undefined||value.startsWith('--'))fail('Missing value for '+arg);opts[key]=value;}
+    else positional.push(arg);
+  }
+  const command=positional[0];if(!['current','get','status','note'].includes(command))fail('Usage: current [--save-request path] | status <in_progress|blocked|in_review> | note, with --context-file and --request-file.');
+  if(positional.length!==(command==='status'?2:1))fail('Unexpected positional arguments.');
+  const path=opts['context-file']||process.env.ULTRA_KANBAN_CONTEXT_FILE;if(!path)fail('No session context. Use the command supplied by the card drawer.');
+  const context=JSON.parse(await readFile(path,'utf8'));
+  if(context.version!==1||!context.identity||typeof context.credential!=='string'||typeof context.discoveryFile!=='string')fail('Invalid session context; ask the drawer to prepare it again.');
+  if(!process.env.PASEO_AGENT_ID||process.env.PASEO_AGENT_ID!==context.identity.agentId)fail('PASEO_AGENT_ID is missing or does not match this session context.');
+  const discovery=JSON.parse(await readFile(context.discoveryFile,'utf8'));
+  const url=new URL(discovery.url);if(discovery.version!==1||url.protocol!=='http:'||url.hostname!=='127.0.0.1'||url.pathname!=='/')fail('Invalid loopback service discovery file.');
+  let input={}, action='get';
+  if(command==='get'||command==='current') {if(['request-file','task-revision','project-revision','note','kind'].some(k=>opts[k]!==undefined))fail('Write flags are not valid for current.');}
+  else {
+    if(opts['save-request'])fail('--save-request is only valid for current.');
+    if(!opts['request-file']||!opts.note?.trim())fail('Writes require --request-file and a nonempty --note.');
+    const snapshot=JSON.parse(await readFile(opts['request-file'],'utf8'));
+    if(snapshot.identity?.agentId!==context.identity.agentId||snapshot.identity?.taskId!==context.identity.taskId)fail('Snapshot belongs to another session/card.');
+    if(!snapshot.request||!snapshot.revision)fail('Invalid request snapshot. Run current --save-request first.');
+    for(const [key,part] of [['task-revision','task'],['project-revision','project']])if(opts[key]!==undefined&&(!/^[1-9][0-9]*$/.test(opts[key])||Number(opts[key])!==snapshot.revision[part]))fail('Explicit revision does not match the snapshot.');
+    input={expectedRevision:snapshot.revision,request:snapshot.request,note:opts.note};
+    if(command==='status'){if(opts.kind)fail('--kind is only valid for note.');action='status';input.status=positional[1];}
+    else {action='progress';input.kind=opts.kind||'progress';}
+  }
+  const response=await fetch(new URL('api',url),{method:'POST',headers:{Authorization:'Bearer '+context.credential,'Content-Type':'application/json'},body:JSON.stringify({action,input}),signal:AbortSignal.timeout(20000)});
+  const body=await response.json();if(!response.ok||!body.ok){process.stderr.write(JSON.stringify(body.error||{code:'HTTP_ERROR',message:'HTTP '+response.status})+'\n');process.exitCode=1;}
+  else {
+    if(opts['save-request'])await writeFile(opts['save-request'],JSON.stringify({identity:body.result.identity,revision:body.result.revision,request:body.result.request},null,2),{mode:0o600});
+    process.stdout.write(JSON.stringify(body.result,null,2)+'\n');
+  }
+}catch(error){process.stderr.write(JSON.stringify({code:'CLI_FAILURE',message:error instanceof Error?error.message:String(error),hint:'For a timeout, keep the request snapshot and retry the same parameters; do not assume whether it committed.'})+'\n');process.exitCode=1;}
+`;

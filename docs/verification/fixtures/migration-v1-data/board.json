@@ -1,0 +1,49 @@
+{
+  "version": 2,
+  "revision": 8,
+  "projects": [
+    {
+      "id": "phase1-migration-project-id",
+      "title": "Ultra Kanban Acceptance Migration Fixture",
+      "description": "Disposable v1 to v2 migration fixture.",
+      "paseoProjectId": "phase1-migration-native-project-id",
+      "primaryPath": "/tmp/ultra-kanban-acceptance-20261013/repo-one",
+      "repos": [
+        "/tmp/ultra-kanban-acceptance-20261013/repo-one",
+        "/tmp/ultra-kanban-acceptance-20261013/repo-two"
+      ],
+      "revision": 3,
+      "createdAt": "2026-10-13T00:00:00.000Z",
+      "updatedAt": "2026-10-13T00:00:00.000Z",
+      "archivedAt": null
+    }
+  ],
+  "tasks": [
+    {
+      "id": "phase1-migration-card-id",
+      "projectId": "phase1-migration-project-id",
+      "workspaceId": "phase1-migration-workspace-id",
+      "sourcePath": "/tmp/ultra-kanban-acceptance-20261013/repo-one",
+      "repoPaths": [],
+      "title": "Legacy v1 fixture card",
+      "description": "Legacy card with no repoPaths property.",
+      "status": "todo",
+      "priority": "normal",
+      "position": 0,
+      "revision": 5,
+      "operationId": "phase1-migration-operation-id",
+      "createdAt": "2026-10-13T00:00:00.000Z",
+      "updatedAt": "2026-10-13T00:00:00.000Z",
+      "archivedAt": null
+    }
+  ],
+  "events": [
+    {
+      "id": "phase1-migration-event-id",
+      "taskId": "phase1-migration-card-id",
+      "actor": "human",
+      "action": "created",
+      "at": "2026-10-13T00:00:00.000Z"
+    }
+  ]
+}

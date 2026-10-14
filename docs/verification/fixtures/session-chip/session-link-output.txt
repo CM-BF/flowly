@@ -1,0 +1,13 @@
+
+> paseo-ultra-kanban@0.3.0 test
+> vitest run --run docs/verification/fixtures/session-chip/session-link.test.ts
+
+
+ RUN  v4.1.11 /Users/bofan.wang/Developer/personal/paseo-utlra-kanban
+
+
+ Test Files  1 passed (1)
+      Tests  7 passed (7)
+   Start at  13:19:53
+   Duration  392ms (transform 42ms, setup 0ms, import 94ms, tests 213ms, environment 0ms)
+

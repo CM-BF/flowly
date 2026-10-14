@@ -1,0 +1,8 @@
+{
+  "client/drawer.tsx": "0def8da202e606f384fd0b4c22fe22455c8da00003ac6f4e18aa03163fd79753",
+  "client/disclosure.tsx": "f315627d41ad25efc7c7c49fc9f221bb5620d2399c17a2c7f0f8c2a586ca052a",
+  "client/task-metadata.tsx": "c2bcf5f1bc904144f34335807593d1891d5482cd1a5f6d7ce5d625e36a93be3e",
+  "client/motion.tsx": "7b09d6a269d3d1c193c10321e02e7824a03d64c2b1763d298f19133779e4a022",
+  "client/resize.tsx": "688ff749673ddf0825ebf99bca418b93b469d98ee5132ac60c85786ee1f3359e",
+  "client/board.tsx": "2e8bcd7fdee1fdd19061f75104e97d4b018b3b82b8d70a37535cf6c3c0d58b7b"
+}

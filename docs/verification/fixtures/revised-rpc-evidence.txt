@@ -1,0 +1,52 @@
+Revised live RPC acceptance evidence — 2026-10-13
+
+Invocation: test-only DaemonClient.invokePluginRpc('paseo-ultra-kanban', ...)
+from docs/verification/fixtures/revised-live-rpc.mjs. The script connects to
+the running local Paseo daemon and does not persist or print auth tokens.
+No daemon restart. The plugin service was at the 13:06 final reload baseline.
+
+1. Same operation ID, three calls
+   operationId: phase1-fixed-operation-id-20261013-revised
+   card ID: 44ac3475-11b6-43a7-8348-dcae6bfaacb8
+   workspace ID: wks_9364e4929fe1d442
+   before: 7 cards / 30 listed workspaces
+   after:  8 cards / 31 listed workspaces
+   Result: same card/workspace returned all three calls; exactly +1 card and
+   +1 workspace.
+
+2. Workspace outside this board's repo membership
+   workspace ID: wks_1b4e2fc48dd38d30
+   error: Workspace is unavailable or outside this project's repositories.
+   before/after: 8 cards / 31 workspaces; no provision or card commit.
+
+3. Missing workspace
+   workspace ID: wks_phase1_missing_acceptance_20261013
+   error: Workspace is unavailable or outside this project's repositories.
+   before/after: 8 cards / 31 workspaces; no provision or card commit.
+
+4. Empty base ref from a non-default named branch
+   isolated repo: /private/tmp/ultra-kanban-acceptance-20261013/repo-nondefault-base
+   source ref: refs/heads/acceptance/non-default-base
+   source and worktree commit: 668c04102aedd6524f74c6c6f9ff3493dfccdcad
+   task ID: afc289c7-a54d-4da9-8315-bd21e3a41e5e
+   workspace ID: wks_4174eefbcfc7d955
+   branch: acceptance/worktree-from-nondefault-20261013
+   path: /Users/bofan.wang/.paseo/worktrees/1fktzgz3/acceptance-worktree-from-nondefault-20261013
+   edge board count: 0 -> 1 card and 31 -> 32 listed workspaces.
+   Source repo's named branch was restored/left unchanged.
+
+5. Detached HEAD, before provisioning
+   error: Cannot determine the selected repository's current named branch.
+          Enter a valid base ref (such as main or origin/main); detached HEAD
+          and non-Git directories have no automatic branch.
+   edge board before/after: 1 card / 32 workspaces; no card/workspace created.
+   source branch restored to acceptance/non-default-base.
+
+6. Non-Git source, before provisioning
+   same actionable error as detached HEAD above.
+   edge board before/after: 1 card / 32 workspaces; no card/workspace created.
+   Temporary non-Git repo membership was removed from the isolated edge board.
+
+Script source contains assertions for each before/after count and checks the
+resource path/branch/commit. This report preserves the observed results and
+does not rerun the fixed-ID script, which would reuse already committed IDs.

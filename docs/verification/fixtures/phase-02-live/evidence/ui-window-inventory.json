@@ -1,0 +1,15 @@
+{
+  "inventoryObservedAt": "2026-10-13T07:02:43Z",
+  "platform": "mac",
+  "app": { "id": "sh.paseo.desktop", "displayName": "Paseo", "isRunning": true },
+  "windowEnumeration": {
+    "getStateAppWindows": null,
+    "listAppsWindowRecords": null,
+    "listWindowsApi": "undefined on this macOS CUA runtime"
+  },
+  "windowTitles": null,
+  "windowIds": null,
+  "geometry": null,
+  "safeTargetSelection": false,
+  "decision": "No Paseo UI actions. Cannot uniquely distinguish the non-fullscreen window from the user's fullscreen window using documented CUA inventory APIs."
+}

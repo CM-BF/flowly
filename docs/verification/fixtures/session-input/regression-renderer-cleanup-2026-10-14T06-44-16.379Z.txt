@@ -1,0 +1,2 @@
+renderer_temp=/var/folders/0b/f1crzdg95g5fwbq49s_3pw9c0000gq/T/kanban-session-input-regressions-2026-10-14T06-44-16.379Z-HS8Ef2
+renderer_temp_exists_after_cleanup=false

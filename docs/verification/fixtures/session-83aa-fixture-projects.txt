@@ -1,0 +1,17 @@
+[
+  {
+    "projectId": "prj_8859e85f82a61739",
+    "name": "repo-one",
+    "path": "/private/tmp/ultra-kanban-acceptance-20261013/repo-one"
+  },
+  {
+    "projectId": "prj_959652485680186c",
+    "name": "repo-two",
+    "path": "/tmp/ultra-kanban-acceptance-20261013/repo-two"
+  },
+  {
+    "projectId": "prj_e407569cf50aaf84",
+    "name": "repo-nondefault-base",
+    "path": "/private/tmp/ultra-kanban-acceptance-20261013/repo-nondefault-base"
+  }
+]

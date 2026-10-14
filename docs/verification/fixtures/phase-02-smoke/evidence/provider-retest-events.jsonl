@@ -1,0 +1,9 @@
+{"at":"2026-10-13T06:43:48.281Z","kind":"request","sequence":1,"method":"initialize","requestId":0,"protocolVersion":"2025-06-18"}
+{"at":"2026-10-13T06:43:48.289Z","kind":"factory_context","authenticated":true,"protocolHeader":null}
+{"at":"2026-10-13T06:43:48.303Z","kind":"request","sequence":2,"method":"notifications/initialized","requestId":null,"protocolVersion":"2025-06-18"}
+{"at":"2026-10-13T06:43:48.304Z","kind":"factory_context","authenticated":true,"protocolHeader":"2025-06-18"}
+{"at":"2026-10-13T06:43:48.308Z","kind":"request","sequence":3,"method":"tools/list","requestId":1,"protocolVersion":"2025-06-18"}
+{"at":"2026-10-13T06:43:48.309Z","kind":"factory_context","authenticated":true,"protocolHeader":"2025-06-18"}
+{"at":"2026-10-13T06:44:12.101Z","kind":"request","sequence":4,"method":"tools/call","requestId":2,"protocolVersion":"2025-06-18","toolName":"probe","requestedAgentId":"cd656f5b-8245-4aef-b4de-59e23456765f"}
+{"at":"2026-10-13T06:44:12.106Z","kind":"factory_context","authenticated":true,"protocolHeader":"2025-06-18"}
+{"at":"2026-10-13T06:44:12.112Z","kind":"probe_result","ok":true,"receivedAgentId":"cd656f5b-8245-4aef-b4de-59e23456765f"}

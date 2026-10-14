@@ -1,0 +1,35 @@
+Revised compact UI capture attempt — 2026-10-13
+
+Requested compact size: 1102x1000 or 1102x1290, with create form and drawer
+captured in light/System and dark themes, followed by restoration of the
+original System theme/window layout.
+
+Observed CUA calls/errors:
+  app.drag([4170,1400],[2050,1400])
+    -> Computer Use server error -10005:
+       windowNotFoundAtPosition((2160.0, 739.0))
+  app.drag([2085,700],[1120,700])
+    -> completed but screenshot showed unchanged full-width window.
+  app.drag([4180,2790],[2200,2790])
+    -> Computer Use server error -10005:
+       windowNotFoundAtPosition((2165.0, 1434.0))
+  app.drag([2090,1395],[1100,1395])
+    -> selected UI text; screenshot showed the window unchanged.
+  cua.getApp('Paseo') after state refresh
+    -> Computer Use server error -10005: cgWindowNotFound
+
+The full CUA documentation provides drag, click, key, and screenshot APIs for
+native apps, but no native window resize API. The Paseo window's accessibility
+tree was unavailable after `cgWindowNotFound`, so the macOS Window menu and
+green window-control menu could not be inspected for exposed Move & Resize or
+tiling actions. No menu item or coordinate was guessed.
+
+Read-only System Events query:
+  osascript -e 'tell application "System Events" to get {name, position, size} of front window of process "Paseo"'
+  -> System Events got an error: osascript is not allowed assistive access. (-1719)
+
+No system permission was requested or changed. The original window geometry
+could not be read through System Events. No resize was verified, so no revised
+compact screenshots were captured and no compact pass is claimed. The most
+recently observed Paseo theme is System; existing compact light screenshots
+are from the earlier acceptance cycle and are historical only.

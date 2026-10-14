@@ -1,0 +1,7 @@
+command=npm run typecheck
+stdout:
+> paseo-ultra-kanban@0.3.0 typecheck
+> tsc --noEmit
+
+exit_code=0
+result=PASS

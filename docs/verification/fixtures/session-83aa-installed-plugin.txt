@@ -1,0 +1,9 @@
+{
+  "paseo-ultra-kanban": {
+    "id": "paseo-ultra-kanban",
+    "name": "Ultra Kanban",
+    "enabled": true,
+    "status": "running",
+    "path": "/Users/bofan.wang/Developer/personal/paseo-utlra-kanban"
+  }
+}

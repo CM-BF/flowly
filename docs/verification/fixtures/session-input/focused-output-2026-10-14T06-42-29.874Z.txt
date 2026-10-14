@@ -1,0 +1,29 @@
+
+ RUN  v4.1.11 /Users/bofan.wang/Developer/personal/paseo-utlra-kanban
+
+ ❯ docs/verification/fixtures/session-input/session-preview-keyboard.test.tsx (6 tests | 1 failed) 42ms
+     × synchronous lock deduplicates keyboard/button; failure retains draft and permits retry 8ms
+
+ Test Files  1 failed | 1 passed (2)
+      Tests  1 failed | 16 passed (17)
+   Start at  14:42:30
+   Duration  247ms (transform 78ms, setup 0ms, import 143ms, tests 44ms, environment 0ms)
+
+stderr | docs/verification/fixtures/session-input/session-preview-keyboard.test.tsx > SessionPreview keyboard submission > synchronous lock deduplicates keyboard/button; failure retains draft and permits retry
+react-test-renderer is deprecated. See https://react.dev/warnings/react-test-renderer
+
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  docs/verification/fixtures/session-input/session-preview-keyboard.test.tsx > SessionPreview keyboard submission > synchronous lock deduplicates keyboard/button; failure retains draft and permits retry
+AssertionError: expected "vi.fn()" to be called 2 times, but got 1 times
+ ❯ docs/verification/fixtures/session-input/session-preview-keyboard.test.tsx:108:73
+    106|     expect(asText(tree.root)).toContain("send failed"); expect(state.t…
+    107|     await act(async () => { button(tree, "Send instruction").props.onP…
+    108|     expect(state.send).toHaveBeenCalledTimes(2); expect(p.endOperation…
+       |                                                                         ^
+    109|     tree.unmount();
+    110|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+

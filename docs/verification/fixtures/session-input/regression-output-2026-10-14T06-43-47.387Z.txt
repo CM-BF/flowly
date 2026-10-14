@@ -1,0 +1,187 @@
+
+ RUN  v4.1.11 /Users/bofan.wang/Developer/personal/paseo-utlra-kanban
+
+ ❯ docs/verification/fixtures/motion/motion-primitives.test.tsx (5 tests | 3 failed) 15ms
+     × query result enables motion, and a later preference change interrupts the active value animation 2ms
+     × drawer-like presence reverses rapidly and ignores stale exit completion for a newer target 1ms
+     × MotionReveal is keyed to navigation identity and uses forward/reverse durations 1ms
+ ❯ docs/verification/fixtures/motion/motion-components.test.tsx (2 tests | 1 failed) 27ms
+     × drawer uses resize-grip width and retains its inert shell and grip until exit completes 11ms
+ ❯ docs/verification/fixtures/drawer/drawer-components.test.tsx (8 tests | 1 failed) 60ms
+     × details disclosure is collapsed, measured JS height, accessible, reduced-motion capable, reversible and inert on exit 4ms
+ ❯ docs/verification/fixtures/session-layout/session-layout-components.test.tsx (10 tests | 2 failed) 47ms
+     × successful send clears the submitted draft and resumes tail; failure retains draft and position; duplicate send is locked 11ms
+     × motion exit retains a real inactive preview while queries/actions/observation stop immediately 4ms
+
+ Test Files  4 failed | 4 passed (8)
+      Tests  7 failed | 39 passed (46)
+     Errors  1 error
+   Start at  14:43:47
+   Duration  425ms (transform 649ms, setup 0ms, import 1.44s, tests 359ms, environment 0ms)
+
+stderr | docs/verification/fixtures/motion/motion-primitives.test.tsx > shared motion primitives (deterministic native callbacks) > query result enables motion, and a later preference change interrupts the active value animation
+react-test-renderer is deprecated. See https://react.dev/warnings/react-test-renderer
+
+stderr | docs/verification/fixtures/motion/motion-primitives.test.tsx > shared motion primitives (deterministic native callbacks) > drawer-like presence reverses rapidly and ignores stale exit completion for a newer target
+react-test-renderer is deprecated. See https://react.dev/warnings/react-test-renderer
+
+stderr | docs/verification/fixtures/motion/motion-primitives.test.tsx > shared motion primitives (deterministic native callbacks) > MotionReveal is keyed to navigation identity and uses forward/reverse durations
+react-test-renderer is deprecated. See https://react.dev/warnings/react-test-renderer
+
+stderr | docs/verification/fixtures/motion/motion-components.test.tsx > board motion focused renderer > drawer uses resize-grip width and retains its inert shell and grip until exit completes
+react-test-renderer is deprecated. See https://react.dev/warnings/react-test-renderer
+
+stderr | docs/verification/fixtures/drawer/drawer-components.test.tsx > task drawer redesign > details disclosure is collapsed, measured JS height, accessible, reduced-motion capable, reversible and inert on exit
+react-test-renderer is deprecated. See https://react.dev/warnings/react-test-renderer
+
+stderr | docs/verification/fixtures/drawer/drawer-components.test.tsx > task drawer redesign > details disclosure is collapsed, measured JS height, accessible, reduced-motion capable, reversible and inert on exit
+An update to Root inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+
+stderr | docs/verification/fixtures/session-layout/session-layout-components.test.tsx > session preview layout focused renderer > successful send clears the submitted draft and resumes tail; failure retains draft and position; duplicate send is locked
+react-test-renderer is deprecated. See https://react.dev/warnings/react-test-renderer
+
+stderr | docs/verification/fixtures/session-layout/session-layout-components.test.tsx > session preview layout focused renderer > motion exit retains a real inactive preview while queries/actions/observation stop immediately
+react-test-renderer is deprecated. See https://react.dev/warnings/react-test-renderer
+
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 7 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  docs/verification/fixtures/drawer/drawer-components.test.tsx > task drawer redesign > details disclosure is collapsed, measured JS height, accessible, reduced-motion capable, reversible and inert on exit
+Error: disclosure opening animation was not created
+ ❯ docs/verification/fixtures/drawer/drawer-components.test.tsx:174:31
+    172|     const motion = motionMockState;
+    173|     const openAnimation = motion.animations.at(-1);
+    174|     if (!openAnimation) throw new Error("disclosure opening animation …
+       |                               ^
+    175|     expect(openAnimation.config.useNativeDriver).toBe(false);
+    176|     expect(body.props.style.height.config.outputRange).toEqual([0, 360…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/7]⎯
+
+ FAIL  docs/verification/fixtures/motion/motion-components.test.tsx > board motion focused renderer > drawer uses resize-grip width and retains its inert shell and grip until exit completes
+Error: No instances found with props: {"testID":"task-drawer-motion"}
+ ❯ expectOne ../../../../../private/var/folders/0b/f1crzdg95g5fwbq49s_3pw9c0000gq/T/kanban-session-input-regressions-2026-10-14T06-43-47.387Z-cgWPvz/node_modules/react-test-renderer/cjs/react-test-renderer.development.js:12559:13
+ ❯ process.env.NODE_ENV._proto.findByProps ../../../../../private/var/folders/0b/f1crzdg95g5fwbq49s_3pw9c0000gq/T/kanban-session-input-regressions-2026-10-14T06-43-47.387Z-cgWPvz/node_modules/react-test-renderer/cjs/react-test-renderer.development.js:14481:18
+ ❯ docs/verification/fixtures/motion/motion-components.test.tsx:131:23
+    129|
+    130|     await act(async () => { tree.root.findByType("Drawer").findByType(…
+    131|     shell = tree.root.findByProps({ testID: "task-drawer-motion" });
+       |                       ^
+    132|     expect(shell.props.pointerEvents).toBe("none");
+    133|     expect(shell.props.accessibilityElementsHidden).toBe(true);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/7]⎯
+
+ FAIL  docs/verification/fixtures/motion/motion-primitives.test.tsx > shared motion primitives (deterministic native callbacks) > query result enables motion, and a later preference change interrupts the active value animation
+AssertionError: expected [] to have a length of 1 but got +0
+
+- Expected
++ Received
+
+- 1
++ 0
+
+ ❯ docs/verification/fixtures/motion/motion-primitives.test.tsx:70:40
+     68|     await act(async () => { tree = create(<MotionProvider><ValueProbe …
+     69|     await act(async () => { resolvePreference(false); await Promise.re…
+     70|     expect(motionMockState.animations).toHaveLength(1);
+       |                                        ^
+     71|     expect(motionMockState.animations[0].config.easing).toBeTypeOf("fu…
+     72|     act(() => motionMockState.emitReduceMotion(true));
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/7]⎯
+
+ FAIL  docs/verification/fixtures/motion/motion-primitives.test.tsx > shared motion primitives (deterministic native callbacks) > drawer-like presence reverses rapidly and ignores stale exit completion for a newer target
+TypeError: Cannot read properties of undefined (reading 'config')
+ ❯ docs/verification/fixtures/motion/motion-primitives.test.tsx:83:50
+     81|     await act(async () => { tree.update(<MotionProvider><DeferredPrese…
+     82|     const exitIndex = motionMockState.animations.length - 1;
+     83|     expect(motionMockState.animations[exitIndex].config.duration).toBe…
+       |                                                  ^
+     84|     expect(tree.root.findByType("Shell").props.active).toBe(false);
+     85|     await act(async () => { tree.update(<MotionProvider><DeferredPrese…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/7]⎯
+
+ FAIL  docs/verification/fixtures/motion/motion-primitives.test.tsx > shared motion primitives (deterministic native callbacks) > MotionReveal is keyed to navigation identity and uses forward/reverse durations
+AssertionError: expected undefined to be 220 // Object.is equality
+
+- Expected:
+220
+
++ Received:
+undefined
+
+ ❯ docs/verification/fixtures/motion/motion-primitives.test.tsx:98:64
+     96|     await act(async () => { tree = create(<MotionProvider><MotionRevea…
+     97|     await act(async () => { tree.update(<MotionProvider><MotionReveal …
+     98|     expect(motionMockState.animations.at(-1)?.config.duration).toBe(22…
+       |                                                                ^
+     99|     await act(async () => { tree.update(<MotionProvider><MotionReveal …
+    100|     expect(motionMockState.animations.at(-1)?.config.duration).toBe(16…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/7]⎯
+
+ FAIL  docs/verification/fixtures/session-layout/session-layout-components.test.tsx > session preview layout focused renderer > successful send clears the submitted draft and resumes tail; failure retains draft and position; duplicate send is locked
+AssertionError: expected 'Back to task Fixture agent Idle provi…' to contain 'send failed'
+
+Expected: "send failed"
+Received: "Back to task Fixture agent Idle provider-name-provider-name-provider-name-provider-name-provider-name-provider-name-provider-name-provider-name-provider-name-provider-name-provider-name-provider-name-provider-name-provider-name-provider-name-provider-name-provider-name-provider-name-provider-name-provider-name-provider-name-provider-name-provider-name-provider-name-provider-name-provider-name-provider-name-provider-name-provider-name-provider-name-  / provider-name-provider-name-provider-name-provider-name-provider-name-provider-name-provider-name-provider-name-provider-name-provider-name-provider-name-provider-name-provider-name-provider-name-provider-name-provider-name-provider-name-provider-name-provider-name-provider-name-provider-name-provider-name-provider-name-provider-name-provider-name-provider-name-provider-name-provider-name-provider-name-provider-name- Read state unknown Recent output · open in Paseo for the full conversation Refresh output No text output yet. Kanban tools Follow-up instruction Use keyboard Send or the Send instruction button Send instruction"
+
+ ❯ docs/verification/fixtures/session-layout/session-layout-components.test.tsx:228:46
+    226|     await act(async () => { button(tree, "Send instruction").props.onP…
+    227|     expect(p.onDraftChange).not.toHaveBeenCalled();
+    228|     expect(strings(tree.toJSON()).join(" ")).toContain("send failed");
+       |                                              ^
+    229|     expect(state.scrollToEnd).not.toHaveBeenCalled();
+    230|     tree.unmount();
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/7]⎯
+
+ FAIL  docs/verification/fixtures/session-layout/session-layout-components.test.tsx > session preview layout focused renderer > motion exit retains a real inactive preview while queries/actions/observation stop immediately
+Error: No instances found with node type: "KeyboardAvoidingView"
+ ❯ expectOne ../../../../../private/var/folders/0b/f1crzdg95g5fwbq49s_3pw9c0000gq/T/kanban-session-input-regressions-2026-10-14T06-43-47.387Z-cgWPvz/node_modules/react-test-renderer/cjs/react-test-renderer.development.js:12559:13
+ ❯ process.env.NODE_ENV._proto.findByType ../../../../../private/var/folders/0b/f1crzdg95g5fwbq49s_3pw9c0000gq/T/kanban-session-input-regressions-2026-10-14T06-43-47.387Z-cgWPvz/node_modules/react-test-renderer/cjs/react-test-renderer.development.js:14473:18
+ ❯ docs/verification/fixtures/session-layout/session-layout-components.test.tsx:297:22
+    295|     await act(async () => { tree.update(<MotionProvider><RetainedPrevi…
+    296|     expect(tree.root.findByProps({ testID: "preview-exit-shell" }).pro…
+    297|     expect(tree.root.findByType("KeyboardAvoidingView")).toBeTruthy();
+       |                      ^
+    298|     expect(state.subscriptions[0].stop).toHaveBeenCalledTimes(1);
+    299|     const queries = state.queryOptions.filter((options: any) => ["agen…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[7/7]⎯
+
+⎯⎯⎯⎯⎯⎯ Unhandled Errors ⎯⎯⎯⎯⎯⎯
+
+Vitest caught 1 unhandled error during the test run.
+This might cause false positive tests. Resolve unhandled errors to make sure your tests are not affected.
+
+⎯⎯⎯⎯ Unhandled Rejection ⎯⎯⎯⎯⎯
+Error: accessibility unavailable
+ ❯ docs/verification/fixtures/motion/motion-primitives.test.tsx:59:46
+     57|     let tree: any;
+     58|     await act(async () => { tree = create(<MotionProvider><ValueProbe …
+     59|     await act(async () => { rejectPreference(new Error("accessibility …
+       |                                              ^
+     60|     expect(motionMockState.animations).toHaveLength(0);
+     61|     act(() => tree.unmount());
+ ❯ process.env.NODE_ENV.exports.act node_modules/react/cjs/react.development.js:789:22
+ ❯ docs/verification/fixtures/motion/motion-primitives.test.tsx:59:11
+ ❯ node_modules/@vitest/runner/dist/chunk-artifact.js:1903:20
+
+This error originated in "docs/verification/fixtures/motion/motion-primitives.test.tsx" test file. It doesn't mean the error was thrown inside the file itself, but while it was running.
+The latest test that might've caused the error is "preference query failure keeps the safe reduced state". It might mean one of the following:
+- The error was thrown, while Vitest was running this test.
+- If the error occurred after the test had been completed, this was the last documented test before it was thrown.
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+

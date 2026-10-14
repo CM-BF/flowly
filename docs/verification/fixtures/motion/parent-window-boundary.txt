@@ -1,0 +1,1 @@
+Fresh CUA getState inventory on 2026-10-14: Paseo sh.paseo.desktop running. Result only apps and browsers; no native window ID, title, geometry or fullscreen state. Cannot safely bind the required non-fullscreen window. No Paseo app/window selected; no GUI action attempted. Native toast rendering, actual selection, motion/frame-rate, desktop/compact gestures remain UNRUN.

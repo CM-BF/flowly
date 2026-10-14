@@ -1,0 +1,43 @@
+{
+  "Id": "85914006-1bfe-4743-9683-b1104e04f554",
+  "Name": "Phase 2 acceptance Luna MCP lifecycle 2026-10-13",
+  "Provider": "codex",
+  "Model": "gpt-6-luna",
+  "Thinking": "medium",
+  "Status": "idle",
+  "Archived": false,
+  "ArchivedAt": null,
+  "Mode": "full-access",
+  "Cwd": "/private/tmp/ultra-kanban-phase2-20261013/live-acceptance-01/repo-one",
+  "CreatedAt": "2026-10-13T07:10:28.579Z",
+  "UpdatedAt": "2026-10-13T07:10:54.849Z",
+  "LastUsage": {
+    "InputTokens": 48078,
+    "OutputTokens": 104,
+    "CachedTokens": 43776,
+    "CostUsd": 0
+  },
+  "Capabilities": {
+    "Streaming": true,
+    "Persistence": true,
+    "DynamicModes": false,
+    "McpServers": true
+  },
+  "AvailableModes": [
+    {
+      "id": "auto",
+      "label": "Default Permissions"
+    },
+    {
+      "id": "auto-review",
+      "label": "Auto-review"
+    },
+    {
+      "id": "full-access",
+      "label": "Full Access"
+    }
+  ],
+  "PendingPermissions": [],
+  "Worktree": null,
+  "ParentAgentId": null
+}

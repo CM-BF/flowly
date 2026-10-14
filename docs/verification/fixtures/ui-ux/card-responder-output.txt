@@ -1,0 +1,43 @@
+TEMP_DIR=/var/folders/0b/f1crzdg95g5fwbq49s_3pw9c0000gq/T/kanban-uiux-final-renderer-Eti4ED
+
+added 4 packages in 642ms
+
+ RUN  v4.1.11 /Users/bofan.wang/Developer/personal/paseo-utlra-kanban
+
+ ✓ docs/verification/fixtures/ui-ux/card-responder.test.tsx > TaskCard responder wiring (synthetic renderer) > body click opens, while drag callbacks are attached only to the enabled handle 5ms
+ ✓ docs/verification/fixtures/ui-ux/card-responder.test.tsx > TaskCard responder wiring (synthetic renderer) > responder termination cancels, and disabled cards do not attach a handle responder 1ms
+ ✓ docs/verification/fixtures/ui-ux/card-responder.test.tsx > TaskCard responder wiring (synthetic renderer) > a valid cross-column responder end calls onDrop once with the captured revision; pending disables it 3ms
+ ✓ docs/verification/fixtures/ui-ux/card-responder.test.tsx > TaskCard responder wiring (synthetic renderer) > resize grip responder emits width changes from the captured starting width 0ms
+
+ Test Files  1 passed (1)
+      Tests  4 passed (4)
+   Start at  10:44:30
+   Duration  235ms (transform 53ms, setup 0ms, import 124ms, tests 11ms, environment 0ms)
+
+stderr | docs/verification/fixtures/ui-ux/card-responder.test.tsx > TaskCard responder wiring (synthetic renderer) > body click opens, while drag callbacks are attached only to the enabled handle
+react-test-renderer is deprecated. See https://react.dev/warnings/react-test-renderer
+The current testing environment is not configured to support act(...)
+
+stderr | docs/verification/fixtures/ui-ux/card-responder.test.tsx > TaskCard responder wiring (synthetic renderer) > responder termination cancels, and disabled cards do not attach a handle responder
+react-test-renderer is deprecated. See https://react.dev/warnings/react-test-renderer
+The current testing environment is not configured to support act(...)
+react-test-renderer is deprecated. See https://react.dev/warnings/react-test-renderer
+The current testing environment is not configured to support act(...)
+
+stderr | docs/verification/fixtures/ui-ux/card-responder.test.tsx > TaskCard responder wiring (synthetic renderer) > a valid cross-column responder end calls onDrop once with the captured revision; pending disables it
+react-test-renderer is deprecated. See https://react.dev/warnings/react-test-renderer
+The current testing environment is not configured to support act(...)
+Each child in a list should have a unique "key" prop.
+
+Check the render method of `ScrollView`. It was passed a child from DesktopColumns. See https://react.dev/link/warning-keys for more information.
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+react-test-renderer is deprecated. See https://react.dev/warnings/react-test-renderer
+The current testing environment is not configured to support act(...)
+
+stderr | docs/verification/fixtures/ui-ux/card-responder.test.tsx > TaskCard responder wiring (synthetic renderer) > resize grip responder emits width changes from the captured starting width
+react-test-renderer is deprecated. See https://react.dev/warnings/react-test-renderer
+The current testing environment is not configured to support act(...)
+
+CLEANUP_EXISTS=false

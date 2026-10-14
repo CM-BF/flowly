@@ -1,0 +1,12 @@
+Command: npm test
+Date: 2026-10-13 13:33:52 Asia/Singapore
+Result: 1 test failed, 20 passed, 21 total; 1 test file failed, 3 passed, 4 total.
+
+The failure was in the test-only migration evidence fixture, before product
+tests ran: revised-migration.test.ts threw
+"Refusing to overwrite existing evidence: .../migration-v1-data/board.json.bak"
+because that retained backup already existed from the prior focused run. This
+was a fixture repeatability failure, not a product assertion failure. The
+test-only fixture now uses a fresh mkdtemp directory per run and retains the
+previous evidence files without overwriting or deleting them. Full suite will
+be rerun and its final raw output saved separately.

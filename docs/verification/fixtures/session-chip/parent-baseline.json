@@ -1,0 +1,13 @@
+{
+  "checkedAt": "2026-10-14T05:13:05.727Z",
+  "agentId": "d380e718-8a0a-42a6-bc1e-cabe0ef8f483",
+  "provider": "codex/gpt-6-luna",
+  "modeId": "full-access",
+  "workspaceId": "wks_1b4e2fc48dd38d30",
+  "boardHash": "85f1d8584a595be09a0c42712ee8334e421befe400e909ef028d1a5bc3e00c64",
+  "projects": 2,
+  "tasks": 2,
+  "testAgentEvents": 3,
+  "readStateExists": true,
+  "readStateHash": "58b4dff2c65b6c1d581eab1e0999520d4c4edbe408f3f8a8081e5f0ad60a81de"
+}

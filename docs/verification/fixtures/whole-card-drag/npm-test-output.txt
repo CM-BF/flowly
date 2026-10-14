@@ -1,0 +1,97 @@
+
+> paseo-ultra-kanban@0.3.0 test
+> vitest run --reporter=verbose
+
+
+ RUN  v4.1.11 /Users/bofan.wang/Developer/personal/paseo-utlra-kanban
+
+ ✓ client/geometry.test.ts > board interaction geometry > targets measured columns with viewport origin and horizontal scroll 1ms
+ ✓ client/geometry.test.ts > board interaction geometry > gaps, toolbar, drawer and outside pointers are not drop targets 0ms
+ ✓ client/geometry.test.ts > board interaction geometry > same/outside drops do not write and a cross-column update retains the captured revision 0ms
+ ✓ client/geometry.test.ts > board interaction geometry > edge scroll is bounded and inactive outside the viewport 0ms
+ ✓ client/geometry.test.ts > board interaction geometry > drawer resize keeps a readable drawer and at least 300 points of board 0ms
+ ✓ client/geometry.test.ts > board interaction geometry > native and narrow surfaces use a vertical list even when host compact is false 0ms
+ ✓ client/session.test.ts > uncertain creation response reuses actual session without replaying first prompt 1ms
+ ✓ client/session.test.ts > creation failure stays a failure; wrong workspace/archived ID and uncertain lookup block provision 1ms
+ ✓ docs/verification/fixtures/revised-migration.test.ts > Phase 2 v3 board migration evidence > reads v1 cards as unrestricted without rewriting, then persists v3 and backs up v1 12ms
+ ↓ docs/verification/fixtures/ui-ux/card-responder.test.tsx > TaskCard whole-card pointer responder (synthetic renderer) > root arms only primary mouse; touch, pen, right button, and Actions cannot capture
+ ↓ docs/verification/fixtures/ui-ux/card-responder.test.tsx > TaskCard whole-card pointer responder (synthetic renderer) > body click opens, a drag suppresses its click, and release ends once
+ ↓ docs/verification/fixtures/ui-ux/card-responder.test.tsx > TaskCard whole-card pointer responder (synthetic renderer) > pointer cancel and responder termination cancel at most once; disabled card cannot capture
+ ↓ docs/verification/fixtures/ui-ux/card-responder.test.tsx > TaskCard whole-card pointer responder (synthetic renderer) > all card Labels opt out of selection
+ ↓ docs/verification/fixtures/ui-ux/card-responder.test.tsx > TaskCard whole-card pointer responder (synthetic renderer) > actual Label forwards selectable=false and sets userSelect:none
+ ↓ docs/verification/fixtures/ui-ux/card-responder.test.tsx > TaskCard whole-card pointer responder (synthetic renderer) > a valid cross-column end writes once with captured revision; pending disables drag
+ ↓ docs/verification/fixtures/ui-ux/card-responder.test.tsx > TaskCard whole-card pointer responder (synthetic renderer) > resize grip responds from its captured starting width
+ ✓ docs/verification/fixtures/ui-ux/card-responder.test.tsx > card text selection source contract > the host Label maps selectable=false to Text selectable and userSelect none 1ms
+stderr | server/tool-server.test.ts > MCP initialize/list can precede actor creation; live calls require SDK context
+responseMode: 'json' drops mid-call notifications. subscriptions/listen streams are always served over SSE regardless; other notifications emitted before a result are dropped.
+
+ ✓ server/store.test.ts > board durability and business invariants > v2 migration preserves selected scope/history, waits for a commit, and backs up the source 16ms
+ ✓ server/store.test.ts > board durability and business invariants > unknown data version is preserved 3ms
+ ✓ server/store.test.ts > board durability and business invariants > persists across store instances and retains a backup 5ms
+ ✓ server/store.test.ts > board durability and business invariants > concurrent edits reject the stale revision and preserve the winner 4ms
+ ✓ server/store.test.ts > board durability and business invariants > prevents duplicate workspace and native-project links, including archived records 3ms
+ ✓ server/store.test.ts > board durability and business invariants > preserves a corrupt file instead of silently resetting it 1ms
+ ✓ server/store.test.ts > board durability and business invariants > keeps business status independent and limits history per card 3ms
+ ✓ server/store.test.ts > board durability and business invariants > rejects removal of a card-used repository 2ms
+ ✓ server/store.test.ts > board durability and business invariants > migrates legacy cards to unrestricted scope and preserves the v1 backup 4ms
+ ✓ server/store.test.ts > board durability and business invariants > preserves a selected legacy scope through card edits and rejects loss of its directory 4ms
+ ✓ server/service.test.ts > new card uses only native root even in a previously multi-repo project 42ms
+ ✓ server/service.test.ts > a common parent directory contains two repositories without registering each separately 32ms
+ ✓ server/service.test.ts > new board project links the exact native Paseo root and persists only that directory 6ms
+stderr | server/tool-server.test.ts > loopback host/origin/credential guards and scoped request validation
+responseMode: 'json' drops mid-call notifications. subscriptions/listen streams are always served over SSE regardless; other notifications emitted before a result are dropped.
+
+ ✓ server/tool-server.test.ts > MCP initialize/list can precede actor creation; live calls require SDK context 165ms
+stderr | server/tool-server.test.ts > prepared ID and scoped files are stable, selected existing actor verified
+responseMode: 'json' drops mid-call notifications. subscriptions/listen streams are always served over SSE regardless; other notifications emitted before a result are dropped.
+
+ ✓ server/agent-service.test.ts > reads live scope and foreign native owner; read telemetry does not write board 70ms
+ ✓ server/service.test.ts > existing workspace inside a child repo is eligible through common project root 76ms
+ ✓ server/tool-server.test.ts > loopback host/origin/credential guards and scoped request validation 49ms
+ ✓ server/agent-service.test.ts > two concurrent state changes have one winner; stale report cannot overwrite human edits 162ms
+stderr | server/tool-server.test.ts > CLI runs a complete scoped flow; replay, wrong env, snapshots and flags
+responseMode: 'json' drops mid-call notifications. subscriptions/listen streams are always served over SSE regardless; other notifications emitted before a result are dropped.
+
+ ✓ server/service.test.ts > worktree originates from native root and default base resolves its named branch 147ms
+ ✓ server/service.test.ts > non-Git common root requires a directory workspace 33ms
+ ✓ server/service.test.ts > corrected base ref uses a new native request key in the same card operation 5ms
+ ✓ server/tool-server.test.ts > prepared ID and scoped files are stable, selected existing actor verified 122ms
+ ✓ server/service.test.ts > existing root workspace retains foreign native owner and cannot bind twice 89ms
+ ✓ server/service.test.ts > new card cannot link workspace in secondary legacy repo or outside root 53ms
+ ✓ server/service.test.ts > legacy card retains saved two-directory context and workspace 32ms
+ ✓ server/service.test.ts > new write contracts reject old repo/source fields 2ms
+ ✓ server/agent-service.test.ts > concurrent progress and same-state reports preserve every task field 267ms
+ ✓ server/agent-service.test.ts > exact replay survives reload, expiry, archive and human completion without another file write 162ms
+ ✓ server/agent-service.test.ts > signed identity/revisions/time, status policy and unknown arguments are enforced 53ms
+ ✓ server/agent-service.test.ts > project metadata revision invalidates a legacy card snapshot 78ms
+ ✓ server/agent-service.test.ts > wrong, missing, archived actors and missing/incompatible/archiving workspaces are rejected 31ms
+ ✓ server/repos.test.ts > matches canonical subdirectories and external Git worktrees without path-prefix false positives 1157ms
+ ✓ server/repos.test.ts > repo filters include unrestricted tasks and selected memberships, independent of startup source 0ms
+ ✓ server/agent-service.test.ts > archive and human done/cancelled reject new writes, read stays explicit 168ms
+stderr | server/tool-server.test.ts > same port and credentials survive cleanup/reload; cold error recovers with SDK callback
+responseMode: 'json' drops mid-call notifications. subscriptions/listen streams are always served over SSE regardless; other notifications emitted before a result are dropped.
+
+ ✓ server/agent-service.test.ts > capacity refuses fresh writes, allows replay, prunes only expired receipts 317ms
+ ✓ server/agent-service.test.ts > storage errors have a code and preserve data; public board strips private receipts 105ms
+ ✓ server/agent-service.test.ts > session context signatures survive reload, reject rebinding and credential tampering 13ms
+ ✓ server/tool-server.test.ts > CLI runs a complete scoped flow; replay, wrong env, snapshots and flags 1022ms
+stderr | server/tool-server.test.ts > same port and credentials survive cleanup/reload; cold error recovers with SDK callback
+responseMode: 'json' drops mid-call notifications. subscriptions/listen streams are always served over SSE regardless; other notifications emitted before a result are dropped.
+
+stderr | server/tool-server.test.ts > port collision preserves discovery/key/board; after conflict removal listener recovers
+responseMode: 'json' drops mid-call notifications. subscriptions/listen streams are always served over SSE regardless; other notifications emitted before a result are dropped.
+
+stderr | server/tool-server.test.ts > port collision preserves discovery/key/board; after conflict removal listener recovers
+responseMode: 'json' drops mid-call notifications. subscriptions/listen streams are always served over SSE regardless; other notifications emitted before a result are dropped.
+
+stderr | server/tool-server.test.ts > port collision preserves discovery/key/board; after conflict removal listener recovers
+responseMode: 'json' drops mid-call notifications. subscriptions/listen streams are always served over SSE regardless; other notifications emitted before a result are dropped.
+
+ ✓ server/tool-server.test.ts > same port and credentials survive cleanup/reload; cold error recovers with SDK callback 160ms
+ ✓ server/tool-server.test.ts > port collision preserves discovery/key/board; after conflict removal listener recovers 8ms
+
+ Test Files  9 passed (9)
+      Tests  50 passed | 7 skipped (57)
+   Start at  11:13:05
+   Duration  1.77s (transform 228ms, setup 0ms, import 621ms, tests 4.69s, environment 0ms)
+

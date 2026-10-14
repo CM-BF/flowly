@@ -1,0 +1,18 @@
+{
+  "board.json": {
+    "sha256": "47eb590f261ceaa119fb76911fe1058d4f3d7e0b295e16e81ef0f8e8d90457ab",
+    "projects": 2,
+    "tasks": 2,
+    "revision": 134
+  },
+  "session-reads.json": {
+    "sha256": "58b4dff2c65b6c1d581eab1e0999520d4c4edbe408f3f8a8081e5f0ad60a81de"
+  },
+  "testSession": {
+    "id": "5a68229e-51a2-4b3c-8d66-d20a373d5374",
+    "provider": "codex/gpt-6-luna",
+    "modeAtCreation": "full-access",
+    "workspaceId": "wks_1b4e2fc48dd38d30",
+    "createdNativeProjectWorkspaceCard": false
+  }
+}

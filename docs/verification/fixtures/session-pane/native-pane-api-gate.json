@@ -1,0 +1,23 @@
+{
+  "checkedOn": "2026-10-14",
+  "sdk": "@getpaseo/plugin 0.11.2",
+  "method": "TypeScript compiler API in-memory program; no source file or Paseo resource created",
+  "probe": "Same contract as native-pane-capability.json, compiled against the installed 0.11.2 declarations",
+  "diagnostics": [
+    { "code": 2305, "line": 1, "symbol": "AgentPane", "result": "not exported by @getpaseo/plugin/client/react-native" },
+    { "code": 2305, "line": 1, "symbol": "AgentPanel", "result": "not exported by @getpaseo/plugin/client/react-native" },
+    { "code": 2305, "line": 1, "symbol": "AgentCreatePane", "result": "not exported by @getpaseo/plugin/client/react-native" },
+    { "code": 2339, "line": 6, "symbol": "navigation.openAgentDraft", "result": "not present on PluginSurfaceProps.navigation" }
+  ],
+  "supportedNavigation": [
+    "navigation.openAgent({ agentId, serverId? })",
+    "navigation.openWorkspace({ workspaceId, serverId? })"
+  ],
+  "entrypointFindings": {
+    "client/react-native": "Exports Icon, Modal, ScrollView, FlatList, TextInput and related UI helpers; no native Agent pane component.",
+    "client": "Exports PluginSurfaceProps and hooks; navigation contains openAgent, openWorkspace, and optional openBrowser only.",
+    "client/host": "Package export is context/RPC bridge helpers; it is not an Agent pane embedding API and was not imported by the probe."
+  },
+  "gate": "UNSUPPORTED: public SDK does not provide native AgentPane/AgentPanel/AgentCreatePane embedding or draft/create-pane navigation. Existing-agent and workspace navigation are supported.",
+  "scope": "Static public SDK contract only; no private host import, native resource creation, UI action, focus, or message delivery."
+}
