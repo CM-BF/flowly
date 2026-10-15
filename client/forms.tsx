@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { View } from "react-native";
 import { Modal } from "./modal";
-import { useRpc } from "@getpaseo/plugin/client";
+import { usePaseo, useRpc, useSettings } from "@getpaseo/plugin/client";
 import { useQuery } from "@tanstack/react-query";
 import * as rpc from "../shared/rpc";
 import {
@@ -15,6 +15,9 @@ import {
 import { Theme, useTheme, Button, Field, Choices, Notice, Label, Row, Actions, Toggle, message, basename, font, radius } from "./ui";
 import { priorityLabels } from "./status";
 import { isLegacyScope } from "../shared/scope";
+import { AgentPicker, useAgentChoice, type AgentDefaults } from "./agent-choice";
+import { launchKanbanSession } from "./session";
+import { boardViewSettings, boardViewValues } from "../shared/settings";
 
 export function ProjectForm({
   project: initialProject,
@@ -150,12 +153,15 @@ export function TaskForm({
   defaultStatus = "todo",
   onClose,
   onSaved,
+  agentDefaults,
 }: {
   project: Project;
   task?: Task;
   defaultStatus?: Status;
   onClose: () => void;
-  onSaved: (id: string) => void;
+  /** `launch` reports the optional first agent started with a new task. */
+  onSaved: (id: string, launch?: { sessionId?: string; error?: string }) => void;
+  agentDefaults?: AgentDefaults;
 }) {
   const theme = useTheme();
   const [task] = useState(initialTask);
@@ -186,6 +192,22 @@ export function TaskForm({
   const [operationId] = useState(
     () => `card-${Date.now()}-${Math.random().toString(36).slice(2)}`,
   );
+  // Optional first agent for a new task (remembered on/off choice).
+  const view = useSettings(boardViewSettings);
+  const [startAgent, setStartAgentState] = useState<boolean | null>(null);
+  const startChosen =
+    !task && (startAgent ?? (view.status === "ready" ? boardViewValues(view.values).startAgentOnCreate : true));
+  const setStartAgent = (next: boolean) => {
+    setStartAgentState(next);
+    if (view.status === "ready" && boardViewValues(view.values).startAgentOnCreate !== next)
+      void view.save({ ...boardViewValues(view.values), startAgentOnCreate: next }, view.revision);
+  };
+  const choice = useAgentChoice({ enabled: startChosen, cwd: project.primaryPath, defaults: agentDefaults });
+  const [prompt, setPrompt] = useState<string | null>(null);
+  const autoPrompt = [title.trim(), description.trim()].filter(Boolean).join("\n\n");
+  const contextRead = useRpc(rpc.taskContext),
+    prepare = useRpc(rpc.prepareSession),
+    paseo = usePaseo();
   const eligible = (resources.data?.workspaces || []).filter((w) =>
     w.repoPaths.includes(project.primaryPath),
   );
@@ -214,7 +236,20 @@ export function TaskForm({
             baseRef,
             branchName,
           });
-      onSaved(result.id);
+      if (task || !startChosen) return onSaved(result.id);
+      try {
+        const session = await launchKanbanSession({ paseo, contextRead, prepare }, result, {
+          provider: choice.provider,
+          model: choice.chosenModel,
+          mode: choice.chosenMode,
+          prompt: prompt ?? autoPrompt,
+          operationId: `first-session-${operationId}`,
+        });
+        onSaved(result.id, { sessionId: session.id });
+      } catch (e) {
+        // The card exists; report and let the user start the agent from the drawer.
+        onSaved(result.id, { error: message(e) });
+      }
     } catch (e) {
       setError(message(e));
     } finally {
@@ -352,6 +387,29 @@ export function TaskForm({
               )}
             </>
           )}
+          {!task && (
+            <View style={{ gap: 12 }}>
+              <Toggle
+                title="Start an agent now"
+                detail="Create the task, then start its first session with Kanban tools. Turn off to add the task only and start later."
+                value={startChosen}
+                onChange={setStartAgent}
+              />
+              {startChosen && (
+                <>
+                  <AgentPicker choice={choice} disabled={pending} />
+                  <Field
+                    title="First instruction"
+                    value={prompt ?? autoPrompt}
+                    onChange={setPrompt}
+                    multiline
+                    placeholder="What should the agent do first?"
+                    hint={prompt === null ? "Follows the title and description until you edit it." : undefined}
+                  />
+                </>
+              )}
+            </View>
+          )}
           {resources.error && <Notice>{message(resources.error)}</Notice>}
           {error && <Notice>{error}</Notice>}
           <Actions>
@@ -360,14 +418,16 @@ export function TaskForm({
             </Button>
             <Button
               primary
+              icon={startChosen ? "Play" : undefined}
               disabled={
                 pending ||
                 !title.trim() ||
-                (!task && mode === "existing" && !workspaceId)
+                (!task && mode === "existing" && !workspaceId) ||
+                (startChosen && !choice.ready)
               }
               onPress={() => void save()}
             >
-              {pending ? "Saving…" : task ? "Save task" : "Create task"}
+              {pending ? (startChosen ? "Starting…" : "Saving…") : task ? "Save task" : startChosen ? "Create and start" : "Create task"}
             </Button>
           </Actions>
         </View>

@@ -1,0 +1,165 @@
+import { useEffect, useState } from "react";
+import { View } from "react-native";
+import { usePaseo } from "@getpaseo/plugin/client";
+import { useQuery } from "@tanstack/react-query";
+import { Label, font, space } from "./ui";
+import { PickerGroup, PickerRow } from "./picker";
+import { modelOptions, providerOptions } from "./options";
+
+export type AgentDefaults = { provider: string; model: string; mode: string } | null | undefined;
+
+/**
+ * Provider / model / permission choice shared by "New session" and "New task
+ * → Start an agent now". Remembered defaults fall back to the provider's
+ * defaults when no longer offered. `cwd` scopes model/mode discovery.
+ */
+export function useAgentChoice({ enabled, cwd, defaults }: { enabled: boolean; cwd?: string; defaults: AgentDefaults }) {
+  const paseo = usePaseo();
+  const [provider, setProviderState] = useState(defaults?.provider || "codex"),
+    [model, setModel] = useState(defaults?.model || ""),
+    [mode, setMode] = useState(defaults?.mode || "");
+  const providers = useQuery({
+    queryKey: ["ultra", "providers"],
+    queryFn: () => paseo.providers.listAvailable(),
+    enabled,
+  });
+  const providerInfo = useQuery({
+    queryKey: ["ultra", "providerSnapshot"],
+    queryFn: () => paseo.providers.snapshot(),
+    enabled,
+    staleTime: 60000,
+  });
+  const models = useQuery({
+    queryKey: ["ultra", "models", provider, cwd],
+    queryFn: async () => {
+      const result = await paseo.providers.listModels(provider, { cwd });
+      if (result.error) throw new Error(result.error);
+      return result;
+    },
+    enabled: enabled && !!cwd,
+  });
+  const modes = useQuery({
+    queryKey: ["ultra", "modes", provider, cwd],
+    queryFn: async () => {
+      const result = await paseo.providers.listModes(provider, { cwd });
+      if (result.error) throw new Error(result.error);
+      return result;
+    },
+    enabled: enabled && !!cwd,
+  });
+  useEffect(() => {
+    const available = providers.data?.providers.filter((p) => p.available) || [];
+    if (!providers.isSuccess || !available.length) return;
+    if (!available.some((p) => p.provider === provider)) {
+      setProviderState(available.find((p) => p.provider === "codex")?.provider || available[0].provider);
+      setModel("");
+      setMode("");
+    }
+  }, [providers.data, provider]);
+  const selectable = (models.data?.models || []).filter((m) => m.isSelectable !== false);
+  const chosenModel =
+    (selectable.some((m) => m.id === model) ? model : "") ||
+    selectable.find((m) => m.isDefault)?.id ||
+    selectable[0]?.id ||
+    "";
+  const chosenMode =
+    mode && (!modes.isSuccess || modes.data?.modes?.some((m) => m.id === mode)) ? mode : "";
+  const providerAvailable = !!providers.data?.providers.some((p) => p.available && p.provider === provider);
+  return {
+    provider,
+    setProvider(next: string) {
+      if (next === provider) return;
+      setProviderState(next);
+      setModel("");
+      setMode("");
+    },
+    setModel,
+    setMode,
+    reset(next: AgentDefaults) {
+      setProviderState(next?.provider || "codex");
+      setModel(next?.model || "");
+      setMode(next?.mode || "");
+    },
+    chosenModel,
+    chosenMode,
+    providers,
+    providerInfo,
+    models,
+    modes,
+    /** A model and provider are selectable and modes did not fail. */
+    ready:
+      models.isSuccess &&
+      !!chosenModel &&
+      providerAvailable &&
+      (!chosenMode || !modes.isError),
+    providerAvailable,
+  };
+}
+export type AgentChoice = ReturnType<typeof useAgentChoice>;
+
+export function AgentPicker({ choice, disabled = false }: { choice: AgentChoice; disabled?: boolean }) {
+  const [picker, setPicker] = useState<"provider" | "model" | "mode" | null>(null);
+  const toggle = (next: "provider" | "model" | "mode") => setPicker(picker === next ? null : next);
+  return (
+    <View style={{ gap: space[1.5] }}>
+      <Label medium size={font.sm} muted>
+        Agent
+      </Label>
+      <PickerGroup>
+        <PickerRow
+          first
+          title="Provider"
+          icon="Bot"
+          open={picker === "provider"}
+          disabled={disabled}
+          loading={choice.providers.isPending}
+          value={choice.provider}
+          placeholder="Choose a provider"
+          options={providerOptions(choice.providers.data?.providers || [], choice.providerInfo.data?.entries || [])}
+          onToggle={() => toggle("provider")}
+          onChange={(p) => {
+            choice.setProvider(p);
+            setPicker(null);
+          }}
+        />
+        <PickerRow
+          title="Model"
+          icon="Cpu"
+          open={picker === "model"}
+          disabled={disabled}
+          loading={choice.models.isPending}
+          value={choice.chosenModel}
+          placeholder="Choose a model"
+          options={modelOptions(choice.models.data?.models || [])}
+          onToggle={() => toggle("model")}
+          onChange={(m) => {
+            choice.setModel(m);
+            setPicker(null);
+          }}
+        />
+        <PickerRow
+          title="Permissions"
+          icon="ShieldCheck"
+          open={picker === "mode"}
+          disabled={disabled}
+          loading={choice.modes.isPending}
+          value={choice.chosenMode}
+          placeholder="Provider default"
+          options={[
+            { value: "", label: "Provider default", detail: "Use the provider's configured permission mode" },
+            ...(choice.modes.data?.modes || []).map((m) => ({
+              value: m.id,
+              label: m.label,
+              detail: m.description,
+            })),
+          ]}
+          onToggle={() => toggle("mode")}
+          onChange={(m) => {
+            choice.setMode(m);
+            setPicker(null);
+          }}
+        />
+      </PickerGroup>
+    </View>
+  );
+}

@@ -65,6 +65,16 @@
 - hash 取自本次创建的 operationId，同一次创建重试时分支名与幂等键保持不变，不会多建一个 worktree。
 - 用户填写了分支名时按原值使用。
 
+## 补充：新建任务时可同时启动第一个 agent（2026-10-15）
+
+- New task 表单增加开关 “Start an agent now”，记住上次选择（host 设置 `board-view.startAgentOnCreate`，首次默认开启）：
+  - **开启**：显示与 New session 相同的 Agent 选择（Provider / Model / Permissions，预填最近一次 session 的设置）和 “First instruction”。First instruction 跟随标题与描述生成，用户编辑后不再覆盖。按钮为 “Create and start”：先创建卡片与 workspace，再以与侧栏 Start session 相同的配置（MCP + skill + 卡片上下文）启动 session，然后打开卡片侧栏。
+  - **关闭**：只创建任务，之后从卡片手动启动。
+- 失败处理：卡片已创建但 agent 启动失败时保留卡片，弹出错误提示，可在侧栏重新启动。启动使用基于本次创建 operationId 的固定 launch ID，重试时复用已准备的 agent，不会重复创建。
+- Agent 选择逻辑抽为 `useAgentChoice` / `AgentPicker`，供 New session 与 New task 共用；启动逻辑为 `launchKanbanSession`。
+- 设置读取统一经 `boardViewValues` 补全默认值，因为宿主不会对旧存储值套用新字段的默认值。
+- 实测：新建并启动 haiku session、侧栏自动打开并显示运行中、A1 自动转 In progress；随后 Wrap up 清理（[截图](verification/create-and-start.png)）。
+
 ## 不做
 
 agent 自动推进、阶段、提问、自动启动（见 ROADMAP-V2 远期）、卡片排序/筛选增强（C）、卡片备注（E）、自动/延迟收尾。

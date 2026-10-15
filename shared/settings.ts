@@ -10,5 +10,17 @@ export const boardViewSettings = defineSettings({
     lastProjectId: z.string().max(200).default(""),
     /** Mirrors Paseo's app "Default send" setting, which plugins cannot read. */
     sendBehavior: z.enum(["steer", "queue", "interrupt"]).default("steer"),
+    /** New task form: start the first agent together with the task. */
+    startAgentOnCreate: z.boolean().default(true),
   }),
 });
+
+export type BoardView = z.infer<typeof boardViewSettings.schema>;
+/**
+ * Stored values may predate newer fields (the host does not apply schema
+ * defaults), so always read through this to get a complete, valid object.
+ */
+export function boardViewValues(values: unknown): BoardView {
+  const parsed = boardViewSettings.schema.safeParse(values ?? {});
+  return parsed.success ? parsed.data : boardViewSettings.schema.parse({});
+}

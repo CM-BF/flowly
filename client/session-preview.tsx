@@ -44,7 +44,7 @@ import {
   verticalContent, noFocusRing } from "./ui";
 import { sessionTone } from "./status";
 import { resolveSend, sendBehaviorText, sendBehaviors, sendQueue, type SendBehavior } from "./send-queue";
-import { boardViewSettings } from "../shared/settings";
+import { boardViewSettings, boardViewValues } from "../shared/settings";
 import {
   openNativeSession,
   recentSessionOutput,
@@ -204,10 +204,10 @@ export function SessionPreview({
     !current.isError &&
     !busy;
   const view = useSettings(boardViewSettings);
-  const preferred: SendBehavior = view.status === "ready" ? view.values.sendBehavior : "steer";
+  const preferred: SendBehavior = view.status === "ready" ? boardViewValues(view.values).sendBehavior : "steer";
   const setPreferred = (next: SendBehavior) => {
-    if (view.status === "ready" && view.values.sendBehavior !== next)
-      void view.save({ ...view.values, sendBehavior: next }, view.revision);
+    if (view.status === "ready" && boardViewValues(view.values).sendBehavior !== next)
+      void view.save({ ...boardViewValues(view.values), sendBehavior: next }, view.revision);
   };
   const queued = useSyncExternalStore(sendQueue.subscribe, () => sendQueue.get(sessionId));
   const running = active?.status === "running" || active?.status === "initializing";

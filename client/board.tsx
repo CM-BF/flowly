@@ -11,7 +11,7 @@ import {
   type PluginScreenParams,
 } from "@getpaseo/plugin/client";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { boardViewSettings } from "../shared/settings";
+import { boardViewSettings, boardViewValues } from "../shared/settings";
 import * as rpc from "../shared/rpc";
 import {
   statuses,
@@ -274,7 +274,7 @@ function BoardContent(
   const projects = (board?.projects || []).filter(
     (p) => archived || !p.archivedAt,
   );
-  const remembered = viewSettings.status === "ready" ? viewSettings.values.lastProjectId : "";
+  const remembered = viewSettings.status === "ready" ? boardViewValues(viewSettings.values).lastProjectId : "";
   const project =
     projects.find((p) => p.id === projectId) ||
     projects.find((p) => p.id === remembered) ||
@@ -282,8 +282,8 @@ function BoardContent(
   // Remember an explicit project choice for the next time the board opens.
   const chooseProject = (id: string) => {
     setProject(id);
-    if (viewSettings.status === "ready" && viewSettings.values.lastProjectId !== id)
-      void viewSettings.save({ ...viewSettings.values, lastProjectId: id }, viewSettings.revision);
+    if (viewSettings.status === "ready" && boardViewValues(viewSettings.values).lastProjectId !== id)
+      void viewSettings.save({ ...boardViewValues(viewSettings.values), lastProjectId: id }, viewSettings.revision);
   };
   useEffect(() => {
     setActionTask(null);
@@ -1140,9 +1140,12 @@ function BoardContent(
             task={taskForm.task}
             defaultStatus={taskForm.status}
             onClose={() => setTaskForm(null)}
-            onSaved={(id) => {
+            agentDefaults={sessionDefaults}
+            onSaved={(id, launch) => {
               setTask(id);
               setTaskForm(null);
+              if (launch?.sessionId) toast.show("Task created and its agent started", { variant: "success" });
+              else if (launch?.error) toast.error(`Task created, but the agent did not start: ${launch.error}. Start it from the task.`);
               refresh();
             }}
           />

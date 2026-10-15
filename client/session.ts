@@ -80,3 +80,48 @@ export async function sendCardInstruction(
         : {},
     );
 }
+
+/**
+ * Starts a Kanban-managed session for a card (MCP tools + skill + card
+ * context), the same configuration as the drawer's "Start session". A fixed
+ * operation ID per card launch makes a retried request reuse the prepared
+ * agent instead of creating a second one.
+ */
+export async function launchKanbanSession(
+  deps: {
+    paseo: PaseoApi;
+    contextRead: (input: { id: string }) => Promise<{ available: boolean; reason: string; context: string }>;
+    prepare: (input: { id: string; operationId: string }) => Promise<{
+      agentId: string;
+      instructions: string;
+      contextFile: string;
+      cliPath: string;
+      skillPath: string;
+      mcp: { type: "http"; url: string; headers: Record<string, string> };
+    }>;
+  },
+  task: { id: string; title: string; workspaceId: string },
+  choice: { provider: string; model: string; mode: string; title?: string; prompt?: string; operationId: string },
+) {
+  const scope = await deps.contextRead({ id: task.id });
+  if (!scope.available) throw new Error(scope.reason);
+  const preparation = await deps.prepare({ id: task.id, operationId: choice.operationId });
+  return createPreparedSession(deps.paseo, task.workspaceId, {
+    agentId: preparation.agentId,
+    idempotencyKey: `ultra-kanban-session:${preparation.agentId}`,
+    config: {
+      provider: `${choice.provider}/${choice.model}`,
+      systemPrompt: preparation.instructions,
+      mcpServers: { "ultra-kanban": preparation.mcp },
+      ...(choice.mode ? { modeId: choice.mode } : {}),
+    },
+    env: {
+      ULTRA_KANBAN_CONTEXT_FILE: preparation.contextFile,
+      ULTRA_KANBAN_CLI: preparation.cliPath,
+      ULTRA_KANBAN_SKILL: preparation.skillPath,
+    },
+    title: choice.title?.trim() || task.title,
+    labels: { "ultra-kanban-task": task.id },
+    prompt: choice.prompt?.trim() || undefined,
+  });
+}

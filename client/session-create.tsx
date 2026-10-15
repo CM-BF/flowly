@@ -8,8 +8,7 @@ import type { ToolPreparation } from "../shared/tools";
 import * as rpc from "../shared/rpc";
 import { createPreparedSession } from "./session";
 import { Theme, useTheme, Button, Label, Field, Choices, Notice, Actions, message, font, radius, space } from "./ui";
-import { PickerGroup, PickerRow } from "./picker";
-import { modelOptions, providerOptions } from "./options";
+import { AgentPicker, useAgentChoice } from "./agent-choice";
 import { Pressable } from "react-native";
 
 export function SessionCreate({
@@ -37,12 +36,10 @@ export function SessionCreate({
     contextRead = useRpc(rpc.taskContext),
     prepare = useRpc(rpc.prepareSession),
     healthRead = useRpc(rpc.toolsHealth);
-  const [provider, setProvider] = useState("codex"),
-    [model, setModel] = useState(""),
-    [mode, setMode] = useState(""),
-    [newTitle, setTitle] = useState(""),
+  const choice = useAgentChoice({ enabled: open, cwd: workspaceDirectory, defaults });
+  const { provider, chosenModel, chosenMode, providers, models, modes } = choice;
+  const [newTitle, setTitle] = useState(""),
     [newPrompt, setPrompt] = useState(""),
-    [picker, setPicker] = useState<"provider" | "model" | "mode" | null>(null),
     [sending, setSending] = useState(false),
     [error, setError] = useState(""),
     [creationPending, setCreationPending] = useState(false);
@@ -50,13 +47,10 @@ export function SessionCreate({
   const wasOpen = useRef(false);
   useEffect(() => {
     if (open && !wasOpen.current) {
-      setProvider(defaults?.provider || "codex");
-      setModel(defaults?.model || "");
-      setMode(defaults?.mode || "");
+      choice.reset(defaults);
       setPrompt([task.title, task.description.trim()].filter(Boolean).join("\n\n"));
       setTitle("");
       setError("");
-      setPicker(null);
     }
     wasOpen.current = open;
   }, [open]);
@@ -71,77 +65,10 @@ export function SessionCreate({
     enabled: open,
     refetchInterval: open ? 5000 : false,
   });
-  const providers = useQuery({
-    queryKey: ["ultra", "providers"],
-    queryFn: () => paseo.providers.listAvailable(),
-    enabled: open,
-  });
-  const providerInfo = useQuery({
-    queryKey: ["ultra", "providerSnapshot"],
-    queryFn: () => paseo.providers.snapshot(),
-    enabled: open,
-    staleTime: 60000,
-  });
-  const models = useQuery({
-    queryKey: ["ultra", "models", provider, workspaceDirectory],
-    queryFn: async () => {
-      const result = await paseo.providers.listModels(provider, {
-        cwd: workspaceDirectory,
-      });
-      if (result.error) throw new Error(result.error);
-      return result;
-    },
-    enabled: open && !!workspaceDirectory,
-  });
-  const modes = useQuery({
-    queryKey: ["ultra", "modes", provider, workspaceDirectory],
-    queryFn: async () => {
-      const result = await paseo.providers.listModes(provider, {
-        cwd: workspaceDirectory,
-      });
-      if (result.error) throw new Error(result.error);
-      return result;
-    },
-    enabled: open && !!workspaceDirectory,
-  });
-  // A remembered model/mode that this provider no longer offers falls back to the provider default.
-  const rememberedModel = models.data?.models?.some(
-    (m) => m.id === model && m.isSelectable !== false,
-  )
-    ? model
-    : "";
-  const chosenMode =
-    mode && (!modes.isSuccess || modes.data?.modes?.some((m) => m.id === mode))
-      ? mode
-      : "";
-  useEffect(() => {
-    const available = providers.data?.providers.filter((p) => p.available) || [];
-    if (!providers.isSuccess || !available.length) return;
-    if (!available.some((p) => p.provider === provider)) {
-      setProvider(
-        available.find((p) => p.provider === "codex")?.provider || available[0].provider,
-      );
-      setModel("");
-      setMode("");
-    }
-  }, [providers.data, provider]);
-  const chosenModel =
-    rememberedModel ||
-    models.data?.models?.find((m) => m.isDefault && m.isSelectable !== false)
-      ?.id ||
-    models.data?.models?.find((m) => m.isSelectable !== false)?.id ||
-    "";
   const canCreate =
     !sending &&
     !unavailable &&
-    models.isSuccess &&
-    !!models.data?.models?.some(
-      (m) => m.id === chosenModel && m.isSelectable !== false,
-    ) &&
-    (!chosenMode || !modes.isError) &&
-    !!providers.data?.providers.some(
-      (p) => p.available && p.provider === provider,
-    );
+    choice.ready;
   async function perform(action: () => Promise<unknown>) {
     if (lock.current) return;
     lock.current = true;
@@ -279,70 +206,7 @@ export function SessionCreate({
           placeholder="What should this session work on?"
           editable={!sending}
         />
-        <View style={{ gap: space[1.5] }}>
-          <Label medium size={font.sm} muted>
-            Agent
-          </Label>
-          <PickerGroup>
-            <PickerRow
-              first
-              title="Provider"
-              icon="Bot"
-              open={picker === "provider"}
-              disabled={sending}
-              loading={providers.isPending}
-              value={provider}
-              placeholder="Choose a provider"
-              options={providerOptions(providers.data?.providers || [], providerInfo.data?.entries || [])}
-              onToggle={() => setPicker(picker === "provider" ? null : "provider")}
-              onChange={(p) => {
-                if (p !== provider) {
-                  setProvider(p);
-                  setModel("");
-                  setMode("");
-                }
-                setPicker(null);
-              }}
-            />
-            <PickerRow
-              title="Model"
-              icon="Cpu"
-              open={picker === "model"}
-              disabled={sending}
-              loading={models.isPending}
-              value={chosenModel}
-              placeholder="Choose a model"
-              options={modelOptions(models.data?.models || [])}
-              onToggle={() => setPicker(picker === "model" ? null : "model")}
-              onChange={(m) => {
-                setModel(m);
-                setPicker(null);
-              }}
-            />
-            <PickerRow
-              title="Permissions"
-              icon="ShieldCheck"
-              open={picker === "mode"}
-              disabled={sending}
-              loading={modes.isPending}
-              value={chosenMode}
-              placeholder="Provider default"
-              options={[
-                { value: "", label: "Provider default", detail: "Use the provider's configured permission mode" },
-                ...(modes.data?.modes || []).map((m) => ({
-                  value: m.id,
-                  label: m.label,
-                  detail: m.description,
-                })),
-              ]}
-              onToggle={() => setPicker(picker === "mode" ? null : "mode")}
-              onChange={(m) => {
-                setMode(m);
-                setPicker(null);
-              }}
-            />
-          </PickerGroup>
-        </View>
+        <AgentPicker choice={choice} disabled={sending} />
         <Label muted size={font.sm}>
           Includes Kanban tools and the current task's work instructions.
         </Label>
