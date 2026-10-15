@@ -237,6 +237,12 @@ Verified live: collapse widths 280→141→89→48→44 and expand 44→111→18
 - Fix: on web the height comes from an invisible, non-accessible copy of the draft laid out at the input's width, font and padding (pure React Native layout, no DOM). Native keeps `onContentSizeChange`. Both clamp to 36 px up to 108/160 px.
 - Verified: empty 36 px → 4 lines 96 px → one line 36 px; the text and the attach icon share the same vertical centre.
 
+## 7w. Compact board opens on the first lane with cards (2026-10-15, user request)
+
+- On compact layouts a project opens on its first enabled lane, in lane order, that has visible cards, instead of always Todo. With no cards it falls back to Todo, or else the first lane.
+- This happens once per project selection. A linked or Attention-opened card keeps its own lane, and the user's later tab choices are kept until the project changes.
+- Verified in the compact layout: Ultra Kanban (Backlog and Todo empty) opens on In progress.
+
 ## 8. Acceptance
 
 | Check | Expected |

@@ -337,6 +337,16 @@ function BoardContent(
   // The project's lanes are its workflow: enabled lanes in their configured order.
   const shownStatuses = enabledStatuses(project);
   const nameOf = (status: Status) => laneName(project, status);
+  // Compact: open each project on its first lane that has cards (once per
+  // project; a linked card or the user's own tab choice wins afterwards).
+  const autoLane = useRef("");
+  useEffect(() => {
+    if (!board || !project || autoLane.current === project.id) return;
+    autoLane.current = project.id;
+    if (taskId) return;
+    const first = shownStatuses.find((s) => visible.some((t) => t.status === s));
+    if (first) setMobileStatus(first);
+  }, [board, project?.id]);
   useEffect(() => {
     if (!shownStatuses.includes(mobileStatus)) setMobileStatus(shownStatuses.includes("todo") ? "todo" : shownStatuses[0]);
   }, [shownStatuses.join(","), mobileStatus]);
