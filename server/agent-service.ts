@@ -1,3 +1,4 @@
+import { enabledStatuses, laneEnabled, laneName } from "../shared/lanes";
 import type { PaseoApi } from "@getpaseo/client";
 import {
   agentStatuses,
@@ -123,7 +124,9 @@ export class AgentService {
       reason:
         r.context.reason ||
         (finished ? "Task is finished; only a human can reopen it." : ""),
-      allowedStatuses: [...agentStatuses],
+      // Agents may only use agent statuses that are lanes of this project.
+      allowedStatuses: agentStatuses.filter((status) => laneEnabled(r.project, status)),
+      lanes: enabledStatuses(r.project).map((status) => ({ status, name: laneName(r.project, status) })),
       scope: {
         mode: isLegacyScope(r.task, r.project) ? "selected" : "all",
         repoPaths: r.context.directories.map((p) => p.repo),
@@ -220,6 +223,11 @@ export class AgentService {
         );
       const previous = task.status,
         next = action === "status" ? (input as StatusInput).status : previous;
+      if (next !== previous && !laneEnabled(project, next))
+        throw new ToolError(
+          "STATUS_UNAVAILABLE",
+          `${laneName(project, next)} is not a lane in this project. Use one of allowedStatuses from get_task.`,
+        );
       if (next !== previous) {
         task.status = next;
         task.revision++;

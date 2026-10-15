@@ -17,13 +17,19 @@ export function SortableList<T extends { id: string }>({
   disabled = false,
   onMove,
   renderItem,
+  handle = false,
 }: {
   items: readonly T[];
   gap?: number;
   disabled?: boolean;
   onMove(id: string, to: number): void;
-  /** `pressable()` is false right after a drag, so the release is not a click. */
-  renderItem(item: T, index: number, pressable: () => boolean): ReactNode;
+  /**
+   * `pressable()` is false right after a drag, so the release is not a click.
+   * With `handle`, spread `handleProps` on the grip: only it starts a drag
+   * (rows with text fields stay selectable).
+   */
+  renderItem(item: T, index: number, pressable: () => boolean, handleProps: object): ReactNode;
+  handle?: boolean;
 }) {
   const heights = useRef<Record<string, number>>({});
   const [drag, setDragState] = useState<Drag | null>(null);
@@ -76,9 +82,9 @@ export function SortableList<T extends { id: string }>({
           disabled={disabled || items.length < 2}
           handlers={handlers}
           onHeight={(h) => (heights.current[item.id] = h)}
-        >
-          {renderItem(item, index, pressable)}
-        </SortableRow>
+          handle={handle}
+          render={(handleProps) => renderItem(item, index, pressable, handleProps)}
+        />
       ))}
     </View>
   );
@@ -93,7 +99,8 @@ function SortableRow({
   disabled,
   handlers,
   onHeight,
-  children,
+  handle,
+  render,
 }: {
   id: string;
   held: boolean;
@@ -103,7 +110,8 @@ function SortableRow({
   disabled: boolean;
   handlers: { start(id: string): void; move(dy: number): void; end(dy: number): void; cancel(): void };
   onHeight(height: number): void;
-  children: ReactNode;
+  handle: boolean;
+  render(handleProps: object): ReactNode;
 }) {
   const { colors } = useTheme();
   const reduced = useReducedMotion();
@@ -155,16 +163,19 @@ function SortableRow({
       },
     }),
   ).current;
+  const dragProps = {
+    ...(disabled ? {} : pan.panHandlers),
+    onPointerDown: (e: { nativeEvent: { pointerType?: string; button?: number } }) => {
+      mousePress.current = e.nativeEvent.pointerType === "mouse" && e.nativeEvent.button === 0;
+    },
+    onPointerUp: () => {
+      mousePress.current = false;
+    },
+  };
   return (
     <Animated.View
-      {...(disabled ? {} : pan.panHandlers)}
+      {...(handle ? {} : dragProps)}
       onLayout={(e) => onHeight(e.nativeEvent.layout.height)}
-      onPointerDown={(e) => {
-        mousePress.current = e.nativeEvent.pointerType === "mouse" && e.nativeEvent.button === 0;
-      }}
-      onPointerUp={() => {
-        mousePress.current = false;
-      }}
       style={{
         zIndex: held ? 2 : 0,
         borderRadius: 8,
@@ -181,7 +192,7 @@ function SortableRow({
         ...(held ? ({ cursor: "grabbing" } as object) : {}),
       }}
     >
-      {children}
+      {render(handle ? dragProps : {})}
     </Animated.View>
   );
 }

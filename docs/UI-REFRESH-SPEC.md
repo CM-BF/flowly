@@ -207,6 +207,22 @@ Status: authorized by the user's 2026-10-14 request to redesign the whole Kanban
 - Why: the session's system prompt already carries the task title, description and scope (`sessionContext` in `shared/scope.ts`, wrapped by `workingInstructions`). A prefilled copy duplicated that context and sent it as if it were the user's own message. The hint now says this context is included automatically.
 - Verified live: both fields start empty and the buttons are disabled until text is entered. Fixture tests were updated for the new label.
 
+## 7t. Project lanes (workflow), finished lanes no longer a filter, lane motion (2026-10-15, user request)
+
+**Lanes are a project setting** (Edit project → Lanes). The 7 built-in statuses can be reordered (drag the grip on desktop, arrows on touch), turned on/off, and renamed (blank = built-in name). Stored as optional `project.lanes` (`[{status, enabled, name?}]`, all 7, unique, at least one on). Absent means the default workflow, so existing projects and cards need no migration. The user chose this over fully custom lanes.
+
+Lanes define the workflow everywhere:
+- Board columns, compact lane tabs, card "Move to", drawer status chip/menu, the task form, toasts and activity text use the enabled lanes, in order, by name (`shared/lanes.ts`).
+- Server: creating, editing or placing a card into a lane that is off is rejected ("X is not a lane in this project"). Turning a lane off is rejected while it holds live cards ("Move the cards out of …"). The editor also locks those switches and shows the card count.
+- Auto-status: A1 only moves a card to In progress when that lane is on; A1r only restores a lane that is still on.
+- Agents: `get_task` returns `allowedStatuses` (agent statuses that are lanes of the project) and `lanes` (status + display name). `update_status` to a lane that is off fails with `STATUS_UNAVAILABLE`. The session context lists the lanes, and the skill and tool descriptions tell the agent to stay within them.
+
+**Done/Cancelled are no longer a filter.** "Show finished" was removed from Filters; they are ordinary lanes. Turn them off per project or collapse them per host.
+
+**Lane collapse/expand animates.** The lane frame eases its width between 44 px and 280 px. Width is layout, so the animation is JS-driven (`useMotionValue(..., layout=true)`). The new content fades in, and the frame owns the measurement used for drop targeting. Reduce Motion makes it instant.
+
+Verified live: collapse widths 280→141→89→48→44 and expand 44→111→182→248→269→280; Filters without "Show finished"; editor locks In progress and In review (1 card each); renaming Todo to "Ready" and turning Backlog off updated the board; both were reverted afterwards (`docs/verification/lane-editor.png`, `lanes-board.png`). Unit tests cover the lane helpers, the server guards, and the agent allowed/unavailable statuses.
+
 ## 8. Acceptance
 
 | Check | Expected |

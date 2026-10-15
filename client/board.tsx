@@ -14,8 +14,6 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { boardViewSettings, boardViewValues } from "../shared/settings";
 import * as rpc from "../shared/rpc";
 import {
-  statuses,
-  statusLabels,
   priorities,
   type Status,
   type Task,
@@ -69,6 +67,7 @@ import { useSessionReads } from "./session-reads";
 import { sessionAttentionSummary } from "../shared/session-attention";
 import { MotionProvider, MotionReveal, useMotionPresence } from "./motion";
 import { SortableList } from "./sortable-list";
+import { enabledStatuses, laneName } from "../shared/lanes";
 import { boardSortText, boardSorts, sortTasks, type BoardSort } from "../shared/sort";
 import {
   parseSessionLink,
@@ -186,7 +185,6 @@ function BoardContent(
     [search, setSearch] = useState(""),
     [priority, setPriority] = useState("all"),
     [archived, setArchived] = useState(false),
-    [hideFinished, setHideFinished] = useState(true),
     [menu, setMenu] = useState<"projects" | "filters" | "status" | "attention" | "shortcuts" | null>(null),
     [escapeRequest, setEscapeRequest] = useState<{ taskId: string; key: string } | null>(null),
     [startRequest, setStartRequest] = useState<{ taskId: string; key: string } | null>(null),
@@ -240,8 +238,6 @@ function BoardContent(
         (current) =>
           current || !!target.project.archivedAt || !!target.task.archivedAt,
       );
-      if (target.task.status === "done" || target.task.status === "cancelled")
-        setHideFinished(false);
       setMobileStatus(target.task.status);
       setError("");
       setSessionEntry({
@@ -276,13 +272,6 @@ function BoardContent(
       setTask(linked.id);
     }
   }, [linked?.id]);
-  useEffect(() => {
-    if (
-      hideFinished &&
-      (mobileStatus === "done" || mobileStatus === "cancelled")
-    )
-      setMobileStatus("todo");
-  }, [hideFinished, mobileStatus]);
   // A dropped project shows in place until the refreshed board agrees.
   const [projectOrderOverride, setProjectOrderOverride] = useState<string[] | null>(null);
   const serverProjects = (board?.projects || [])
@@ -343,9 +332,12 @@ function BoardContent(
         .includes(search.toLowerCase()) &&
       (priority === "all" || t.priority === priority),
   );
-  const shownStatuses = statuses.filter(
-    (s) => !hideFinished || (s !== "done" && s !== "cancelled"),
-  );
+  // The project's lanes are its workflow: enabled lanes in their configured order.
+  const shownStatuses = enabledStatuses(project);
+  const nameOf = (status: Status) => laneName(project, status);
+  useEffect(() => {
+    if (!shownStatuses.includes(mobileStatus)) setMobileStatus(shownStatuses.includes("todo") ? "todo" : shownStatuses[0]);
+  }, [shownStatuses.join(","), mobileStatus]);
   // Latest session activity per task (its workspace's newest session update).
   const taskActivity = useMemo(() => {
     const byWorkspace = new Map<string, string>();
@@ -419,8 +411,7 @@ function BoardContent(
   const filterCount =
     Number(!!search) +
     Number(priority !== "all") +
-    Number(archived) +
-    Number(!hideFinished);
+    Number(archived);
   const refresh = () => {
     void data.refetch();
     void resources.refetch();
@@ -446,14 +437,14 @@ function BoardContent(
   const move = (input: { id: string; revision: number; status: Status }) => {
     void doAction(
       () => updateTask(input),
-      `Moved to ${statusLabels[input.status]}`,
+      `Moved to ${nameOf(input.status)}`,
     );
   };
   const place = (input: Placement) => {
     const from = data.data?.tasks.find((t) => t.id === input.id)?.status;
     void doAction(
       () => placeTask(input),
-      from === input.status ? "" : `Moved to ${statusLabels[input.status]}`,
+      from === input.status ? "" : `Moved to ${nameOf(input.status)}`,
     );
   };
   const openMenu = useMenuOpener();
@@ -473,9 +464,9 @@ function BoardContent(
       },
       { kind: "separator", id: "s1" },
       { kind: "label", id: "move", label: "Move to" },
-      ...statuses.map((status) => ({
+      ...shownStatuses.map((status) => ({
         id: `status-${status}`,
-        label: statusLabels[status],
+        label: nameOf(status),
         checked: status === t.status,
         disabled: locked,
         onPress: () => {
@@ -595,7 +586,7 @@ function BoardContent(
       case "move-left":
       case "move-right": {
         if (!task || task.archivedAt || project?.archivedAt || pending) return false;
-        const target = adjacentStatus(compact ? statuses : shownStatuses, task.status, intent);
+        const target = adjacentStatus(shownStatuses, task.status, intent);
         if (!target) return false;
         move({ id: task.id, revision: task.revision, status: target });
         return true;
@@ -778,7 +769,7 @@ function BoardContent(
                   <>
                     <View style={{ paddingHorizontal: space[2], paddingTop: space[2] }}>
                       <Row
-                        title={statusLabels[mobileStatus]}
+                        title={nameOf(mobileStatus)}
                         label="Choose task status"
                         leading={<StatusIcon status={mobileStatus} size={16} />}
                         trailing={
@@ -810,7 +801,7 @@ function BoardContent(
                           <Label muted selectable={false}>
                             {filterCount
                               ? "No tasks match these filters."
-                              : `No ${statusLabels[mobileStatus].toLowerCase()} tasks.`}
+                              : `No ${nameOf(mobileStatus).toLowerCase()} tasks.`}
                           </Label>
                           <Button
                             icon="Plus"
@@ -830,10 +821,11 @@ function BoardContent(
                     statuses={shownStatuses}
                     tasks={visible}
                     disabled={pending || !!project.archivedAt}
-                    cancelKey={`${project.id}|${search}|${priority}|${archived}|${hideFinished}|${taskId}|${menu}|${actionTask?.id}|${projectForm}|${!!taskForm}`}
+                    cancelKey={`${project.id}|${search}|${priority}|${archived}|${shownStatuses.join(",")}|${taskId}|${menu}|${actionTask?.id}|${projectForm}|${!!taskForm}`}
                     sortColumn={sortColumn}
                     manualOrder={boardSort === "manual"}
                     collapsed={collapsedColumns}
+                    nameOf={nameOf}
                     onToggleCollapse={toggleCollapse}
                     onReorderBlocked={() =>
                       toast.show(`Sorted by ${boardSortText[boardSort].label.toLowerCase()}. Switch to Manual to reorder within a column.`, { variant: "info" })
@@ -1038,12 +1030,6 @@ function BoardContent(
                   value={archived}
                   onChange={setArchived}
                 />
-                <Toggle
-                  title="Show finished"
-                  detail="Done and Cancelled columns"
-                  value={!hideFinished}
-                  onChange={(show) => setHideFinished(!show)}
-                />
               </View>
               <Actions>
                 <Button
@@ -1053,7 +1039,6 @@ function BoardContent(
                     setSearch("");
                     setPriority("all");
                     setArchived(false);
-                    setHideFinished(true);
                   }}
                 >
                   Reset filters
@@ -1094,7 +1079,7 @@ function BoardContent(
                   <Row
                     key={item.task.id}
                     title={item.task.title}
-                    detail={`${item.project.title} · ${statusLabels[item.task.status]} · ${[
+                    detail={`${item.project.title} · ${laneName(item.project, item.task.status)} · ${[
                       item.questions && `${item.questions} question${item.questions === 1 ? "" : "s"}`,
                       item.permissions && `${item.permissions} approval`,
                       item.errors && `${item.errors} error`,
@@ -1175,7 +1160,7 @@ function BoardContent(
               {shownStatuses.map((s) => (
                 <Row
                   key={s}
-                  title={statusLabels[s]}
+                  title={nameOf(s)}
                   leading={<StatusIcon status={s} size={16} />}
                   selected={s === mobileStatus}
                   trailing={
@@ -1250,11 +1235,11 @@ function BoardContent(
                       Move to
                     </Label>
                   </View>
-                  {statuses.map((s) => (
+                  {shownStatuses.map((s) => (
                     <Row
                       key={s}
-                      title={statusLabels[s]}
-                      label={`Move to: ${statusLabels[s]}`}
+                      title={nameOf(s)}
+                      label={`Move to: ${nameOf(s)}`}
                       leading={<StatusIcon status={s} size={16} />}
                       selected={s === actionTask.status}
                       disabled={
@@ -1282,6 +1267,9 @@ function BoardContent(
           <ProjectForm
             key={projectForm}
             project={projectForm === "edit" ? project : undefined}
+            laneCounts={Object.fromEntries(
+              shownStatuses.map((s) => [s, tasks.filter((t) => t.status === s && !t.archivedAt).length]),
+            )}
             onClose={() => setProjectForm(null)}
             onSaved={(id) => {
               chooseProject(id);

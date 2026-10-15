@@ -9,7 +9,8 @@ import {
 } from "@getpaseo/plugin/client";
 import { useQuery } from "@tanstack/react-query";
 import type { Task, Project, BoardEvent } from "../shared/model";
-import { statuses, statusLabels, type Status } from "../shared/model";
+import { type Status } from "../shared/model";
+import { enabledStatuses, laneName } from "../shared/lanes";
 import * as rpc from "../shared/rpc";
 import {
   Badge,
@@ -342,7 +343,7 @@ export function TaskDrawer({
     if (statusDisabled || !detailActive.current || status === task.status) return;
     void perform(
       () => update({ id: task.id, revision: task.revision, status }),
-      `Moved to ${statusLabels[status]}`,
+      `Moved to ${laneName(project, status)}`,
     );
   }
   return (
@@ -436,8 +437,8 @@ export function TaskDrawer({
             <View testID="task-actions" style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: space[2] }}>
               <Property
                 icon={<StatusIcon status={task.status} />}
-                text={statusLabels[task.status]}
-                label={`Status: ${statusLabels[task.status]}`}
+                text={laneName(project, task.status)}
+                label={`Status: ${laneName(project, task.status)}`}
                 disabled={statusDisabled}
                 onPress={() => setStatusMenuOpen(true)}
               />
@@ -631,6 +632,7 @@ export function TaskDrawer({
                       <ActivityItem
                         key={e.id}
                         event={e}
+                        nameOf={(status) => laneName(project, status)}
                         last={index === list.length - 1}
                         actor={
                           e.agentId
@@ -659,10 +661,10 @@ export function TaskDrawer({
       >
         <Modal.Content contentContainerStyle={{ padding: space[3], gap: space[1] }}>
           <Theme.Provider value={theme}>
-            {statuses.map((status) => (
+            {enabledStatuses(project).map((status) => (
               <Row
                 key={status}
-                title={statusLabels[status]}
+                title={laneName(project, status)}
                 leading={<StatusIcon status={status} size={16} />}
                 selected={status === task.status}
                 disabled={statusDisabled}
@@ -764,8 +766,10 @@ function ActivityItem({
   event,
   actor,
   last,
+  nameOf,
 }: {
   event: BoardEvent;
+  nameOf(status: Status): string;
   actor: string;
   last: boolean;
 }) {
@@ -792,7 +796,7 @@ function ActivityItem({
         <Label size={font.md}>
           <Label medium size={font.md}>{actor}</Label>
           {` ${verb.charAt(0).toLowerCase()}${verb.slice(1)}`}
-          {event.to ? ` → ${statusLabels[event.to]}` : ""}
+          {event.to ? ` → ${nameOf(event.to)}` : ""}
           {event.reportKind && !question && event.reportKind !== "progress" ? ` · ${event.reportKind}` : ""}
         </Label>
         {!!event.rule && (

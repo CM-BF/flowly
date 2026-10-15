@@ -1,3 +1,4 @@
+import { laneProblem } from "../shared/lanes";
 import type { PaseoApi } from "@getpaseo/client";
 import { realpath, stat } from "node:fs/promises";
 import { resolve } from "node:path";
@@ -171,6 +172,8 @@ export class BoardService {
       const project = board.projects.find((p) => p.id === input.projectId);
       if (!project || project.archivedAt)
         throw new Error("Project is unavailable or archived.");
+      const laneError = laneProblem(project, input.status);
+      if (laneError) throw new Error(laneError);
       const repoPaths = [project.primaryPath];
       const sourcePath = project.primaryPath;
       let workspaceId = input.workspaceId;

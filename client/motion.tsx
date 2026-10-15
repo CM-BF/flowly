@@ -43,7 +43,7 @@ function timing(value: Animated.Value, toValue: number, duration: number, native
   });
 }
 
-export function useMotionValue(target: number, duration: number = motionDuration.feedback, initial = target) {
+export function useMotionValue(target: number, duration: number = motionDuration.feedback, initial = target, layout = false) {
   const reduced = useContext(ReduceMotion);
   const [value] = useState(() => new Animated.Value(initial));
   useLayoutEffect(() => {
@@ -51,7 +51,8 @@ export function useMotionValue(target: number, duration: number = motionDuration
       value.setValue(target);
       return;
     }
-    const animation = timing(value, target, duration);
+    // Layout properties (width/height) cannot use the native driver.
+    const animation = timing(value, target, duration, layout ? false : undefined);
     animation.start();
     return () => animation.stop();
   }, [value, target, duration, reduced]);

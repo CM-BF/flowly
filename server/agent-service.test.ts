@@ -315,3 +315,26 @@ test("session context signatures survive reload, reject rebinding and credential
     "invalid",
   );
 });
+test("agents only see and use the project's enabled lanes", async () => {
+  const x = await setup();
+  const board = await x.store.read();
+  const project = board.projects[0];
+  await x.store.updateProject({
+    id: project.id,
+    revision: project.revision,
+    lanes: (["backlog", "todo", "in_progress", "in_review", "blocked", "done", "cancelled"] as const).map((status) => ({
+      status,
+      enabled: status !== "blocked",
+      ...(status === "in_review" ? { name: "QA" } : {}),
+    })),
+  });
+  const ctx = await x.service.get(x.identity);
+  expect(ctx.allowedStatuses).toEqual(["in_progress", "in_review"]);
+  expect(ctx.lanes.find((l) => l.status === "in_review")?.name).toBe("QA");
+  expect(ctx.lanes.some((l) => l.status === "blocked")).toBe(false);
+  await expect(
+    x.service.write(x.identity, "status", { ...input(ctx), status: "blocked" }),
+  ).rejects.toMatchObject({ code: "STATUS_UNAVAILABLE" });
+  await x.service.write(x.identity, "status", { ...input(ctx), status: "in_review" });
+  expect((await x.store.read()).tasks[0].status).toBe("in_review");
+});

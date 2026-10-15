@@ -1,3 +1,5 @@
+import { enabledStatuses, laneName, projectLanes } from "../shared/lanes";
+import { LaneEditor } from "./lane-editor";
 import { useState } from "react";
 import { View } from "react-native";
 import { Modal } from "./modal";
@@ -5,9 +7,8 @@ import { usePaseo, useRpc, useSettings } from "@getpaseo/plugin/client";
 import { useQuery } from "@tanstack/react-query";
 import * as rpc from "../shared/rpc";
 import {
-  statuses,
-  statusLabels,
   priorities,
+  type Lane,
   type Project,
   type Task,
   type Status,
@@ -21,10 +22,13 @@ import { boardViewSettings, boardViewValues } from "../shared/settings";
 
 export function ProjectForm({
   project: initialProject,
+  laneCounts = {},
   onClose,
   onSaved,
 }: {
   project?: Project;
+  /** Live cards per lane, so lanes in use can't be turned off. */
+  laneCounts?: Partial<Record<Status, number>>;
   onClose: () => void;
   onSaved: (id: string) => void;
 }) {
@@ -42,6 +46,7 @@ export function ProjectForm({
     [primaryPath, setPrimary] = useState(project?.primaryPath || ""),
     [nativeId, setNative] = useState(project?.paseoProjectId || ""),
     [autoStatus, setAutoStatus] = useState(project?.autoStatus !== false),
+    [lanes, setLanes] = useState<Lane[]>(() => projectLanes(project)),
     [pending, setPending] = useState(false),
     [error, setError] = useState("");
   async function save() {
@@ -55,6 +60,7 @@ export function ProjectForm({
             title,
             description,
             ...(autoStatus !== (project.autoStatus !== false) ? { autoStatus } : {}),
+            ...(JSON.stringify(lanes) !== JSON.stringify(projectLanes(project)) ? { lanes } : {}),
           })
         : await create({
             title,
@@ -114,6 +120,7 @@ export function ProjectForm({
             editable={!project && !nativeId}
             placeholder="/absolute/path/to/repo"
           />
+          {project && <LaneEditor lanes={lanes} counts={laneCounts} disabled={pending} onChange={setLanes} />}
           {project && (
             <Toggle
               title="Auto-update status from sessions"
@@ -145,6 +152,13 @@ export function ProjectForm({
       </Modal.Content>
     </Modal>
   );
+}
+
+/** Where a new task starts: the requested lane when enabled, else the first active lane. */
+function startStatus(project: Project, requested: Status): Status {
+  const lanes = enabledStatuses(project);
+  if (lanes.includes(requested)) return requested;
+  return lanes.find((s) => s !== "done" && s !== "cancelled") ?? lanes[0];
 }
 
 export function TaskForm({
@@ -179,7 +193,7 @@ export function TaskForm({
   });
   const [title, setTitle] = useState(task?.title || ""),
     [description, setDescription] = useState(task?.description || ""),
-    [status, setStatus] = useState<Status>(task?.status || defaultStatus),
+    [status, setStatus] = useState<Status>(task?.status || startStatus(project, defaultStatus)),
     [priority, setPriority] = useState(task?.priority || "normal"),
     [mode, setMode] = useState<"directory" | "worktree" | "existing">(
       "directory",
@@ -203,6 +217,12 @@ export function TaskForm({
       void view.save({ ...boardViewValues(view.values), startAgentOnCreate: next }, view.revision);
   };
   const choice = useAgentChoice({ enabled: startChosen, cwd: project.primaryPath, defaults: agentDefaults });
+  // The project's lanes. New tasks start in an active lane (finished ones only
+  // when added from that lane); an edited card keeps showing its current lane.
+  const lanes = enabledStatuses(project);
+  const statusChoices = task
+    ? lanes.includes(task.status) ? lanes : [...lanes, task.status]
+    : lanes.filter((s) => (s !== "done" && s !== "cancelled") || s === defaultStatus);
   // The agent's first message; required, never prefilled (title and description already reach it as context).
   const [prompt, setPrompt] = useState("");
   const contextRead = useRpc(rpc.taskContext),
@@ -278,9 +298,7 @@ export function TaskForm({
             title="Status"
             value={status}
             // New tasks start in an active column (finished ones only when added from that column).
-            options={statuses
-              .filter((s) => task || (s !== "done" && s !== "cancelled") || s === defaultStatus)
-              .map((s) => ({ value: s, label: statusLabels[s] }))}
+            options={statusChoices.map((s) => ({ value: s, label: laneName(project, s) }))}
             onChange={setStatus}
           />
           <Choices

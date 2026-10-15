@@ -1,3 +1,4 @@
+import { laneEnabled } from "../shared/lanes";
 import type { PluginTurnOutcome } from "@getpaseo/plugin/server";
 import type { Board, BoardEvent, Status } from "../shared/model";
 import type { ToolIdentity } from "../shared/tools";
@@ -53,7 +54,9 @@ export function applyTurnStarted(
     task.archivedAt ||
     project.archivedAt ||
     project.autoStatus === false ||
-    !restartable.includes(task.status)
+    !restartable.includes(task.status) ||
+    // The workflow has no In progress lane: leave the card where it is.
+    !laneEnabled(project, "in_progress")
   )
     return false;
   const from = task.status;
@@ -106,6 +109,7 @@ export function applyTurnEnded(
     (e) => e.rule === "A1" && (e.from === "in_review" || e.from === "blocked"),
   );
   if (!resumed?.from || turn.some((e) => e.actor === "agent")) return false;
+  if (!laneEnabled(project, resumed.from as Status)) return false;
   // Someone else (a person or another session) may have moved it since.
   const lastChange = [...board.events].reverse().find((e) => e.taskId === task.id && e.action === "status_changed");
   if (lastChange?.id !== resumed.id) return false;

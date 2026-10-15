@@ -158,7 +158,7 @@ export class ToolServer {
           "kanban_update_status",
           {
             description:
-              "Update this card to in_progress, blocked or in_review. Copy revisions and request from get_task, include a note. Done/cancelled are human decisions. Retry identical uncertain requests only.",
+              "Move this card to one of allowedStatuses from get_task (in_progress, blocked or in_review when they are lanes of this project; lanes lists the names the user sees). Copy revisions and request from get_task, include a note. Done/cancelled are human decisions. Retry identical uncertain requests only.",
             inputSchema: statusInputSchema,
             outputSchema: toolResultSchema,
             annotations: {

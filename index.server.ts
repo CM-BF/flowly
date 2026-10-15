@@ -81,22 +81,7 @@ export default function contribute(server: PluginServerContext) {
   server.handle(rpc.updateTask, (input) => store.editTask(input));
   server.handle(rpc.placeTask, (input) => store.placeTask(input));
   server.handle(rpc.moveProject, (input) => store.moveProject(input));
-  server.handle(rpc.updateProject, (input) => {
-    return store.mutate((board) => {
-      const p = board.projects.find((p) => p.id === input.id);
-      if (!p) throw new Error("Project not found.");
-      if (p.revision !== input.revision)
-        throw new Error("Revision conflict: reload the project before saving.");
-      if (input.title !== undefined) p.title = input.title;
-      if (input.description !== undefined) p.description = input.description;
-      if (input.autoStatus !== undefined) p.autoStatus = input.autoStatus;
-      if (input.archived !== undefined)
-        p.archivedAt = input.archived ? new Date().toISOString() : null;
-      p.revision++;
-      p.updatedAt = new Date().toISOString();
-      return p;
-    });
-  });
+  server.handle(rpc.updateProject, (input) => store.updateProject(input));
   // Menu up/down shares the drag placement path: one ordering rule, and only
   // the moved card's revision changes.
   server.handle(rpc.moveTask, async (input) => {

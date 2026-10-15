@@ -23,6 +23,24 @@ export const statusSchema = z.enum(statuses);
 export type Status = z.infer<typeof statusSchema>;
 export const prioritySchema = z.enum(priorities);
 const timestamp = z.string();
+/**
+ * A project's lane configuration: the built-in statuses in display order, each
+ * enabled or not, optionally renamed. Absent means every lane, default order and
+ * names. Lanes define the project's workflow: people, rules and agents only use
+ * enabled lanes.
+ */
+export const laneSchema = z.strictObject({
+  status: statusSchema,
+  name: z.string().trim().max(40).optional(),
+  enabled: z.boolean(),
+});
+export const lanesSchema = z
+  .array(laneSchema)
+  .length(statuses.length)
+  .refine((lanes) => new Set(lanes.map((l) => l.status)).size === lanes.length, "Each lane appears once.")
+  .refine((lanes) => lanes.some((l) => l.enabled), "Keep at least one lane enabled.");
+export type Lane = z.infer<typeof laneSchema>;
+
 export const projectSchema = z.object({
   id: z.string(),
   title: z.string().trim().min(1).max(120),
@@ -38,6 +56,7 @@ export const projectSchema = z.object({
   autoStatus: z.boolean().optional(),
   /** Display order in the project chooser (lower first); absent sorts by creation. */
   position: z.number().optional(),
+  lanes: lanesSchema.optional(),
 });
 export const taskSchema = z.object({
   id: z.string(),
@@ -127,6 +146,7 @@ export const projectEdit = z.strictObject({
   description: z.string().max(10000).optional(),
   archived: z.boolean().optional(),
   autoStatus: z.boolean().optional(),
+  lanes: lanesSchema.optional(),
 });
 export const taskInput = z.strictObject({
   projectId: z.string(),
@@ -174,3 +194,4 @@ export function projectOrder<T extends { position?: number; createdAt: string; i
     pb = b.position ?? Number.MAX_SAFE_INTEGER;
   return pa - pb || a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id);
 }
+export type ProjectEdit = z.infer<typeof projectEdit>;

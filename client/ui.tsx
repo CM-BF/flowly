@@ -651,6 +651,63 @@ export const basename = (path: string) =>
   path.split(/[\\/]/).filter(Boolean).pop() || path;
 
 /** Switch row: title, optional detail, trailing track. */
+/** A bare on/off switch (no title row); use Toggle for a labelled setting. */
+export function Switch({
+  value,
+  onChange,
+  label,
+  disabled = false,
+}: {
+  value: boolean;
+  onChange(value: boolean): void;
+  label: string;
+  disabled?: boolean;
+}) {
+  return (
+    <Pressable
+      accessibilityRole="switch"
+      accessibilityLabel={label}
+      accessibilityState={{ checked: value, disabled }}
+      disabled={disabled}
+      onPress={() => onChange(!value)}
+      hitSlop={6}
+      style={{ ...noFocusRing, opacity: disabled ? 0.45 : 1 }}
+    >
+      <SwitchTrack value={value} />
+    </Pressable>
+  );
+}
+
+function SwitchTrack({ value }: { value: boolean }) {
+  const { colors } = useTheme();
+  const thumb = useMotionValue(value ? 1 : 0, motionDuration.feedback);
+  return (
+    <View
+      style={{
+        width: 34,
+        height: 20,
+        borderRadius: 10,
+        padding: 2,
+        justifyContent: "center",
+        alignItems: "flex-start",
+        backgroundColor: value ? colors.accent : colors.surface2,
+        borderWidth: 1,
+        borderColor: value ? colors.accent : colors.border,
+      }}
+    >
+      <Animated.View
+        style={{
+          width: 14,
+          height: 14,
+          borderRadius: 7,
+          backgroundColor: value ? colors.accentForeground : colors.surface0,
+          transform: [{ translateX: thumb.interpolate({ inputRange: [0, 1], outputRange: [0, 14] }) }],
+        }}
+      />
+    </View>
+  );
+}
+
 export function Toggle({
   title,
   detail,
@@ -662,8 +719,6 @@ export function Toggle({
   value: boolean;
   onChange(value: boolean): void;
 }) {
-  const { colors } = useTheme();
-  const thumb = useMotionValue(value ? 1 : 0, motionDuration.feedback);
   return (
     <Pressable
       accessibilityRole="switch"
@@ -685,29 +740,7 @@ export function Toggle({
           </Label>
         )}
       </View>
-      <View
-        style={{
-          width: 34,
-          height: 20,
-          borderRadius: 10,
-          padding: 2,
-          justifyContent: "center",
-          alignItems: "flex-start",
-          backgroundColor: value ? colors.accent : colors.surface2,
-          borderWidth: 1,
-          borderColor: value ? colors.accent : colors.border,
-        }}
-      >
-        <Animated.View
-          style={{
-            width: 14,
-            height: 14,
-            borderRadius: 7,
-            backgroundColor: value ? colors.accentForeground : colors.surface0,
-            transform: [{ translateX: thumb.interpolate({ inputRange: [0, 1], outputRange: [0, 14] }) }],
-          }}
-        />
-      </View>
+      <SwitchTrack value={value} />
     </Pressable>
   );
 }

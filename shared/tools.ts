@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { taskSchema, projectSchema, eventSchema, receiptSchema } from "./model";
+import { taskSchema, projectSchema, eventSchema, receiptSchema, statusSchema } from "./model";
 
 export const agentStatuses = ["in_progress", "blocked", "in_review"] as const;
 export const revisionSchema = z.strictObject({
@@ -39,6 +39,8 @@ export const toolContextSchema = z.object({
   writable: z.boolean(),
   reason: z.string(),
   allowedStatuses: z.array(z.enum(agentStatuses)),
+  /** The project's lanes (its workflow), in order, with display names. */
+  lanes: z.array(z.object({ status: statusSchema, name: z.string() })),
   scope: z.object({
     mode: z.enum(["all", "selected"]),
     repoPaths: z.array(z.string()),

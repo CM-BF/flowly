@@ -8,7 +8,7 @@ import { IconButton, Label, font, noFocusRing, radius, space, useTheme, vertical
 import { menuHandlers, useMenuOpener } from "./context-menu";
 import { StatusIcon } from "./status";
 import type { CardDrag } from "./card";
-import { useMotionPresence, useMotionValue } from "./motion";
+import { Enter, motionDuration, useMotionPresence, useMotionValue } from "./motion";
 import {
   columnAtPoint,
   columnGap,
@@ -25,6 +25,34 @@ import {
 
 type DragState = { task: Task; point: Point; target: Status | null; slot: DropSlot | null; sequence: number };
 export type Placement = NonNullable<ReturnType<typeof placementUpdate>>;
+
+/**
+ * A lane's outer frame. Collapsing/expanding animates its width (JS-driven;
+ * width is layout) and fades the new content in; the frame owns the layout
+ * measurement used for drop targeting.
+ */
+function LaneFrame({ status, collapsed, onLayout, children }: { status: Status; collapsed: boolean; onLayout(x: number, width: number): void; children: ReactNode }) {
+  const { colors } = useTheme();
+  const open = useMotionValue(collapsed ? 0 : 1, collapsed ? motionDuration.reverse : motionDuration.forward, collapsed ? 0 : 1, true);
+  return (
+    <Animated.View
+      testID={`lane-${status}`}
+      onLayout={(e) => onLayout(e.nativeEvent.layout.x, e.nativeEvent.layout.width)}
+      style={{
+        width: open.interpolate({ inputRange: [0, 1], outputRange: [collapsedWidth, columnWidth] }),
+        minHeight: 0,
+        overflow: "hidden",
+        borderRadius: radius.xl,
+        backgroundColor: colors.surface1,
+      }}
+    >
+      <Enter key={collapsed ? "collapsed" : "expanded"} distance={0} style={{ flex: 1, minHeight: 0 }}>
+        {children}
+      </Enter>
+    </Animated.View>
+  );
+}
+const collapsedWidth = 44;
 
 /** Insertion line positioned absolutely in the column content, so showing it never shifts cards. */
 function InsertLine({ y }: { y: number | null }) {
@@ -56,6 +84,7 @@ export function DesktopColumns({
   onReorderBlocked = () => undefined,
   collapsed = [],
   onToggleCollapse,
+  nameOf = (status) => statusLabels[status],
   renderCard,
   onAdd,
   onDrop,
@@ -72,6 +101,8 @@ export function DesktopColumns({
   /** Columns shown as a narrow strip (still a drop target). */
   collapsed?: readonly Status[];
   onToggleCollapse?(status: Status): void;
+  /** The project's lane name for a status. */
+  nameOf?(status: Status): string;
   cancelKey: string;
   renderCard(task: Task, drag: CardDrag, dragging: boolean): ReactNode;
   onAdd(status: Status): void;
@@ -229,29 +260,28 @@ export function DesktopColumns({
             placementUpdate(dragging.task, status, dragging.slot, order.current[status])
               ? (dragging.slot?.lineY ?? null)
               : null;
-          const headerMenu = menuHandlers(openMenu, statusLabels[status], () => [
+          const headerMenu = menuHandlers(openMenu, nameOf(status), () => [
             { id: "add", label: "Add task", icon: "Plus", disabled, onPress: () => onAdd(status) },
             ...(onToggleCollapse
               ? [{ id: "collapse", label: collapsed.includes(status) ? "Expand column" : "Collapse column", icon: collapsed.includes(status) ? "ChevronsLeftRight" : "ChevronsRightLeft", onPress: () => onToggleCollapse(status) }]
               : []),
           ]);
+          const measure = (x: number, width: number) => {
+            columns.current = [...columns.current.filter((c) => c.status !== status), { status, x, width }];
+          };
           if (collapsed.includes(status))
             return (
+              <LaneFrame key={status} status={status} collapsed onLayout={measure}>
               <Pressable
-                key={status}
                 accessibilityRole="button"
-                accessibilityLabel={`Expand ${statusLabels[status]}, ${column.length} ${column.length === 1 ? "task" : "tasks"}`}
+                accessibilityLabel={`Expand ${nameOf(status)}, ${column.length} ${column.length === 1 ? "task" : "tasks"}`}
                 onPress={() => onToggleCollapse?.(status)}
                 {...headerMenu}
-                onLayout={(e) => {
-                  const { x, width } = e.nativeEvent.layout;
-                  columns.current = [...columns.current.filter((c) => c.status !== status), { status, x, width }];
-                }}
                 style={(state) => {
                   const { hovered } = state as typeof state & { hovered?: boolean };
                   return {
                     ...noFocusRing,
-                    width: 44,
+                    flex: 1,
                     minHeight: 0,
                     alignItems: "center",
                     paddingTop: space[3],
@@ -267,24 +297,19 @@ export function DesktopColumns({
                 {/* Vertical title: a rotated label in a box as tall as the text is wide. */}
                 <View style={{ width: 20, height: 140, alignItems: "center", justifyContent: "center" }}>
                   <View style={{ width: 140, alignItems: "center", transform: [{ rotate: "90deg" }] }}>
-                    <Label medium size={font.md} lines={1} selectable={false}>{statusLabels[status]}</Label>
+                    <Label medium size={font.md} lines={1} selectable={false}>{nameOf(status)}</Label>
                   </View>
                 </View>
                 <LaneAccent active={!!highlighted} />
               </Pressable>
+              </LaneFrame>
             );
           return (
+            <LaneFrame key={status} status={status} collapsed={false} onLayout={measure}>
             <View
-              key={status}
-              onLayout={(e) => {
-                const { x, width } = e.nativeEvent.layout;
-                columns.current = [
-                  ...columns.current.filter((c) => c.status !== status),
-                  { status, x, width },
-                ];
-              }}
               style={{
                 width: columnWidth,
+                flex: 1,
                 minHeight: 0,
                 borderRadius: radius.xl,
                 backgroundColor: highlighted ? colors.surface2 : colors.surface1,
@@ -310,7 +335,7 @@ export function DesktopColumns({
                 <StatusIcon status={status} />
                 <View style={{ flex: 1, minWidth: 0, flexDirection: "row", alignItems: "center", gap: space[1.5] }}>
                   <Label medium size={font.md} lines={1} selectable={false}>
-                    {statusLabels[status]}
+                    {nameOf(status)}
                   </Label>
                   <Label muted size={font.md} selectable={false}>
                     {column.length}
@@ -322,7 +347,7 @@ export function DesktopColumns({
                     <IconButton
                       icon="ChevronsRightLeft"
                       size={28}
-                      label={`Collapse ${statusLabels[status]}`}
+                      label={`Collapse ${nameOf(status)}`}
                       onPress={() => onToggleCollapse(status)}
                     />
                   </View>
@@ -330,7 +355,7 @@ export function DesktopColumns({
                 <IconButton
                   icon="Plus"
                   size={28}
-                  label={`Add task to ${statusLabels[status]}`}
+                  label={`Add task to ${nameOf(status)}`}
                   disabled={disabled}
                   onPress={() => onAdd(status)}
                 />
@@ -391,6 +416,7 @@ export function DesktopColumns({
               </View>
               <LaneAccent active={!!highlighted} />
             </View>
+            </LaneFrame>
           );
         })}
       </ScrollView>
@@ -436,10 +462,10 @@ export function DesktopColumns({
           </Label>
           <Label muted size={font.sm} selectable={false}>
             {ghost.item.target && ghost.item.target !== ghost.item.task.status
-              ? `Move to ${statusLabels[ghost.item.target]}`
+              ? `Move to ${nameOf(ghost.item.target)}`
               : ghost.item.target &&
                   placementUpdate(ghost.item.task, ghost.item.target, ghost.item.slot, order.current[ghost.item.target] || [])
-                ? `Reorder in ${statusLabels[ghost.item.target]}`
+                ? `Reorder in ${nameOf(ghost.item.target)}`
                 : "Drag to reorder or move"}
           </Label>
         </Animated.View>
