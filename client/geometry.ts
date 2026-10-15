@@ -109,3 +109,26 @@ export function placementUpdate(
     afterId: slot?.afterId ?? null,
   };
 }
+
+/**
+ * Index a dragged list row lands on: the number of other rows whose centre is
+ * above the dragged row's centre after moving it by `dy`.
+ */
+export function listDropIndex(heights: readonly number[], from: number, dy: number, gap = 0): number {
+  let top = 0;
+  const centres = heights.map((h) => {
+    const centre = top + h / 2;
+    top += h + gap;
+    return centre;
+  });
+  const moved = centres[from] + dy;
+  return centres.filter((c, i) => i !== from && c < moved).length;
+}
+
+/** How far row `index` slides aside while row `from` is held over `to`. */
+export function listShift(index: number, from: number, to: number, size: number): number {
+  if (index === from) return 0;
+  if (from < to && index > from && index <= to) return -size;
+  if (to < from && index >= to && index < from) return size;
+  return 0;
+}

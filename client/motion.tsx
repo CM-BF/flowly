@@ -179,3 +179,7 @@ export function Enter({ children, distance = 6, style }: { children: ReactNode; 
     </Animated.View>
   );
 }
+
+export function useReducedMotion() {
+  return useContext(ReduceMotion);
+}

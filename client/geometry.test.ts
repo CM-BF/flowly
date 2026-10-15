@@ -1,6 +1,8 @@
 import { describe, expect, test } from "vitest";
 import {
   columnAtPoint,
+  listDropIndex,
+  listShift,
   contentY,
   drawerWidth,
   dropSlot,
@@ -111,4 +113,16 @@ describe("drop placement", () => {
       id: "b", revision: 7, status: "done", beforeId: null, afterId: null,
     });
   });
+});
+
+test("list drag lands by row centres and shifts the rows it passes", () => {
+  const heights = [40, 40, 40, 40];
+  expect(listDropIndex(heights, 0, 0, 4)).toBe(0);
+  expect(listDropIndex(heights, 0, 30, 4)).toBe(0);
+  expect(listDropIndex(heights, 0, 50, 4)).toBe(1);
+  expect(listDropIndex(heights, 0, 500, 4)).toBe(3);
+  expect(listDropIndex(heights, 3, -90, 4)).toBe(1);
+  expect(listDropIndex(heights, 3, -500, 4)).toBe(0);
+  expect([0, 1, 2, 3].map((i) => listShift(i, 0, 2, 44))).toEqual([0, -44, -44, 0]);
+  expect([0, 1, 2, 3].map((i) => listShift(i, 3, 1, 44))).toEqual([0, 44, 44, 0]);
 });

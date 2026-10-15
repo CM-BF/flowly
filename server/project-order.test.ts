@@ -32,6 +32,10 @@ test("projects move up, down and to top without touching their revisions", async
   await store.moveProject({ id: "c", direction: "down" }); // already last: no change
   expect(await order(store)).toEqual(["b", "a", "c"]);
   expect((await store.read()).projects.every((p) => p.revision === 5)).toBe(true);
+  await store.moveProject({ id: "b", to: 2 });
+  expect(await order(store)).toEqual(["a", "c", "b"]);
+  await store.moveProject({ id: "b", to: 99 }); // clamped, already last
+  expect(await order(store)).toEqual(["a", "c", "b"]);
   await expect(store.moveProject({ id: "missing", direction: "up" })).rejects.toThrow(/not found/);
 });
 

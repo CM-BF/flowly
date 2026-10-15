@@ -237,13 +237,15 @@ export class BoardStore {
    * data: no revision bump, so agent writes holding a project revision are
    * unaffected. All projects are renumbered 0..n in the resulting order.
    */
-  moveProject(input: { id: string; direction: "up" | "down" | "top" }) {
+  moveProject(input: { id: string; direction?: "up" | "down" | "top"; to?: number }) {
     return this.transaction((board) => {
       const ordered = [...board.projects].sort(projectOrder);
       const index = ordered.findIndex((p) => p.id === input.id);
       if (index < 0) throw new Error("Project not found.");
       const target =
-        input.direction === "top" ? 0 : input.direction === "up" ? Math.max(0, index - 1) : Math.min(ordered.length - 1, index + 1);
+        input.to !== undefined
+          ? Math.min(ordered.length - 1, input.to)
+          : input.direction === "top" ? 0 : input.direction === "up" ? Math.max(0, index - 1) : Math.min(ordered.length - 1, index + 1);
       const changed = target !== index || ordered.some((p, i) => p.position !== i);
       if (!changed) return { value: ordered.map((p) => p.id), changed: false };
       const [moved] = ordered.splice(index, 1);

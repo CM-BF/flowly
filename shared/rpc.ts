@@ -220,6 +220,13 @@ export const sessionImage = defineRpc({
 });
 export const moveProject = defineRpc({
   name: "projects.move",
-  input: z.strictObject({ id: z.string().min(1).max(200), direction: z.enum(["up", "down", "top"]) }),
+  input: z
+    .strictObject({
+      id: z.string().min(1).max(200),
+      direction: z.enum(["up", "down", "top"]).optional(),
+      /** Target index in the ordered list (drag and drop). */
+      to: z.number().int().min(0).max(10000).optional(),
+    })
+    .refine((v) => (v.direction === undefined) !== (v.to === undefined), "Give either direction or to."),
   output: z.array(z.string()),
 });

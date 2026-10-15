@@ -68,6 +68,7 @@ import { drawerWidth, isCompactLayout } from "./geometry";
 import { useSessionReads } from "./session-reads";
 import { sessionAttentionSummary } from "../shared/session-attention";
 import { MotionProvider, MotionReveal, useMotionPresence } from "./motion";
+import { SortableList } from "./sortable-list";
 import {
   parseSessionLink,
   resolveSessionLink,
@@ -279,9 +280,21 @@ function BoardContent(
     )
       setMobileStatus("todo");
   }, [hideFinished, mobileStatus]);
-  const projects = (board?.projects || [])
+  // A dropped project shows in place until the refreshed board agrees.
+  const [projectOrderOverride, setProjectOrderOverride] = useState<string[] | null>(null);
+  const serverProjects = (board?.projects || [])
     .filter((p) => archived || !p.archivedAt)
     .sort(projectOrder);
+  const serverProjectIds = serverProjects.map((p) => p.id).join(",");
+  useEffect(() => {
+    if (!projectOrderOverride) return;
+    if (projectOrderOverride.join(",") === serverProjectIds) return setProjectOrderOverride(null);
+    const timer = setTimeout(() => setProjectOrderOverride(null), 5000);
+    return () => clearTimeout(timer);
+  }, [projectOrderOverride, serverProjectIds]);
+  const projects = projectOrderOverride
+    ? serverProjects.slice().sort((a, b) => projectOrderOverride.indexOf(a.id) - projectOrderOverride.indexOf(b.id))
+    : serverProjects;
   const remembered = viewSettings.status === "ready" ? boardViewValues(viewSettings.values).lastProjectId : "";
   const project =
     projects.find((p) => p.id === projectId) ||
@@ -523,8 +536,15 @@ function BoardContent(
   };
   const projectMenuClose = () => setMenu(null);
   const moveProjectRpc = useRpc(rpc.moveProject);
-  const reorderProject = (id: string, direction: "up" | "down" | "top") =>
-    void doAction(() => moveProjectRpc({ id, direction }));
+  const reorderProject = (id: string, move: { direction: "up" | "down" | "top" } | { to: number }) =>
+    void doAction(async () => {
+      try {
+        await moveProjectRpc({ id, ...move });
+      } catch (e) {
+        setProjectOrderOverride(null);
+        throw e;
+      }
+    });
   const shortcutsOn = Platform.OS === "web" && !compact;
   const withKey = (text: string, key: string) =>
     shortcutsOn ? `${text} (${key})` : text;
@@ -841,31 +861,49 @@ function BoardContent(
         >
           <Modal.Content contentContainerStyle={{ padding: space[3], gap: space[1] }}>
             <Theme.Provider value={props.theme}>
-              {projects.map((p, index) => (
-                <Row
-                  key={p.id}
-                  title={p.title}
-                  detail={p.primaryPath}
-                  icon={p.archivedAt ? "Archive" : "Folder"}
-                  selected={project?.id === p.id}
-                  trailing={
-                    <View style={{ flexDirection: "row", alignItems: "center", gap: 2 }}>
-                      {p.archivedAt && <Badge>Archived</Badge>}
-                      {projects.length > 1 && (
-                        <>
-                          <IconButton icon="ChevronUp" size={touch ? 36 : 26} label={`Move ${p.title} up`} disabled={index === 0 || pending} onPress={() => reorderProject(p.id, "up")} />
-                          <IconButton icon="ChevronDown" size={touch ? 36 : 26} label={`Move ${p.title} down`} disabled={index === projects.length - 1 || pending} onPress={() => reorderProject(p.id, "down")} />
-                        </>
-                      )}
-                    </View>
-                  }
-                  onPress={() => {
-                    chooseProject(p.id);
-                    setTask("");
-                    projectMenuClose();
-                  }}
-                />
-              ))}
+              <SortableList
+                items={projects}
+                gap={space[1]}
+                disabled={pending || touch}
+                onMove={(id, to) => {
+                  const ids = projects.map((q) => q.id);
+                  // `to` is an index in the visible list; the server orders all projects.
+                  const all = (board?.projects || []).slice().sort(projectOrder).map((q) => q.id);
+                  const next = ids.filter((q) => q !== id);
+                  next.splice(to, 0, id);
+                  setProjectOrderOverride(next);
+                  reorderProject(id, { to: all.indexOf(ids[to]) });
+                }}
+                renderItem={(p, index, pressable) => (
+                  <Row
+                    title={p.title}
+                    detail={p.primaryPath}
+                    icon={p.archivedAt ? "Archive" : "Folder"}
+                    selected={project?.id === p.id}
+                    trailing={
+                      <View style={{ flexDirection: "row", alignItems: "center", gap: 2 }}>
+                        {p.archivedAt && <Badge>Archived</Badge>}
+                        {touch && projects.length > 1 ? (
+                          <>
+                            <IconButton icon="ChevronUp" size={36} label={`Move ${p.title} up`} disabled={index === 0 || pending} onPress={() => reorderProject(p.id, { direction: "up" })} />
+                            <IconButton icon="ChevronDown" size={36} label={`Move ${p.title} down`} disabled={index === projects.length - 1 || pending} onPress={() => reorderProject(p.id, { direction: "down" })} />
+                          </>
+                        ) : projects.length > 1 ? (
+                          <View accessibilityLabel="Drag to reorder" style={{ paddingHorizontal: 4, ...({ cursor: "grab" } as object) }}>
+                            <Icon name="GripVertical" size={14} color={colors.foregroundMuted} />
+                          </View>
+                        ) : null}
+                      </View>
+                    }
+                    onPress={() => {
+                      if (!pressable()) return;
+                      chooseProject(p.id);
+                      setTask("");
+                      projectMenuClose();
+                    }}
+                  />
+                )}
+              />
               <Divider style={{ marginVertical: space[2] }} />
               {project && (
                 <>
