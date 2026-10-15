@@ -103,3 +103,42 @@ export function recentSessionOutput(
     })
     .slice(-18);
 }
+
+type OutputEntry = ReturnType<typeof recentSessionOutput>[number];
+export type TranscriptBlock =
+  | { kind: "entry"; key: string; entry: OutputEntry }
+  | { kind: "activity"; key: string; items: OutputEntry[]; thoughts: number; tools: number };
+
+/**
+ * Consecutive thinking and tool-call entries become one collapsible activity
+ * block. The block key is its first entry's key, so it stays stable (and keeps
+ * its expanded state) while a running turn appends steps to it.
+ */
+export function groupTranscript(entries: readonly OutputEntry[]): TranscriptBlock[] {
+  const blocks: TranscriptBlock[] = [];
+  for (const entry of entries) {
+    const step = entry.author === "Thinking" || entry.author === "Tool";
+    const last = blocks.at(-1);
+    if (!step) blocks.push({ kind: "entry", key: entry.key, entry });
+    else if (last?.kind === "activity") {
+      last.items.push(entry);
+      if (entry.author === "Tool") last.tools++;
+      else last.thoughts++;
+    } else
+      blocks.push({
+        kind: "activity",
+        key: `activity-${entry.key}`,
+        items: [entry],
+        thoughts: entry.author === "Thinking" ? 1 : 0,
+        tools: entry.author === "Tool" ? 1 : 0,
+      });
+  }
+  return blocks;
+}
+
+export function activitySummary(block: { thoughts: number; tools: number }) {
+  const parts = [];
+  if (block.thoughts) parts.push("Thought");
+  if (block.tools) parts.push(`${block.tools} tool call${block.tools === 1 ? "" : "s"}`);
+  return parts.join(" · ");
+}

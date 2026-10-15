@@ -52,16 +52,19 @@ import { eventPoint, menuHandlers, useMenuOpener, type MenuEntry } from "./conte
 import { boardViewSettings, boardViewValues } from "../shared/settings";
 import { ComposerChips, useSessionConfig, type ChipMenuId } from "./session-settings";
 import {
+  activitySummary,
+  groupTranscript,
   openNativeSession,
   recentSessionOutput,
   sessionState,
+  type TranscriptBlock,
 } from "./session-state";
 import { sendCardInstruction, workspaceSession } from "./session";
 import { SessionMarkdown } from "./session-content";
 import { coalescedRefresh, useSessionFollowTail } from "./session-follow";
 import { useSessionReads } from "./session-reads";
 import { sessionAttention } from "../shared/session-attention";
-import { MotionReveal, PulseDot, motionDuration, useMotionPresence, useMotionValue } from "./motion";
+import { Enter, MotionReveal, PulseDot, motionDuration, useMotionPresence, useMotionValue } from "./motion";
 import { composerEnterAction, createDraftBuffer, type ComposerKey } from "./session-input";
 
 export function SessionPreview({
@@ -198,6 +201,7 @@ export function SessionPreview({
     () => recentSessionOutput(timeline.data?.entries || []),
     [timeline.data?.entries],
   );
+  const blocks = useMemo(() => groupTranscript(output), [output]);
   const outputSignature = JSON.stringify(
     output.map((entry) => [entry.key, entry.text]),
   );
@@ -789,9 +793,15 @@ export function SessionPreview({
                 </View>
               )
             ) : (
-              output.map((entry) => <TranscriptEntry key={entry.key} entry={entry} taskId={task.id} agentId={sessionId} />)
+              blocks.map((block, index) =>
+                block.kind === "activity" ? (
+                  <ActivityBlock key={block.key} block={block} live={!!state?.active && index === blocks.length - 1} />
+                ) : (
+                  <TranscriptEntry key={block.key} entry={block.entry} taskId={task.id} agentId={sessionId} />
+                ),
+              )
             )}
-            {state?.active && (
+            {state?.active && blocks.at(-1)?.kind !== "activity" && (
               <View
                 testID="session-running-tail"
                 style={{
@@ -1063,33 +1073,6 @@ function TranscriptEntry({
         {pictures.length > 0 && <View style={{ width: "100%", alignItems: "flex-end", gap: space[1.5] }}>{pictures}</View>}
       </View>
     );
-  if (entry.author === "Tool")
-    return (
-      <View
-        accessibilityLabel="Tool"
-        style={{ flexDirection: "row", alignItems: "center", gap: space[2], minWidth: 0, marginVertical: -space[2] }}
-      >
-        <Icon name="Wrench" size={12} color={colors.foregroundMuted} />
-        <View style={{ flex: 1, minWidth: 0 }}>
-          <Label muted mono size={font.sm} lines={1}>
-            {entry.text}
-          </Label>
-        </View>
-      </View>
-    );
-  if (entry.author === "Thinking")
-    return (
-      <View accessibilityLabel="Thinking" style={{ flexDirection: "row", gap: space[2], minWidth: 0 }}>
-        <View style={{ paddingTop: 3 }}>
-          <Icon name="Brain" size={12} color={colors.foregroundMuted} />
-        </View>
-        <View style={{ flex: 1, minWidth: 0, opacity: 0.75 }}>
-          <Label muted italic size={font.md} lines={6}>
-            {entry.text}
-          </Label>
-        </View>
-      </View>
-    );
   if (entry.author === "Agent")
     return (
       <View accessibilityLabel="Agent" style={{ minWidth: 0, gap: space[2] }}>
@@ -1101,6 +1084,86 @@ function TranscriptEntry({
     <View style={{ gap: 2, minWidth: 0 }}>
       <Label muted size={font.xs}>{entry.author}</Label>
       <Label muted size={font.md}>{entry.text}</Label>
+    </View>
+  );
+}
+
+/**
+ * Consecutive thinking and tool calls, collapsed by default to one summary
+ * line. Expanded, each step shows a short preview (thinking is clipped; the
+ * full transcript lives in Paseo).
+ */
+function ActivityBlock({ block, live }: { block: Extract<TranscriptBlock, { kind: "activity" }>; live: boolean }) {
+  const { colors } = useTheme();
+  const [open, setOpen] = useState(false);
+  const turn = useMotionValue(open ? 1 : 0, motionDuration.feedback);
+  const latest = block.items.at(-1);
+  return (
+    <View accessibilityLabel="Agent activity" style={{ minWidth: 0, marginVertical: -space[1] }}>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={`${activitySummary(block)}. ${open ? "Collapse" : "Expand"}`}
+        accessibilityState={{ expanded: open }}
+        onPress={() => setOpen(!open)}
+        style={(state) => {
+          const { hovered: hover, focused } = state as typeof state & { hovered?: boolean; focused?: boolean };
+          return {
+            ...noFocusRing,
+            flexDirection: "row",
+            alignItems: "center",
+            gap: space[1.5],
+            alignSelf: "flex-start",
+            maxWidth: "100%",
+            minHeight: touch ? 32 : 24,
+            paddingHorizontal: space[1.5],
+            marginHorizontal: -space[1.5],
+            borderRadius: radius.md,
+            backgroundColor: hover || focused ? colors.surface2 : "transparent",
+          };
+        }}
+      >
+        {live ? (
+          <PulseDot color={colors.accent} size={7} />
+        ) : (
+          <Icon name={block.tools ? "Wrench" : "Brain"} size={12} color={colors.foregroundMuted} />
+        )}
+        <Label muted size={font.sm} medium selectable={false}>
+          {live ? "Working" : activitySummary(block)}
+        </Label>
+        {live && latest && (
+          <View style={{ flexShrink: 1, minWidth: 0 }}>
+            <Label muted size={font.sm} lines={1} mono={latest.author === "Tool"} selectable={false}>
+              {latest.author === "Tool" ? latest.text : "Thinking…"}
+            </Label>
+          </View>
+        )}
+        <Animated.View style={{ transform: [{ rotate: turn.interpolate({ inputRange: [0, 1], outputRange: ["0deg", "90deg"] }) }] }}>
+          <Icon name="ChevronRight" size={12} color={colors.foregroundMuted} />
+        </Animated.View>
+      </Pressable>
+      {open && (
+        <Enter distance={4} style={{ marginTop: space[1], marginLeft: 5, paddingLeft: space[3], borderLeftWidth: 1, borderColor: colors.border, gap: space[1.5] }}>
+          {block.items.map((item) =>
+            item.author === "Tool" ? (
+              <View key={item.key} accessibilityLabel="Tool" style={{ flexDirection: "row", alignItems: "center", gap: space[2], minWidth: 0 }}>
+                <Icon name="Wrench" size={12} color={colors.foregroundMuted} />
+                <View style={{ flex: 1, minWidth: 0 }}>
+                  <Label muted mono size={font.sm} lines={1}>{item.text}</Label>
+                </View>
+              </View>
+            ) : (
+              <View key={item.key} accessibilityLabel="Thinking" style={{ flexDirection: "row", gap: space[2], minWidth: 0 }}>
+                <View style={{ paddingTop: 2 }}>
+                  <Icon name="Brain" size={12} color={colors.foregroundMuted} />
+                </View>
+                <View style={{ flex: 1, minWidth: 0, opacity: 0.8 }}>
+                  <Label muted italic size={font.sm} lines={2}>{item.text}</Label>
+                </View>
+              </View>
+            ),
+          )}
+        </Enter>
+      )}
     </View>
   );
 }

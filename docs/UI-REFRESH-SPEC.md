@@ -151,6 +151,14 @@ Status: authorized by the user's 2026-10-14 request to redesign the whole Kanban
 - `projects.move` (`up | down | top`) renumbers all projects in one serialized write. Ordering is presentation metadata: it does not bump the board revision, so it never invalidates an open edit.
 - Verified: reorder, persistence across reload, and restoring the original order on the live board.
 
+## 7m. Collapsed agent activity (2026-10-15, user request)
+
+- Consecutive thinking and tool-call entries in the session transcript merge into one activity block, collapsed by default to a summary ("Thought · 7 tool calls"). User and agent messages are never grouped.
+- While the session is running, the trailing block reads "Working" with a pulse dot and the latest tool, replacing the separate "Agent is working…" row.
+- Expanding shows each step as a short preview: tools on one line, thinking clipped to two lines. The full thinking stays in Paseo ("Open in Paseo").
+- The block's key is its first entry, so expanded state survives streaming updates. Expand uses the shared Enter motion; the chevron rotates.
+- Verified on a live running session: two blocks collapsed, expand works, no console errors (`docs/verification/activity-groups.png`).
+
 ## 8. Acceptance
 
 | Check | Expected |

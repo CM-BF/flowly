@@ -3,6 +3,8 @@ import {
   sessionState,
   openNativeSession,
   recentSessionOutput,
+  groupTranscript,
+  activitySummary,
 } from "./session-state";
 import type { BoardEvent } from "../shared/model";
 
@@ -82,4 +84,22 @@ test("preview extracts only recent text with reader-facing author labels", () =>
       })),
     ),
   ).toHaveLength(18);
+});
+
+test("consecutive thinking and tool calls merge into one activity block", () => {
+  const entry = (key: string, author: string) => ({ key, author, text: key, kind: author });
+  const blocks = groupTranscript([
+    entry("u", "You"),
+    entry("t1", "Thinking"),
+    entry("c1", "Tool"),
+    entry("c2", "Tool"),
+    entry("a", "Agent"),
+    entry("c3", "Tool"),
+  ]);
+  expect(blocks.map((b) => b.kind)).toEqual(["entry", "activity", "entry", "activity"]);
+  const first = blocks[1] as Extract<(typeof blocks)[number], { kind: "activity" }>;
+  expect(first.key).toBe("activity-t1");
+  expect(first.items.map((i) => i.key)).toEqual(["t1", "c1", "c2"]);
+  expect(activitySummary(first)).toBe("Thought · 2 tool calls");
+  expect(activitySummary({ thoughts: 0, tools: 1 })).toBe("1 tool call");
 });
