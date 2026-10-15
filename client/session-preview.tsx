@@ -201,6 +201,19 @@ export function SessionPreview({
   const attention = active
     ? sessionAttention(active, task.id, reads.receipts, events)
     : null;
+  // Opening a session reads it (Paseo parity). "Mark as unread" holds until the view closes.
+  const holdUnread = useRef(false);
+  const autoRead = useRef("");
+  const readsReady = !reads.query.isPending && !reads.query.isError;
+  useEffect(() => {
+    if (!visible || !active || active.archivedAt || task.archivedAt || !attention?.unread || holdUnread.current || !readsReady) return;
+    const key = `${attention.token || ""}|${attention.manualUnread}`;
+    if (autoRead.current === key) return;
+    autoRead.current = key;
+    void reads
+      .markRead({ taskId: task.id, agentId: sessionId, ...(attention.token ? { token: attention.token } : {}) })
+      .catch(() => undefined);
+  }, [visible, active?.id, active?.archivedAt, task.archivedAt, attention?.unread, attention?.token, attention?.manualUnread, readsReady]);
   const output = useMemo(
     () => recentSessionOutput(timeline.data?.entries || []),
     [timeline.data?.entries],
@@ -283,20 +296,33 @@ export function SessionPreview({
     if (!active) return [];
     const runningNow = active.status === "running" || active.status === "initializing";
     return [
-      ...(attention?.unread
-        ? [{
+      attention?.unread
+        ? {
             id: "read",
             label: "Mark as read",
             icon: "MailCheck",
-            disabled: !canWrite || reads.query.isPending || reads.query.isError || !attention.token,
+            disabled: !canWrite || reads.query.isPending || reads.query.isError,
             onPress: () =>
               void perform(async () => {
-                await reads.markRead({ taskId: task.id, agentId: sessionId, token: attention.token! });
+                holdUnread.current = false;
+                await reads.markRead({ taskId: task.id, agentId: sessionId, ...(attention.token ? { token: attention.token } : {}) });
                 toast.show("Marked as read", { variant: "success" });
                 await current.refetch();
               }),
-          }]
-        : []),
+          }
+        : {
+            id: "unread",
+            label: "Mark as unread",
+            icon: "Mail",
+            disabled: !canWrite || reads.query.isPending || reads.query.isError || !!active.archivedAt,
+            onPress: () =>
+              void perform(async () => {
+                // Stay unread while this view is open; opening it again reads it.
+                holdUnread.current = true;
+                await reads.markUnread({ taskId: task.id, agentId: sessionId });
+                toast.show("Marked as unread", { variant: "success" });
+              }),
+          },
       { id: "tools", label: showTools ? "Hide Kanban tools" : "Kanban tools", icon: "Wrench", onPress: () => setShowTools(!showTools) },
       ...(runningNow
         ? [{ id: "stop", label: "Stop", icon: "Square", onPress: () => void config.apply({ stop: true }, "Session stopped") }]

@@ -21,6 +21,7 @@ export default function contribute(server: PluginServerContext) {
   server.handle(rpc.markSessionRead, (input, { paseo }) =>
     readService.mark(input, paseo),
   );
+  server.handle(rpc.markSessionUnread, (input, { paseo }) => readService.markUnread(input, paseo));
   const composer = new ComposerService(new ComposerStore(store.directory), store);
   server.handle(rpc.readComposer, (_, { paseo }) => {
     void composer.drainAll(paseo).catch(() => undefined);

@@ -27,12 +27,25 @@ export const sessionReadStateSchema = z
       ).size === state.receipts.length,
     "Duplicate session read watermark.",
   );
+/**
+ * A user's explicit "Mark as unread" is stored as this session's record with
+ * this token: the session stays unread until it is read again, whatever the
+ * native attention state.
+ */
+export const manualUnreadToken = "manual-unread";
+
 export const markSessionReadInput = z.strictObject({
   taskId: z.string().min(1).max(200),
   agentId: z.string().min(1).max(200),
-  token: z.string().min(1).max(512),
+  /** The attention token the reader saw; omitted when there is none (manual unread only). */
+  token: z.string().min(1).max(512).optional(),
 });
 export type MarkSessionReadInput = z.infer<typeof markSessionReadInput>;
+export const markSessionUnreadInput = z.strictObject({
+  taskId: z.string().min(1).max(200),
+  agentId: z.string().min(1).max(200),
+});
+export type MarkSessionUnreadInput = z.infer<typeof markSessionUnreadInput>;
 
 export interface AttentionAgent {
   id: string;
@@ -69,17 +82,13 @@ export function sessionAttention(
 ) {
   const token = nativeAttentionToken(agent);
   const archived = !!agent.archivedAt;
+  const record = receipts.find(
+    (r) => r.taskId === taskId && r.workspaceId === agent.workspaceId && r.agentId === agent.id,
+  );
+  const manualUnread = record?.token === manualUnreadToken;
   const unread =
     !archived &&
-    agent.requiresAttention === true &&
-    (!token ||
-      !receipts.some(
-        (r) =>
-          r.taskId === taskId &&
-          r.workspaceId === agent.workspaceId &&
-          r.agentId === agent.id &&
-          r.token === token,
-      ));
+    (manualUnread || (agent.requiresAttention === true && (!token || record?.token !== token)));
   const permission =
     !archived &&
     (!!agent.pendingPermissions?.length ||
@@ -118,12 +127,13 @@ export function sessionAttention(
   return {
     token,
     unread,
+    manualUnread: !archived && manualUnread,
     permission,
     error,
     finished,
     running: !archived && agent.status === "running",
     starting: !archived && agent.status === "initializing",
-    readKnown: agent.requiresAttention !== undefined,
+    readKnown: manualUnread || agent.requiresAttention !== undefined,
     needsAttention: unread || permission || error,
   };
 }

@@ -50,7 +50,24 @@ describe("SessionReadStore serialized persistence", () => {
     const input = { taskId: "task", agentId: "agent", token: "t" };
     await reads.mark(input, async () => ({ workspaceId: "workspace", token: "t" }));
     await expect(reads.mark(input, async () => { throw new Error("Session belongs to a different workspace."); })).rejects.toThrow(/different workspace/);
-    await expect(reads.mark({ ...input, token: "unknown" }, async () => ({ workspaceId: "workspace", token: null }))).rejects.toThrow(/no current acknowledgeable/);
+    // Nothing native to acknowledge: a no-op that keeps the existing record (auto-read on open must not fail).
+    await expect(reads.mark({ ...input, token: "unknown" }, async () => ({ workspaceId: "workspace", token: null }))).resolves.toMatchObject({ token: "t" });
+    await expect(reads.mark({ ...input, token: "stale" }, async () => ({ workspaceId: "workspace", token: "newer" }))).rejects.toThrow(/attention changed/);
+  });
+
+  test("mark as unread persists until read again, with or without native attention", async () => {
+    const reads = new SessionReadStore(await temporaryDirectory());
+    const at = { taskId: "task", agentId: "agent" };
+    const ws = async () => ({ workspaceId: "workspace" });
+    await reads.markUnread(at, ws);
+    expect((await reads.read()).receipts).toMatchObject([{ token: "manual-unread" }]);
+    // Reading with no native attention clears the manual mark.
+    await expect(reads.mark(at, async () => ({ workspaceId: "workspace", token: null }))).resolves.toBeNull();
+    expect((await reads.read()).receipts).toEqual([]);
+    // With native attention, reading replaces the mark by a real receipt.
+    await reads.markUnread(at, ws);
+    await reads.mark(at, async () => ({ workspaceId: "workspace", token: "n1" }));
+    expect((await reads.read()).receipts).toMatchObject([{ token: "n1" }]);
   });
 
   test("preserves invalid persisted data and does not create a replacement", async () => {

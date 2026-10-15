@@ -93,7 +93,7 @@ export function TaskDrawer({
     update = useRpc(rpc.updateTask),
     contextRead = useRpc(rpc.taskContext),
     configure = useRpc(rpc.configureSession);
-  const { query: readState, receipts } = useSessionReads();
+  const { query: readState, receipts, markRead, markUnread } = useSessionReads();
   const [selected, setSelected] = useState(sessionEntry?.sessionId || ""),
     [highlighted, setHighlighted] = useState(""),
     [showNew, setShowNew] = useState(false),
@@ -244,6 +244,33 @@ export function TaskDrawer({
       { id: "open", label: a.archivedAt ? "Open to restore" : "Open", icon: "MessageSquare", onPress: () => setSelected(a.id) },
       ...(typeof navigation?.openAgent === "function"
         ? [{ id: "native", label: "Open in Paseo", icon: "ArrowUpRight", onPress: () => openNativeSession(navigation, a.id, hostId) }]
+        : []),
+      ...(!a.archivedAt && active
+        ? (() => {
+            const attention = sessionAttention(a, task.id, receipts, events);
+            const unavailable = readState.isPending || readState.isError;
+            return [
+              attention.unread
+                ? {
+                    id: "read",
+                    label: "Mark as read",
+                    icon: "MailCheck",
+                    disabled: unavailable,
+                    onPress: () =>
+                      void perform(
+                        () => markRead({ taskId: task.id, agentId: a.id, ...(attention.token ? { token: attention.token } : {}) }),
+                        "Marked as read",
+                      ),
+                  }
+                : {
+                    id: "unread",
+                    label: "Mark as unread",
+                    icon: "Mail",
+                    disabled: unavailable,
+                    onPress: () => void perform(() => markUnread({ taskId: task.id, agentId: a.id }), "Marked as unread"),
+                  },
+            ];
+          })()
         : []),
       ...(running
         ? [{

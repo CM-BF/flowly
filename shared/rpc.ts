@@ -16,6 +16,7 @@ import {
   sessionReadStateSchema,
   sessionReadReceiptSchema,
   markSessionReadInput,
+  markSessionUnreadInput,
 } from "./session-attention";
 
 export const readSessionReceipts = defineRpc({
@@ -26,6 +27,12 @@ export const readSessionReceipts = defineRpc({
 export const markSessionRead = defineRpc({
   name: "sessions.mark-read",
   input: markSessionReadInput,
+  /** Null when there was nothing to acknowledge (e.g. only a manual unread mark was cleared). */
+  output: sessionReadReceiptSchema.nullable(),
+});
+export const markSessionUnread = defineRpc({
+  name: "sessions.mark-unread",
+  input: markSessionUnreadInput,
   output: sessionReadReceiptSchema,
 });
 

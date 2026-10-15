@@ -185,6 +185,13 @@ Status: authorized by the user's 2026-10-14 request to redesign the whole Kanban
 - **Create form.** New tasks offer only active statuses (Backlog to Blocked); Done or Cancelled appear only when the task is added from that column. The Status row no longer wraps. Editing still offers every status.
 - Verified on the live board: collapse via the hover button, persistence across reload, expand via click and via the strip menu, E opening Edit, and the create form layout (`docs/verification/collapsed-columns.png`). ⇧H/⇧L is covered by unit tests plus the existing move path. It was not exercised on live cards, to avoid writing status history onto your real tasks.
 
+## 7q. Read on open, mark as unread (2026-10-15, user request)
+
+- Opening a session in the side bar marks it read automatically, matching Paseo. It acknowledges the native attention token it saw. A turn that ends while the session is open is read as well. With no native token there is nothing to acknowledge, so the call is a silent no-op.
+- "Mark as unread" appears in the session header ⋯ menu and in the session row context menu; "Mark as read" appears there whenever the session is unread. A manual unread mark is stored as this session's read-state record with the token `manual-unread`. That keeps the one-record-per-session invariant, and the existing attention logic, cards, Attention list and badges pick it up unchanged. The session stays unread, even without native attention, until it is read again. While the view that marked it stays open, auto-read is held off; opening it again reads it.
+- `sessions.mark-read` input `token` is now optional and output nullable. With no native attention it only clears a manual mark; with native attention it records the current token, and a stale provided token is still rejected. New `sessions.mark-unread`. Both go through the same live-task/session/workspace validation, serialized writes, backup and atomic replace.
+- Verified live on an existing read session: mark unread from the row (card shows 1 unread), open it (auto-read, 0), mark unread from the header while viewing (stays 1), mark read (0, the original state). Unit tests cover the store transitions and the attention computation.
+
 ## 8. Acceptance
 
 | Check | Expected |
