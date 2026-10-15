@@ -111,6 +111,16 @@ Status: authorized by the user's 2026-10-14 request to redesign the whole Kanban
   - question callouts and queued rows (enter rise);
   - the floating "Latest" pill (fade).
 
+## 7k. Side bar headers (2026-10-15, user request)
+
+- Every level of the side bar can close it directly.
+  - **Card details**: project crumb · Edit · "⋯" (Start session, Wrap up… when finished, Archive/Restore card) · Close.
+  - **Session detail**: Back · title/status · Open in Paseo · "⋯" (Mark as read when unread, Kanban tools, Stop when running, Archive session) · Close.
+  - Compact keeps Back on the card level (it is the close) and adds Close at the session level.
+- The manual Refresh button is removed: output, status and sessions poll and subscribe automatically.
+- The session row context menu adds Stop for running sessions. Archive from a row stays disabled while running; the detail view's archive confirms instead.
+- Overflow menus reuse the plugin context menu: floating at the button on desktop, host sheet on compact.
+
 ## 7j. Images in the session transcript (2026-10-15, user report)
 
 - Timeline text carries images as provider placeholders for pasted images (`[Image: source: /abs/path.png]`) and as markdown in agent replies (`![alt](src)`). `extractImages` removes them from the text and renders them under the message: user images right-aligned under the bubble, agent images under the markdown. Thumbnails keep their aspect ratio (bounded), fade in when loaded, and open larger in a sheet.

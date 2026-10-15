@@ -45,7 +45,7 @@ import { TaskMetadata } from "./task-metadata";
 import { Disclosure } from "./disclosure";
 import { WrapupModal } from "./wrapup";
 import { useComposer } from "./composer";
-import { menuHandlers, useMenuOpener, type MenuEntry } from "./context-menu";
+import { eventPoint, menuHandlers, useMenuOpener, type MenuEntry } from "./context-menu";
 import { openNativeSession } from "./session-state";
 import { cardQuestions } from "../shared/progress";
 
@@ -91,7 +91,8 @@ export function TaskDrawer({
   const { colors } = theme;
   const paseo = usePaseo(),
     update = useRpc(rpc.updateTask),
-    contextRead = useRpc(rpc.taskContext);
+    contextRead = useRpc(rpc.taskContext),
+    configure = useRpc(rpc.configureSession);
   const { query: readState, receipts } = useSessionReads();
   const [selected, setSelected] = useState(sessionEntry?.sessionId || ""),
     [highlighted, setHighlighted] = useState(""),
@@ -211,12 +212,47 @@ export function TaskDrawer({
   const liveSessions = ordered.filter((a) => !a.archivedAt);
   const archivedSessions = ordered.filter((a) => !!a.archivedAt);
   const openMenu = useMenuOpener();
+  const finished = task.status === "done" || task.status === "cancelled";
+  const taskActions = (): MenuEntry[] => [
+    {
+      id: "start",
+      label: "Start session",
+      icon: "Play",
+      disabled: unavailable || !!task.archivedAt,
+      onPress: () => setShowNew(true),
+    },
+    ...(finished && !task.archivedAt && !project.archivedAt
+      ? [{ id: "wrap", label: "Wrap up…", icon: "PackageCheck", onPress: () => setShowWrapup(true) }]
+      : []),
+    { kind: "separator" as const, id: "s" },
+    {
+      id: "archive",
+      label: task.archivedAt ? "Restore card" : "Archive card",
+      icon: task.archivedAt ? "ArchiveRestore" : "Archive",
+      danger: !task.archivedAt,
+      disabled: sending,
+      onPress: () =>
+        void perform(
+          () => update({ id: task.id, revision: task.revision, archived: !task.archivedAt }),
+          task.archivedAt ? "Card restored" : "Card archived",
+        ),
+    },
+  ];
   const sessionMenu = (a: (typeof ordered)[number]): MenuEntry[] => {
     const running = a.status === "running" || a.status === "initializing";
     return [
       { id: "open", label: a.archivedAt ? "Open to restore" : "Open", icon: "MessageSquare", onPress: () => setSelected(a.id) },
       ...(typeof navigation?.openAgent === "function"
         ? [{ id: "native", label: "Open in Paseo", icon: "ArrowUpRight", onPress: () => openNativeSession(navigation, a.id, hostId) }]
+        : []),
+      ...(running
+        ? [{
+            id: "stop",
+            label: "Stop",
+            icon: "Square",
+            onPress: () =>
+              void perform(() => configure({ taskId: task.id, agentId: a.id, stop: true }), "Session stopped"),
+          }]
         : []),
       ...(!a.archivedAt
         ? [
@@ -340,6 +376,7 @@ export function TaskDrawer({
             composer.saveDraft(task.id, id, text, expected !== undefined);
           }}
           onBack={() => setSelected("")}
+          onClose={onClose}
           refresh={refreshAll}
         />
       ) : (
@@ -361,17 +398,12 @@ export function TaskDrawer({
               </View>
               <IconButton icon="Pencil" label="Edit task" disabled={!active || sending} onPress={onEdit} />
               <IconButton
-                icon={task.archivedAt ? "ArchiveRestore" : "Archive"}
-                label={task.archivedAt ? "Restore task" : "Archive task"}
-                disabled={!active || sending}
-                onPress={() => void perform(
-                  () => update({ id: task.id, revision: task.revision, archived: !task.archivedAt }),
-                  task.archivedAt ? "Task restored" : "Task archived",
-                )}
+                icon="Ellipsis"
+                label="More task actions"
+                disabled={!active}
+                onPress={(event) => openMenu?.(eventPoint(event), task.title, taskActions())}
               />
-              {!compact && (
-                <IconButton icon="X" label="Close task details" onPress={onClose} />
-              )}
+              {!compact && <IconButton icon="X" label="Close side bar" onPress={onClose} />}
             </View>
             <Label bold size={font.xl} lines={3}>{task.title}</Label>
             <View testID="task-actions" style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: space[2] }}>

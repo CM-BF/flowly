@@ -48,7 +48,7 @@ import { resolveSend, sendBehaviorText, sendBehaviors, type SendBehavior } from 
 import { useComposer } from "./composer";
 import { extractImages } from "../shared/images";
 import { SessionImage } from "./session-image";
-import { menuHandlers, useMenuOpener } from "./context-menu";
+import { eventPoint, menuHandlers, useMenuOpener, type MenuEntry } from "./context-menu";
 import { boardViewSettings, boardViewValues } from "../shared/settings";
 import { ComposerChips, useSessionConfig, type ChipMenuId } from "./session-settings";
 import {
@@ -79,6 +79,7 @@ export function SessionPreview({
   endOperation,
   onDraftChange,
   onBack,
+  onClose,
   refresh,
   visible = true,
 }: {
@@ -96,6 +97,8 @@ export function SessionPreview({
   endOperation(sessionId: string): void;
   onDraftChange(sessionId: string, text: string, expectedDraft?: string): void;
   onBack(): void;
+  /** Close the whole side bar (from any level). */
+  onClose?(): void;
   refresh(): void;
   visible?: boolean;
 }) {
@@ -245,6 +248,44 @@ export function SessionPreview({
       setSending(false);
     }
   }
+  // Header overflow: everything that is not navigation lives here.
+  const sessionActions = (): MenuEntry[] => {
+    if (!active) return [];
+    const runningNow = active.status === "running" || active.status === "initializing";
+    return [
+      ...(attention?.unread
+        ? [{
+            id: "read",
+            label: "Mark as read",
+            icon: "MailCheck",
+            disabled: !canWrite || reads.query.isPending || reads.query.isError || !attention.token,
+            onPress: () =>
+              void perform(async () => {
+                await reads.markRead({ taskId: task.id, agentId: sessionId, token: attention.token! });
+                toast.show("Marked as read", { variant: "success" });
+                await current.refetch();
+              }),
+          }]
+        : []),
+      { id: "tools", label: showTools ? "Hide Kanban tools" : "Kanban tools", icon: "Wrench", onPress: () => setShowTools(!showTools) },
+      ...(runningNow
+        ? [{ id: "stop", label: "Stop", icon: "Square", onPress: () => void config.apply({ stop: true }, "Session stopped") }]
+        : []),
+      ...(!active.archivedAt
+        ? [
+            { kind: "separator" as const, id: "s" },
+            {
+              id: "archive",
+              label: "Archive session",
+              icon: "Archive",
+              danger: true,
+              disabled: !visible || busy,
+              onPress: () => (runningNow ? setConfirmArchive(true) : void archiveSession()),
+            },
+          ]
+        : []),
+    ];
+  };
   async function archiveSession() {
     setConfirmArchive(false);
     let archived = false;
@@ -583,59 +624,6 @@ export function SessionPreview({
             <Label muted size={font.sm}>{task.title}</Label>
           )}
         </View>
-        {attention?.unread && (
-          <IconButton
-            icon="MailCheck"
-            label="Mark as read"
-            disabled={
-              !canWrite ||
-              reads.query.isPending ||
-              reads.query.isError ||
-              !attention.token
-            }
-            onPress={() =>
-              void perform(async () => {
-                await reads.markRead({
-                  taskId: task.id,
-                  agentId: sessionId,
-                  token: attention.token!,
-                });
-                toast.show("Marked as read", { variant: "success" });
-                await current.refetch();
-              })
-            }
-          />
-        )}
-        {active && (
-          <IconButton
-            icon="RefreshCw"
-            label="Refresh output"
-            onPress={() => {
-              void current.refetch();
-              void timeline.refetch();
-            }}
-          />
-        )}
-        {active && (
-          <IconButton
-            icon="Wrench"
-            label={showTools ? "Hide Kanban tools" : "Kanban tools"}
-            active={showTools}
-            onPress={() => setShowTools(!showTools)}
-          />
-        )}
-        {active && !active.archivedAt && (
-          <IconButton
-            icon="Archive"
-            label="Archive session"
-            disabled={!visible || busy}
-            onPress={() =>
-              active.status === "running" || active.status === "initializing"
-                ? setConfirmArchive(true)
-                : void archiveSession()
-            }
-          />
-        )}
         {typeof navigation?.openAgent === "function" && (
           <IconButton
             icon="ArrowUpRight"
@@ -650,6 +638,14 @@ export function SessionPreview({
             }
           />
         )}
+        {active && (
+          <IconButton
+            icon="Ellipsis"
+            label="More session actions"
+            onPress={(event) => openMenu?.(eventPoint(event), active.title || "Session", sessionActions())}
+          />
+        )}
+        {onClose && <IconButton icon="X" label="Close side bar" onPress={onClose} />}
       </View>
       {active && showTools && (
         <MotionReveal transitionKey="session-tools" distance={8} style={{ flexShrink: 0 }}>

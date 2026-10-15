@@ -7,6 +7,7 @@ import {
   Pressable,
   Text,
   View,
+  type GestureResponderEvent,
   type PressableStateCallbackType,
   type StyleProp,
   type ViewStyle,
@@ -200,7 +201,7 @@ export function IconButton({
 }: {
   icon: string;
   label: string;
-  onPress(): void;
+  onPress(event: GestureResponderEvent): void;
   disabled?: boolean;
   active?: boolean;
   color?: string;
