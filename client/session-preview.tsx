@@ -19,7 +19,6 @@ import { useShortcutBlock } from "./shortcuts";
 import {
   usePaseo,
   useRpc,
-  useSettings,
   type PluginSurfaceProps,
 } from "@getpaseo/plugin/client";
 import { useQuery } from "@tanstack/react-query";
@@ -54,7 +53,7 @@ import { imageInputSupported, listenForImages, pickImageFiles, readImages, type 
 import { maxImages } from "../shared/composer";
 import { newMessageId, rememberSentImages, sentImages } from "./sent-images";
 import { eventPoint, menuHandlers, useMenuOpener, type MenuEntry } from "./context-menu";
-import { boardViewSettings, boardViewValues } from "../shared/settings";
+import { useBoardView } from "./board-view";
 import { ComposerChips, useSessionConfig, type ChipMenuId } from "./session-settings";
 import {
   activitySummary,
@@ -238,11 +237,10 @@ export function SessionPreview({
     !unavailable &&
     !current.isError &&
     !busy;
-  const view = useSettings(boardViewSettings);
-  const preferred: SendBehavior = view.status === "ready" ? boardViewValues(view.values).sendBehavior : "steer";
+  const view = useBoardView();
+  const preferred: SendBehavior = view.values?.sendBehavior || "steer";
   const setPreferred = (next: SendBehavior) => {
-    if (view.status === "ready" && boardViewValues(view.values).sendBehavior !== next)
-      void view.save({ ...boardViewValues(view.values), sendBehavior: next }, view.revision);
+    if (view.values && view.values.sendBehavior !== next) void view.update({ sendBehavior: next });
   };
   const composer = useComposer(visible);
   const openMenu = useMenuOpener();

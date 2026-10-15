@@ -5,13 +5,11 @@ import { Modal } from "./modal";
 import {
   usePaseo,
   useRpc,
-  useSettings,
   type PluginSurfaceProps,
   type PluginWorkspacePanelProps,
   type PluginScreenParams,
 } from "@getpaseo/plugin/client";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { boardViewSettings, boardViewValues } from "../shared/settings";
 import * as rpc from "../shared/rpc";
 import {
   priorities,
@@ -67,6 +65,7 @@ import { useSessionReads } from "./session-reads";
 import { sessionAttentionSummary } from "../shared/session-attention";
 import { MotionProvider, MotionReveal, useMotionPresence } from "./motion";
 import { SortableList } from "./sortable-list";
+import { useBoardView } from "./board-view";
 import { OverviewBar } from "./overview-bar";
 import { boardOverview } from "./overview";
 import { enabledStatuses, laneName } from "../shared/lanes";
@@ -181,12 +180,12 @@ function BoardContent(
     queryFn: () => listAgents(paseo),
     refetchInterval: 5000,
   });
-  const viewSettings = useSettings(boardViewSettings);
+  const view = useBoardView();
   const [projectId, setProject] = useState(""),
     [taskId, setTask] = useState(""),
-    [search, setSearch] = useState(""),
-    [priority, setPriority] = useState("all"),
-    [archived, setArchived] = useState(false),
+    [search, setSearchState] = useState(""),
+    [priority, setPriorityState] = useState("all"),
+    [archived, setArchivedState] = useState(false),
     [menu, setMenu] = useState<"projects" | "filters" | "status" | "attention" | "shortcuts" | null>(null),
     [escapeRequest, setEscapeRequest] = useState<{ taskId: string; key: string } | null>(null),
     [startRequest, setStartRequest] = useState<{ taskId: string; key: string } | null>(null),
@@ -201,6 +200,35 @@ function BoardContent(
     [surfaceWidth, setSurfaceWidth] = useState(0),
     [preferredWidth, setPreferredWidth] = useState(440);
   const mutationLock = useRef(false);
+  // Filters are remembered (board-view settings): restored once, then written through.
+  const filtersRestored = useRef(false);
+  useEffect(() => {
+    if (filtersRestored.current || !view.values) return;
+    filtersRestored.current = true;
+    setSearchState(view.values.filterSearch);
+    setPriorityState(view.values.filterPriority);
+    setArchivedState(view.values.showArchived);
+  }, [!!view.values]);
+  const searchSave = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => {
+    if (searchSave.current) clearTimeout(searchSave.current);
+  }, []);
+  const setSearch = (next: string) => {
+    setSearchState(next);
+    if (searchSave.current) clearTimeout(searchSave.current);
+    searchSave.current = setTimeout(() => void view.update({ filterSearch: next.slice(0, 200) }), 500);
+  };
+  const setPriority = (next: string) => {
+    setPriorityState(next);
+    void view.update({ filterPriority: next as "all" });
+  };
+  const setArchived = (next: boolean | ((current: boolean) => boolean)) => {
+    setArchivedState((current) => {
+      const value = typeof next === "function" ? next(current) : next;
+      if (value !== current) void view.update({ showArchived: value });
+      return value;
+    });
+  };
   useEffect(() => {
     setSessionEntry(null);
     setMenu(null);
@@ -289,20 +317,19 @@ function BoardContent(
   const projects = projectOrderOverride
     ? serverProjects.slice().sort((a, b) => projectOrderOverride.indexOf(a.id) - projectOrderOverride.indexOf(b.id))
     : serverProjects;
-  const remembered = viewSettings.status === "ready" ? boardViewValues(viewSettings.values).lastProjectId : "";
-  const boardSort: BoardSort = viewSettings.status === "ready" ? boardViewValues(viewSettings.values).boardSort : "manual";
-  const collapsedColumns = viewSettings.status === "ready" ? boardViewValues(viewSettings.values).collapsedColumns : [];
+  const remembered = view.values?.lastProjectId || "";
+  const boardSort: BoardSort = view.values?.boardSort || "manual";
+  const collapsedColumns = view.values?.collapsedColumns || [];
   const toggleCollapse = (status: Status) => {
-    if (viewSettings.status !== "ready") return;
-    const values = boardViewValues(viewSettings.values);
-    const next = values.collapsedColumns.includes(status)
-      ? values.collapsedColumns.filter((s) => s !== status)
-      : [...values.collapsedColumns, status];
-    void viewSettings.save({ ...values, collapsedColumns: next }, viewSettings.revision);
+    if (!view.values) return;
+    const next = collapsedColumns.includes(status)
+      ? collapsedColumns.filter((s) => s !== status)
+      : [...collapsedColumns, status];
+    void view.update({ collapsedColumns: next });
   };
   const chooseSort = (next: BoardSort) => {
-    if (viewSettings.status !== "ready" || next === boardSort) return;
-    void viewSettings.save({ ...boardViewValues(viewSettings.values), boardSort: next }, viewSettings.revision);
+    if (!view.values || next === boardSort) return;
+    void view.update({ boardSort: next });
   };
   const project =
     projects.find((p) => p.id === projectId) ||
@@ -311,8 +338,7 @@ function BoardContent(
   // Remember an explicit project choice for the next time the board opens.
   const chooseProject = (id: string) => {
     setProject(id);
-    if (viewSettings.status === "ready" && boardViewValues(viewSettings.values).lastProjectId !== id)
-      void viewSettings.save({ ...boardViewValues(viewSettings.values), lastProjectId: id }, viewSettings.revision);
+    if (view.values && view.values.lastProjectId !== id) void view.update({ lastProjectId: id });
   };
   useEffect(() => {
     setActionTask(null);

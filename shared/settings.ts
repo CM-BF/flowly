@@ -1,7 +1,7 @@
 import { defineSettings } from "@getpaseo/plugin";
 import { z } from "zod";
 import { boardSorts } from "./sort";
-import { statusSchema } from "./model";
+import { priorities, statusSchema } from "./model";
 
 /** Host-scoped board view preferences (not board data). */
 export const boardViewSettings = defineSettings({
@@ -18,6 +18,10 @@ export const boardViewSettings = defineSettings({
     boardSort: z.enum(boardSorts).default("manual"),
     /** Desktop columns shown as a narrow strip. */
     collapsedColumns: z.array(statusSchema).max(7).default([]),
+    /** Board filters, remembered between visits. */
+    filterSearch: z.string().max(200).default(""),
+    filterPriority: z.enum(["all", ...priorities]).default("all"),
+    showArchived: z.boolean().default(false),
   }),
 });
 

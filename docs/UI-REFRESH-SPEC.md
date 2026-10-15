@@ -249,6 +249,12 @@ Verified live: collapse widths 280→141→89→48→44 and expand 44→111→18
 - One line is 28 px (20 px line + 4 px padding), clamped up to 108/160 px. The web mirror and native content size use the same padding.
 - Verified with an empty composer and a three-line CJK draft (`docs/verification/composer-multiline.png`).
 
+## 7y. Persisted filters; safe view-setting writes (2026-10-15, user request)
+
+- Filters are remembered with the other board view settings (host-scoped `board-view`): `filterSearch` (saved 500 ms after typing stops), `filterPriority` and `showArchived`. They are restored once when the board opens, and "Reset filters" clears the stored values too. Sort was already stored.
+- Fix: the board, session view and task form each saved the whole `board-view` document against the revision they last saw, and ignored `save()` returning false on a conflict. So one write could silently undo another (e.g. the sort lost when the last project or send behavior was saved). All writes now go through `useBoardView().update(patch)`. It merges the patch into the latest stored values, reloads and retries on a revision conflict (up to 4 attempts), and shows the change immediately until the stored values agree, reverting if it cannot be stored. The merge/retry logic (`saveMerged`) is unit-tested.
+- Verified live: setting sort Priority, search "kanban", priority High and Show archived all survived a reload (3 active filters, search field restored); the user's original sort (Recent activity, no filters) was then restored and confirmed after another reload.
+
 ## 8. Acceptance
 
 | Check | Expected |

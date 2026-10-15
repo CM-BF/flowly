@@ -1,9 +1,10 @@
 import { enabledStatuses, laneName, projectLanes } from "../shared/lanes";
 import { LaneEditor } from "./lane-editor";
+import { useBoardView } from "./board-view";
 import { useState } from "react";
 import { View } from "react-native";
 import { Modal } from "./modal";
-import { usePaseo, useRpc, useSettings } from "@getpaseo/plugin/client";
+import { usePaseo, useRpc } from "@getpaseo/plugin/client";
 import { useQuery } from "@tanstack/react-query";
 import * as rpc from "../shared/rpc";
 import {
@@ -18,7 +19,6 @@ import { priorityLabels } from "./status";
 import { isLegacyScope } from "../shared/scope";
 import { AgentPicker, useAgentChoice, type AgentDefaults } from "./agent-choice";
 import { launchKanbanSession } from "./session";
-import { boardViewSettings, boardViewValues } from "../shared/settings";
 
 export function ProjectForm({
   project: initialProject,
@@ -207,14 +207,12 @@ export function TaskForm({
     () => `card-${Date.now()}-${Math.random().toString(36).slice(2)}`,
   );
   // Optional first agent for a new task (remembered on/off choice).
-  const view = useSettings(boardViewSettings);
+  const view = useBoardView();
   const [startAgent, setStartAgentState] = useState<boolean | null>(null);
-  const startChosen =
-    !task && (startAgent ?? (view.status === "ready" ? boardViewValues(view.values).startAgentOnCreate : true));
+  const startChosen = !task && (startAgent ?? view.values?.startAgentOnCreate ?? true);
   const setStartAgent = (next: boolean) => {
     setStartAgentState(next);
-    if (view.status === "ready" && boardViewValues(view.values).startAgentOnCreate !== next)
-      void view.save({ ...boardViewValues(view.values), startAgentOnCreate: next }, view.revision);
+    if (view.values && view.values.startAgentOnCreate !== next) void view.update({ startAgentOnCreate: next });
   };
   const choice = useAgentChoice({ enabled: startChosen, cwd: project.primaryPath, defaults: agentDefaults });
   // The project's lanes. New tasks start in an active lane (finished ones only
