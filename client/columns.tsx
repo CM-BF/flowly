@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
+import { sortTasks } from "../shared/sort";
 import { Animated, View, type ScrollView as NativeScrollView } from "react-native";
 import { ScrollView } from "@getpaseo/plugin/client/react-native";
 import type { Status, Task } from "../shared/model";
@@ -49,6 +50,9 @@ export function DesktopColumns({
   tasks,
   disabled,
   cancelKey,
+  sortColumn = (column) => sortTasks(column, "manual"),
+  manualOrder = true,
+  onReorderBlocked = () => undefined,
   renderCard,
   onAdd,
   onDrop,
@@ -56,6 +60,12 @@ export function DesktopColumns({
   statuses: Status[];
   tasks: Task[];
   disabled: boolean;
+  /** Orders one column for display. */
+  sortColumn?(tasks: Task[]): Task[];
+  /** Manual sort: drops pick a slot. Otherwise cards only change column (appended in manual order). */
+  manualOrder?: boolean;
+  /** A within-column drop while a non-manual sort is active. */
+  onReorderBlocked?(): void;
   cancelKey: string;
   renderCard(task: Task, drag: CardDrag, dragging: boolean): ReactNode;
   onAdd(status: Status): void;
@@ -82,8 +92,8 @@ export function DesktopColumns({
     live.current = null;
     setDragging(null);
   };
-  const current = useRef({ disabled, onDrop });
-  current.current = { disabled, onDrop };
+  const current = useRef({ disabled, onDrop, manualOrder, onReorderBlocked });
+  current.current = { disabled, onDrop, manualOrder, onReorderBlocked };
   const target = (point: Point) =>
     columnAtPoint(
       point,
@@ -93,7 +103,7 @@ export function DesktopColumns({
     );
   const slot = (task: Task, status: Status | null, point: Point) => {
     const top = status ? listTops.current[status] : undefined;
-    if (!status || top === undefined) return null;
+    if (!status || top === undefined || !current.current.manualOrder) return null;
     const bounds = (order.current[status] || []).flatMap((id) =>
       cards.current[id] ? [{ id, ...cards.current[id] }] : [],
     );
@@ -128,6 +138,10 @@ export function DesktopColumns({
       cancel();
       if (!snapshot || current.current.disabled) return;
       const status = target(point);
+      if (!current.current.manualOrder && status === snapshot.task.status) {
+        current.current.onReorderBlocked();
+        return;
+      }
       const input = placementUpdate(
         snapshot.task,
         status,
@@ -198,13 +212,7 @@ export function DesktopColumns({
         }}
       >
         {statuses.map((status) => {
-          const column = tasks
-            .filter((t) => t.status === status)
-            .sort(
-              (a, b) =>
-                a.position - b.position ||
-                a.createdAt.localeCompare(b.createdAt),
-            );
+          const column = sortColumn(tasks.filter((t) => t.status === status));
           order.current[status] = column.map((t) => t.id);
           const highlighted =
             dragging?.target === status && dragging.task.status !== status;

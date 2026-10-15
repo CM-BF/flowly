@@ -1,5 +1,6 @@
 import { defineSettings } from "@getpaseo/plugin";
 import { z } from "zod";
+import { boardSorts } from "./sort";
 
 /** Host-scoped board view preferences (not board data). */
 export const boardViewSettings = defineSettings({
@@ -12,6 +13,8 @@ export const boardViewSettings = defineSettings({
     sendBehavior: z.enum(["steer", "queue", "interrupt"]).default("steer"),
     /** New task form: start the first agent together with the task. */
     startAgentOnCreate: z.boolean().default(true),
+    /** Order of cards inside each column. */
+    boardSort: z.enum(boardSorts).default("manual"),
   }),
 });
 

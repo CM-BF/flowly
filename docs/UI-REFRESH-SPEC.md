@@ -170,6 +170,14 @@ Status: authorized by the user's 2026-10-14 request to redesign the whole Kanban
 - Exception to "no DOM": `client/web-images.ts` alone listens for paste/drop events on the composer's web node and opens the browser file chooser. It is feature-detected, renders no HTML, and is inert on native.
 - Verified e2e with a disposable fixture card (Haiku session, worktree): pasted image sent immediately (agent answered "Red"), image queued while running then drained ("Blue"), image-only queued message ("Purple"), two images in one message ("Orange, Teal"); composer thumbnails and transcript images in `docs/verification/image-attach-*.png`. Fixture cleaned up: card wrapped up/archived, session archived, worktree removed, test branch deleted, `composer-images/` empty.
 
+## 7o. Board sort mode (2026-10-15, user request)
+
+- A Sort control sits in the board toolbar before Filter. Its menu offers: Manual (default, drag order), Recent activity (the newer of the task's own update and its workspace's latest session update), Priority (urgent first), Newest (created), Title (A–Z, natural numbers). Every mode falls back to the manual order for ties. The same order applies to the compact single-column list.
+- The choice is a host-scoped view setting (`boardSort` in `board-view`), so it survives reloads and doesn't touch board data. A non-manual mode shows its name on the button.
+- In a non-manual mode, dragging a card to another column still changes its status; it is appended in manual order with no insertion line. A drop within the same column does nothing and a toast explains that Manual sort is needed.
+- Sorting is `shared/sort.ts` (`sortTasks`), unit-tested for every mode and its fallback.
+- Verified on the live board: menu entries, choosing Priority, the blocked in-column drag toast, persistence across reload, and switching back to Manual.
+
 ## 8. Acceptance
 
 | Check | Expected |

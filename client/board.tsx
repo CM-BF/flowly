@@ -1,5 +1,5 @@
 import { useEffect, useId, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import { Animated, Platform, Pressable, View } from "react-native";
+import { Animated, Platform, Pressable, View, type GestureResponderEvent } from "react-native";
 import { Icon, ScrollView, useToast } from "@getpaseo/plugin/client/react-native";
 import { Modal } from "./modal";
 import {
@@ -61,7 +61,7 @@ import { LiveTaskCard, type CardDrag } from "./card";
 import { pickOutputSession } from "./card-output";
 import { cardQuestions } from "../shared/progress";
 import { statusChanges } from "./changes";
-import { ContextMenuProvider, menuHandlers, suppressNativeMenu, useMenuOpener, type MenuEntry } from "./context-menu";
+import { ContextMenuProvider, eventPoint, menuHandlers, suppressNativeMenu, useMenuOpener, type MenuEntry } from "./context-menu";
 import { DesktopColumns, type Placement } from "./columns";
 import { ResizeGrip } from "./resize";
 import { drawerWidth, isCompactLayout } from "./geometry";
@@ -69,6 +69,7 @@ import { useSessionReads } from "./session-reads";
 import { sessionAttentionSummary } from "../shared/session-attention";
 import { MotionProvider, MotionReveal, useMotionPresence } from "./motion";
 import { SortableList } from "./sortable-list";
+import { boardSortText, boardSorts, sortTasks, type BoardSort } from "../shared/sort";
 import {
   parseSessionLink,
   resolveSessionLink,
@@ -296,6 +297,11 @@ function BoardContent(
     ? serverProjects.slice().sort((a, b) => projectOrderOverride.indexOf(a.id) - projectOrderOverride.indexOf(b.id))
     : serverProjects;
   const remembered = viewSettings.status === "ready" ? boardViewValues(viewSettings.values).lastProjectId : "";
+  const boardSort: BoardSort = viewSettings.status === "ready" ? boardViewValues(viewSettings.values).boardSort : "manual";
+  const chooseSort = (next: BoardSort) => {
+    if (viewSettings.status !== "ready" || next === boardSort) return;
+    void viewSettings.save({ ...boardViewValues(viewSettings.values), boardSort: next }, viewSettings.revision);
+  };
   const project =
     projects.find((p) => p.id === projectId) ||
     projects.find((p) => p.id === remembered) ||
@@ -329,12 +335,16 @@ function BoardContent(
   const shownStatuses = statuses.filter(
     (s) => !hideFinished || (s !== "done" && s !== "cancelled"),
   );
-  const list = visible
-    .filter((t) => t.status === mobileStatus)
-    .sort(
-      (a, b) =>
-        a.position - b.position || a.createdAt.localeCompare(b.createdAt),
-    );
+  // Latest session activity per task (its workspace's newest session update).
+  const taskActivity = useMemo(() => {
+    const byWorkspace = new Map<string, string>();
+    for (const a of agents.data || [])
+      if (a.workspaceId && a.updatedAt && (byWorkspace.get(a.workspaceId) || "") < a.updatedAt)
+        byWorkspace.set(a.workspaceId, a.updatedAt);
+    return new Map((board?.tasks || []).flatMap((t) => (byWorkspace.has(t.workspaceId) ? [[t.id, byWorkspace.get(t.workspaceId)!]] : [])));
+  }, [agents.data, board?.tasks]);
+  const sortColumn = (column: Task[]) => sortTasks(column, boardSort, taskActivity);
+  const list = sortColumn(visible.filter((t) => t.status === mobileStatus));
   // Status-change flash: remember the last snapshot, emphasize cards that moved.
   const statusMemory = useRef<Map<string, string> | null>(null);
   const [flashing, setFlashing] = useState<ReadonlySet<string>>(new Set());
@@ -641,6 +651,22 @@ function BoardContent(
               shortcut={shortcutsOn ? "A" : ""}
               onPress={() => setMenu("attention")}
             />
+            <SortButton
+              mode={boardSort}
+              compact={compact}
+              onPress={(event) =>
+                openMenu?.(eventPoint(event), "Sort cards", [
+                  { kind: "label", id: "label", label: "Sort cards in each column" },
+                  ...boardSorts.map((mode) => ({
+                    id: mode,
+                    label: boardSortText[mode].label,
+                    icon: sortIcons[mode],
+                    checked: mode === boardSort,
+                    onPress: () => chooseSort(mode),
+                  })),
+                ])
+              }
+            />
             <FilterButton
               count={filterCount}
               compact={compact}
@@ -781,6 +807,11 @@ function BoardContent(
                     tasks={visible}
                     disabled={pending || !!project.archivedAt}
                     cancelKey={`${project.id}|${search}|${priority}|${archived}|${hideFinished}|${taskId}|${menu}|${actionTask?.id}|${projectForm}|${!!taskForm}`}
+                    sortColumn={sortColumn}
+                    manualOrder={boardSort === "manual"}
+                    onReorderBlocked={() =>
+                      toast.show(`Sorted by ${boardSortText[boardSort].label.toLowerCase()}. Switch to Manual to reorder within a column.`, { variant: "info" })
+                    }
                     renderCard={renderCard}
                     onAdd={(status) => setTaskForm({ status })}
                     onDrop={place}
@@ -1342,6 +1373,48 @@ function AttentionButton({
         </Label>
       )}
       {!!count && <CountPill text={attentionBadgeText(count) || ""} />}
+    </Pressable>
+  );
+}
+
+const sortIcons: Record<BoardSort, string> = {
+  manual: "GripVertical",
+  activity: "Activity",
+  priority: "SignalHigh",
+  created: "CalendarPlus",
+  title: "ArrowDownAZ",
+};
+
+function SortButton({ mode, compact, onPress }: { mode: BoardSort; compact: boolean; onPress(event: GestureResponderEvent): void }) {
+  const { colors } = useTheme();
+  const custom = mode !== "manual";
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={`Sort cards: ${boardSortText[mode].label}`}
+      onPress={onPress}
+      style={(state) => {
+        const { pressed, hovered: hover, focused } = state as typeof state & { hovered?: boolean; focused?: boolean };
+        return {
+          ...noFocusRing,
+          flexDirection: "row",
+          alignItems: "center",
+          gap: space[1.5],
+          height: touch ? 44 : 32,
+          minWidth: touch ? 44 : 32,
+          justifyContent: "center",
+          paddingHorizontal: compact ? 0 : space[2] + 2,
+          borderRadius: radius.md,
+          backgroundColor: hover || focused || pressed ? colors.surface2 : "transparent",
+        };
+      }}
+    >
+      <Icon name="ArrowUpDown" size={15} color={custom ? colors.foreground : colors.foregroundMuted} />
+      {!compact && (
+        <Label size={font.md} medium muted={!custom} selectable={false}>
+          {custom ? boardSortText[mode].label : "Sort"}
+        </Label>
+      )}
     </Pressable>
   );
 }
