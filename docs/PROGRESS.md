@@ -6,7 +6,8 @@
 - [x] Data: `board.ideas` (absent reads as `[]`, board stays v4), optional `task.origin`, receipt action `idea`. Agent tool `kanban_propose_idea` (signed request, replay, `IDEA_DUPLICATE`, `IDEA_LIMIT` 10 open, 50 kept per card), `kanban_get_task` lists the card's ideas, CLI `idea` subcommand, skill rule. `ideas.update` (dismiss/restore). `tasks.create` with `ideaId` checks before the workspace and again in the write, linking both ways atomically. Card delete / project remove back up and drop ideas.
 - [x] Client: lightbulb count on cards, drawer Ideas section (open cards with Create task / Dismiss, closed group with links and Restore), "From idea on …" line, new-task form prefilled from the idea and source progress ("Create task from idea"); session context line `Derived from card: …`.
 - [x] PASS: typecheck; `npm test` 279 passed / 63 skipped (new `server/ideas.test.ts`, tool-server MCP/CLI idea checks). Plugin reloaded.
-- [ ] Luna (`codex/gpt-6-luna`, full access) live acceptance: see [verification](verification/ideas.md).
+- [x] Luna (`codex/gpt-6-luna`, full access) live acceptance, test session `c8e2e1b0`: MCP and CLI proposals, duplicate refusal, dismiss/restore, create-from-idea links and `Derived from card` context, reuse refused without a new workspace, delete backup; fixtures cleaned to the baseline counts. [Verification](verification/ideas.md).
+- [ ] UNRUN: UI acceptance of the lightbulb badge, drawer Ideas section, prefilled form and "From idea on …" line (the tester could not identify the non-fullscreen window); compact/phone layout on a device.
 
 ## App performance — 2026-10-15
 

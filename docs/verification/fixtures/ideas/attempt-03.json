@@ -1,0 +1,1791 @@
+{
+  "startedAt": "2026-10-15T15:57:44.865Z",
+  "provider": "codex/gpt-6-luna",
+  "modeIdAtCreation": "full-access",
+  "baseline": {
+    "workspaceCount": 27,
+    "board": {
+      "revision": 818,
+      "projectCount": null,
+      "taskCount": null,
+      "ideaCount": null
+    },
+    "nativeProjectCount": 21,
+    "nativeProjectIds": [
+      "remote:git.garena.com/shopee/deep/agent-smith",
+      "remote:git.garena.com/shopee/deep/bff-search",
+      "/Users/bofan.wang/Developer/search",
+      "/Users/bofan.wang/Developer/personal/PetCam",
+      "remote:github.com/JasprW/WeModern",
+      "/Users/bofan.wang/Developer/search-oracle",
+      "remote:git.garena.com/shopee/mall-fe/core-fe-sr/search-admin",
+      "prj_365bb1f26bfae56e",
+      "prj_2f0d51e382c85503",
+      "prj_ad86eaa675185454",
+      "prj_5eca2ed82a060503",
+      "prj_bf5e321cd26a40d3",
+      "prj_a274b79cf12ca7cd",
+      "prj_12cd06cf15d8395e",
+      "prj_fc2f8caf3203aadd",
+      "prj_32b4ebd684c56a8f",
+      "prj_c7e215952ce37297",
+      "prj_4a55a77104f470f3",
+      "prj_a499b8027a387569",
+      "prj_a1bb72dba6d6f30c",
+      "prj_38f7ad9da87af3ae"
+    ],
+    "agentCount": 200
+  },
+  "fixtures": {
+    "directory": "/var/folders/0b/f1crzdg95g5fwbq49s_3pw9c0000gq/T/paseo-ultra-kanban-ideas-70rUHm",
+    "project": {
+      "id": "8842d804-ae04-478f-9dbc-078eee0200f4",
+      "title": "Ideas acceptance b905e1fe",
+      "description": "Disposable Ideas feature acceptance fixture.",
+      "paseoProjectId": "prj_d81d9066cea3fd37",
+      "primaryPath": "/private/var/folders/0b/f1crzdg95g5fwbq49s_3pw9c0000gq/T/paseo-ultra-kanban-ideas-70rUHm",
+      "repos": [
+        "/private/var/folders/0b/f1crzdg95g5fwbq49s_3pw9c0000gq/T/paseo-ultra-kanban-ideas-70rUHm"
+      ],
+      "revision": 1,
+      "createdAt": "2026-10-15T15:57:45.936Z",
+      "updatedAt": "2026-10-15T15:57:45.936Z",
+      "archivedAt": null
+    },
+    "cardA": {
+      "id": "43354f7a-ed33-46bf-bccf-01134fdf4077",
+      "projectId": "8842d804-ae04-478f-9dbc-078eee0200f4",
+      "workspaceId": "wks_78419a8286701ae5",
+      "sourcePath": "/private/var/folders/0b/f1crzdg95g5fwbq49s_3pw9c0000gq/T/paseo-ultra-kanban-ideas-70rUHm",
+      "repoPaths": [
+        "/private/var/folders/0b/f1crzdg95g5fwbq49s_3pw9c0000gq/T/paseo-ultra-kanban-ideas-70rUHm"
+      ],
+      "title": "Ideas acceptance source card",
+      "description": "Disposable source card for live Ideas acceptance.",
+      "status": "todo",
+      "priority": "normal",
+      "position": 0,
+      "revision": 1,
+      "operationId": "ideas-card-a-6c6e999a-8c84-4810-b600-c500bab31a8d",
+      "createdAt": "2026-10-15T15:57:45.984Z",
+      "updatedAt": "2026-10-15T15:57:45.984Z",
+      "archivedAt": null,
+      "ownsWorkspace": true
+    },
+    "preallocatedAgentId": "a9798237-56f7-4de4-b8f4-60fe2291bcd0",
+    "workspace": {
+      "id": "wks_78419a8286701ae5",
+      "path": "/private/var/folders/0b/f1crzdg95g5fwbq49s_3pw9c0000gq/T/paseo-ultra-kanban-ideas-70rUHm"
+    },
+    "worker": {
+      "id": "a9798237-56f7-4de4-b8f4-60fe2291bcd0",
+      "provider": "codex/gpt-6-luna",
+      "modeId": "full-access",
+      "createdAt": "2026-10-15T15:57:48.785Z",
+      "setupStatus": "idle",
+      "turn": {
+        "status": "idle",
+        "lastMessage": "{\n  \"mcp_results\": [\n    {\"step\": 1, \"success\": true, \"errorCode\": null, \"ideasIsArray\": true},\n    {\"step\": 2, \"success\": true, \"errorCode\": null},\n    {\"step\": 3, \"success\": true, \"errorCode\": null},\n    {\n      \"step\": 4,\n      \"success\": false,\n      \"errorCode\": \"IDEA_DUPLICATE\",\n      \"message\": \"This card already has an open idea with that title.\"\n    },\n    {\n      \"step\": 5,\n      \"success\": true,\n      \"errorCode\": null,\n      \"ideas\": [\n        {\"id\": \"3cddf50b-3c7a-4e70-9b6a-01fb452f18b2\", \"title\": \"Live Ideas Bugfix Alpha\", \"status\": \"open\"},\n        {\"id\": \"3a0712db-ae76-4895-81d1-87a488bf5ac5\", \"title\": \"Live Ideas Minimal Beta\", \"status\": \"open\"}\n      ]\n    }\n  ],\n  \"cli_fallback\": {\"success\": true, \"ideaTitle\": \"Live Ideas CLI Gamma\", \"snapshotRemoved\": true}\n}",
+        "elapsedMs": 68639
+      },
+      "timeline": [
+        {
+          "type": "tool_call",
+          "name": "ultra-kanban.kanban_get_task",
+          "status": "completed"
+        },
+        {
+          "type": "tool_call",
+          "name": "ultra-kanban.kanban_propose_idea",
+          "status": "completed"
+        },
+        {
+          "type": "tool_call",
+          "name": "ultra-kanban.kanban_get_task",
+          "status": "completed"
+        },
+        {
+          "type": "tool_call",
+          "name": "ultra-kanban.kanban_propose_idea",
+          "status": "completed"
+        },
+        {
+          "type": "tool_call",
+          "name": "ultra-kanban.kanban_get_task",
+          "status": "completed"
+        },
+        {
+          "type": "tool_call",
+          "name": "ultra-kanban.kanban_propose_idea",
+          "status": "failed"
+        },
+        {
+          "type": "tool_call",
+          "name": "ultra-kanban.kanban_get_task",
+          "status": "completed"
+        },
+        {
+          "type": "tool_call",
+          "name": "shell",
+          "status": "completed",
+          "detail": {
+            "command": "node -e 'const cp=require(\\\"node:child_process\\\"),fs=require(\\\"node:fs\\\"); const cli=\\\"/Users/bofan.wang/.paseo/plugin-data/paseo-ultra-kanban/ultra-kanban.mjs\\\",ctx=\\\"/Users/bofan.wang/.paseo/plugin-data/paseo-ultra-kanban/sessions/a9798237-56f7-4de4-b8f4-60fe2291bcd0.json\\\",snap=\"'`/tmp/paseo-ideas-accept-${process.pid}.json`; let out=\"\",code=1; try { const a=cp.spawnSync(\"node\",[cli,\"--context-file\",ctx,\"current\",\"--save-request\",snap],{encoding:\"utf8\"}); if(a.status!==0) {out=a.stderr||a.stdout; code=a.status||1;} else {const b=cp.spawnSync(\"node\",[cli,\"--context-file\",ctx,\"idea\",\"--request-file\",snap,\"--title\",\"Live Ideas CLI Gamma\",\"--detail\",\"Add a focused regression check.\",\"--rationale\",\"The live acceptance path should stay protected.\"],{encoding:\"utf8\"}); out=b.stdout||b.stderr; code=b.status||0;} } finally {if(fs.existsSync(snap)) fs.unlinkSync(snap);} out=out.replace(/(\"?(?:request|signature|signedRequest|token|credential|authorization)\"?'\"\\\\\\\\s*[:=]\\\\\\\\s*)(\\\"[\"'^\"'\"\\\\\\\\\\\\\\\\]*(?:\\\\\\\\\\\\\\\\.[\"'^\"'\"\\\\\\\\\\\\\\\\]*)*\\\"|[\"'^,'\"\\\\\\\\s}]+)/gi,\\\"\"'$1[REDACTED]\"); process.stdout.write(JSON.stringify({exit_code:code,output:out})); process.exitCode=code; '\"'"
+          }
+        }
+      ],
+      "report": {
+        "mcp_results": [
+          {
+            "step": 1,
+            "success": true,
+            "errorCode": null,
+            "ideasIsArray": true
+          },
+          {
+            "step": 2,
+            "success": true,
+            "errorCode": null
+          },
+          {
+            "step": 3,
+            "success": true,
+            "errorCode": null
+          },
+          {
+            "step": 4,
+            "success": false,
+            "errorCode": "IDEA_DUPLICATE",
+            "message": "This card already has an open idea with that title."
+          },
+          {
+            "step": 5,
+            "success": true,
+            "errorCode": null,
+            "ideas": [
+              {
+                "id": "3cddf50b-3c7a-4e70-9b6a-01fb452f18b2",
+                "title": "Live Ideas Bugfix Alpha",
+                "status": "open"
+              },
+              {
+                "id": "3a0712db-ae76-4895-81d1-87a488bf5ac5",
+                "title": "Live Ideas Minimal Beta",
+                "status": "open"
+              }
+            ]
+          }
+        ],
+        "cli_fallback": {
+          "success": true,
+          "ideaTitle": "Live Ideas CLI Gamma",
+          "snapshotRemoved": true
+        }
+      }
+    },
+    "mcpUrl": "http://127.0.0.1:56670/mcp",
+    "derived": {
+      "id": "80a46e58-6ea8-4d97-8136-b90460ebe3ac",
+      "projectId": "8842d804-ae04-478f-9dbc-078eee0200f4",
+      "workspaceId": "wks_e1c7d94bf65dce6b",
+      "sourcePath": "/private/var/folders/0b/f1crzdg95g5fwbq49s_3pw9c0000gq/T/paseo-ultra-kanban-ideas-70rUHm",
+      "repoPaths": [
+        "/private/var/folders/0b/f1crzdg95g5fwbq49s_3pw9c0000gq/T/paseo-ultra-kanban-ideas-70rUHm"
+      ],
+      "title": "Live Ideas Bugfix Alpha",
+      "description": "Repair the fixture behavior and verify the edge case.\n\nWhy: The acceptance run found a reproducible bug.\n\nContext:\nFile: src/example.ts; branch: ideas-fixture; reproduce with the documented fixture input.\n\nFrom card: Ideas acceptance source card (43354f7a-ed33-46bf-bccf-01134fdf4077)",
+      "status": "todo",
+      "priority": "high",
+      "type": "bugfix",
+      "position": 1,
+      "revision": 1,
+      "operationId": "ideas-derived-488f5c25-2fb6-4919-bf21-20db700c014c",
+      "createdAt": "2026-10-15T15:59:03.232Z",
+      "updatedAt": "2026-10-15T15:59:03.232Z",
+      "archivedAt": null,
+      "ownsWorkspace": true,
+      "origin": {
+        "taskId": "43354f7a-ed33-46bf-bccf-01134fdf4077",
+        "ideaId": "3cddf50b-3c7a-4e70-9b6a-01fb452f18b2"
+      }
+    },
+    "nativeBeforeCleanup": {
+      "nativeProjects": [
+        {
+          "projectId": "remote:git.garena.com/shopee/deep/agent-smith"
+        },
+        {
+          "projectId": "remote:git.garena.com/shopee/deep/bff-search"
+        },
+        {
+          "projectId": "/Users/bofan.wang/Developer/search"
+        },
+        {
+          "projectId": "/Users/bofan.wang/Developer/personal/PetCam"
+        },
+        {
+          "projectId": "remote:github.com/JasprW/WeModern"
+        },
+        {
+          "projectId": "/Users/bofan.wang/Developer/search-oracle"
+        },
+        {
+          "projectId": "remote:git.garena.com/shopee/mall-fe/core-fe-sr/search-admin"
+        },
+        {
+          "projectId": "prj_365bb1f26bfae56e"
+        },
+        {
+          "projectId": "prj_2f0d51e382c85503"
+        },
+        {
+          "projectId": "prj_ad86eaa675185454"
+        },
+        {
+          "projectId": "prj_5eca2ed82a060503"
+        },
+        {
+          "projectId": "prj_bf5e321cd26a40d3"
+        },
+        {
+          "projectId": "prj_a274b79cf12ca7cd"
+        },
+        {
+          "projectId": "prj_12cd06cf15d8395e"
+        },
+        {
+          "projectId": "prj_fc2f8caf3203aadd"
+        },
+        {
+          "projectId": "prj_32b4ebd684c56a8f"
+        },
+        {
+          "projectId": "prj_c7e215952ce37297"
+        },
+        {
+          "projectId": "prj_4a55a77104f470f3"
+        },
+        {
+          "projectId": "prj_a499b8027a387569"
+        },
+        {
+          "projectId": "prj_a1bb72dba6d6f30c"
+        },
+        {
+          "projectId": "prj_38f7ad9da87af3ae"
+        },
+        {
+          "projectId": "prj_d81d9066cea3fd37"
+        }
+      ],
+      "agents": [
+        {
+          "id": "c8e2e1b0-3137-4a05-8a96-f430f0008b60",
+          "status": "running",
+          "archivedAt": null
+        },
+        {
+          "id": "a9798237-56f7-4de4-b8f4-60fe2291bcd0",
+          "status": "idle",
+          "archivedAt": null
+        },
+        {
+          "id": "73f7db1d-d4fa-4195-b668-fc754491c3ca",
+          "status": "idle",
+          "archivedAt": null
+        },
+        {
+          "id": "12e00042-d324-4a81-b960-79798cdfea56",
+          "status": "idle",
+          "archivedAt": null
+        },
+        {
+          "id": "e7b7b4ea-6e7e-4edd-a9e5-857a0bc46e1e",
+          "status": "idle",
+          "archivedAt": null
+        },
+        {
+          "id": "fdfe6286-29e6-47ac-bbf3-f9b30f6b209e",
+          "status": "idle",
+          "archivedAt": null
+        },
+        {
+          "id": "98725faa-b030-4af9-be3b-3b86b6df2a33",
+          "status": "idle",
+          "archivedAt": null
+        },
+        {
+          "id": "17975bba-3fa8-4427-9fcc-0754fd29b43f",
+          "status": "idle",
+          "archivedAt": null
+        },
+        {
+          "id": "6545410a-deef-4c60-b60d-8d4d9a268bf4",
+          "status": "idle",
+          "archivedAt": null
+        },
+        {
+          "id": "f8340275-eae8-4b9d-aa27-ddfa5abe6617",
+          "status": "idle",
+          "archivedAt": null
+        },
+        {
+          "id": "17a4e470-1564-47db-ab5d-5e816e1a259c",
+          "status": "idle",
+          "archivedAt": null
+        },
+        {
+          "id": "e828894d-539f-4390-9475-9c1e9a12c79b",
+          "status": "idle",
+          "archivedAt": null
+        },
+        {
+          "id": "f55dec59-c0d7-48f9-b11d-80d9df3831fb",
+          "status": "idle",
+          "archivedAt": null
+        },
+        {
+          "id": "532fb9d5-c774-4222-8e12-35decc0ffb48",
+          "status": "idle",
+          "archivedAt": null
+        },
+        {
+          "id": "3ab69f92-2079-4d4c-beed-9f6d1f2ff40f",
+          "status": "idle",
+          "archivedAt": null
+        },
+        {
+          "id": "3635525e-d218-439c-9761-86f84f25051a",
+          "status": "idle",
+          "archivedAt": null
+        },
+        {
+          "id": "c14e89f5-9187-44d7-8b93-d37fdd355e5d",
+          "status": "idle",
+          "archivedAt": null
+        },
+        {
+          "id": "e3a266eb-6f5c-431a-b866-b8e952c99e41",
+          "status": "idle",
+          "archivedAt": null
+        },
+        {
+          "id": "18373ac1-446e-4e69-808e-798fcff17b50",
+          "status": "idle",
+          "archivedAt": null
+        },
+        {
+          "id": "4abe0ea1-6b28-489c-93e1-20602450e7b8",
+          "status": "idle",
+          "archivedAt": null
+        },
+        {
+          "id": "af292680-c2a8-45c7-97bf-5793a48df6f1",
+          "status": "idle",
+          "archivedAt": null
+        },
+        {
+          "id": "61ccb3aa-b314-4012-863c-b093b42e8fca",
+          "status": "idle",
+          "archivedAt": null
+        },
+        {
+          "id": "e92ee0f9-daae-4bfb-8ca9-7c686eae0323",
+          "status": "idle",
+          "archivedAt": null
+        },
+        {
+          "id": "7e8466b5-c037-489d-9b71-bab7239194d1",
+          "status": "idle",
+          "archivedAt": null
+        },
+        {
+          "id": "a43fefa7-66df-4b69-84a9-16f13d5bdbda",
+          "status": "idle",
+          "archivedAt": null
+        },
+        {
+          "id": "369c2209-14b6-48aa-8c3d-2f7c999e87d0",
+          "status": "idle",
+          "archivedAt": null
+        },
+        {
+          "id": "1c059150-20f1-4f2c-8a46-2b55469c2eea",
+          "status": "idle",
+          "archivedAt": null
+        },
+        {
+          "id": "7ca365d7-f7ca-4d4c-bd4b-c043a50da12a",
+          "status": "idle",
+          "archivedAt": null
+        },
+        {
+          "id": "99d292c3-516b-4c35-b77b-81e5162fbbb1",
+          "status": "idle",
+          "archivedAt": null
+        },
+        {
+          "id": "c3a5ed9b-fd97-4b2f-9bca-f15f67c0c7a5",
+          "status": "idle",
+          "archivedAt": null
+        },
+        {
+          "id": "c0f25b55-5b3b-4277-91b9-bb54194853ae",
+          "status": "closed",
+          "archivedAt": null
+        },
+        {
+          "id": "b7805f84-f9a4-4a05-bced-db394432fc4a",
+          "status": "closed",
+          "archivedAt": null
+        },
+        {
+          "id": "2dcf146f-26e0-43a4-8a69-e850a792c4c6",
+          "status": "closed",
+          "archivedAt": null
+        },
+        {
+          "id": "500e1cfc-cf4c-41cf-8fdc-2ccdf8615d6b",
+          "status": "closed",
+          "archivedAt": null
+        },
+        {
+          "id": "7e1b988d-0425-4f5e-b002-d9c4d63b6bd5",
+          "status": "closed",
+          "archivedAt": null
+        },
+        {
+          "id": "99fc9ddb-4d33-4964-8f0b-e8bfbea3ba3d",
+          "status": "closed",
+          "archivedAt": null
+        },
+        {
+          "id": "11c634ae-e3fa-4a3b-8333-8c819d35cf7f",
+          "status": "closed",
+          "archivedAt": null
+        },
+        {
+          "id": "2cc42bc7-a93c-48c5-b77c-58899e597fb8",
+          "status": "closed",
+          "archivedAt": null
+        },
+        {
+          "id": "ee5d10f1-64c6-4b7e-a0c8-d842953637db",
+          "status": "closed",
+          "archivedAt": null
+        },
+        {
+          "id": "65329e25-3e46-4bed-8098-629e8f3267c9",
+          "status": "closed",
+          "archivedAt": null
+        },
+        {
+          "id": "06198a74-5b06-4bed-b88e-76967d327e35",
+          "status": "closed",
+          "archivedAt": null
+        },
+        {
+          "id": "773b99af-9c56-4617-9e2c-5316330419e6",
+          "status": "closed",
+          "archivedAt": null
+        },
+        {
+          "id": "f77e536f-3fed-4317-a34f-dc8e9e346baa",
+          "status": "closed",
+          "archivedAt": null
+        },
+        {
+          "id": "117a0ff5-bbb5-41f7-8bee-b60a20ec94c6",
+          "status": "closed",
+          "archivedAt": null
+        },
+        {
+          "id": "d6c32c7d-3f69-49f1-91a0-630b7b2c3819",
+          "status": "closed",
+          "archivedAt": null
+        },
+        {
+          "id": "ed308f08-9c32-4a72-a04c-a27efe31be80",
+          "status": "closed",
+          "archivedAt": null
+        },
+        {
+          "id": "ba44f5f1-f6e5-482e-9795-e37bfeae4624",
+          "status": "closed",
+          "archivedAt": null
+        },
+        {
+          "id": "8606f554-0673-454b-8899-33a72e633746",
+          "status": "closed",
+          "archivedAt": null
+        },
+        {
+          "id": "49e0b666-0fe9-4d71-b8c0-046ba1b9a36f",
+          "status": "closed",
+          "archivedAt": null
+        },
+        {
+          "id": "567a6c78-de51-4990-bbaa-5389ddc55a66",
+          "status": "closed",
+          "archivedAt": null
+        },
+        {
+          "id": "bef083f7-fa61-41d2-94fc-fde670af2fb2",
+          "status": "closed",
+          "archivedAt": null
+        },
+        {
+          "id": "56fe04d1-ce0e-4118-af7d-25f6df93eca7",
+          "status": "closed",
+          "archivedAt": null
+        },
+        {
+          "id": "ca07e341-13f0-4f69-867b-8d4f72421e63",
+          "status": "closed",
+          "archivedAt": null
+        },
+        {
+          "id": "e10a5777-9089-48df-9175-a96f4b1b32ba",
+          "status": "closed",
+          "archivedAt": null
+        },
+        {
+          "id": "85ec846d-c2a8-4e05-b258-b02fc54d1cc4",
+          "status": "closed",
+          "archivedAt": null
+        },
+        {
+          "id": "5395b3b4-ea01-4fc5-95e1-56806a7e4a63",
+          "status": "closed",
+          "archivedAt": null
+        },
+        {
+          "id": "f7831e48-9a7e-4bc0-8e7d-9082ca4b841c",
+          "status": "closed",
+          "archivedAt": null
+        },
+        {
+          "id": "b2080d0b-2271-4366-9562-4fb493aa0c3a",
+          "status": "closed",
+          "archivedAt": null
+        },
+        {
+          "id": "c6aba6f5-aa2b-408e-8da4-ca9a08eaacf1",
+          "status": "closed",
+          "archivedAt": null
+        },
+        {
+          "id": "4cc9d427-a618-430f-94a1-1209f940f626",
+          "status": "closed",
+          "archivedAt": null
+        },
+        {
+          "id": "b0d0317a-39e1-4323-bc8b-71ef53b8aa8c",
+          "status": "closed",
+          "archivedAt": null
+        },
+        {
+          "id": "31d60690-b481-4a52-b219-9d5dfb93b24a",
+          "status": "closed",
+          "archivedAt": null
+        },
+        {
+          "id": "a5c12841-8d84-4172-aa69-722c327f89d2",
+          "status": "closed",
+          "archivedAt": null
+        },
+        {
+          "id": "294b743e-9324-4e1c-b796-a0fcdb45f113",
+          "status": "closed",
+          "archivedAt": null
+        },
+        {
+          "id": "1ea75640-1707-4c85-997d-867f38ec8774",
+          "status": "closed",
+          "archivedAt": null
+        },
+        {
+          "id": "6aed8f97-83bf-429b-bb7e-1793b33d92f0",
+          "status": "closed",
+          "archivedAt": null
+        },
+        {
+          "id": "1bb428cf-e279-410e-874c-3920ff77aa4a",
+          "status": "closed",
+          "archivedAt": null
+        },
+        {
+          "id": "f338a1fe-a9db-4185-a458-ce337d970720",
+          "status": "closed",
+          "archivedAt": null
+        },
+        {
+          "id": "7fb245c2-0cd8-46ad-b99d-3f55f0a46dc9",
+          "status": "closed",
+          "archivedAt": null
+        },
+        {
+          "id": "54d4209d-e8fc-446f-8305-e6dd2b38b28b",
+          "status": "closed",
+          "archivedAt": null
+        },
+        {
+          "id": "dc7bcda9-a4de-430b-bc03-389583e68e62",
+          "status": "closed",
+          "archivedAt": null
+        },
+        {
+          "id": "756ca8ae-6863-4159-b9ef-f33fe6bab5c9",
+          "status": "closed",
+          "archivedAt": null
+        },
+        {
+          "id": "3849a2b0-62e5-400b-ae07-3a18af585a74",
+          "status": "closed",
+          "archivedAt": null
+        },
+        {
+          "id": "d644187a-4e24-4f44-b1ed-5aacd40359d9",
+          "status": "closed",
+          "archivedAt": null
+        },
+        {
+          "id": "7a2f6147-3fbb-4c0d-a832-4f90b9d421b1",
+          "status": "closed",
+          "archivedAt": null
+        },
+        {
+          "id": "5809f06a-c387-453c-a685-af4a7b0bfb10",
+          "status": "closed",
+          "archivedAt": null
+        },
+        {
+          "id": "b33dbbdf-49f5-42c3-bb64-121f2568c726",
+          "status": "closed",
+          "archivedAt": null
+        },
+        {
+          "id": "b6fce261-48d7-4060-871e-37e0f5015b57",
+          "status": "closed",
+          "archivedAt": null
+        },
+        {
+          "id": "9d21ad2c-881a-485e-bbb1-75b1daf3629e",
+          "status": "closed",
+          "archivedAt": null
+        },
+        {
+          "id": "5ded2ff1-e453-4753-896e-a08fcfa0075b",
+          "status": "closed",
+          "archivedAt": null
+        },
+        {
+          "id": "b0ff08f7-b954-45ab-975f-9e147e45fab4",
+          "status": "closed",
+          "archivedAt": null
+        },
+        {
+          "id": "02f7fdc9-01cd-410a-bfa5-b001f8675721",
+          "status": "closed",
+          "archivedAt": null
+        },
+        {
+          "id": "45601e48-e1e7-4ed8-a994-ff9ab4fd4a96",
+          "status": "closed",
+          "archivedAt": null
+        },
+        {
+          "id": "5d301f25-ca7d-4536-9c12-e612e8e69c00",
+          "status": "closed",
+          "archivedAt": null
+        },
+        {
+          "id": "63ab4b93-c5ad-4457-964a-ed7355a7361a",
+          "status": "closed",
+          "archivedAt": null
+        },
+        {
+          "id": "bbd7ca3d-ba13-4d22-b1f0-f7198b7cfaa4",
+          "status": "closed",
+          "archivedAt": null
+        },
+        {
+          "id": "092d70d6-ba7a-422b-8218-c9b8fe89b107",
+          "status": "closed",
+          "archivedAt": null
+        },
+        {
+          "id": "0c3c0401-8e1c-4ab6-89df-fa78a61b88b8",
+          "status": "closed",
+          "archivedAt": null
+        },
+        {
+          "id": "c77a57f5-59fe-4a94-80c9-5c427a54740f",
+          "status": "closed",
+          "archivedAt": null
+        },
+        {
+          "id": "62ba5cfd-4a40-4adf-b6fd-0575fc2e1512",
+          "status": "closed",
+          "archivedAt": null
+        },
+        {
+          "id": "4f2b09da-12ce-4fa0-8339-f41f63a0aba9",
+          "status": "closed",
+          "archivedAt": null
+        },
+        {
+          "id": "a92a6beb-1f80-48a2-913d-666a699ad9b9",
+          "status": "closed",
+          "archivedAt": null
+        },
+        {
+          "id": "c3b0d4d9-7598-48dd-8009-9e0aed92bd93",
+          "status": "closed",
+          "archivedAt": null
+        },
+        {
+          "id": "88180b0e-91db-4d1f-97b2-23205d4d8b80",
+          "status": "closed",
+          "archivedAt": null
+        },
+        {
+          "id": "9343ac9e-8ef9-47b7-ba45-c55ff25c2e8e",
+          "status": "closed",
+          "archivedAt": null
+        },
+        {
+          "id": "bd6c0ccd-2f8e-4e6d-9930-51c2191dd9ce",
+          "status": "closed",
+          "archivedAt": null
+        },
+        {
+          "id": "daee56a6-1f40-4e76-ac2b-8947f9fc88b7",
+          "status": "closed",
+          "archivedAt": null
+        },
+        {
+          "id": "4df1f5b2-ba7c-4075-b39d-c14c0e230e08",
+          "status": "closed",
+          "archivedAt": null
+        },
+        {
+          "id": "aaf0b5d6-db43-410e-99b6-7958ef3a8903",
+          "status": "closed",
+          "archivedAt": null
+        },
+        {
+          "id": "3aaaf058-14ec-4bdb-b945-444343de82f2",
+          "status": "closed",
+          "archivedAt": null
+        },
+        {
+          "id": "e36a0fe1-7b9b-4c77-a846-99098d16198c",
+          "status": "closed",
+          "archivedAt": null
+        },
+        {
+          "id": "eaafe873-22cd-4dbd-9c79-f310432cd635",
+          "status": "closed",
+          "archivedAt": null
+        },
+        {
+          "id": "08717168-ee62-4031-b365-819e3953c685",
+          "status": "closed",
+          "archivedAt": null
+        },
+        {
+          "id": "47a47ee4-7283-4bc3-9360-d6b6f6f176af",
+          "status": "closed",
+          "archivedAt": null
+        },
+        {
+          "id": "66b594ed-53d1-49ac-b9ec-94d2d5db533f",
+          "status": "closed",
+          "archivedAt": null
+        },
+        {
+          "id": "18a046e1-9e62-48ae-aa56-9404fb9eec25",
+          "status": "closed",
+          "archivedAt": null
+        },
+        {
+          "id": "4ad76847-ce51-468c-b364-7a5e146dab3a",
+          "status": "closed",
+          "archivedAt": null
+        },
+        {
+          "id": "dddf746d-0f5c-4a25-8ab7-ec45a17ea610",
+          "status": "closed",
+          "archivedAt": null
+        },
+        {
+          "id": "5dc67f3e-9b06-44c5-af76-7ffc03e18fc0",
+          "status": "closed",
+          "archivedAt": null
+        },
+        {
+          "id": "db556951-013f-40ea-9e2c-80c364b3540f",
+          "status": "closed",
+          "archivedAt": null
+        },
+        {
+          "id": "e5622c7a-f5c9-4f0f-ba50-454903f172dd",
+          "status": "closed",
+          "archivedAt": null
+        },
+        {
+          "id": "75f70ca9-161d-48c7-8e6a-08576781c1d3",
+          "status": "closed",
+          "archivedAt": null
+        },
+        {
+          "id": "d9861507-ba43-49e9-a81e-b248132be953",
+          "status": "closed",
+          "archivedAt": null
+        },
+        {
+          "id": "5906c28f-444d-4f31-9a33-12df4cc72857",
+          "status": "closed",
+          "archivedAt": null
+        },
+        {
+          "id": "13f5e5a0-a6f4-4608-90df-4b4bdd9ff198",
+          "status": "closed",
+          "archivedAt": null
+        },
+        {
+          "id": "adff718c-c0bb-4a8f-9162-ca8081b734b6",
+          "status": "closed",
+          "archivedAt": null
+        },
+        {
+          "id": "379ca9a6-00ee-4fe4-80a1-b57ee55fd6dc",
+          "status": "closed",
+          "archivedAt": null
+        },
+        {
+          "id": "ca32d31b-ebc5-4665-81a5-dbddf6bf6b7d",
+          "status": "closed",
+          "archivedAt": null
+        },
+        {
+          "id": "2b7e6e2a-6725-4589-b7e3-4cb59f9c0705",
+          "status": "closed",
+          "archivedAt": null
+        },
+        {
+          "id": "1f33e854-0129-44f7-a230-64fe303c0592",
+          "status": "closed",
+          "archivedAt": null
+        },
+        {
+          "id": "699e118c-f07e-4c5d-8c26-53e1b120b03f",
+          "status": "closed",
+          "archivedAt": null
+        },
+        {
+          "id": "af65956b-64e6-4491-86e8-7fe95ebd1a52",
+          "status": "closed",
+          "archivedAt": null
+        },
+        {
+          "id": "f6fcb9da-1d21-4baf-befb-0dcbb1a126e4",
+          "status": "closed",
+          "archivedAt": null
+        },
+        {
+          "id": "b87a146e-2f36-4db5-94de-fb21f2ce20f1",
+          "status": "closed",
+          "archivedAt": null
+        },
+        {
+          "id": "b077d840-e5bb-4a0d-b238-53e89a748c45",
+          "status": "closed",
+          "archivedAt": null
+        },
+        {
+          "id": "e0241323-0cbb-4a63-8fd8-ebb078f2c347",
+          "status": "closed",
+          "archivedAt": null
+        },
+        {
+          "id": "4d16be66-b849-4ca9-b8d3-5ee8ef579edb",
+          "status": "closed",
+          "archivedAt": null
+        },
+        {
+          "id": "5a2711ab-2ccb-4325-b71a-af0192221c57",
+          "status": "closed",
+          "archivedAt": null
+        },
+        {
+          "id": "339eca50-4126-4b01-8d6c-68e936579d83",
+          "status": "closed",
+          "archivedAt": null
+        },
+        {
+          "id": "8a1d4857-3069-48f5-984b-2ea4c11f76c2",
+          "status": "closed",
+          "archivedAt": null
+        },
+        {
+          "id": "d204927a-ef21-480f-8187-63022fd5205b",
+          "status": "closed",
+          "archivedAt": null
+        },
+        {
+          "id": "57796586-bf34-4555-84ec-edd5e111752a",
+          "status": "closed",
+          "archivedAt": null
+        },
+        {
+          "id": "b0dda913-4838-463b-a674-a37c160125a2",
+          "status": "closed",
+          "archivedAt": null
+        },
+        {
+          "id": "40fa8955-bca5-4927-b1d9-1f76c007b452",
+          "status": "closed",
+          "archivedAt": null
+        },
+        {
+          "id": "4d73679e-8947-42ed-a84c-bde52444139f",
+          "status": "closed",
+          "archivedAt": null
+        },
+        {
+          "id": "800ffe1d-1bef-40d3-9ce8-f827cbd0efed",
+          "status": "closed",
+          "archivedAt": null
+        },
+        {
+          "id": "703ebdae-51de-4acd-b501-62d46f2fcbdc",
+          "status": "closed",
+          "archivedAt": null
+        },
+        {
+          "id": "c9061a51-448f-4ba1-9632-1b0055b4023c",
+          "status": "closed",
+          "archivedAt": null
+        },
+        {
+          "id": "dfe6ae36-5673-4d61-8e1f-001b3a19a779",
+          "status": "closed",
+          "archivedAt": null
+        },
+        {
+          "id": "14fe33b6-61a3-48fb-8216-a24e401d2550",
+          "status": "closed",
+          "archivedAt": null
+        },
+        {
+          "id": "2fdf2bf6-8296-4964-b031-512ff3b1a201",
+          "status": "closed",
+          "archivedAt": null
+        },
+        {
+          "id": "78847397-e90e-4b27-a5c6-d92809cf7851",
+          "status": "closed",
+          "archivedAt": null
+        },
+        {
+          "id": "2f350a23-79a5-47e8-89cb-bbf55cfc4b32",
+          "status": "closed",
+          "archivedAt": null
+        },
+        {
+          "id": "63353a7f-f9b7-4f15-ab72-2cc5423bf628",
+          "status": "closed",
+          "archivedAt": null
+        },
+        {
+          "id": "c7d4dc58-5880-4a25-8d34-c9f284eb88e3",
+          "status": "closed",
+          "archivedAt": null
+        },
+        {
+          "id": "e4e7b982-6190-4ee7-9845-503cd5377d5e",
+          "status": "closed",
+          "archivedAt": null
+        },
+        {
+          "id": "5984c55a-158a-4dfc-a381-65e1cd46ab39",
+          "status": "closed",
+          "archivedAt": null
+        },
+        {
+          "id": "72f38b5d-280b-4ce7-bfcd-d303f4728ac6",
+          "status": "closed",
+          "archivedAt": null
+        },
+        {
+          "id": "b94223de-801c-4ba4-9ac3-fc310032234c",
+          "status": "closed",
+          "archivedAt": null
+        },
+        {
+          "id": "908c111c-0f07-436b-997d-b8aa279652ce",
+          "status": "closed",
+          "archivedAt": null
+        },
+        {
+          "id": "a3453269-9e6d-4eea-8831-9a42936fecc3",
+          "status": "closed",
+          "archivedAt": null
+        },
+        {
+          "id": "36ac2a4c-ec1c-4036-9b7f-a9cbd4546226",
+          "status": "closed",
+          "archivedAt": null
+        },
+        {
+          "id": "e38da3ad-acec-4af3-892a-f8372ae5a0b8",
+          "status": "closed",
+          "archivedAt": null
+        },
+        {
+          "id": "3e6f487b-4217-4238-ac26-de13501bf3b8",
+          "status": "closed",
+          "archivedAt": null
+        },
+        {
+          "id": "fcc96f04-3f88-4b20-9297-19235a95d46b",
+          "status": "closed",
+          "archivedAt": null
+        },
+        {
+          "id": "dc3abf19-ad57-4739-8dc0-4086b971a420",
+          "status": "closed",
+          "archivedAt": null
+        },
+        {
+          "id": "fcef0360-138a-41d8-a321-d7db74912563",
+          "status": "closed",
+          "archivedAt": null
+        },
+        {
+          "id": "7c865034-d0a3-48da-b5de-8b0327467533",
+          "status": "closed",
+          "archivedAt": null
+        },
+        {
+          "id": "81cfdf6a-132d-44f4-b419-d14a1ec7e26d",
+          "status": "closed",
+          "archivedAt": null
+        },
+        {
+          "id": "17fb3068-3e23-43de-b3f4-b5d05d95c87d",
+          "status": "closed",
+          "archivedAt": null
+        },
+        {
+          "id": "796cdd85-54da-408b-86bb-237dbb0b5d63",
+          "status": "closed",
+          "archivedAt": null
+        },
+        {
+          "id": "e831afc9-82b1-4571-b454-1e336e80506e",
+          "status": "closed",
+          "archivedAt": null
+        },
+        {
+          "id": "5c62c2cb-4102-4a45-84a7-fa58565d0504",
+          "status": "closed",
+          "archivedAt": null
+        },
+        {
+          "id": "fdb7e292-a935-47be-87ff-a9e690cac8a5",
+          "status": "closed",
+          "archivedAt": null
+        },
+        {
+          "id": "c644c0ff-ab58-44f0-b9d6-6097214bd8b8",
+          "status": "closed",
+          "archivedAt": null
+        },
+        {
+          "id": "b6d18070-184b-4358-84c0-33329711ab38",
+          "status": "closed",
+          "archivedAt": null
+        },
+        {
+          "id": "c14f912a-a98c-48bb-a7d1-500f796f88be",
+          "status": "closed",
+          "archivedAt": null
+        },
+        {
+          "id": "6042f21e-df9d-4466-bb23-83aa1b62a41e",
+          "status": "closed",
+          "archivedAt": null
+        },
+        {
+          "id": "d62c94ac-5e1a-4b54-8d11-7273d97c75ad",
+          "status": "closed",
+          "archivedAt": null
+        },
+        {
+          "id": "f4cf4d80-76b9-4bcd-9128-07efb5aff810",
+          "status": "closed",
+          "archivedAt": null
+        },
+        {
+          "id": "d0e783ac-0187-4ed3-96a0-c550bbf2d10a",
+          "status": "closed",
+          "archivedAt": null
+        },
+        {
+          "id": "39754caf-231f-4ca1-9858-8653c32dbba2",
+          "status": "closed",
+          "archivedAt": null
+        },
+        {
+          "id": "db667191-b7de-4a7c-bea5-c6cbf21454fe",
+          "status": "closed",
+          "archivedAt": null
+        },
+        {
+          "id": "45c9abe4-4c87-4f17-ae61-35d0fb052adf",
+          "status": "closed",
+          "archivedAt": null
+        },
+        {
+          "id": "aa00a659-c2c3-456c-8b72-312b67ca16ab",
+          "status": "closed",
+          "archivedAt": null
+        },
+        {
+          "id": "f7ab70ad-c5b3-47c5-9c0c-646097075871",
+          "status": "closed",
+          "archivedAt": null
+        },
+        {
+          "id": "a36296db-5cbc-4b53-aa5a-16773b242adc",
+          "status": "closed",
+          "archivedAt": null
+        },
+        {
+          "id": "af290c28-9dd9-4bed-a8f3-e1babe9bab97",
+          "status": "closed",
+          "archivedAt": null
+        },
+        {
+          "id": "142647fc-26b2-40c7-97db-3eecbf55a5b0",
+          "status": "closed",
+          "archivedAt": null
+        },
+        {
+          "id": "e88b098c-c3b7-4b77-8bad-13caf5a0ce53",
+          "status": "closed",
+          "archivedAt": null
+        },
+        {
+          "id": "5c610ca4-d17e-4cf5-bb83-0e0e18b36fec",
+          "status": "closed",
+          "archivedAt": null
+        },
+        {
+          "id": "82392c9c-66bc-42b7-b87c-afea4d18d497",
+          "status": "closed",
+          "archivedAt": null
+        },
+        {
+          "id": "9a7f17f0-a022-4d04-b856-7ddfad5db875",
+          "status": "closed",
+          "archivedAt": null
+        },
+        {
+          "id": "d40231a8-ee07-4b48-ba5a-9707c75dc4d5",
+          "status": "closed",
+          "archivedAt": null
+        },
+        {
+          "id": "c014dcd8-0818-43c0-897f-ffc5db0740e9",
+          "status": "closed",
+          "archivedAt": null
+        },
+        {
+          "id": "71285d88-4f37-466c-83da-f7e2945bbc25",
+          "status": "closed",
+          "archivedAt": null
+        },
+        {
+          "id": "2c41fcce-2cb1-4958-bb4b-ed264eb06fa8",
+          "status": "closed",
+          "archivedAt": null
+        },
+        {
+          "id": "36699614-d573-4a68-a639-b103adab398d",
+          "status": "closed",
+          "archivedAt": null
+        },
+        {
+          "id": "a2089b58-3f05-4d55-8ccc-779ef43d6d70",
+          "status": "closed",
+          "archivedAt": null
+        },
+        {
+          "id": "24e31ac2-9912-4251-a5a2-3dba3e16e62a",
+          "status": "closed",
+          "archivedAt": null
+        },
+        {
+          "id": "623202ff-5ff0-4ec6-bb33-9a474e61f24f",
+          "status": "closed",
+          "archivedAt": null
+        },
+        {
+          "id": "e149bd36-82fa-4ef0-9813-9f26ef29b113",
+          "status": "closed",
+          "archivedAt": null
+        },
+        {
+          "id": "7671c7f6-b95f-4d8b-80b7-dd7101c4772f",
+          "status": "closed",
+          "archivedAt": null
+        },
+        {
+          "id": "c94b79b9-ff8f-4489-ab7b-1ab07cee840b",
+          "status": "closed",
+          "archivedAt": null
+        },
+        {
+          "id": "e182b898-3eb2-46bd-af33-74e80bf367d5",
+          "status": "closed",
+          "archivedAt": null
+        },
+        {
+          "id": "0f57cd9b-dfbb-429a-a408-58b9af6c8852",
+          "status": "closed",
+          "archivedAt": null
+        },
+        {
+          "id": "89d6cfd8-07b4-48e0-87dc-eca99b2d4f44",
+          "status": "closed",
+          "archivedAt": null
+        },
+        {
+          "id": "bc3e22de-eb1b-49b2-bb88-9391dbc7cf31",
+          "status": "closed",
+          "archivedAt": null
+        },
+        {
+          "id": "e03017aa-4535-4501-b514-2f65d7366139",
+          "status": "closed",
+          "archivedAt": null
+        },
+        {
+          "id": "ac1bb7cd-8b1a-433f-b279-878cfd291549",
+          "status": "closed",
+          "archivedAt": null
+        }
+      ],
+      "workspaceCount": 29,
+      "workspaces": [
+        {
+          "id": "/Users/bofan.wang/.paseo/worktrees/1tokg6sg/hot-whale",
+          "projectId": "/Users/bofan.wang/Developer/personal/PetCam",
+          "path": "/Users/bofan.wang/.paseo/worktrees/1tokg6sg/hot-whale"
+        },
+        {
+          "id": "/Users/bofan.wang/.paseo/worktrees/1tokg6sg/peaceful-seal",
+          "projectId": "/Users/bofan.wang/Developer/personal/PetCam",
+          "path": "/Users/bofan.wang/.paseo/worktrees/1tokg6sg/peaceful-seal"
+        },
+        {
+          "id": "wks_08eca15434001d86",
+          "projectId": "remote:github.com/JasprW/WeModern",
+          "path": "/Users/bofan.wang/Developer/wechat-notify"
+        },
+        {
+          "id": "wks_1b4e2fc48dd38d30",
+          "projectId": "prj_a1bb72dba6d6f30c",
+          "path": "/Users/bofan.wang/Developer/personal/paseo-utlra-kanban"
+        },
+        {
+          "id": "wks_2615ad7a95a01a54",
+          "projectId": "remote:git.garena.com/shopee/deep/agent-smith",
+          "path": "/Users/bofan.wang/.paseo/worktrees/3jvdfyqo/feat-improvement-opt"
+        },
+        {
+          "id": "wks_2b2838045e75f463",
+          "projectId": "prj_a1bb72dba6d6f30c",
+          "path": "/Users/bofan.wang/Developer/personal/paseo-utlra-kanban"
+        },
+        {
+          "id": "wks_3efeb3e4b32ac3c5",
+          "projectId": "remote:git.garena.com/shopee/deep/agent-smith",
+          "path": "/Users/bofan.wang/.paseo/worktrees/3jvdfyqo/infamous-donkey"
+        },
+        {
+          "id": "wks_4ed5507303f723c7",
+          "projectId": "prj_2f0d51e382c85503",
+          "path": "/Users/bofan.wang/.paseo/worktrees/0esrym3z/finicky-ladybug"
+        },
+        {
+          "id": "wks_580ebf236d4e07ff",
+          "projectId": "prj_38f7ad9da87af3ae",
+          "path": "/Users/bofan.wang/Developer/Search System"
+        },
+        {
+          "id": "wks_5bc66167a6a7c534",
+          "projectId": "prj_a1bb72dba6d6f30c",
+          "path": "/Users/bofan.wang/Developer/personal/paseo-utlra-kanban"
+        },
+        {
+          "id": "wks_63768128a25938dc",
+          "projectId": "prj_ad86eaa675185454",
+          "path": "/Users/bofan.wang/Developer/tolaria-vault"
+        },
+        {
+          "id": "wks_78419a8286701ae5",
+          "projectId": "prj_d81d9066cea3fd37",
+          "path": "/private/var/folders/0b/f1crzdg95g5fwbq49s_3pw9c0000gq/T/paseo-ultra-kanban-ideas-70rUHm"
+        },
+        {
+          "id": "wks_8321342fe34b445b",
+          "projectId": "/Users/bofan.wang/Developer/search",
+          "path": "/Users/bofan.wang/.paseo/worktrees/2fxuwdo8/wealthy-stingray"
+        },
+        {
+          "id": "wks_83afe0cc8c98c090",
+          "projectId": "prj_2f0d51e382c85503",
+          "path": "/Users/bofan.wang/.paseo/worktrees/0esrym3z/lewd-otter"
+        },
+        {
+          "id": "wks_89cc1e4bf816475d",
+          "projectId": "/Users/bofan.wang/Developer/search-oracle",
+          "path": "/Users/bofan.wang/Developer/search-oracle"
+        },
+        {
+          "id": "wks_9661f7d221208b21",
+          "projectId": "prj_12cd06cf15d8395e",
+          "path": "/Users/bofan.wang/Dev/peek"
+        },
+        {
+          "id": "wks_a8b210657ef20250",
+          "projectId": "prj_a1bb72dba6d6f30c",
+          "path": "/Users/bofan.wang/Developer/personal/paseo-utlra-kanban"
+        },
+        {
+          "id": "wks_a8fb229358d72bc4",
+          "projectId": "remote:git.garena.com/shopee/mall-fe/core-fe-sr/search-admin",
+          "path": "/Users/bofan.wang/.paseo/worktrees/1ci1r00m/relaxed-blobfish"
+        },
+        {
+          "id": "wks_bd1266cc75837719",
+          "projectId": "prj_2f0d51e382c85503",
+          "path": "/Users/bofan.wang/.paseo/worktrees/0esrym3z/serene-spider"
+        },
+        {
+          "id": "wks_c45fdeec7d53a9d5",
+          "projectId": "remote:git.garena.com/shopee/deep/agent-smith",
+          "path": "/Users/bofan.wang/.paseo/worktrees/3jvdfyqo/rustic-emu"
+        },
+        {
+          "id": "wks_c78dba48fc09f0cf",
+          "projectId": "remote:git.garena.com/shopee/deep/agent-smith",
+          "path": "/Users/bofan.wang/.paseo/worktrees/3jvdfyqo/jealous-goose"
+        },
+        {
+          "id": "wks_ca9e7dd107b81d88",
+          "projectId": "prj_a1bb72dba6d6f30c",
+          "path": "/Users/bofan.wang/Developer/personal/paseo-utlra-kanban"
+        },
+        {
+          "id": "wks_cd3004302cacf0b0",
+          "projectId": "prj_a499b8027a387569",
+          "path": "/Users/bofan.wang/Dev/dynamic_ui"
+        },
+        {
+          "id": "wks_cd9fc444b1a6e124",
+          "projectId": "prj_2f0d51e382c85503",
+          "path": "/Users/bofan.wang/.paseo/worktrees/0esrym3z/juvenile-seahorse"
+        },
+        {
+          "id": "wks_cebddcb9a15890e2",
+          "projectId": "remote:git.garena.com/shopee/deep/agent-smith",
+          "path": "/Users/bofan.wang/.paseo/worktrees/3jvdfyqo/shaggy-robin"
+        },
+        {
+          "id": "wks_def05425ff93a912",
+          "projectId": "prj_2f0d51e382c85503",
+          "path": "/Users/bofan.wang/.paseo/worktrees/0esrym3z/fabulous-fireant"
+        },
+        {
+          "id": "wks_e1c7d94bf65dce6b",
+          "projectId": "prj_d81d9066cea3fd37",
+          "path": "/private/var/folders/0b/f1crzdg95g5fwbq49s_3pw9c0000gq/T/paseo-ultra-kanban-ideas-70rUHm"
+        },
+        {
+          "id": "wks_f141f67d06ce8517",
+          "projectId": "prj_fc2f8caf3203aadd",
+          "path": "/Users/bofan.wang/Dev/user_search"
+        },
+        {
+          "id": "wks_f1cbb45311b41a1b",
+          "projectId": "/Users/bofan.wang/Developer/search",
+          "path": "/Users/bofan.wang/Developer/search"
+        }
+      ]
+    }
+  },
+  "checks": {
+    "proposals": {
+      "ideas": [
+        {
+          "id": "3cddf50b-3c7a-4e70-9b6a-01fb452f18b2",
+          "taskId": "43354f7a-ed33-46bf-bccf-01134fdf4077",
+          "projectId": "8842d804-ae04-478f-9dbc-078eee0200f4",
+          "agentId": "a9798237-56f7-4de4-b8f4-60fe2291bcd0",
+          "eventId": "810deaf2-48a1-4079-9709-272b728897dc",
+          "title": "Live Ideas Bugfix Alpha",
+          "detail": "Repair the fixture behavior and verify the edge case.",
+          "rationale": "The acceptance run found a reproducible bug.",
+          "context": "File: src/example.ts; branch: ideas-fixture; reproduce with the documented fixture input.",
+          "type": "bugfix",
+          "priority": "high",
+          "status": "open",
+          "createdAt": "2026-10-15T15:58:09.892Z",
+          "updatedAt": "2026-10-15T15:58:09.892Z"
+        },
+        {
+          "id": "3a0712db-ae76-4895-81d1-87a488bf5ac5",
+          "taskId": "43354f7a-ed33-46bf-bccf-01134fdf4077",
+          "projectId": "8842d804-ae04-478f-9dbc-078eee0200f4",
+          "agentId": "a9798237-56f7-4de4-b8f4-60fe2291bcd0",
+          "eventId": "546da74f-ec79-42c0-8fec-1c0a444ff50d",
+          "title": "Live Ideas Minimal Beta",
+          "detail": "Document the next investigation step.",
+          "rationale": "The follow-up is useful to the user.",
+          "context": "",
+          "status": "open",
+          "createdAt": "2026-10-15T15:58:15.078Z",
+          "updatedAt": "2026-10-15T15:58:15.078Z"
+        },
+        {
+          "id": "9ce7aae5-7c25-45cd-a0d8-6d2c834ea83d",
+          "taskId": "43354f7a-ed33-46bf-bccf-01134fdf4077",
+          "projectId": "8842d804-ae04-478f-9dbc-078eee0200f4",
+          "agentId": "a9798237-56f7-4de4-b8f4-60fe2291bcd0",
+          "eventId": "919a3312-de64-41a9-b346-3af0a3204b0e",
+          "title": "Live Ideas CLI Gamma",
+          "detail": "Add a focused regression check.",
+          "rationale": "The live acceptance path should stay protected.",
+          "context": "",
+          "status": "open",
+          "createdAt": "2026-10-15T15:58:50.348Z",
+          "updatedAt": "2026-10-15T15:58:50.348Z"
+        }
+      ],
+      "ideaCount": 3,
+      "events": [
+        {
+          "id": "810deaf2-48a1-4079-9709-272b728897dc",
+          "taskId": "43354f7a-ed33-46bf-bccf-01134fdf4077",
+          "actor": "agent",
+          "action": "idea_proposed",
+          "agentId": "a9798237-56f7-4de4-b8f4-60fe2291bcd0",
+          "note": "Live Ideas Bugfix Alpha",
+          "at": "2026-10-15T15:58:09.892Z"
+        },
+        {
+          "id": "546da74f-ec79-42c0-8fec-1c0a444ff50d",
+          "taskId": "43354f7a-ed33-46bf-bccf-01134fdf4077",
+          "actor": "agent",
+          "action": "idea_proposed",
+          "agentId": "a9798237-56f7-4de4-b8f4-60fe2291bcd0",
+          "note": "Live Ideas Minimal Beta",
+          "at": "2026-10-15T15:58:15.078Z"
+        },
+        {
+          "id": "919a3312-de64-41a9-b346-3af0a3204b0e",
+          "taskId": "43354f7a-ed33-46bf-bccf-01134fdf4077",
+          "actor": "agent",
+          "action": "idea_proposed",
+          "agentId": "a9798237-56f7-4de4-b8f4-60fe2291bcd0",
+          "note": "Live Ideas CLI Gamma",
+          "at": "2026-10-15T15:58:50.348Z"
+        }
+      ],
+      "receipts": [
+        {
+          "action": "idea",
+          "status": "todo",
+          "agentId": "a9798237-56f7-4de4-b8f4-60fe2291bcd0"
+        },
+        {
+          "action": "idea",
+          "status": "todo",
+          "agentId": "a9798237-56f7-4de4-b8f4-60fe2291bcd0"
+        },
+        {
+          "action": "idea",
+          "status": "todo",
+          "agentId": "a9798237-56f7-4de4-b8f4-60fe2291bcd0"
+        }
+      ],
+      "task": {
+        "status": "todo",
+        "revision": 1
+      },
+      "taskBefore": {
+        "status": "todo",
+        "revision": 1
+      },
+      "expectedFields": {
+        "alpha": {
+          "title": "Live Ideas Bugfix Alpha",
+          "detail": "Repair the fixture behavior and verify the edge case.",
+          "rationale": "The acceptance run found a reproducible bug.",
+          "context": "File: src/example.ts; branch: ideas-fixture; reproduce with the documented fixture input.",
+          "type": "bugfix",
+          "priority": "high"
+        },
+        "beta": {
+          "title": "Live Ideas Minimal Beta",
+          "detail": "Document the next investigation step.",
+          "rationale": "The follow-up is useful to the user."
+        },
+        "gamma": {
+          "title": "Live Ideas CLI Gamma",
+          "detail": "Add a focused regression check.",
+          "rationale": "The live acceptance path should stay protected."
+        }
+      },
+      "duplicateAttempt": null,
+      "cliFallback": {
+        "success": true,
+        "ideaTitle": "Live Ideas CLI Gamma",
+        "snapshotRemoved": true
+      },
+      "passed": true
+    },
+    "ideaTransitions": {
+      "results": [
+        {
+          "id": "3a0712db-ae76-4895-81d1-87a488bf5ac5",
+          "taskId": "43354f7a-ed33-46bf-bccf-01134fdf4077",
+          "projectId": "8842d804-ae04-478f-9dbc-078eee0200f4",
+          "agentId": "a9798237-56f7-4de4-b8f4-60fe2291bcd0",
+          "eventId": "546da74f-ec79-42c0-8fec-1c0a444ff50d",
+          "title": "Live Ideas Minimal Beta",
+          "detail": "Document the next investigation step.",
+          "rationale": "The follow-up is useful to the user.",
+          "context": "",
+          "status": "dismissed",
+          "createdAt": "2026-10-15T15:58:15.078Z",
+          "updatedAt": "2026-10-15T15:59:02.965Z"
+        },
+        {
+          "id": "3a0712db-ae76-4895-81d1-87a488bf5ac5",
+          "taskId": "43354f7a-ed33-46bf-bccf-01134fdf4077",
+          "projectId": "8842d804-ae04-478f-9dbc-078eee0200f4",
+          "agentId": "a9798237-56f7-4de4-b8f4-60fe2291bcd0",
+          "eventId": "546da74f-ec79-42c0-8fec-1c0a444ff50d",
+          "title": "Live Ideas Minimal Beta",
+          "detail": "Document the next investigation step.",
+          "rationale": "The follow-up is useful to the user.",
+          "context": "",
+          "status": "open",
+          "createdAt": "2026-10-15T15:58:15.078Z",
+          "updatedAt": "2026-10-15T15:59:02.969Z"
+        },
+        {
+          "id": "3a0712db-ae76-4895-81d1-87a488bf5ac5",
+          "taskId": "43354f7a-ed33-46bf-bccf-01134fdf4077",
+          "projectId": "8842d804-ae04-478f-9dbc-078eee0200f4",
+          "agentId": "a9798237-56f7-4de4-b8f4-60fe2291bcd0",
+          "eventId": "546da74f-ec79-42c0-8fec-1c0a444ff50d",
+          "title": "Live Ideas Minimal Beta",
+          "detail": "Document the next investigation step.",
+          "rationale": "The follow-up is useful to the user.",
+          "context": "",
+          "status": "dismissed",
+          "createdAt": "2026-10-15T15:58:15.078Z",
+          "updatedAt": "2026-10-15T15:59:02.975Z"
+        }
+      ],
+      "events": [
+        {
+          "id": "50fe101a-52ce-4254-9059-38122e219a7a",
+          "taskId": "43354f7a-ed33-46bf-bccf-01134fdf4077",
+          "actor": "human",
+          "action": "idea_dismissed",
+          "note": "Live Ideas Minimal Beta",
+          "at": "2026-10-15T15:59:02.965Z"
+        },
+        {
+          "id": "69704cf0-55c5-45bf-95de-336bff2d289d",
+          "taskId": "43354f7a-ed33-46bf-bccf-01134fdf4077",
+          "actor": "human",
+          "action": "idea_restored",
+          "note": "Live Ideas Minimal Beta",
+          "at": "2026-10-15T15:59:02.969Z"
+        },
+        {
+          "id": "ae01595a-830c-4a59-a012-e389f070439a",
+          "taskId": "43354f7a-ed33-46bf-bccf-01134fdf4077",
+          "actor": "human",
+          "action": "idea_dismissed",
+          "note": "Live Ideas Minimal Beta",
+          "at": "2026-10-15T15:59:02.975Z"
+        }
+      ],
+      "finalStatus": "dismissed",
+      "passed": true
+    },
+    "acceptanceAndCreate": {
+      "origin": {
+        "taskId": "43354f7a-ed33-46bf-bccf-01134fdf4077",
+        "ideaId": "3cddf50b-3c7a-4e70-9b6a-01fb452f18b2"
+      },
+      "idea": {
+        "id": "3cddf50b-3c7a-4e70-9b6a-01fb452f18b2",
+        "taskId": "43354f7a-ed33-46bf-bccf-01134fdf4077",
+        "projectId": "8842d804-ae04-478f-9dbc-078eee0200f4",
+        "agentId": "a9798237-56f7-4de4-b8f4-60fe2291bcd0",
+        "eventId": "810deaf2-48a1-4079-9709-272b728897dc",
+        "title": "Live Ideas Bugfix Alpha",
+        "detail": "Repair the fixture behavior and verify the edge case.",
+        "rationale": "The acceptance run found a reproducible bug.",
+        "context": "File: src/example.ts; branch: ideas-fixture; reproduce with the documented fixture input.",
+        "type": "bugfix",
+        "priority": "high",
+        "status": "accepted",
+        "acceptedTaskId": "80a46e58-6ea8-4d97-8136-b90460ebe3ac",
+        "createdAt": "2026-10-15T15:58:09.892Z",
+        "updatedAt": "2026-10-15T15:59:03.232Z"
+      },
+      "acceptedEvents": [
+        {
+          "id": "54b1eb35-53dd-4a76-b10a-0b998d83693e",
+          "taskId": "43354f7a-ed33-46bf-bccf-01134fdf4077",
+          "actor": "human",
+          "action": "idea_accepted",
+          "note": "Live Ideas Bugfix Alpha → Live Ideas Bugfix Alpha",
+          "at": "2026-10-15T15:59:03.232Z"
+        }
+      ],
+      "derivedContext": "Kanban task: Live Ideas Bugfix Alpha\nTask ID: 80a46e58-6ea8-4d97-8136-b90460ebe3ac\nTask type: Bug fix\nDerived from card: Ideas acceptance source card (43354f7a-ed33-46bf-bccf-01134fdf4077)\nRepair the fixture behavior and verify the edge case.\n\nWhy: The acceptance run found a reproducible bug.\n\nContext:\nFile: src/example.ts; branch: ideas-fixture; reproduce with the documented fixture input.\n\nFrom card: Ideas acceptance source card (43354f7a-ed33-46bf-bccf-01134fdf4077)\nProject: Ideas acceptance b905e1fe\nLanes (this project's workflow): Backlog [backlog] → Todo [todo] → Design [design] → Development [development] → Test [test] → In review [in_review] → Blocked [blocked] → Done [done] → Cancelled [cancelled]\nNative Paseo project root: /private/var/folders/0b/f1crzdg95g5fwbq49s_3pw9c0000gq/T/paseo-ultra-kanban-ideas-70rUHm\nProject-root task scope.\nWork directories for this task:\n/private/var/folders/0b/f1crzdg95g5fwbq49s_3pw9c0000gq/T/paseo-ultra-kanban-ideas-70rUHm -> /private/var/folders/0b/f1crzdg95g5fwbq49s_3pw9c0000gq/T/paseo-ultra-kanban-ideas-70rUHm\nWorkspace starting directory: /private/var/folders/0b/f1crzdg95g5fwbq49s_3pw9c0000gq/T/paseo-ultra-kanban-ideas-70rUHm\nWork only in the listed task directories. A common project root can contain multiple child repositories managed by the user. A worktree isolates only the Git project root. Provider permissions still apply; report denied access. Card business status is independent of session status.",
+      "taskContextHasDerivedLine": true,
+      "workspaceCountBefore": 28,
+      "workspaceCountAfterRejected": 29,
+      "secondCreate": {
+        "error": "Request failed: This idea is no longer open. requestType=plugin.rpc.invoke.request code=handler_error",
+        "passed": true
+      },
+      "acceptedUpdate": {
+        "error": "Request failed: This idea already became a card. requestType=plugin.rpc.invoke.request code=handler_error",
+        "passed": true
+      },
+      "passed": false
+    },
+    "deleteSource": {
+      "deleteResult": {
+        "id": "43354f7a-ed33-46bf-bccf-01134fdf4077",
+        "backup": "/Users/bofan.wang/.paseo/plugin-data/paseo-ultra-kanban/removed/task-43354f7a-ed33-46bf-bccf-01134fdf4077-2026-10-15T15-59-03-371Z.json"
+      },
+      "backupPath": "/Users/bofan.wang/.paseo/plugin-data/paseo-ultra-kanban/removed/task-43354f7a-ed33-46bf-bccf-01134fdf4077-2026-10-15T15-59-03-371Z.json",
+      "backupIdeas": [
+        {
+          "id": "3cddf50b-3c7a-4e70-9b6a-01fb452f18b2",
+          "taskId": "43354f7a-ed33-46bf-bccf-01134fdf4077",
+          "projectId": "8842d804-ae04-478f-9dbc-078eee0200f4",
+          "agentId": "a9798237-56f7-4de4-b8f4-60fe2291bcd0",
+          "eventId": "810deaf2-48a1-4079-9709-272b728897dc",
+          "title": "Live Ideas Bugfix Alpha",
+          "detail": "Repair the fixture behavior and verify the edge case.",
+          "rationale": "The acceptance run found a reproducible bug.",
+          "context": "File: src/example.ts; branch: ideas-fixture; reproduce with the documented fixture input.",
+          "type": "bugfix",
+          "priority": "high",
+          "status": "accepted",
+          "acceptedTaskId": "80a46e58-6ea8-4d97-8136-b90460ebe3ac",
+          "createdAt": "2026-10-15T15:58:09.892Z",
+          "updatedAt": "2026-10-15T15:59:03.232Z"
+        },
+        {
+          "id": "3a0712db-ae76-4895-81d1-87a488bf5ac5",
+          "taskId": "43354f7a-ed33-46bf-bccf-01134fdf4077",
+          "projectId": "8842d804-ae04-478f-9dbc-078eee0200f4",
+          "agentId": "a9798237-56f7-4de4-b8f4-60fe2291bcd0",
+          "eventId": "546da74f-ec79-42c0-8fec-1c0a444ff50d",
+          "title": "Live Ideas Minimal Beta",
+          "detail": "Document the next investigation step.",
+          "rationale": "The follow-up is useful to the user.",
+          "context": "",
+          "status": "dismissed",
+          "createdAt": "2026-10-15T15:58:15.078Z",
+          "updatedAt": "2026-10-15T15:59:02.975Z"
+        },
+        {
+          "id": "9ce7aae5-7c25-45cd-a0d8-6d2c834ea83d",
+          "taskId": "43354f7a-ed33-46bf-bccf-01134fdf4077",
+          "projectId": "8842d804-ae04-478f-9dbc-078eee0200f4",
+          "agentId": "a9798237-56f7-4de4-b8f4-60fe2291bcd0",
+          "eventId": "919a3312-de64-41a9-b346-3af0a3204b0e",
+          "title": "Live Ideas CLI Gamma",
+          "detail": "Add a focused regression check.",
+          "rationale": "The live acceptance path should stay protected.",
+          "context": "",
+          "status": "open",
+          "createdAt": "2026-10-15T15:58:50.348Z",
+          "updatedAt": "2026-10-15T15:58:50.348Z"
+        }
+      ],
+      "boardSourceIdeas": [],
+      "derivedOrigin": {
+        "taskId": "43354f7a-ed33-46bf-bccf-01134fdf4077",
+        "ideaId": "3cddf50b-3c7a-4e70-9b6a-01fb452f18b2"
+      },
+      "passed": false
+    }
+  },
+  "cleanup": {
+    "workerArchived": true,
+    "removeProject": {
+      "id": "8842d804-ae04-478f-9dbc-078eee0200f4",
+      "removedTasks": 1,
+      "backup": "/Users/bofan.wang/.paseo/plugin-data/paseo-ultra-kanban/removed/8842d804-ae04-478f-9dbc-078eee0200f4-2026-10-15T15-59-04-535Z.json",
+      "paseo": {
+        "removed": true,
+        "workspaces": 2,
+        "error": ""
+      }
+    },
+    "nativeAfter": {
+      "workspaceCount": 27,
+      "nativeProjectIds": [
+        "remote:git.garena.com/shopee/deep/agent-smith",
+        "remote:git.garena.com/shopee/deep/bff-search",
+        "/Users/bofan.wang/Developer/search",
+        "/Users/bofan.wang/Developer/personal/PetCam",
+        "remote:github.com/JasprW/WeModern",
+        "/Users/bofan.wang/Developer/search-oracle",
+        "remote:git.garena.com/shopee/mall-fe/core-fe-sr/search-admin",
+        "prj_365bb1f26bfae56e",
+        "prj_2f0d51e382c85503",
+        "prj_ad86eaa675185454",
+        "prj_5eca2ed82a060503",
+        "prj_bf5e321cd26a40d3",
+        "prj_a274b79cf12ca7cd",
+        "prj_12cd06cf15d8395e",
+        "prj_fc2f8caf3203aadd",
+        "prj_32b4ebd684c56a8f",
+        "prj_c7e215952ce37297",
+        "prj_4a55a77104f470f3",
+        "prj_a499b8027a387569",
+        "prj_a1bb72dba6d6f30c",
+        "prj_38f7ad9da87af3ae"
+      ],
+      "nativeProjectCount": 21,
+      "agentCount": 200
+    },
+    "nativeProjectStillListed": false,
+    "boardProjectStillListed": false,
+    "derivedCardStillListed": false,
+    "ownedBackupsRemoved": true,
+    "tempDirectoryExists": false
+  },
+  "finishedAt": "2026-10-15T15:59:05.348Z"
+}

@@ -1,0 +1,137 @@
+{
+  "startedAt": "2026-10-15T15:55:12.563Z",
+  "provider": "codex/gpt-6-luna",
+  "modeIdAtCreation": "full-access",
+  "baseline": {
+    "workspaceCount": 27,
+    "board": {
+      "revision": 803,
+      "projectCount": null,
+      "taskCount": null,
+      "ideaCount": null
+    },
+    "nativeProjectCount": 21,
+    "nativeProjectIds": [
+      "remote:git.garena.com/shopee/deep/agent-smith",
+      "remote:git.garena.com/shopee/deep/bff-search",
+      "/Users/bofan.wang/Developer/search",
+      "/Users/bofan.wang/Developer/personal/PetCam",
+      "remote:github.com/JasprW/WeModern",
+      "/Users/bofan.wang/Developer/search-oracle",
+      "remote:git.garena.com/shopee/mall-fe/core-fe-sr/search-admin",
+      "prj_365bb1f26bfae56e",
+      "prj_2f0d51e382c85503",
+      "prj_ad86eaa675185454",
+      "prj_5eca2ed82a060503",
+      "prj_bf5e321cd26a40d3",
+      "prj_a274b79cf12ca7cd",
+      "prj_12cd06cf15d8395e",
+      "prj_fc2f8caf3203aadd",
+      "prj_32b4ebd684c56a8f",
+      "prj_c7e215952ce37297",
+      "prj_4a55a77104f470f3",
+      "prj_a499b8027a387569",
+      "prj_a1bb72dba6d6f30c",
+      "prj_38f7ad9da87af3ae"
+    ],
+    "agentCount": 200
+  },
+  "fixtures": {
+    "directory": "/var/folders/0b/f1crzdg95g5fwbq49s_3pw9c0000gq/T/paseo-ultra-kanban-ideas-eFyRgk",
+    "project": {
+      "id": "6bb497be-b476-40cf-a585-1ce7c68e3bad",
+      "title": "Ideas acceptance 47468a30",
+      "description": "Disposable Ideas feature acceptance fixture.",
+      "paseoProjectId": "prj_1bc8e60441602157",
+      "primaryPath": "/private/var/folders/0b/f1crzdg95g5fwbq49s_3pw9c0000gq/T/paseo-ultra-kanban-ideas-eFyRgk",
+      "repos": [
+        "/private/var/folders/0b/f1crzdg95g5fwbq49s_3pw9c0000gq/T/paseo-ultra-kanban-ideas-eFyRgk"
+      ],
+      "revision": 1,
+      "createdAt": "2026-10-15T15:55:13.704Z",
+      "updatedAt": "2026-10-15T15:55:13.704Z",
+      "archivedAt": null
+    },
+    "cardA": {
+      "id": "792f340d-18e4-411b-a454-8086ba2b3df6",
+      "projectId": "6bb497be-b476-40cf-a585-1ce7c68e3bad",
+      "workspaceId": "wks_4676dcb2cddfe041",
+      "sourcePath": "/private/var/folders/0b/f1crzdg95g5fwbq49s_3pw9c0000gq/T/paseo-ultra-kanban-ideas-eFyRgk",
+      "repoPaths": [
+        "/private/var/folders/0b/f1crzdg95g5fwbq49s_3pw9c0000gq/T/paseo-ultra-kanban-ideas-eFyRgk"
+      ],
+      "title": "Ideas acceptance source card",
+      "description": "Disposable source card for live Ideas acceptance.",
+      "status": "todo",
+      "priority": "normal",
+      "position": 0,
+      "revision": 1,
+      "operationId": "ideas-card-a-28914839-eeeb-4c93-807d-6478a7b1c664",
+      "createdAt": "2026-10-15T15:55:13.746Z",
+      "updatedAt": "2026-10-15T15:55:13.746Z",
+      "archivedAt": null,
+      "ownsWorkspace": true
+    },
+    "preallocatedAgentId": "61905a44-f3ce-46db-a81f-f66f8e37d5b5",
+    "workspace": {
+      "id": "wks_4676dcb2cddfe041",
+      "path": "/private/var/folders/0b/f1crzdg95g5fwbq49s_3pw9c0000gq/T/paseo-ultra-kanban-ideas-eFyRgk"
+    },
+    "worker": {
+      "id": "61905a44-f3ce-46db-a81f-f66f8e37d5b5",
+      "provider": "codex/gpt-6-luna",
+      "modeId": "full-access",
+      "createdAt": "2026-10-15T15:55:14.593Z",
+      "setupStatus": "idle"
+    }
+  },
+  "checks": {},
+  "cleanup": {
+    "workerArchived": true,
+    "removeProject": {
+      "id": "6bb497be-b476-40cf-a585-1ce7c68e3bad",
+      "removedTasks": 1,
+      "backup": "/Users/bofan.wang/.paseo/plugin-data/paseo-ultra-kanban/removed/6bb497be-b476-40cf-a585-1ce7c68e3bad-2026-10-15T15-55-23-689Z.json",
+      "paseo": {
+        "removed": true,
+        "workspaces": 1,
+        "error": ""
+      }
+    },
+    "nativeAfter": {
+      "workspaceCount": 27,
+      "nativeProjectIds": [
+        "remote:git.garena.com/shopee/deep/agent-smith",
+        "remote:git.garena.com/shopee/deep/bff-search",
+        "/Users/bofan.wang/Developer/search",
+        "/Users/bofan.wang/Developer/personal/PetCam",
+        "remote:github.com/JasprW/WeModern",
+        "/Users/bofan.wang/Developer/search-oracle",
+        "remote:git.garena.com/shopee/mall-fe/core-fe-sr/search-admin",
+        "prj_365bb1f26bfae56e",
+        "prj_2f0d51e382c85503",
+        "prj_ad86eaa675185454",
+        "prj_5eca2ed82a060503",
+        "prj_bf5e321cd26a40d3",
+        "prj_a274b79cf12ca7cd",
+        "prj_12cd06cf15d8395e",
+        "prj_fc2f8caf3203aadd",
+        "prj_32b4ebd684c56a8f",
+        "prj_c7e215952ce37297",
+        "prj_4a55a77104f470f3",
+        "prj_a499b8027a387569",
+        "prj_a1bb72dba6d6f30c",
+        "prj_38f7ad9da87af3ae"
+      ],
+      "nativeProjectCount": 21,
+      "agentCount": 200
+    },
+    "nativeProjectStillListed": false,
+    "boardProjectStillListed": false,
+    "derivedCardStillListed": null,
+    "ownedBackupsRemoved": true,
+    "tempDirectoryExists": false
+  },
+  "error": "Error [ERR_MODULE_NOT_FOUND]: Cannot find package '@modelcontextprotocol/client' imported from /Users/bofan.wang/Developer/personal/paseo-utlra-kanban/docs/verification/fixtures/ideas/live.mjs\n    at Object.getPackageJSONURL (node:internal/modules/package_json_reader:343:9)\n    at packageResolve (node:internal/modules/esm/resolve:751:25)\n    at moduleResolve (node:internal/modules/esm/resolve:840:18)\n    at defaultResolve (node:internal/modules/esm/resolve:973:11)\n    at #cachedDefaultResolve (node:internal/modules/esm/loader:708:20)\n    at #resolveAndMaybeBlockOnLoaderThread (node:internal/modules/esm/loader:728:38)\n    at ModuleLoader.resolveSync (node:internal/modules/esm/loader:766:56)\n    at #resolve (node:internal/modules/esm/loader:690:17)\n    at ModuleLoader.getOrCreateModuleJob (node:internal/modules/esm/loader:610:35)\n    at node:internal/modules/esm/loader:639:32",
+  "finishedAt": "2026-10-15T15:55:24.474Z"
+}
