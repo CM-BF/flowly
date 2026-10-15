@@ -7,6 +7,8 @@
 - [x] Client: lightbulb count on cards, drawer Ideas section (open cards with Create task / Dismiss, closed group with links and Restore), "From idea on …" line, new-task form prefilled from the idea and source progress ("Create task from idea"); session context line `Derived from card: …`.
 - [x] PASS: typecheck; `npm test` 279 passed / 63 skipped (new `server/ideas.test.ts`, tool-server MCP/CLI idea checks). Plugin reloaded.
 - [x] Luna (`codex/gpt-6-luna`, full access) live acceptance, test session `c8e2e1b0`: MCP and CLI proposals, duplicate refusal, dismiss/restore, create-from-idea links and `Derived from card` context, reuse refused without a new workspace, delete backup; fixtures cleaned to the baseline counts. [Verification](verification/ideas.md).
+- [x] Follow-up "ideas放到sessions下面": the drawer's Ideas section sits below Sessions.
+- [x] Follow-up "优化idea卡片的设计、交互、motion。接受按钮改成good idea": cards show title, a meta line (type, non-Normal priority, age) and the rationale; details (What to do, Context) expand with animated height and a rotating chevron; actions are **Not now** and **Good idea**. Not now is optimistic and collapses the card in place (rolled back with a toast on failure); accepted ideas collapse out too; ideas arriving while the drawer is open rise in. Slot-keeping merge in `client/idea-rows.ts` (3 tests). PASS: typecheck; `npm test` 282 passed / 63 skipped; reloaded.
 - [ ] UNRUN: UI acceptance of the lightbulb badge, drawer Ideas section, prefilled form and "From idea on …" line (the tester could not identify the non-fullscreen window); compact/phone layout on a device.
 
 ## App performance — 2026-10-15

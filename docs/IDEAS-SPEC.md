@@ -8,7 +8,7 @@ agent 工作时常发现本卡范围之外、值得做的后续工作（顺带�
 
 Ideas 让 agent 把它们作为结构化建议挂到来源卡上；用户觉得好就一键打开预填好的新建表单，带着上下文建出新卡；不好就忽略。
 
-idea 不是任务卡：不进泳道、不占 workspace、不改来源卡状态或 task revision。只有用户点 Create task 才会产生卡片；agent 永远不自行建卡或派活（v1 不做自动分配）。
+idea 不是任务卡：不进泳道、不占 workspace、不改来源卡状态或 task revision。只有用户点 **Good idea** 并保存表单才会产生卡片；agent 永远不自行建卡或派活（v1 不做自动分配）。
 
 ## 2. 数据
 
@@ -82,12 +82,19 @@ idea 不是任务卡：不进泳道、不占 workspace、不改来源卡状态�
 位置：Sessions 之后、Details 之前（2026-10-15 用户反馈：放到 Sessions 下面）。卡片没有任何 idea 时整个区块不渲染。
 
 - 标题 `Ideas`，计数为 open 数。
-- 每个 open idea 一张小卡片：标题（加粗）、类型/优先级标签（有才显示）、理由（最多 2 行）。点击卡片展开 detail 与 context（不截断）。按钮：**Create task**（主操作）、**Dismiss**（安静按钮）。
+- 每个 open idea 一张小卡片（2026-10-16 用户要求优化设计、交互与动效，接受按钮改为 Good idea）：
+  - 标题（加粗）；一行元信息：类型、优先级（仅非 Normal）、提出时间（相对时间）；理由最多 2 行。
+  - 有更多内容时点击卡片展开 “What to do”（detail）与 “Context”，不截断；右上角 chevron 随展开旋转 180°，高度与透明度一起过渡（展开 220 ms 减速、收起 160 ms 加速）。
+  - 右下角按钮（次要在前、主要在后）：**Not now**（安静按钮，忽略）、**Good idea**（主操作，`ThumbsUp` 图标，打开预填新建表单）。无障碍名称分别为 “Not now: dismiss …”、“Good idea: create a task from …”。
+  - Not now 为乐观更新：卡片立即在原位收起（高度、透明度与轻微缩放一起过渡 160 ms），保存失败时恢复并弹 error toast。idea 被转成卡片后同样收起离开列表。
+  - 抽屉打开时已有的 idea 不播放进场；打开期间新到达（agent 提出）或被 Restore 的 idea 上浮淡入。
+  - 所有动效使用 `client/motion.tsx` 原语，遵循 Reduce Motion、可打断；收起中的卡片不可交互、对读屏隐藏。
+- 没有 open idea 但有已关闭的 idea 时显示 “No open ideas. Agents add them when they find follow-up work.”
 - 非 open 的 idea 收在默认折叠的 `Closed · N` 分组：
-  - accepted：显示 “→ 新卡标题”，点击打开该卡；新卡已删除时显示 “→ deleted card”。
+  - accepted（`ThumbsUp` 图标）：显示 “→ 新卡标题”，点击打开该卡；新卡已删除时显示 “→ deleted card”。
   - dismissed：显示弱化标题与 **Restore**。
 - 卡片已归档或项目已归档时按钮禁用。
-- Dismiss / Restore 成功不弹 toast（列表本身即反馈），失败用 error toast。
+- Not now / Restore 成功不弹 toast（列表本身即反馈），失败用 error toast。
 
 ### 5.3 新卡侧栏
 
@@ -95,7 +102,7 @@ idea 不是任务卡：不进泳道、不占 workspace、不改来源卡状态�
 
 ## 6. 从 idea 建卡
 
-1. 点 **Create task** 打开现有新建任务表单（同一组件），预填：
+1. 点 **Good idea** 打开现有新建任务表单（同一组件），预填：
    - 标题、类型、优先级 = idea 的值（未给则为表单默认）；状态 = 该项目第一个可用的起始泳道（与普通新建相同的默认）。
    - 描述 = `ideaDescription()`（`shared/ideas.ts`）：
 
@@ -134,7 +141,7 @@ idea 不是任务卡：不进泳道、不占 workspace、不改来源卡状态�
 
 - 永久删除卡片：一并删除以它为来源的 idea，写入 `removed/task-…json` 备份。由这些 idea 建出的卡保留 `origin`。
 - 移除项目：一并删除并备份该项目的 idea。
-- 归档卡片：idea 保留；agent 不能再提出（与其他写工具一致）；Create task / Dismiss 禁用。
+- 归档卡片：idea 保留；agent 不能再提出（与其他写工具一致）；Good idea / Not now 禁用。
 
 ## 9. 不做
 
