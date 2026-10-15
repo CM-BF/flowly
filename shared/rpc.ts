@@ -27,6 +27,8 @@ import {
 import { summaryEntrySchema, summaryOverviewSchema } from "./summary";
 import { taskUsageSchema } from "./usage";
 import { tailEntrySchema } from "./session-tail";
+import { projectInsightsSchema } from "./insights";
+import { digestViewSchema } from "./digest";
 
 /** `{ etag }` in; the value is omitted when it still matches (PERFORMANCE-SPEC §3). */
 const etagInput = z.strictObject({ etag: z.string().max(200).optional() });
@@ -375,4 +377,25 @@ export const taskUsage = defineRpc({
   name: "usage.task",
   input: z.strictObject({ taskId: z.string().min(1) }),
   output: taskUsageSchema,
+});
+
+/** Project Insights (PROJECT-INSIGHTS-SPEC §8). `tz` is the client's IANA zone. */
+const insightsDay = {
+  projectId: z.string().min(1),
+  tz: z.string().max(100),
+};
+export const projectInsights = defineRpc({
+  name: "insights.project",
+  input: z.strictObject({ ...insightsDay, day: z.string().max(10).optional(), etag: z.string().max(200).optional() }),
+  output: z.object({ etag: z.string(), value: projectInsightsSchema.optional() }),
+});
+export const projectDigest = defineRpc({
+  name: "insights.digest",
+  input: z.strictObject({ ...insightsDay, day: z.string().regex(/^\d{4}-\d{2}-\d{2}$/) }),
+  output: digestViewSchema,
+});
+export const refreshDigest = defineRpc({
+  name: "insights.digest-refresh",
+  input: z.strictObject({ ...insightsDay, day: z.string().regex(/^\d{4}-\d{2}-\d{2}$/) }),
+  output: z.object({ queued: z.boolean() }),
 });

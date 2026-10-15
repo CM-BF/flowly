@@ -16,7 +16,8 @@ export type ShortcutAction =
   | "right"
   | "move-left"
   | "move-right"
-  | "edit";
+  | "edit"
+  | "insights";
 
 export type BoardIntent = Extract<
   ShortcutAction,
@@ -28,11 +29,12 @@ export const shortcutHelp: readonly { keys: string[]; title: string }[] = [
   { keys: ["P"], title: "Switch project" },
   { keys: ["/", "F"], title: "Search and filter" },
   { keys: ["A"], title: "Needs attention" },
+  { keys: ["I"], title: "Project insights" },
   { keys: ["J", "K"], title: "Next / previous card in column" },
   { keys: ["H", "L"], title: "Card in left / right column" },
   { keys: ["⇧H", "⇧L"], title: "Move the open card to the left / right column" },
   { keys: ["E"], title: "Edit the open card" },
-  { keys: ["Esc"], title: "Back from session, then close sidebar" },
+  { keys: ["Esc"], title: "Back from session, then close sidebar, then leave Insights" },
   { keys: ["?"], title: "Show keyboard shortcuts" },
 ];
 
@@ -46,6 +48,7 @@ const letters: Record<string, ShortcutAction> = {
   h: "left",
   l: "right",
   e: "edit",
+  i: "insights",
 };
 
 export interface ShortcutKey {

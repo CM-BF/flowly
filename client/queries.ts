@@ -214,3 +214,47 @@ export function useLiveAgents<T = PaseoAgent[]>(
   }, [paseo, client, options.stream]);
   return query;
 }
+
+/** The client's IANA zone for day boundaries (PROJECT-INSIGHTS-SPEC §3). */
+export const localZone = () => {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || "";
+  } catch {
+    return "";
+  }
+};
+
+/**
+ * Project Insights for one day. Read only while the page is open; re-read when
+ * the board changes (`revision`) and once a minute so waiting times stay current.
+ */
+export function useInsightsQuery(projectId: string, day: string | null, revision: number, enabled: boolean) {
+  const read = useRpc(rpc.projectInsights);
+  const client = useQueryClient();
+  const tz = localZone();
+  const key = ["ultra", "insights", projectId, day || "today"] as const;
+  const query = useQuery({
+    queryKey: key,
+    queryFn: () => readChanged(client, key, (etag) => read({ projectId, tz, ...(day ? { day } : {}), ...(etag ? { etag } : {}) })),
+    enabled,
+    refetchInterval: enabled ? 60_000 : false,
+    placeholderData: (previous) => previous,
+  });
+  const refetch = query.refetch;
+  useEffect(() => {
+    if (enabled) void refetch();
+  }, [revision, enabled, refetch]);
+  return query;
+}
+
+/** A day's digest; polls only while it is being generated. */
+export function useDigestQuery(projectId: string, day: string | null, enabled: boolean) {
+  const read = useRpc(rpc.projectDigest);
+  const tz = localZone();
+  return useQuery({
+    queryKey: ["ultra", "digest", projectId, day || ""],
+    queryFn: () => read({ projectId, tz, day: day! }),
+    enabled: enabled && !!day,
+    refetchInterval: (q) => (q.state.data?.running ? 3000 : false),
+  });
+}

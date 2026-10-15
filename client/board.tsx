@@ -81,6 +81,7 @@ import { MotionProvider, MotionReveal, useMotionPresence, lerp } from "./motion"
 import { SortableList } from "./sortable-list";
 import { useBoardView } from "./board-view";
 import { OverviewBar } from "./overview-bar";
+import { InsightsPage } from "./insights";
 import { lastViewedProject, pickProject, rememberViewedProject } from "./project-memory";
 import { ProjectTabs } from "./project-tabs";
 import { RemoveProjectDialog } from "./project-remove";
@@ -212,6 +213,7 @@ function BoardContent(
     [archived, setArchivedState] = useState(false),
     [menu, setMenu] = useState<"projects" | "filters" | "status" | "attention" | "shortcuts" | "settings" | null>(null),
     [escapeRequest, setEscapeRequest] = useState<{ taskId: string; key: string } | null>(null),
+    [insightsOpen, setInsightsOpen] = useState(false),
     [startRequest, setStartRequest] = useState<{ taskId: string; key: string } | null>(null),
     [mobileStatus, setMobileStatus] = useState<Status>("todo"),
     [actionTask, setActionTask] = useState<Task | null>(null),
@@ -643,6 +645,9 @@ function BoardContent(
     }),
   );
   const openTaskById = useStableCallback((id: string) => setTask(id));
+  const closeInsights = useStableCallback(() => setInsightsOpen(false));
+  const projectTasks = useMemo(() => (board?.tasks || []).filter((t) => t.projectId === project?.id), [board?.tasks, project?.id]);
+  const projectAttention = useMemo(() => attention.filter((i) => i.project.id === project?.id), [attention, project?.id]);
   const deleteDrawerTask = useStableCallback(() => drawer.item && setDeleting(drawer.item.task));
   const drawerStatusChanged = useStableCallback((from: Status | undefined, to: Status) =>
     drawer.item && askWrapup(drawer.item.task.id, from, to),
@@ -722,7 +727,15 @@ function BoardContent(
       case "shortcuts":
         setMenu(intent);
         return true;
+      case "insights":
+        if (!project) return false;
+        setInsightsOpen((open) => !open);
+        return true;
       case "escape":
+        if (!task && insightsOpen) {
+          setInsightsOpen(false);
+          return true;
+        }
         if (!task) return false;
         setEscapeRequest({ taskId: task.id, key: `escape-${Date.now()}` });
         return true;
@@ -739,7 +752,7 @@ function BoardContent(
         return true;
       }
       default: {
-        if (compact) return false;
+        if (compact || insightsOpen) return false;
         const expanded = shownStatuses.filter((s) => !collapsedColumns.includes(s));
         const next = navigateGrid(taskGrid(expanded, visible, sortColumn), task?.id || "", intent);
         if (!next) return false;
@@ -926,7 +939,10 @@ function BoardContent(
             overview={boardOverview(project, board.tasks, agents.data || [], attention)}
             nameOf={nameOf}
             onAttention={() => setMenu("attention")}
+            onInsights={() => setInsightsOpen((open) => !open)}
+            insightsShortcut={shortcutsOn ? "I" : ""}
             onLane={(status) => {
+              setInsightsOpen(false);
               if (compact) setMobileStatus(status);
               else if (collapsedColumns.includes(status)) toggleCollapse(status);
             }}
@@ -994,8 +1010,20 @@ function BoardContent(
         ) : (
           <View style={{ flex: 1, minHeight: 0, flexDirection: "row" }}>
             {(
-              <MotionReveal transitionKey={`${project.id}|${compact ? mobileStatus : "columns"}`} direction={-1} distance={compact ? 0 : 18} {...covered} style={{ flex: 1, minWidth: 0, minHeight: 0 }}>
-                {compact ? (
+              <MotionReveal transitionKey={`${project.id}|${insightsOpen ? "insights" : compact ? mobileStatus : "columns"}`} direction={-1} distance={compact ? 0 : 18} {...covered} style={{ flex: 1, minWidth: 0, minHeight: 0 }}>
+                {insightsOpen && board ? (
+                  <InsightsPage
+                    project={project}
+                    tasks={projectTasks}
+                    attention={projectAttention}
+                    revision={board.revision}
+                    compact={compact}
+                    active={!(compact && drawer.active)}
+                    nameOf={nameOf}
+                    onOpenTask={openTaskById}
+                    onBack={closeInsights}
+                  />
+                ) : compact ? (
                   <>
                     <View style={{ paddingHorizontal: space[2], paddingTop: space[2] }}>
                       <Row

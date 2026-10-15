@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { constants } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { upgradeBoard } from "./migrate";
+import type { FlowLog } from "./flow-log";
 import {
   boardSchema,
   storageSchema,
@@ -41,6 +42,10 @@ export function slotPosition(
 
 export class BoardStore {
   private tail: Promise<unknown> = Promise.resolve();
+  /** Events created by the running transaction; appended to the flow log once it commits. */
+  private pending: BoardEvent[] = [];
+  /** Untrimmed event log for insights (PROJECT-INSIGHTS-SPEC §2). */
+  flow: FlowLog | null = null;
   constructor(readonly directory: string) {}
   get path() {
     return join(this.directory, "board.json");
@@ -89,8 +94,11 @@ export class BoardStore {
       | { value: T; changed: boolean },
   ): Promise<T> {
     const job = this.tail.then(async () => {
+      this.pending = [];
       const board = await this.load();
       const result = await operation(board);
+      const events = this.pending;
+      this.pending = [];
       if (!result.changed) return result.value;
       board.revision++;
       this.assertInvariants(board);
@@ -107,6 +115,10 @@ export class BoardStore {
         if ((e as NodeJS.ErrnoException).code !== "ENOENT") throw e;
       }
       await rename(temporary, this.path);
+      if (this.flow && events.length)
+        void this.flow.append(events, board).catch((e) =>
+          console.error("Kanban flow log append failed:", e instanceof Error ? e.message : String(e)),
+        );
       return result.value;
     });
     this.tail = job.then(
@@ -393,6 +405,7 @@ export class BoardStore {
       at: new Date().toISOString(),
     };
     board.events.push(event);
+    this.pending.push(event);
     const relevant = board.events.filter((e) => e.taskId === input.taskId);
     if (relevant.length > 100) {
       const remove = new Set(relevant.slice(0, -100).map((e) => e.id));

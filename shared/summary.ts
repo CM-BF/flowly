@@ -63,6 +63,8 @@ export const summarySettings = defineSettings({
     summaryEnabled: z.boolean().default(true),
     /** `provider/model`; empty picks the first available of AUTO_MODELS. */
     summaryModel: z.string().max(200).default(""),
+    /** Generate a past day's project digest when Insights opens it (PROJECT-INSIGHTS-SPEC §7). */
+    digestEnabled: z.boolean().default(true),
   }),
 });
 export type SummarySettings = z.infer<typeof summarySettings.schema>;
@@ -109,7 +111,7 @@ export function targetText(text: string): string {
 }
 
 /** First balanced JSON object in `text` (tolerates fences and surrounding prose). */
-function firstObject(text: string): string | null {
+export function firstObject(text: string): string | null {
   const start = text.indexOf("{");
   if (start < 0) return null;
   let depth = 0,

@@ -19,6 +19,9 @@ import { applyTurnEnded, applyTurnStarted, recordLifecycle } from "./server/prog
 import { SummaryService, SummaryStore } from "./server/summaries";
 import { UsageService } from "./server/usage";
 import { summarySettings, summarySettingsValues } from "./shared/summary";
+import { FlowLog } from "./server/flow-log";
+import { GitStats } from "./server/git-stats";
+import { DigestStore, InsightsService } from "./server/insights";
 
 export default function contribute(server: PluginServerContext) {
   server.registerSettings(boardViewSettings);
@@ -39,6 +42,14 @@ export default function contribute(server: PluginServerContext) {
       return summarySettingsValues(state?.status === "ready" ? state.values : {});
     },
   );
+  // Untrimmed event log + project insights (PROJECT-INSIGHTS-SPEC).
+  const flow = new FlowLog(store.directory);
+  store.flow = flow;
+  const insights = new InsightsService(store, flow, new GitStats(), summaries.store, new DigestStore(store.directory), summaries.settings);
+  void insights.reconcile().catch((e) => console.error("Kanban flow log backfill failed:", e instanceof Error ? e.message : String(e)));
+  server.handle(rpc.projectInsights, async ({ etag, ...input }, { paseo }) => ifChanged(await insights.project(input, paseo), etag));
+  server.handle(rpc.projectDigest, (input, { paseo }) => insights.digest(input, paseo));
+  server.handle(rpc.refreshDigest, (input, { paseo }) => insights.refresh(input, paseo));
   server.handle(rpc.readSummaries, () => summaries.overview());
   server.handle(rpc.readSummariesChanged, async (input) => ifChanged(await summaries.overview(), input.etag));
   const usage = new UsageService(store);
@@ -165,6 +176,9 @@ export default function contribute(server: PluginServerContext) {
     await summaries.store.removeTasks(input.id, taskIds).catch((e) =>
       console.error("Kanban summaries not removed:", e instanceof Error ? e.message : String(e)),
     );
+    await Promise.all([flow.removeProject(input.id), insights.digests.removeProject(input.id)]).catch((e) =>
+      console.error("Kanban insights data not removed:", e instanceof Error ? e.message : String(e)),
+    );
     return removed;
   });
   server.handle(rpc.deleteCheck, (input, { paseo }) => wrapups.check(input.id, paseo, "delete"));
@@ -174,7 +188,12 @@ export default function contribute(server: PluginServerContext) {
     const archived = input.archive
       ? await wrapups.run({ ...input, keepCard: true, purpose: "delete" }, paseo)
       : null;
+    const projectId = (await store.read()).tasks.find((t) => t.id === input.id)?.projectId;
     const deleted = await store.deleteTask(input);
+    if (projectId)
+      await flow.removeTask(projectId, deleted.id).catch((e) =>
+        console.error("Kanban flow log not cleaned:", e instanceof Error ? e.message : String(e)),
+      );
     await summaries.store.removeTasks(`task-${deleted.id}`, new Set([deleted.id])).catch((e) =>
       console.error("Kanban summaries not removed:", e instanceof Error ? e.message : String(e)),
     );

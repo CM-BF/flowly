@@ -254,7 +254,7 @@ export class SummaryService {
 }
 
 /** Available providers' selectable models, limited to those the choice can need. */
-async function availableModels(paseo: PaseoApi, configured: string) {
+export async function availableModels(paseo: PaseoApi, configured: string) {
   const wanted = configured ? [configured.slice(0, configured.indexOf("/"))] : ["claude", "codex"];
   const available = (await paseo.providers.listAvailable()).providers;
   return Promise.all(

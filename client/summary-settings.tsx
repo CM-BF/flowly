@@ -156,6 +156,12 @@ function SummarySettingsBody({ active }: { active: boolean }) {
         value={values?.summaryEnabled ?? true}
         onChange={(summaryEnabled) => !busy && save({ summaryEnabled })}
       />
+      <Toggle
+        title="Daily digest"
+        detail="Write a past day's project summary when Insights opens it. Refresh in Insights always works."
+        value={values?.digestEnabled ?? true}
+        onChange={(digestEnabled) => !busy && save({ digestEnabled })}
+      />
       <PickerGroup>
         <PickerRow
           first

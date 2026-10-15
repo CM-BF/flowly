@@ -59,7 +59,7 @@ async function setup(options: { claude?: boolean } = {}) {
     },
     agents: {},
   } as unknown as PaseoApi;
-  let settings: SummarySettings = { summaryEnabled: true, summaryModel: "" };
+  let settings: SummarySettings = { summaryEnabled: true, summaryModel: "", digestEnabled: true };
   const store = new SummaryStore(board.directory);
   const service = new SummaryService(board, store, async () => settings);
   const turn = (text: string) => [{ type: "user_message", text }, { type: "assistant_message", text: "ok " + text }];

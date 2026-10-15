@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { Pressable, View } from "react-native";
-import { ScrollView } from "@getpaseo/plugin/client/react-native";
+import { Icon, ScrollView } from "@getpaseo/plugin/client/react-native";
 import type { Status } from "../shared/model";
 import { Dot, Label, font, noFocusRing, radius, space, touch, useTheme } from "./ui";
 import { StatusIcon } from "./status";
@@ -16,10 +16,15 @@ export function OverviewBar({
   nameOf,
   onAttention,
   onLane,
+  onInsights,
+  insightsShortcut,
 }: {
   overview: BoardOverview;
   nameOf(status: Status): string;
   onAttention(): void;
+  /** Open project Insights (PROJECT-INSIGHTS-SPEC §9). */
+  onInsights(): void;
+  insightsShortcut: string;
   /** Jump to a lane (compact: switch tabs; desktop: expand it if collapsed). */
   onLane(status: Status): void;
 }) {
@@ -80,6 +85,10 @@ export function OverviewBar({
             {nameOf("blocked")} {o.blocked}
           </Chip>
         )}
+        <Divider />
+        <Chip label={`Project insights${insightsShortcut ? ` (${insightsShortcut})` : ""}`} icon={<Icon name="Activity" size={13} color={colors.foregroundMuted} />} onPress={onInsights}>
+          Insights
+        </Chip>
       </ScrollView>
     </View>
   );

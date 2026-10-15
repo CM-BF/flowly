@@ -63,8 +63,8 @@ test("Auto model prefers Haiku 5.5 and falls back to GPT-6-Luna", () => {
 });
 
 test("settings fill missing fields with defaults", () => {
-  expect(summarySettingsValues(undefined)).toEqual({ summaryEnabled: true, summaryModel: "" });
-  expect(summarySettingsValues({ summaryEnabled: false })).toEqual({ summaryEnabled: false, summaryModel: "" });
+  expect(summarySettingsValues(undefined)).toEqual({ summaryEnabled: true, summaryModel: "", digestEnabled: true });
+  expect(summarySettingsValues({ summaryEnabled: false })).toEqual({ summaryEnabled: false, summaryModel: "", digestEnabled: true });
 });
 
 test("prompt carries the card, previous summary and transcript", () => {
