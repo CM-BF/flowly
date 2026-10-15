@@ -6,7 +6,7 @@ import { boardViewSettings } from "./shared/settings";
 import { ToolServer } from "./server/tool-server";
 import { SessionReadStore, SessionReadService } from "./server/session-reads";
 import { WrapupService } from "./server/wrapup";
-import { applyTurnStarted, recordLifecycle } from "./server/progress-rules";
+import { applyTurnEnded, applyTurnStarted, recordLifecycle } from "./server/progress-rules";
 
 export default function contribute(server: PluginServerContext) {
   server.registerSettings(boardViewSettings);
@@ -128,9 +128,10 @@ export default function contribute(server: PluginServerContext) {
     tools.attach(paseo);
     const identity = await managedTask(event.agent);
     if (!identity) return;
-    await store.mutate((board) =>
-      recordLifecycle(store, board, identity, "agent.turn_ended", event.outcome),
-    );
+    await store.mutate((board) => {
+      recordLifecycle(store, board, identity, "agent.turn_ended", event.outcome);
+      applyTurnEnded(store, board, identity, event.outcome);
+    });
   });
   server.on("agent.permission_requested", async (event, { paseo }) => {
     tools.attach(paseo);

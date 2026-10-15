@@ -325,8 +325,10 @@ function CardSignals({
           text={summary.starting && !summary.running ? `${summary.starting} starting` : `${summary.running + summary.starting} running`}
         />,
       );
-    if (summary.unread)
-      items.push(<Signal key="unread" color={colors.statusSuccess} text={`${summary.unread} unread`} />);
+    // A session with an open question is already shown as "Needs you".
+    const unread = Math.max(0, summary.unread - questions);
+    if (unread)
+      items.push(<Signal key="unread" color={colors.statusSuccess} text={`${unread} unread`} />);
     if (!items.length && summary.total)
       items.push(<Signal key="total" icon="MessageSquare" text={`${summary.total}`} />);
     if (summaryState === "stale")

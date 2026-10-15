@@ -75,3 +75,52 @@ export function applyTurnStarted(
   });
   return true;
 }
+
+/**
+ * Rule A1r: a turn that A1 resumed from In review/Blocked, which then ends
+ * without any Kanban report, restores the previous status. A casual message
+ * ("thanks") must not leave a reviewed card looking active.
+ */
+export function applyTurnEnded(
+  store: Store,
+  board: Board,
+  identity: ToolIdentity,
+  outcome: PluginTurnOutcome,
+  now = new Date(),
+): boolean {
+  const target = bound(board, identity);
+  if (!target || outcome.kind === "failed") return false;
+  const { task, project } = target;
+  if (task.archivedAt || project.archivedAt || project.autoStatus === false || task.status !== "in_progress")
+    return false;
+  const mine = board.events.filter((e) => e.taskId === task.id && e.agentId === identity.agentId);
+  let started = -1;
+  for (let i = mine.length - 1; i >= 0; i--)
+    if (mine[i].action === "agent.turn_started") {
+      started = i;
+      break;
+    }
+  if (started < 0) return false;
+  const turn = mine.slice(started + 1);
+  const resumed = turn.find(
+    (e) => e.rule === "A1" && (e.from === "in_review" || e.from === "blocked"),
+  );
+  if (!resumed?.from || turn.some((e) => e.actor === "agent")) return false;
+  // Someone else (a person or another session) may have moved it since.
+  const lastChange = [...board.events].reverse().find((e) => e.taskId === task.id && e.action === "status_changed");
+  if (lastChange?.id !== resumed.id) return false;
+  task.status = resumed.from;
+  task.revision++;
+  task.updatedAt = now.toISOString();
+  store.event(board, {
+    taskId: task.id,
+    actor: "system",
+    action: "status_changed",
+    agentId: identity.agentId,
+    rule: "A1r",
+    from: "in_progress",
+    to: resumed.from,
+    note: "No work was reported in that turn; restored",
+  });
+  return true;
+}

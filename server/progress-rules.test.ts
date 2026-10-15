@@ -84,3 +84,36 @@ test("silent turn: ended without any report while the card is in progress", () =
   expect(silentTurn({ status: "in_progress" }, [...silent, ev("agent.turn_started", 3)], "a")).toBe(false);
   expect(silentTurn({ status: "in_progress" }, [ev("agent.turn_started", 1), ev("agent.turn_ended", 2, { outcome: "failed" })], "a")).toBe(false);
 });
+
+test("A1r restores review/blocked when a resumed turn ends without any report", async () => {
+  const { applyTurnEnded } = await import("./progress-rules");
+  const done = { kind: "completed" } as const;
+  // casual message: resumed from review, nothing reported -> back to review
+  const b = board("in_review");
+  recordLifecycle(store, b, id, "agent.turn_started");
+  applyTurnStarted(store, b, id, "S");
+  expect(applyTurnEnded(store, b, id, done)).toBe(true);
+  expect(b.tasks[0]).toMatchObject({ status: "in_review", revision: 3 });
+  expect(b.events.at(-1)).toMatchObject({ rule: "A1r", from: "in_progress", to: "in_review" });
+  // real work reported -> stays in progress
+  const w = board("blocked");
+  recordLifecycle(store, w, id, "agent.turn_started");
+  applyTurnStarted(store, w, id, "S");
+  store.event(w, { taskId: "t", actor: "agent", action: "progress_reported", agentId: "a", note: "fixing" });
+  expect(applyTurnEnded(store, w, id, done)).toBe(false);
+  expect(w.tasks[0].status).toBe("in_progress");
+  // started from todo (not a resume), failed turns, or a later human move -> untouched
+  const t = board("todo");
+  recordLifecycle(store, t, id, "agent.turn_started");
+  applyTurnStarted(store, t, id, "S");
+  expect(applyTurnEnded(store, t, id, done)).toBe(false);
+  const f = board("in_review");
+  recordLifecycle(store, f, id, "agent.turn_started");
+  applyTurnStarted(store, f, id, "S");
+  expect(applyTurnEnded(store, f, id, { kind: "failed", error: { message: "x" } })).toBe(false);
+  const h = board("in_review");
+  recordLifecycle(store, h, id, "agent.turn_started");
+  applyTurnStarted(store, h, id, "S");
+  store.event(h, { taskId: "t", actor: "human", action: "status_changed", from: "in_progress", to: "in_progress" });
+  expect(applyTurnEnded(store, h, id, done)).toBe(false);
+});
