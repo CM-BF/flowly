@@ -85,7 +85,7 @@ idea 不是任务卡：不进泳道、不占 workspace、不改来源卡状态�
 - 每个 open idea 一张小卡片（2026-10-16 用户要求优化设计、交互与动效，接受按钮改为 Good idea）：
   - 标题（加粗）；一行元信息：类型、优先级（仅非 Normal）、提出时间（相对时间）；理由最多 2 行。
   - 有更多内容时点击卡片展开 “What to do”（detail）与 “Context”，不截断；右上角 chevron 随展开旋转 180°，高度与透明度一起过渡（展开 220 ms 减速、收起 160 ms 加速）。
-  - 右下角按钮（次要在前、主要在后）：**Not now**（安静按钮，忽略）、**Good idea**（主操作，`ThumbsUp` 图标，打开预填新建表单）。无障碍名称分别为 “Not now: dismiss …”、“Good idea: create a task from …”。
+  - 左下角按钮（2026-10-16 用户反馈改为左对齐，主操作在前）：**Good idea**（主操作，`ThumbsUp` 图标，打开预填新建表单）、**Not now**（安静按钮，忽略）。无障碍名称分别为 “Not now: dismiss …”、“Good idea: create a task from …”。
   - Not now 为乐观更新：卡片立即在原位收起（高度、透明度与轻微缩放一起过渡 160 ms），保存失败时恢复并弹 error toast。idea 被转成卡片后同样收起离开列表。
   - 抽屉打开时已有的 idea 不播放进场；打开期间新到达（agent 提出）或被 Restore 的 idea 上浮淡入。
   - 所有动效使用 `client/motion.tsx` 原语，遵循 Reduce Motion、可打断；收起中的卡片不可交互、对读屏隐藏。

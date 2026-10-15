@@ -271,16 +271,12 @@ const IdeaCard = memo(function IdeaCard({
       <View
         style={{
           flexDirection: "row",
-          justifyContent: "flex-end",
           flexWrap: "wrap",
           gap: space[2],
-          paddingHorizontal: space[2],
+          paddingHorizontal: space[3],
           paddingBottom: space[2],
         }}
       >
-        <Button quiet disabled={disabled} label={`Not now: dismiss ${idea.title}`} onPress={() => onDismiss(idea)}>
-          Not now
-        </Button>
         <Button
           primary
           icon="ThumbsUp"
@@ -289,6 +285,9 @@ const IdeaCard = memo(function IdeaCard({
           onPress={() => onCreate(idea)}
         >
           Good idea
+        </Button>
+        <Button quiet disabled={disabled} label={`Not now: dismiss ${idea.title}`} onPress={() => onDismiss(idea)}>
+          Not now
         </Button>
       </View>
     </View>
