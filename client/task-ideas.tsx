@@ -203,7 +203,12 @@ const IdeaCard = memo(function IdeaCard({
       <Meta key="type" icon={<TypeIcon type={idea.type} size={12} />} text={taskTypeLabels[idea.type]} />
     ),
     idea.priority && idea.priority !== "normal" && (
-      <Meta key="priority" icon={<PriorityIcon priority={idea.priority} size={12} />} text={priorityLabels[idea.priority]} />
+      // Low's single-bar glyph reads as stray punctuation at this size; only the High/Urgent arrows add meaning.
+      <Meta
+        key="priority"
+        icon={idea.priority === "low" ? null : <PriorityIcon priority={idea.priority} size={12} />}
+        text={idea.priority === "low" ? "Low priority" : priorityLabels[idea.priority]}
+      />
     ),
   ].filter(Boolean);
   return (
@@ -272,12 +277,14 @@ const IdeaCard = memo(function IdeaCard({
         style={{
           flexDirection: "row",
           flexWrap: "wrap",
-          gap: space[2],
+          // The quiet button carries its own padding, so a small gap reads as even spacing.
+          gap: space[1],
           paddingHorizontal: space[3],
-          paddingBottom: space[2],
+          paddingBottom: space[2] + 2,
         }}
       >
         <Button
+          small
           primary
           icon="ThumbsUp"
           disabled={disabled}
@@ -286,7 +293,7 @@ const IdeaCard = memo(function IdeaCard({
         >
           Good idea
         </Button>
-        <Button quiet disabled={disabled} label={`Not now: dismiss ${idea.title}`} onPress={() => onDismiss(idea)}>
+        <Button small quiet disabled={disabled} label={`Not now: dismiss ${idea.title}`} onPress={() => onDismiss(idea)}>
           Not now
         </Button>
       </View>
@@ -348,7 +355,7 @@ function ClosedIdea({
           ))}
       </View>
       {!accepted && (
-        <Button quiet icon="Undo2" disabled={disabled} label={`Restore ${idea.title}`} onPress={() => onRestore(idea)}>
+        <Button small quiet icon="Undo2" disabled={disabled} label={`Restore ${idea.title}`} onPress={() => onRestore(idea)}>
           Restore
         </Button>
       )}

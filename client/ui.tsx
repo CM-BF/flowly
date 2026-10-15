@@ -22,6 +22,7 @@ export const radius = { sm: 4, md: 6, lg: 8, xl: 12, full: 999 } as const;
 export const font = { xs: 11, sm: 12, md: 13, base: 14, lg: 16, xl: 18 } as const;
 export const touch = Platform.OS !== "web";
 const control = touch ? 44 : 32;
+const smallControl = touch ? 32 : 28;
 
 /**
  * Vertical-only scrolling. iOS (Fabric) adds child overflow/transforms to the
@@ -114,6 +115,7 @@ export function Button({
   quiet = false,
   danger = false,
   grow = false,
+  small = false,
 }: {
   children: ReactNode;
   onPress: () => void;
@@ -124,8 +126,11 @@ export function Button({
   quiet?: boolean;
   danger?: boolean;
   grow?: boolean;
+  /** Compact control for inline rows (e.g. inside a card); the touch target stays 44 pt via hitSlop. */
+  small?: boolean;
 }) {
   const { colors } = useTheme();
+  const height = small ? smallControl : control;
   const fg = primary
     ? colors.accentForeground
     : danger
@@ -141,14 +146,15 @@ export function Button({
       disabled={disabled}
       accessibilityState={{ disabled }}
       onPress={onPress}
+      hitSlop={small && touch ? { top: (control - smallControl) / 2, bottom: (control - smallControl) / 2 } : undefined}
       style={(state) => {
         const { pressed, hovered: hover, focused } = state as typeof state & { hovered?: boolean; focused?: boolean };
         const hovered = hover || focused;
         return {
           ...noFocusRing,
-          paddingHorizontal: hasText ? space[3] : 0,
-          height: control,
-          minWidth: control,
+          paddingHorizontal: hasText ? (small ? space[2] + 2 : space[3]) : 0,
+          height,
+          minWidth: height,
           borderRadius: radius.md,
           flexDirection: "row",
           flexGrow: grow ? 1 : 0,
@@ -169,7 +175,7 @@ export function Button({
         };
       }}
     >
-      {icon && <Icon name={icon} size={15} color={fg} />}
+      {icon && <Icon name={icon} size={small ? 13 : 15} color={fg} />}
       {hasText && (
         <Text
           numberOfLines={1}
@@ -178,7 +184,7 @@ export function Button({
             userSelect: "none",
             flexShrink: 1,
             color: fg,
-            fontSize: font.md,
+            fontSize: small ? font.sm : font.md,
             fontWeight: "500",
           }}
         >
