@@ -30,7 +30,56 @@ export function createDraftBuffer(initial: string) {
       }
     },
     edit(text: string) { value = text; },
+    /** An outside change (restore, clear after send) replaces the text. */
+    set(text: string) { acknowledged = text; value = text; },
     read() { return value; },
     clear(expected: string) { if (value === expected) value = ""; },
+  };
+}
+
+/**
+ * Batches draft reports from an input that owns its text (native). Reports at
+ * once when the text turns empty or non-empty (send-button state), otherwise
+ * after `delay` of quiet. `external(text)` returns true when a parent value is
+ * an outside change (not one of ours) and drops any pending report.
+ */
+export function createDraftReporter(
+  initial: string,
+  report: (text: string) => void,
+  delay = 300,
+  timers: { set(fn: () => void, ms: number): unknown; clear(handle: unknown): void } = {
+    set: (fn, ms) => setTimeout(fn, ms),
+    clear: (handle) => clearTimeout(handle as ReturnType<typeof setTimeout>),
+  },
+) {
+  let reported = initial;
+  let pending: string | null = null;
+  let timer: unknown = null;
+  const cancel = () => {
+    if (timer !== null) timers.clear(timer);
+    timer = null;
+  };
+  const flush = () => {
+    cancel();
+    if (pending === null) return;
+    reported = pending;
+    pending = null;
+    report(reported);
+  };
+  return {
+    change(text: string) {
+      pending = text;
+      if (!!text.trim() !== !!reported.trim()) return flush();
+      cancel();
+      timer = timers.set(flush, delay);
+    },
+    flush,
+    external(parent: string) {
+      if (parent === reported) return false;
+      reported = parent;
+      pending = null;
+      cancel();
+      return true;
+    },
   };
 }

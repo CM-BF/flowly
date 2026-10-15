@@ -69,7 +69,7 @@ import { coalescedRefresh, useSessionFollowTail } from "./session-follow";
 import { useSessionReads } from "./session-reads";
 import { sessionAttention } from "../shared/session-attention";
 import { Enter, MotionReveal, PulseDot, motionDuration, useMotionPresence, useMotionValue } from "./motion";
-import { composerEnterAction, createDraftBuffer, type ComposerKey } from "./session-input";
+import { composerEnterAction, createDraftBuffer, createDraftReporter, type ComposerKey } from "./session-input";
 
 /** Composer text area: vertical padding and the one-line height (20 px line). */
 const inputPad = 4;
@@ -123,7 +123,31 @@ export function SessionPreview({
   const reads = useSessionReads();
   const toast = useToast();
   const [draftBuffer] = useState(() => createDraftBuffer(draft));
-  draftBuffer.sync(draft);
+  // Native (phone) typing: the input owns its text. Pushing every keystroke
+  // through the drawer's state and back as a controlled value re-renders the
+  // whole session view and can reset the IME's composition, so the screen
+  // jumps and the next group of characters is disturbed (worse over a remote
+  // connection). The drawer hears about changes after a short pause (at once
+  // when the box turns empty/non-empty); only outside changes (restore, clear
+  // after send, edit a queued message) reset the input.
+  const ownInput = Platform.OS !== "web";
+  // Web: the controlled value is authoritative. Native: the buffer follows the
+  // input and only outside changes (below) replace it, since the drawer's copy
+  // may lag behind what was typed.
+  if (!ownInput) draftBuffer.sync(draft);
+  const [inputKey, setInputKey] = useState(0);
+  const latestChange = useRef(onDraftChange);
+  latestChange.current = onDraftChange;
+  const [reporter] = useState(() => createDraftReporter(draft, (text) => latestChange.current(sessionId, text)));
+  const flushReport = () => reporter.flush();
+  const reportDraft = (text: string) => (ownInput ? reporter.change(text) : onDraftChange(sessionId, text));
+  useEffect(() => () => reporter.flush(), []);
+  useEffect(() => {
+    // An outside change (restore, clear after send, edit a queued message): show it in the input.
+    if (!ownInput || !reporter.external(draft)) return;
+    draftBuffer.set(draft);
+    setInputKey((k) => k + 1);
+  }, [draft]);
   const [sending, setSending] = useState(false),
     [error, setError] = useState(""),
     [showTools, setShowTools] = useState(false),
@@ -369,6 +393,8 @@ export function SessionPreview({
   }
   async function submitInstruction(alternate = false) {
     noteInteraction();
+    // The drawer must hold the latest text before the send clears it.
+    flushReport();
     const { canWrite: writable, preferred: behavior, running: busyTurn, pendingPermission } = submitState.current;
     const instruction = draftBuffer.read();
     const attached = attachmentsRef.current;
@@ -437,7 +463,7 @@ export function SessionPreview({
                       : []),
                     { id: "edit", label: "Edit", icon: "Pencil", disabled: m.id.startsWith("pending-") || !!m.images?.length, onPress: () =>
                         void composer.remove(sessionId, m.id).then(() =>
-                          onDraftChange(sessionId, draft.trim() ? `${draft}\n${m.text}` : m.text)) },
+                          onDraftChange(sessionId, draftBuffer.read().trim() ? `${draftBuffer.read()}\n${m.text}` : m.text)) },
                     { kind: "separator", id: "s" },
                     { id: "remove", label: "Remove", icon: "Trash2", danger: true, disabled: m.id.startsWith("pending-"), onPress: () =>
                         void composer.remove(sessionId, m.id).catch((e) => setError(message(e))) },
@@ -536,16 +562,17 @@ export function SessionPreview({
               </View>
             )}
             <TextInput
+              key={ownInput ? `input-${inputKey}` : "input"}
               accessibilityLabel="Follow-up instruction"
               accessibilityHint={
                 Platform.OS === "web"
                   ? "Enter sends; Shift and Enter inserts a new line."
                   : "Use the keyboard Send action or the send button."
               }
-              value={draft}
+              {...(ownInput ? { defaultValue: draft } : { value: draft })}
               onChangeText={(text) => {
                 draftBuffer.edit(text);
-                onDraftChange(sessionId, text);
+                reportDraft(text);
               }}
               onFocus={() => {
                 setFocused(true);

@@ -282,6 +282,13 @@ Verified live: collapse widths 280→141→89→48→44 and expand 44→111→18
 - The High glyph is now an amber up arrow (`ArrowUp`, `statusWarning`) instead of a grey signal icon, everywhere `PriorityIcon` is used (card and drawer property chip). `priorityAccent()` in `client/status.tsx` defines which priorities are emphasized.
 - Verified on the live board (`docs/verification/card-priority.png`).
 
+## 7ad. Steady typing on phones (2026-10-15, user report)
+
+- Symptom: on the phone (remote daemon), each committed group of IME characters made the screen jump and disturbed the next group.
+- Cause: the composer was fully controlled from the drawer's state. Every IME commit re-rendered the whole drawer and session view (transcript, chips, host sheet), and the value was pushed back into the input while the keyboard might already be composing again. Remote latency made the round trip and the re-render slower.
+- Fix (native only; web stays controlled): the input owns its text (`defaultValue`, remounted by key only on outside changes). Changes reach the drawer through `createDraftReporter`: after 300 ms of quiet, and at once when the box turns empty or non-empty so the send button stays correct. The parent's echo of our own report is not treated as an outside change. Outside changes (draft restore, clear after send, Edit of a queued message) replace the text and drop any pending report. On native the draft buffer follows the input (`set` only on outside changes), so a quick send never loses the last characters. A pending report is flushed before sending and on unmount.
+- Verified: unit tests for the reporter (batching, immediate flips, echo vs outside change) and the buffer; the desktop composer smoke test (type CJK + Latin, send enabled, clear). Not verified on a physical phone in this pass; the native app isn't scriptable from this environment.
+
 ## 8. Acceptance
 
 | Check | Expected |
