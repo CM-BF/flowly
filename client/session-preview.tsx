@@ -205,19 +205,28 @@ export function SessionPreview({
   const attention = active
     ? sessionAttention(active, task.id, reads.receipts, events)
     : null;
-  // Opening a session reads it (Paseo parity). "Mark as unread" holds until the view closes.
+  // Reading is something the user does: opening the session, or interacting
+  // with it (pointer down inside, focusing the composer, sending). A turn that
+  // finishes while the view merely stays open — e.g. while the user works
+  // elsewhere in Paseo — stays unread. "Mark as unread" holds until the next
+  // interaction or the next open.
   const holdUnread = useRef(false);
-  const autoRead = useRef("");
+  const [readIntent, setReadIntent] = useState(1);
+  const handledIntent = useRef(0);
   const readsReady = !reads.query.isPending && !reads.query.isError;
+  const noteInteraction = () => {
+    holdUnread.current = false;
+    setReadIntent((n) => n + 1);
+  };
   useEffect(() => {
-    if (!visible || !active || active.archivedAt || task.archivedAt || !attention?.unread || holdUnread.current || !readsReady) return;
-    const key = `${attention.token || ""}|${attention.manualUnread}`;
-    if (autoRead.current === key) return;
-    autoRead.current = key;
+    if (!visible || !active || !readsReady || handledIntent.current === readIntent) return;
+    // Each open/interaction reads what is unread at that moment, once.
+    handledIntent.current = readIntent;
+    if (active.archivedAt || task.archivedAt || !attention?.unread || holdUnread.current) return;
     void reads
       .markRead({ taskId: task.id, agentId: sessionId, ...(attention.token ? { token: attention.token } : {}) })
       .catch(() => undefined);
-  }, [visible, active?.id, active?.archivedAt, task.archivedAt, attention?.unread, attention?.token, attention?.manualUnread, readsReady]);
+  }, [visible, active?.id, active?.archivedAt, task.archivedAt, attention?.unread, attention?.token, readsReady, readIntent]);
   const output = useMemo(
     () => recentSessionOutput(timeline.data?.entries || []),
     [timeline.data?.entries],
@@ -359,6 +368,7 @@ export function SessionPreview({
     }
   }
   async function submitInstruction(alternate = false) {
+    noteInteraction();
     const { canWrite: writable, preferred: behavior, running: busyTurn, pendingPermission } = submitState.current;
     const instruction = draftBuffer.read();
     const attached = attachmentsRef.current;
@@ -537,7 +547,10 @@ export function SessionPreview({
                 draftBuffer.edit(text);
                 onDraftChange(sessionId, text);
               }}
-              onFocus={() => setFocused(true)}
+              onFocus={() => {
+                setFocused(true);
+                if (attention?.unread) noteInteraction();
+              }}
               onBlur={() => setFocused(false)}
               onContentSizeChange={(event) => {
                 // Web: the mirror below measures instead (a textarea's scrollHeight never shrinks).
@@ -685,6 +698,8 @@ export function SessionPreview({
   return (
     <View
       style={{ flex: 1, minHeight: 0, minWidth: 0 }}
+      // Any press inside the session counts as looking at it (does not claim the responder).
+      onPointerDown={() => attention?.unread && !holdUnread.current && noteInteraction()}
     >
       <View
         style={{

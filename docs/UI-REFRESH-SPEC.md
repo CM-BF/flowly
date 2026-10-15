@@ -269,6 +269,13 @@ Verified live: collapse widths 280→141→89→48→44 and expand 44→111→18
 - When an item is chosen, the action still runs immediately (it is not delayed). Its first frames of work now fall into the slow start of the exit, so they no longer read as a stall.
 - Measured on the Sort menu: closing by clicking outside now fades 1.00 → 0.99 → 0.96 → … → 0.17 → gone in about 190 ms. Before, it went 1.00 → 0.59 within 50 ms and then lingered near 0 until 186 ms.
 
+## 7ab. Read means the user looked (2026-10-15, user report)
+
+- Bug: a card finished but showed no unread state, while Paseo itself showed the workspace unread. Cause: 7q's auto-read marked any new attention read while the session view was mounted in the side bar, even when the user was working elsewhere. The read records showed `17a4e470` marked read 0.13 s after it finished, and `3ab69f92` 3 s after.
+- Now a session is marked read only on user intent: opening it, a pointer press anywhere inside the session view, focusing its composer, or sending. Each open or interaction reads what is unread at that moment, once. A turn that finishes while the view merely stays open stays unread until the user interacts or reopens it.
+- "Mark as unread" holds through plain presses inside the view. Focusing the composer, sending, "Mark as read" or reopening clear it.
+- Verified with two windows: A kept the Init session open and untouched while B marked it unread (standing in for a turn finishing unseen). After 9 s it was still unread; one press inside A read it. The session ended read, as it started.
+
 ## 8. Acceptance
 
 | Check | Expected |
