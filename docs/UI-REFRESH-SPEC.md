@@ -87,6 +87,19 @@ Status: authorized by the user's 2026-10-14 request to redesign the whole Kanban
 - **Composer stability**: the drawer's task-context query keeps its previous data across revision changes (automatic status moves no longer blank it and flash "unavailable"); the composer input stays editable whenever the session exists — only the send button follows availability — so typing is never dropped. No rows appear/disappear above the input: "Latest" is a floating pill, the Steer/Interrupt segmented row is removed. Verified live on a running session: 40 typed characters, constant input position/height, focus retained; New task dialog position constant while the drawer is open.
 - **Send while running (Paseo parity)**: options Steer / Queue / Interrupt with Paseo's semantics — Enter uses the preference, Cmd/Ctrl+Enter the alternative (queue for steer/interrupt; send now for queue); a queued message waiting behind a permission prompt interrupts instead. Paseo's own setting is client-local and not readable by plugins, so the board keeps a host-scoped copy (`board-view.sendBehavior`, default Steer) changed from the composer footer ("When running: …") or the native sheet. Queued messages show above the input (removable) and are sent one per finished turn by the board even when the preview is closed; a failed send returns to the front of the queue with an error toast.
 
+## 7h. Session settings (2026-10-15, user request)
+
+- Session detail header → "Session settings" (live sessions):
+  - **Reasoning** (the current model's `thinkingOptions` from the SDK model catalog) and **Permissions** (the session's `availableModes`) apply on selection.
+  - **Stop** interrupts a running session.
+  - **Model** and provider **features** (e.g. Codex Fast mode) are shown read-only with "Change in Paseo".
+- Why: the plugin SDK (`PaseoApi`) exposes no session-settings API. The daemon's `setAgentModel/Feature` live only on the private DaemonClient or the agent-facing `/mcp/agents` endpoint, which plugins must not impersonate. The official Paseo CLI supports `agent update --thinking`, `agent mode` and `agent stop`, so the plugin daemon runs the bundled CLI (resolved from the app bundle, argument arrays, `--home` = daemon home).
+- RPC `sessions.configure` validates:
+  - the session belongs to the card's workspace, is not archived, and the mode is offered;
+  - IDs must start with a letter or digit (no option injection).
+- Verified live: reasoning Medium→High and permissions →Plan Mode on a fixture Haiku session, confirmed with `paseo agent inspect` (thinking=high, mode=plan); fixture wrapped up ([screenshot](verification/session-settings.png)).
+- When the SDK gains model/feature setters, the read-only rows become pickers with no other change.
+
 ## 8. Acceptance
 
 | Check | Expected |

@@ -45,6 +45,7 @@ import {
 import { sessionTone } from "./status";
 import { resolveSend, sendBehaviorText, sendBehaviors, sendQueue, type SendBehavior } from "./send-queue";
 import { boardViewSettings, boardViewValues } from "../shared/settings";
+import { SessionSettings } from "./session-settings";
 import {
   openNativeSession,
   recentSessionOutput,
@@ -112,6 +113,7 @@ export function SessionPreview({
     [focused, setFocused] = useState(false),
     [composerOpen, setComposerOpen] = useState(false),
     [confirmArchive, setConfirmArchive] = useState(false),
+    [settingsOpen, setSettingsOpen] = useState(false),
     [modePicker, setModePicker] = useState(false);
   useShortcutBlock(focused);
   const lock = useRef(false);
@@ -510,6 +512,13 @@ export function SessionPreview({
             }
           />
         )}
+        {active && !active.archivedAt && (
+          <IconButton
+            icon="SlidersHorizontal"
+            label="Session settings"
+            onPress={() => setSettingsOpen(true)}
+          />
+        )}
         {active && (
           <IconButton
             icon="RefreshCw"
@@ -846,6 +855,23 @@ export function SessionPreview({
             </View>
           )}
         </View>
+      )}
+      {active && (
+        <SessionSettings
+          open={settingsOpen && visible}
+          onClose={() => setSettingsOpen(false)}
+          taskId={task.id}
+          agent={active}
+          onChanged={() => void current.refetch()}
+          onOpenInPaseo={
+            typeof navigation?.openAgent === "function"
+              ? () => {
+                  setSettingsOpen(false);
+                  openNativeSession(navigation, sessionId, hostId);
+                }
+              : undefined
+          }
+        />
       )}
       <Modal
         open={modePicker && visible}

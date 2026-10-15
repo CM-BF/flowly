@@ -6,6 +6,7 @@ import { boardViewSettings } from "./shared/settings";
 import { ToolServer } from "./server/tool-server";
 import { SessionReadStore, SessionReadService } from "./server/session-reads";
 import { WrapupService } from "./server/wrapup";
+import { SessionSettingsService } from "./server/session-settings";
 import { applyTurnEnded, applyTurnStarted, recordLifecycle } from "./server/progress-rules";
 
 export default function contribute(server: PluginServerContext) {
@@ -19,6 +20,8 @@ export default function contribute(server: PluginServerContext) {
     readService.mark(input, paseo),
   );
   const wrapups = new WrapupService(store);
+  const sessionSettings = new SessionSettingsService(store);
+  server.handle(rpc.configureSession, (input, { paseo }) => sessionSettings.apply(input, paseo));
   server.handle(rpc.wrapupCheck, (input, { paseo }) =>
     wrapups.check(input.id, paseo),
   );

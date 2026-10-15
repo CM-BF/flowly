@@ -169,3 +169,17 @@ export const managedSessions = defineRpc({
     z.object({ agentId: z.string(), taskId: z.string(), workspaceId: z.string() }),
   ),
 });
+export const configureSession = defineRpc({
+  name: "sessions.configure",
+  input: z
+    .strictObject({
+      taskId: z.string().min(1).max(200),
+      // IDs become CLI arguments: never allow a leading "-" (option injection).
+      agentId: z.string().min(1).max(200).regex(/^[A-Za-z0-9][A-Za-z0-9_-]*$/),
+      thinkingOptionId: z.string().min(1).max(100).regex(/^[A-Za-z0-9][A-Za-z0-9_.:-]*$/).optional(),
+      modeId: z.string().min(1).max(100).regex(/^[A-Za-z0-9][A-Za-z0-9_.:-]*$/).optional(),
+      stop: z.boolean().optional(),
+    })
+    .refine((i) => i.thinkingOptionId || i.modeId || i.stop, { message: "Nothing to change." }),
+  output: z.object({ applied: z.array(z.string()) }),
+});
