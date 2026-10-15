@@ -43,12 +43,13 @@ export function SessionCreate({
     [sending, setSending] = useState(false),
     [error, setError] = useState(""),
     [creationPending, setCreationPending] = useState(false);
-  // Prefill each time the form opens; the user can still change everything.
+  // Reset each time the form opens. The instruction starts empty: the task's
+  // title and description already reach the session as its work instructions.
   const wasOpen = useRef(false);
   useEffect(() => {
     if (open && !wasOpen.current) {
       choice.reset(defaults);
-      setPrompt([task.title, task.description.trim()].filter(Boolean).join("\n\n"));
+      setPrompt("");
       setTitle("");
       setError("");
     }
@@ -65,10 +66,12 @@ export function SessionCreate({
     enabled: open,
     refetchInterval: open ? 5000 : false,
   });
+  const hasInstruction = !!newPrompt.trim();
   const canCreate =
     !sending &&
     !unavailable &&
-    choice.ready;
+    choice.ready &&
+    hasInstruction;
   async function perform(action: () => Promise<unknown>) {
     if (lock.current) return;
     lock.current = true;
@@ -157,7 +160,7 @@ export function SessionCreate({
           : { idempotencyKey: attempt.current.operationId }),
         title: newTitle.trim() || task.title,
         labels: { "ultra-kanban-task": task.id },
-        prompt: newPrompt.trim() || undefined,
+        prompt: newPrompt.trim(),
       };
       const created = preparation
         ? await createPreparedSession(paseo, task.workspaceId, {
@@ -199,16 +202,16 @@ export function SessionCreate({
           editable={!sending}
         />
         <Field
-          title="Initial instruction (optional)"
+          title="Instruction"
           value={newPrompt}
           onChange={setPrompt}
           multiline
-          placeholder="What should this session work on?"
+          placeholder="What should this session do first?"
           editable={!sending}
         />
         <AgentPicker choice={choice} disabled={sending} />
         <Label muted size={font.sm}>
-          Includes Kanban tools and the current task's work instructions.
+          The task's title and description are included automatically, along with Kanban tools.
         </Label>
         {providers.isSuccess &&
           !providers.data?.providers.some((p) => p.available) && (

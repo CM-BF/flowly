@@ -200,6 +200,13 @@ Status: authorized by the user's 2026-10-14 request to redesign the whole Kanban
 - The single wrapper view keeps the caller's `contentContainerStyle.gap` (host default 16) and fills the body for `scrollable={false}`, so layouts are unchanged.
 - Verified on desktop: frame samples for New task (twice), Filters and New session show 0→1 opacity / 8→0 px over about 200 ms; screenshots match the previous layouts.
 
+## 7s. Session instruction is required and starts empty (2026-10-15, user feedback)
+
+- New session: the field is now "Instruction". It is required (Create is disabled until it has text) and starts empty each time the dialog opens; it is no longer prefilled with the task title and description. Session title stays optional.
+- New task → Start an agent now: same rule. "Instruction" is empty and required for "Create and start". "Create task" without an agent is unaffected.
+- Why: the session's system prompt already carries the task title, description and scope (`sessionContext` in `shared/scope.ts`, wrapped by `workingInstructions`). A prefilled copy duplicated that context and sent it as if it were the user's own message. The hint now says this context is included automatically.
+- Verified live: both fields start empty and the buttons are disabled until text is entered. Fixture tests were updated for the new label.
+
 ## 8. Acceptance
 
 | Check | Expected |

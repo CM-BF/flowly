@@ -203,8 +203,8 @@ export function TaskForm({
       void view.save({ ...boardViewValues(view.values), startAgentOnCreate: next }, view.revision);
   };
   const choice = useAgentChoice({ enabled: startChosen, cwd: project.primaryPath, defaults: agentDefaults });
-  const [prompt, setPrompt] = useState<string | null>(null);
-  const autoPrompt = [title.trim(), description.trim()].filter(Boolean).join("\n\n");
+  // The agent's first message; required, never prefilled (title and description already reach it as context).
+  const [prompt, setPrompt] = useState("");
   const contextRead = useRpc(rpc.taskContext),
     prepare = useRpc(rpc.prepareSession),
     paseo = usePaseo();
@@ -242,7 +242,7 @@ export function TaskForm({
           provider: choice.provider,
           model: choice.chosenModel,
           mode: choice.chosenMode,
-          prompt: prompt ?? autoPrompt,
+          prompt: prompt.trim(),
           operationId: `first-session-${operationId}`,
         });
         onSaved(result.id, { sessionId: session.id });
@@ -399,12 +399,12 @@ export function TaskForm({
                 <>
                   <AgentPicker choice={choice} disabled={pending} />
                   <Field
-                    title="First instruction"
-                    value={prompt ?? autoPrompt}
+                    title="Instruction"
+                    value={prompt}
                     onChange={setPrompt}
                     multiline
                     placeholder="What should the agent do first?"
-                    hint={prompt === null ? "Follows the title and description until you edit it." : undefined}
+                    hint="The title and description are included automatically."
                   />
                 </>
               )}
@@ -423,7 +423,7 @@ export function TaskForm({
                 pending ||
                 !title.trim() ||
                 (!task && mode === "existing" && !workspaceId) ||
-                (startChosen && !choice.ready)
+                (startChosen && (!choice.ready || !prompt.trim()))
               }
               onPress={() => void save()}
             >

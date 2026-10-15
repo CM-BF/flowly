@@ -269,14 +269,14 @@ describe.skipIf(!rendererPath)("session pane components (temporary React rendere
     const props = { task, open: true, workspaceDirectory: "/fixture", unavailable: false, onClose: vi.fn(), onCreated: vi.fn(), refresh: vi.fn() };
     let tree: any;
     await act(async () => { tree = create(<SessionCreate {...props} />); });
-    act(() => { field(tree, "Session title (optional)").props.onChange("Keep title"); field(tree, "Initial instruction (optional)").props.onChange("Keep first prompt"); });
+    act(() => { field(tree, "Session title (optional)").props.onChange("Keep title"); field(tree, "Instruction").props.onChange("Keep first prompt"); });
     await act(async () => { button(tree, "Create session").props.onPress(); button(tree, "Create session").props.onPress(); await flush(); });
     expect(state.rpc.taskContext).toHaveBeenCalledTimes(1);
     await act(async () => { pendingContext.resolve?.({ available: true, context: "fixture", reason: "" }); await flush(); });
     expect(state.rpc.prepareSession).toHaveBeenCalledTimes(1);
     expect(state.createPrepared).toHaveBeenCalledTimes(1);
     expect(field(tree, "Session title (optional)").props.value).toBe("Keep title");
-    expect(field(tree, "Initial instruction (optional)").props.value).toBe("Keep first prompt");
+    expect(field(tree, "Instruction").props.value).toBe("Keep first prompt");
     expect(strings(tree.root.findAllByType("Notice")).join(" ")).toContain("transport response lost");
     state.rpc.taskContext = vi.fn(async () => ({ available: true, context: "fixture", reason: "" }));
     state.actors["prepared-agent"] = actor("prepared-agent", "2026-10-14T00:00:00Z");
