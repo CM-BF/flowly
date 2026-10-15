@@ -1,5 +1,6 @@
 import { useState, type ReactNode } from "react";
-import { Pressable, View } from "react-native";
+import { Animated, Pressable, View } from "react-native";
+import { useMotionPresence } from "./motion";
 import { Icon, ScrollView, TextInput } from "@getpaseo/plugin/client/react-native";
 import { Label, font, radius, space, touch, useTheme, noFocusRing } from "./ui";
 import { filterOptions, type PickerOption } from "./options";
@@ -55,6 +56,7 @@ export function PickerRow({
   const selected = options.find((o) => o.value === value);
   const shown = filterOptions(options, query);
   const searchable = options.length > 8;
+  const list = useMotionPresence(open ? true : undefined, open ? "list" : "");
   return (
     <View style={{ borderTopWidth: first ? 0 : 1, borderColor: colors.border }}>
       <Pressable
@@ -94,9 +96,12 @@ export function PickerRow({
         </View>
         <Icon name={open ? "ChevronUp" : "ChevronDown"} size={15} color={colors.foregroundMuted} />
       </Pressable>
-      {open && (
-        <View
+      {list.item && (
+        <Animated.View
+          pointerEvents={list.active ? "auto" : "none"}
           style={{
+            opacity: list.progress,
+            transform: [{ translateY: list.progress.interpolate({ inputRange: [0, 1], outputRange: [-4, 0] }) }],
             borderTopWidth: 1,
             borderColor: colors.border,
             backgroundColor: colors.surface1,
@@ -208,7 +213,7 @@ export function PickerRow({
               </View>
             )}
           </ScrollView>
-        </View>
+        </Animated.View>
       )}
     </View>
   );

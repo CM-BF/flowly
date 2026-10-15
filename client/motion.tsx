@@ -161,3 +161,21 @@ export function PulseDot({ color, size = 8, active = true }: { color: string; si
     />
   );
 }
+
+/** Mount-in rise for newly appearing items (callouts, queued rows, menus). */
+export function Enter({ children, distance = 6, style }: { children: ReactNode; distance?: number; style?: ViewProps["style"] }) {
+  const progress = useMotionValue(1, motionDuration.forward, 0);
+  return (
+    <Animated.View
+      style={[
+        style,
+        {
+          opacity: progress,
+          transform: [{ translateY: progress.interpolate({ inputRange: [0, 1], outputRange: [distance, 0] }) }],
+        },
+      ]}
+    >
+      {children}
+    </Animated.View>
+  );
+}

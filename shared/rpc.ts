@@ -11,6 +11,7 @@ import {
   taskSchema,
 } from "./model";
 import { healthSchema, preparationSchema } from "./tools";
+import { composerStateSchema, composerTarget, queuedMessageSchema } from "./composer";
 import {
   sessionReadStateSchema,
   sessionReadReceiptSchema,
@@ -182,4 +183,38 @@ export const configureSession = defineRpc({
     })
     .refine((i) => i.thinkingOptionId || i.modeId || i.stop, { message: "Nothing to change." }),
   output: z.object({ applied: z.array(z.string()) }),
+});
+export const readComposer = defineRpc({
+  name: "composer.read",
+  input: z.strictObject({}),
+  output: composerStateSchema,
+});
+export const saveDraft = defineRpc({
+  name: "composer.draft",
+  input: composerTarget.extend({ text: z.string().max(20000) }),
+  output: z.object({ ok: z.boolean() }),
+});
+export const queueMessage = defineRpc({
+  name: "composer.queue",
+  input: composerTarget.extend({ text: z.string().trim().min(1).max(20000) }),
+  output: queuedMessageSchema,
+});
+export const unqueueMessage = defineRpc({
+  name: "composer.unqueue",
+  input: z.strictObject({ agentId: z.string().min(1).max(200), id: z.string().min(1).max(200) }),
+  output: z.object({ ok: z.boolean() }),
+});
+export const sendQueuedNow = defineRpc({
+  name: "composer.send-now",
+  input: composerTarget.extend({ id: z.string().min(1).max(200) }),
+  output: z.object({ sent: z.boolean() }),
+});
+export const sessionImage = defineRpc({
+  name: "sessions.image",
+  input: z.strictObject({
+    taskId: z.string().min(1).max(200),
+    agentId: z.string().min(1).max(200),
+    src: z.string().min(1).max(4096),
+  }),
+  output: z.object({ dataUri: z.string() }),
 });

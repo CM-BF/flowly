@@ -60,8 +60,7 @@ import { LiveTaskCard, type CardDrag } from "./card";
 import { pickOutputSession } from "./card-output";
 import { cardQuestions } from "../shared/progress";
 import { statusChanges } from "./changes";
-import { sendQueue } from "./send-queue";
-import { sendCardInstruction } from "./session";
+import { ContextMenuProvider, menuHandlers, suppressNativeMenu, useMenuOpener, type MenuEntry } from "./context-menu";
 import { DesktopColumns, type Placement } from "./columns";
 import { ResizeGrip } from "./resize";
 import { drawerWidth, isCompactLayout } from "./geometry";
@@ -104,7 +103,15 @@ const consumedIntents = new Set<string>();
 export function BoardScreen(
   props: PluginSurfaceProps & { workspaceId?: string; params?: PluginScreenParams },
 ) {
-  return <MotionProvider><BoardContent {...props} /></MotionProvider>;
+  return (
+    <MotionProvider>
+      <Theme.Provider value={props.theme}>
+        <ContextMenuProvider compact={props.layout.compact || props.layout.platform !== "web"}>
+          <BoardContent {...props} />
+        </ContextMenuProvider>
+      </Theme.Provider>
+    </MotionProvider>
+  );
 }
 
 function BoardContent(
@@ -348,30 +355,6 @@ function BoardContent(
     () => new Set((managed.data || []).map((m) => m.agentId)),
     [managed.data],
   );
-  // Drain queued follow-ups (Paseo "queue" behaviour) once a session's turn ends,
-  // even if its preview is closed. One message per observed turn change.
-  const queueContext = useRpc(rpc.taskContext);
-  const queuedSessions = useSyncExternalStore(sendQueue.subscribe, () => sendQueue.sessions().join("|"));
-  const drainGate = useRef(new Map<string, string>());
-  useEffect(() => {
-    if (!board || !agents.data) return;
-    for (const id of sendQueue.sessions()) {
-      const agent = agents.data.find((a) => a.id === id);
-      if (!agent || agent.status === "running" || agent.status === "initializing") continue;
-      if (drainGate.current.has(id) && drainGate.current.get(id) === agent.updatedAt) continue;
-      const target = board.tasks.find((t) => t.workspaceId === agent.workspaceId);
-      if (!target) continue;
-      const next = sendQueue.take(id);
-      if (!next) continue;
-      drainGate.current.set(id, agent.updatedAt);
-      void sendCardInstruction(paseo, target, id, queueContext, next.text)
-        .catch((e) => {
-          sendQueue.restore(id, next);
-          toast.error(`Queued message was not sent: ${message(e)}`);
-        })
-        .finally(() => void agents.refetch());
-    }
-  }, [agents.data, board, queuedSessions]);
   const readUnavailable = readState.isPending || readState.isError;
   const attention = useMemo(
     () =>
@@ -438,6 +421,62 @@ function BoardContent(
       from === input.status ? "" : `Moved to ${statusLabels[input.status]}`,
     );
   };
+  const openMenu = useMenuOpener();
+  const cardMenu = (t: Task): MenuEntry[] => {
+    const locked = pending || !!project?.archivedAt || !!t.archivedAt;
+    return [
+      { id: "open", label: "Open details", icon: "PanelRightOpen", onPress: () => setTask(t.id) },
+      {
+        id: "start",
+        label: "Start session",
+        icon: "Play",
+        disabled: locked,
+        onPress: () => {
+          setTask(t.id);
+          setStartRequest({ taskId: t.id, key: `start-${Date.now()}` });
+        },
+      },
+      { kind: "separator", id: "s1" },
+      { kind: "label", id: "move", label: "Move to" },
+      ...statuses.map((status) => ({
+        id: `status-${status}`,
+        label: statusLabels[status],
+        checked: status === t.status,
+        disabled: locked,
+        onPress: () => {
+          if (status !== t.status) move({ id: t.id, revision: t.revision, status });
+        },
+      })),
+      { kind: "separator", id: "s2" },
+      {
+        id: "up",
+        label: "Move up",
+        icon: "ArrowUp",
+        disabled: locked,
+        onPress: () => void doAction(() => reorder({ id: t.id, revision: t.revision, direction: "up" })),
+      },
+      {
+        id: "down",
+        label: "Move down",
+        icon: "ArrowDown",
+        disabled: locked,
+        onPress: () => void doAction(() => reorder({ id: t.id, revision: t.revision, direction: "down" })),
+      },
+      { kind: "separator", id: "s3" },
+      {
+        id: "archive",
+        label: t.archivedAt ? "Restore card" : "Archive card",
+        icon: t.archivedAt ? "ArchiveRestore" : "Archive",
+        danger: !t.archivedAt,
+        disabled: pending || !!project?.archivedAt,
+        onPress: () =>
+          void doAction(
+            () => updateTask({ id: t.id, revision: t.revision, archived: !t.archivedAt }),
+            t.archivedAt ? "Card restored" : "Card archived",
+          ),
+      },
+    ];
+  };
   const renderCard = (t: Task, drag?: CardDrag, dragging = false) => {
     const workspace = resources.data?.workspaces.find(
       (w) => w.id === t.workspaceId,
@@ -477,6 +516,7 @@ function BoardContent(
         disabled={pending || !!project?.archivedAt || !!t.archivedAt}
         onOpen={() => setTask(t.id)}
         onActions={() => setActionTask(t)}
+        menu={menuHandlers(openMenu, t.title, () => cardMenu(t))}
       />
     );
   };
@@ -535,6 +575,7 @@ function BoardContent(
     <Theme.Provider value={props.theme}>
       <View
         {...(keyboardProps as {})}
+        {...({ onContextMenu: suppressNativeMenu } as object)}
         onLayout={(e) => setSurfaceWidth(e.nativeEvent.layout.width)}
         // The root only takes focus to receive shortcuts; it must not draw a focus ring.
         style={{ flex: 1, minHeight: 0, overflow: "hidden", backgroundColor: colors.surface0, outlineStyle: "none" } as never}

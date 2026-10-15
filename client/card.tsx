@@ -44,6 +44,7 @@ export function TaskCard({
   drag,
   onOpen,
   onActions,
+  menu,
 }: {
   task: Task;
   selected: boolean;
@@ -63,6 +64,8 @@ export function TaskCard({
   drag?: CardDrag;
   onOpen(): void;
   onActions(): void;
+  /** Context-menu handlers (right-click / long-press) for the card body. */
+  menu?: object;
 }) {
   const { colors } = useTheme();
   const outputTime = output ? relativeTime(output.at) : "";
@@ -180,6 +183,7 @@ export function TaskCard({
         ]
           .filter(Boolean)
           .join(". ") + "."}
+        {...(menu || {})}
         accessibilityHint={
           drag
             ? "Drag this card with the mouse or open task actions to change status."

@@ -1,6 +1,7 @@
-import { useEffect, useId, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   ActivityIndicator,
+  Animated,
   Platform,
   Pressable,
   View,
@@ -43,9 +44,13 @@ import {
   verticalScroll,
   verticalContent, noFocusRing } from "./ui";
 import { sessionTone } from "./status";
-import { resolveSend, sendBehaviorText, sendBehaviors, sendQueue, type SendBehavior } from "./send-queue";
+import { resolveSend, sendBehaviorText, sendBehaviors, type SendBehavior } from "./send-queue";
+import { useComposer } from "./composer";
+import { extractImages } from "../shared/images";
+import { SessionImage } from "./session-image";
+import { menuHandlers, useMenuOpener } from "./context-menu";
 import { boardViewSettings, boardViewValues } from "../shared/settings";
-import { SessionSettings } from "./session-settings";
+import { ComposerChips, useSessionConfig, type ChipMenuId } from "./session-settings";
 import {
   openNativeSession,
   recentSessionOutput,
@@ -56,7 +61,7 @@ import { SessionMarkdown } from "./session-content";
 import { coalescedRefresh, useSessionFollowTail } from "./session-follow";
 import { useSessionReads } from "./session-reads";
 import { sessionAttention } from "../shared/session-attention";
-import { MotionReveal, PulseDot } from "./motion";
+import { MotionReveal, PulseDot, motionDuration, useMotionPresence, useMotionValue } from "./motion";
 import { composerEnterAction, createDraftBuffer, type ComposerKey } from "./session-input";
 
 export function SessionPreview({
@@ -107,13 +112,12 @@ export function SessionPreview({
   draftBuffer.sync(draft);
   const [sending, setSending] = useState(false),
     [error, setError] = useState(""),
-    [feedback, setFeedback] = useState(""),
     [showTools, setShowTools] = useState(false),
     [inputHeight, setInputHeight] = useState(36),
     [focused, setFocused] = useState(false),
     [composerOpen, setComposerOpen] = useState(false),
     [confirmArchive, setConfirmArchive] = useState(false),
-    [settingsOpen, setSettingsOpen] = useState(false),
+    [chipMenu, setChipMenu] = useState<ChipMenuId | null>(null),
     [modePicker, setModePicker] = useState(false);
   useShortcutBlock(focused);
   const lock = useRef(false);
@@ -211,7 +215,12 @@ export function SessionPreview({
     if (view.status === "ready" && boardViewValues(view.values).sendBehavior !== next)
       void view.save({ ...boardViewValues(view.values), sendBehavior: next }, view.revision);
   };
-  const queued = useSyncExternalStore(sendQueue.subscribe, () => sendQueue.get(sessionId));
+  const composer = useComposer(visible);
+  const openMenu = useMenuOpener();
+  const latest = useMotionPresence(!tail.following ? true : undefined, !tail.following ? "latest" : "");
+  const config = useSessionConfig(task.id, active, visible, () => void current.refetch());
+  const queueEntry = composer.entry(sessionId);
+  const queued = queueEntry?.queue || [];
   const running = active?.status === "running" || active?.status === "initializing";
   const submitState = useRef({ canWrite, preferred, running, pendingPermission: false });
   submitState.current = {
@@ -225,7 +234,6 @@ export function SessionPreview({
     lock.current = true;
     setSending(true);
     setError("");
-    setFeedback("");
     try {
       await action();
       refresh();
@@ -257,7 +265,11 @@ export function SessionPreview({
     const action = resolveSend(behavior, { running: busyTurn, alternate, pendingPermission });
     if (action.kind === "queue") {
       // Paseo parity: queued messages are sent when the current turn ends.
-      sendQueue.push(sessionId, instruction);
+      void composer.queue(task.id, sessionId, instruction).catch((e) => {
+        // Never lose the text: put it back in the composer.
+        onDraftChange(sessionId, instruction);
+        setError(message(e));
+      });
       draftBuffer.clear(instruction);
       onDraftChange(sessionId, "", instruction);
       setComposerOpen(false);
@@ -275,6 +287,8 @@ export function SessionPreview({
   }
   const tone = state ? sessionTone(colors, state, !!attention?.unread) : colors.foregroundMuted;
   const canSend = canWrite && !!draft.trim();
+  // Paseo parity: a running session with an empty composer shows Stop.
+  const stopMode = running && !draft.trim() && canWrite && !busy;
   const sendSize = touch ? 34 : 28;
   // Native phones type in the host bottom sheet: it tracks the real IME height
   // (candidate bars, keyboard switches) which plugin-side keyboard events cannot.
@@ -283,11 +297,28 @@ export function SessionPreview({
     if (!active) return null;
     return (
       <>
+          {!!queueEntry?.lastError && (
+            <Notice>Queued message not sent: {queueEntry.lastError}</Notice>
+          )}
           {queued.length > 0 && (
             <View style={{ gap: 4 }}>
               {queued.map((m) => (
-                <View
+                <QueuedRow
                   key={m.id}
+                  menu={menuHandlers(openMenu, "Queued message", () => [
+                    ...(running && !m.id.startsWith("pending-")
+                      ? [{ id: "steer", label: "Send now (steer)", icon: "CornerDownRight", onPress: () =>
+                          void composer.sendNow(task.id, sessionId, m.id)
+                            .then(() => toast.show("Sent to the running turn", { variant: "success" }))
+                            .catch((e) => setError(message(e))) }]
+                      : []),
+                    { id: "edit", label: "Edit", icon: "Pencil", disabled: m.id.startsWith("pending-"), onPress: () =>
+                        void composer.remove(sessionId, m.id).then(() =>
+                          onDraftChange(sessionId, draft.trim() ? `${draft}\n${m.text}` : m.text)) },
+                    { kind: "separator", id: "s" },
+                    { id: "remove", label: "Remove", icon: "Trash2", danger: true, disabled: m.id.startsWith("pending-"), onPress: () =>
+                        void composer.remove(sessionId, m.id).catch((e) => setError(message(e))) },
+                  ])}
                   style={{
                     flexDirection: "row",
                     alignItems: "center",
@@ -304,8 +335,29 @@ export function SessionPreview({
                     <Label size={font.sm} lines={1} selectable={false}>{m.text.replace(/\s+/g, " ")}</Label>
                   </View>
                   <Label muted size={font.xs} selectable={false}>Queued</Label>
-                  <IconButton icon="X" size={26} label="Remove queued message" onPress={() => sendQueue.remove(sessionId, m.id)} />
-                </View>
+                  {running && !m.id.startsWith("pending-") && (
+                    <Button
+                      quiet
+                      icon="CornerDownRight"
+                      label="Send now and steer the running turn"
+                      onPress={() =>
+                        void composer
+                          .sendNow(task.id, sessionId, m.id)
+                          .then(() => toast.show("Sent to the running turn", { variant: "success" }))
+                          .catch((e) => setError(message(e)))
+                      }
+                    >
+                      Steer
+                    </Button>
+                  )}
+                  <IconButton
+                    icon="X"
+                    size={26}
+                    label="Remove queued message"
+                    disabled={m.id.startsWith("pending-")}
+                    onPress={() => void composer.remove(sessionId, m.id).catch((e) => setError(message(e)))}
+                  />
+                </QueuedRow>
               ))}
             </View>
           )}
@@ -397,6 +449,30 @@ export function SessionPreview({
                 outlineStyle: "none",
               } as never}
             />
+            {stopMode ? (
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Stop session"
+                onPress={() => void config.apply({ stop: true }, "Session stopped")}
+                hitSlop={6}
+                style={(state) => {
+                  const { pressed } = state;
+                  return {
+                    ...noFocusRing,
+                    width: sendSize,
+                    height: sendSize,
+                    marginBottom: (36 - sendSize) / 2,
+                    alignItems: "center",
+                    justifyContent: "center",
+                    borderRadius: sendSize / 2,
+                    backgroundColor: colors.foreground,
+                    transform: [{ scale: pressed ? 0.92 : 1 }],
+                  };
+                }}
+              >
+                <Icon name="Square" size={touch ? 14 : 12} color={colors.surface0} />
+              </Pressable>
+            ) : (
             <Pressable
               accessibilityRole="button"
               accessibilityLabel={busy ? "Sending instruction" : "Send instruction"}
@@ -434,6 +510,26 @@ export function SessionPreview({
                 />
               )}
             </Pressable>
+            )}
+          </View>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: space[2], zIndex: 2 }}>
+            <View style={{ flex: 1, minWidth: 0 }}>
+              <ComposerChips
+                config={config}
+                menu={chipMenu}
+                setMenu={setChipMenu}
+                inline={inSheet}
+                disabled={!!active.archivedAt}
+                onOpenInPaseo={
+                  typeof navigation?.openAgent === "function"
+                    ? () => {
+                        setChipMenu(null);
+                        openNativeSession(navigation, sessionId, hostId);
+                      }
+                    : undefined
+                }
+              />
+            </View>
           </View>
       </>
     );
@@ -504,19 +600,10 @@ export function SessionPreview({
                   agentId: sessionId,
                   token: attention.token!,
                 });
-                setFeedback(
-                  "Marked this session update as read in Ultra Kanban.",
-                );
+                toast.show("Marked as read", { variant: "success" });
                 await current.refetch();
               })
             }
-          />
-        )}
-        {active && !active.archivedAt && (
-          <IconButton
-            icon="SlidersHorizontal"
-            label="Session settings"
-            onPress={() => setSettingsOpen(true)}
           />
         )}
         {active && (
@@ -624,9 +711,7 @@ export function SessionPreview({
                         ? { activeTurnBehavior: "steer" }
                         : {},
                     );
-                    setFeedback(
-                      "Kanban work instructions sent. Your follow-up draft is retained.",
-                    );
+                    toast.show("Kanban instructions sent", { variant: "success" });
                     await access.refetch();
                     await current.refetch();
                   })
@@ -708,7 +793,7 @@ export function SessionPreview({
                 </View>
               )
             ) : (
-              output.map((entry) => <TranscriptEntry key={entry.key} entry={entry} />)
+              output.map((entry) => <TranscriptEntry key={entry.key} entry={entry} taskId={task.id} agentId={sessionId} />)
             )}
             {state?.active && (
               <View
@@ -732,24 +817,43 @@ export function SessionPreview({
         )}
         {!active && !!error && <Notice>{error}</Notice>}
       </ScrollView>
+      {!!chipMenu && !sheetComposer && (
+        <Pressable
+          accessibilityLabel="Close menu"
+          onPress={() => setChipMenu(null)}
+          style={{ ...noFocusRing, position: "absolute", top: 0, left: 0, right: 0, bottom: 0, zIndex: 20 }}
+        />
+      )}
       {active && (
         <View
           testID="session-composer"
           style={{
             flexShrink: 0,
             minWidth: 0,
+            // Above the dismiss layer so chip menus can open upward over the transcript.
+            zIndex: 25,
             paddingHorizontal: space[3],
             paddingTop: space[2],
             paddingBottom: space[3],
             gap: space[2],
           }}
         >
-          {(!!error || !!feedback) && (
-            <Notice tone={error ? "danger" : "success"}>{error || feedback}</Notice>
+          {!!error && (
+            <Notice>{error}</Notice>
           )}
-          {!tail.following && (
+          {latest.item && (
             // Floats above the composer so it never pushes the input around.
-            <View pointerEvents="box-none" style={{ position: "absolute", top: -40, right: space[3], zIndex: 2 }}>
+            <Animated.View
+              pointerEvents={latest.active ? "box-none" : "none"}
+              style={{
+                position: "absolute",
+                top: -40,
+                right: space[3],
+                zIndex: 2,
+                opacity: latest.progress,
+                transform: [{ translateY: latest.progress.interpolate({ inputRange: [0, 1], outputRange: [6, 0] }) }],
+              }}
+            >
               <Pressable
                 accessibilityRole="button"
                 accessibilityLabel="Jump to latest"
@@ -773,7 +877,7 @@ export function SessionPreview({
                 <Icon name="ArrowDown" size={13} color={colors.foreground} />
                 <Label size={font.sm} medium selectable={false}>Latest</Label>
               </Pressable>
-            </View>
+            </Animated.View>
           )}
           {sheetComposer ? (
             <>
@@ -856,23 +960,6 @@ export function SessionPreview({
           )}
         </View>
       )}
-      {active && (
-        <SessionSettings
-          open={settingsOpen && visible}
-          onClose={() => setSettingsOpen(false)}
-          taskId={task.id}
-          agent={active}
-          onChanged={() => void current.refetch()}
-          onOpenInPaseo={
-            typeof navigation?.openAgent === "function"
-              ? () => {
-                  setSettingsOpen(false);
-                  openNativeSession(navigation, sessionId, hostId);
-                }
-              : undefined
-          }
-        />
-      )}
       <Modal
         open={modePicker && visible}
         title="When the session is running"
@@ -931,8 +1018,8 @@ export function SessionPreview({
         >
           <Modal.Content scrollable={false} contentContainerStyle={{ padding: space[4], gap: space[3] }}>
             <Theme.Provider value={theme}>
-              {(!!error || !!feedback) && (
-                <Notice tone={error ? "danger" : "success"}>{error || feedback}</Notice>
+              {!!error && (
+                <Notice>{error}</Notice>
               )}
               {renderComposer(true)}
             </Theme.Provider>
@@ -945,25 +1032,39 @@ export function SessionPreview({
 
 function TranscriptEntry({
   entry,
+  taskId,
+  agentId,
 }: {
   entry: ReturnType<typeof recentSessionOutput>[number];
+  taskId: string;
+  agentId: string;
 }) {
   const { colors } = useTheme();
+  const { text, images } = useMemo(
+    () => (entry.author === "You" || entry.author === "Agent" ? extractImages(entry.text) : { text: entry.text, images: [] }),
+    [entry.author, entry.text],
+  );
+  const pictures = images.map((image) => (
+    <SessionImage key={image.src} taskId={taskId} agentId={agentId} image={image} />
+  ));
   if (entry.author === "You")
     return (
-      <View style={{ alignItems: "flex-end", paddingLeft: space[6] + space[2] }}>
-        <View
-          accessibilityLabel="You"
-          style={{
-            maxWidth: "100%",
-            paddingHorizontal: space[3],
-            paddingVertical: space[2],
-            borderRadius: radius.xl,
-            backgroundColor: colors.surface2,
-          }}
-        >
-          <Label size={font.base}>{entry.text}</Label>
-        </View>
+      <View style={{ alignItems: "flex-end", paddingLeft: space[6] + space[2], gap: space[1.5] }}>
+        {!!text && (
+          <View
+            accessibilityLabel="You"
+            style={{
+              maxWidth: "100%",
+              paddingHorizontal: space[3],
+              paddingVertical: space[2],
+              borderRadius: radius.xl,
+              backgroundColor: colors.surface2,
+            }}
+          >
+            <Label size={font.base}>{text}</Label>
+          </View>
+        )}
+        {pictures.length > 0 && <View style={{ width: "100%", alignItems: "flex-end", gap: space[1.5] }}>{pictures}</View>}
       </View>
     );
   if (entry.author === "Tool")
@@ -995,8 +1096,9 @@ function TranscriptEntry({
     );
   if (entry.author === "Agent")
     return (
-      <View accessibilityLabel="Agent" style={{ minWidth: 0 }}>
-        <SessionMarkdown text={entry.text} />
+      <View accessibilityLabel="Agent" style={{ minWidth: 0, gap: space[2] }}>
+        {!!text && <SessionMarkdown text={text} />}
+        {pictures}
       </View>
     );
   return (
@@ -1004,5 +1106,22 @@ function TranscriptEntry({
       <Label muted size={font.xs}>{entry.author}</Label>
       <Label muted size={font.md}>{entry.text}</Label>
     </View>
+  );
+}
+
+/** A queued message row: enters with a short rise, supports a context menu. */
+function QueuedRow({ menu, style, children }: { menu: object; style: object; children: ReactNode }) {
+  const enter = useMotionValue(1, motionDuration.forward, 0);
+  return (
+    <Animated.View
+      style={{
+        opacity: enter,
+        transform: [{ translateY: enter.interpolate({ inputRange: [0, 1], outputRange: [6, 0] }) }],
+      }}
+    >
+      <Pressable {...menu} accessibilityRole="none" style={{ ...noFocusRing, ...style }}>
+        {children}
+      </Pressable>
+    </Animated.View>
   );
 }

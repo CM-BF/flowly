@@ -6,6 +6,8 @@ import { boardViewSettings } from "./shared/settings";
 import { ToolServer } from "./server/tool-server";
 import { SessionReadStore, SessionReadService } from "./server/session-reads";
 import { WrapupService } from "./server/wrapup";
+import { SessionImageService } from "./server/session-images";
+import { ComposerService, ComposerStore } from "./server/composer";
 import { SessionSettingsService } from "./server/session-settings";
 import { applyTurnEnded, applyTurnStarted, recordLifecycle } from "./server/progress-rules";
 
@@ -19,6 +21,17 @@ export default function contribute(server: PluginServerContext) {
   server.handle(rpc.markSessionRead, (input, { paseo }) =>
     readService.mark(input, paseo),
   );
+  const composer = new ComposerService(new ComposerStore(store.directory), store);
+  server.handle(rpc.readComposer, (_, { paseo }) => {
+    void composer.drainAll(paseo).catch(() => undefined);
+    return composer.read();
+  });
+  server.handle(rpc.saveDraft, (input) => composer.saveDraft(input));
+  server.handle(rpc.queueMessage, (input, { paseo }) => composer.push(input, paseo));
+  server.handle(rpc.unqueueMessage, (input) => composer.remove(input));
+  server.handle(rpc.sendQueuedNow, (input, { paseo }) => composer.sendNow(input, paseo));
+  const images = new SessionImageService(store);
+  server.handle(rpc.sessionImage, (input, { paseo }) => images.read(input, paseo));
   const wrapups = new WrapupService(store);
   const sessionSettings = new SessionSettingsService(store);
   server.handle(rpc.configureSession, (input, { paseo }) => sessionSettings.apply(input, paseo));
@@ -135,6 +148,10 @@ export default function contribute(server: PluginServerContext) {
       recordLifecycle(store, board, identity, "agent.turn_ended", event.outcome);
       applyTurnEnded(store, board, identity, event.outcome);
     });
+  });
+  // Queued follow-ups go out when any session's turn ends (Paseo "queue").
+  server.on("agent.turn_ended", async (event, { paseo }) => {
+    if (event.outcome.kind !== "failed") await composer.drain(event.agent.id, paseo).catch(() => undefined);
   });
   server.on("agent.permission_requested", async (event, { paseo }) => {
     tools.attach(paseo);

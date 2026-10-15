@@ -17,6 +17,7 @@ export function SessionCard({
   readStateUnavailable,
   first = true,
   onPress,
+  menu,
 }: {
   agent: PaseoAgent;
   events: BoardEvent[];
@@ -25,6 +26,8 @@ export function SessionCard({
   readStateUnavailable?: boolean;
   first?: boolean;
   onPress(): void;
+  /** Context-menu handlers (right-click / long-press). */
+  menu?: object;
 }) {
   const { colors } = useTheme();
   const state = sessionState(agent, events);
@@ -41,6 +44,7 @@ export function SessionCard({
       accessibilityRole="button"
       accessibilityLabel={`Preview ${agent.title || agent.id}: ${state.label}${unread ? ", unread" : ""}${!readStateUnavailable && attention?.needsAttention ? ", needs attention" : ""}`}
       onPress={onPress}
+      {...(menu || {})}
       style={(pressState) => {
         const { pressed, hovered: hover, focused } = pressState as typeof pressState & { hovered?: boolean; focused?: boolean };
         const hovered = hover || focused;

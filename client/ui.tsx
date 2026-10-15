@@ -2,6 +2,7 @@ import { createContext, useContext, useState } from "react";
 import type { ReactNode } from "react";
 import type { PluginTheme } from "@getpaseo/plugin";
 import {
+  Animated,
   Platform,
   Pressable,
   Text,
@@ -11,6 +12,7 @@ import {
   type ViewStyle,
 } from "react-native";
 import { Icon, TextInput } from "@getpaseo/plugin/client/react-native";
+import { motionDuration, useMotionValue } from "./motion";
 import { useShortcutBlock } from "./shortcuts";
 
 /** Host Paseo scale (0.11.2): 4pt grid, 12–18 type, 4–12 radii. */
@@ -656,6 +658,7 @@ export function Toggle({
   onChange(value: boolean): void;
 }) {
   const { colors } = useTheme();
+  const thumb = useMotionValue(value ? 1 : 0, motionDuration.feedback);
   return (
     <Pressable
       accessibilityRole="switch"
@@ -684,18 +687,19 @@ export function Toggle({
           borderRadius: 10,
           padding: 2,
           justifyContent: "center",
-          alignItems: value ? "flex-end" : "flex-start",
+          alignItems: "flex-start",
           backgroundColor: value ? colors.accent : colors.surface2,
-          borderWidth: value ? 0 : 1,
-          borderColor: colors.border,
+          borderWidth: 1,
+          borderColor: value ? colors.accent : colors.border,
         }}
       >
-        <View
+        <Animated.View
           style={{
-            width: 16,
-            height: 16,
-            borderRadius: 8,
+            width: 14,
+            height: 14,
+            borderRadius: 7,
             backgroundColor: value ? colors.accentForeground : colors.surface0,
+            transform: [{ translateX: thumb.interpolate({ inputRange: [0, 1], outputRange: [0, 14] }) }],
           }}
         />
       </View>

@@ -40,10 +40,13 @@ import { SessionPreview } from "./session-preview";
 import { useSessionReads } from "./session-reads";
 import { sessionAttention } from "../shared/session-attention";
 import type { SessionEntry } from "./session-link";
-import { MotionReveal } from "./motion";
+import { Enter, MotionReveal } from "./motion";
 import { TaskMetadata } from "./task-metadata";
 import { Disclosure } from "./disclosure";
 import { WrapupModal } from "./wrapup";
+import { useComposer } from "./composer";
+import { menuHandlers, useMenuOpener, type MenuEntry } from "./context-menu";
+import { openNativeSession } from "./session-state";
 import { cardQuestions } from "../shared/progress";
 
 export function TaskDrawer({
@@ -104,6 +107,25 @@ export function TaskDrawer({
       {},
     );
   const lock = useRef(false);
+  // Restore unsent drafts saved on the daemon (once per session, local edits win).
+  const composer = useComposer(active);
+  const seeded = useRef(new Set<string>());
+  useEffect(() => {
+    const sessions = composer.state?.sessions;
+    if (!sessions) return;
+    const restore: Record<string, string> = {};
+    for (const [agentId, entry] of Object.entries(sessions)) {
+      if (seeded.current.has(agentId) || entry.taskId !== task.id) continue;
+      seeded.current.add(agentId);
+      if (entry.draft) restore[agentId] = entry.draft;
+    }
+    if (Object.keys(restore).length)
+      setDrafts((current) => {
+        const next = { ...current };
+        for (const [id, text] of Object.entries(restore)) if (!next[id]) next[id] = text;
+        return next;
+      });
+  }, [composer.state, task.id]);
   const detailActive = useRef(active && !selected);
   detailActive.current = active && !selected;
   useEffect(() => {
@@ -188,6 +210,32 @@ export function TaskDrawer({
   );
   const liveSessions = ordered.filter((a) => !a.archivedAt);
   const archivedSessions = ordered.filter((a) => !!a.archivedAt);
+  const openMenu = useMenuOpener();
+  const sessionMenu = (a: (typeof ordered)[number]): MenuEntry[] => {
+    const running = a.status === "running" || a.status === "initializing";
+    return [
+      { id: "open", label: a.archivedAt ? "Open to restore" : "Open", icon: "MessageSquare", onPress: () => setSelected(a.id) },
+      ...(typeof navigation?.openAgent === "function"
+        ? [{ id: "native", label: "Open in Paseo", icon: "ArrowUpRight", onPress: () => openNativeSession(navigation, a.id, hostId) }]
+        : []),
+      ...(!a.archivedAt
+        ? [
+            { kind: "separator" as const, id: "s1" },
+            {
+              id: "archive",
+              label: running ? "Archive (stop it first)" : "Archive session",
+              icon: "Archive",
+              danger: true,
+              disabled: running || !active,
+              onPress: () =>
+                void perform(async () => {
+                  await paseo.agents.ref(a.id).archive();
+                }, "Session archived"),
+            },
+          ]
+        : []),
+    ];
+  };
   const renderSession = (a: (typeof ordered)[number], index: number) => (
     <SessionCard
       key={a.id}
@@ -201,6 +249,7 @@ export function TaskDrawer({
         setSelected(a.id);
         setError("");
       }}
+      menu={menuHandlers(openMenu, a.title || "Session", () => sessionMenu(a))}
     />
   );
   // Routine turn start/end records drive rules and markers; the timeline shows
@@ -281,13 +330,15 @@ export function TaskDrawer({
             sessionLocks.current.delete(id);
             setPendingSessions((current) => ({ ...current, [id]: false }));
           }}
-          onDraftChange={(id, text, expected) =>
+          onDraftChange={(id, text, expected) => {
             setDrafts((current) =>
               expected !== undefined && current[id] !== expected
                 ? current
                 : { ...current, [id]: text },
-            )
-          }
+            );
+            // Persist on the daemon (debounced; immediate when a send clears it).
+            composer.saveDraft(task.id, id, text, expected !== undefined);
+          }}
           onBack={() => setSelected("")}
           refresh={refreshAll}
         />
@@ -362,8 +413,8 @@ export function TaskDrawer({
               </View>
             )}
             {questions.map((q) => (
+              <Enter key={q.id}>
               <View
-                key={q.id}
                 accessibilityLabel={`Question from ${sessions.data?.find((a) => a.id === q.agentId)?.title || "agent"}: ${q.note || ""}`}
                 style={{
                   gap: space[2],
@@ -398,6 +449,7 @@ export function TaskDrawer({
                   </Button>
                 </View>
               </View>
+              </Enter>
             ))}
             {(task.status === "done" || task.status === "cancelled") && !task.archivedAt && !project.archivedAt && (
               <View

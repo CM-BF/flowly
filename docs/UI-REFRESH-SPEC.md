@@ -87,6 +87,40 @@ Status: authorized by the user's 2026-10-14 request to redesign the whole Kanban
 - **Composer stability**: the drawer's task-context query keeps its previous data across revision changes (automatic status moves no longer blank it and flash "unavailable"); the composer input stays editable whenever the session exists — only the send button follows availability — so typing is never dropped. No rows appear/disappear above the input: "Latest" is a floating pill, the Steer/Interrupt segmented row is removed. Verified live on a running session: 40 typed characters, constant input position/height, focus retained; New task dialog position constant while the drawer is open.
 - **Send while running (Paseo parity)**: options Steer / Queue / Interrupt with Paseo's semantics — Enter uses the preference, Cmd/Ctrl+Enter the alternative (queue for steer/interrupt; send now for queue); a queued message waiting behind a permission prompt interrupts instead. Paseo's own setting is client-local and not readable by plugins, so the board keeps a host-scoped copy (`board-view.sendBehavior`, default Steer) changed from the composer footer ("When running: …") or the native sheet. Queued messages show above the input (removable) and are sent one per finished turn by the board even when the preview is closed; a failed send returns to the front of the queue with an error toast.
 
+## 7i. Composer parity, persistence, context menus, motion (2026-10-15, user request)
+
+- **Composer chips (Paseo layout)**: under the session input, chips for Model · Reasoning · Permissions open upward menus (desktop) or inline lists (native sheet).
+  - Reasoning and permissions apply on selection; the model menu shows the model and provider features (e.g. Fast mode) read-only with "Change in Paseo".
+  - A running session with an empty input shows Stop in place of Send.
+  - The header "Session settings" button is removed (superseded).
+- **Persistence**: unsent drafts and queued follow-ups live on the daemon (`composer.json`: serialized writes, atomic replace, invalid files preserved), so plugin reload and app refresh keep them.
+  - Drafts save 0.5s after typing stops (immediately when a send clears them) and are restored when the drawer opens.
+  - The daemon drains queued messages on turn end, after a push, and opportunistically on reads, one per turn. A failed send returns to the front of the queue and shows its error under the composer.
+- **Send now**: each queued message has "Steer" (and a context menu: Send now · Edit · Remove), which steers the running turn and removes it from the queue.
+- **Feedback**: transient confirmations ("Marked as read", "Kanban instructions sent", "Session archived") are native toasts that auto-dismiss; inline notices are only for errors.
+- **Context menus**: right-click (desktop web) or long-press (touch) opens plugin menus.
+  - Cards: Open · Start session · Move to … · Move up/down · Archive.
+  - Session rows: Open · Open in Paseo · Archive.
+  - Queued messages: Send now · Edit · Remove.
+  - The browser's native menu is suppressed across the board except in editable fields (copy/paste stays native).
+  - Desktop menus float at the pointer (fade + scale, clamped to the board); compact uses the host sheet.
+- **Motion** (shared primitives, Reduce Motion aware, interruptible):
+  - chip and context menus (fade/rise or scale);
+  - picker lists (fade/slide on expand);
+  - toggle thumb slide;
+  - question callouts and queued rows (enter rise);
+  - the floating "Latest" pill (fade).
+
+## 7j. Images in the session transcript (2026-10-15, user report)
+
+- Timeline text carries images as provider placeholders for pasted images (`[Image: source: /abs/path.png]`) and as markdown in agent replies (`![alt](src)`). `extractImages` removes them from the text and renders them under the message: user images right-aligned under the bubble, agent images under the markdown. Thumbnails keep their aspect ratio (bounded), fade in when loaded, and open larger in a sheet.
+- http(s) images load directly. Local paths live on the daemon machine, so the plugin daemon serves them (`sessions.image`) as data URIs, with these limits:
+  - the session must belong to the card;
+  - the path must be an image (png/jpg/gif/webp, ≤ 8 MB) referenced in that session's recent timeline — never a general file reader.
+- Failures show the alt text with the reason.
+- Verified live: a pasted-image placeholder and an agent markdown image rendered in the drawer preview ([screenshot](verification/session-images.png)).
+- Composer data of archived (wrapped-up) cards is pruned automatically.
+
 ## 7h. Session settings (2026-10-15, user request)
 
 - Session detail header → "Session settings" (live sessions):
