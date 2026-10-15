@@ -144,6 +144,13 @@ Status: authorized by the user's 2026-10-14 request to redesign the whole Kanban
 - Verified live: reasoning Medium→High and permissions →Plan Mode on a fixture Haiku session, confirmed with `paseo agent inspect` (thinking=high, mode=plan); fixture wrapped up ([screenshot](verification/session-settings.png)).
 - When the SDK gains model/feature setters, the read-only rows become pickers with no other change.
 
+## 7l. Project order (2026-10-15, user request)
+
+- Projects carry an optional `position`; the chooser and default selection use `projectOrder` (position, then creation time). Legacy records without a position keep their creation order.
+- The Projects chooser shows up/down buttons on every row (larger touch targets on mobile); the first/last buttons are disabled.
+- `projects.move` (`up | down | top`) renumbers all projects in one serialized write. Ordering is presentation metadata: it does not bump the board revision, so it never invalidates an open edit.
+- Verified: reorder, persistence across reload, and restoring the original order on the live board.
+
 ## 8. Acceptance
 
 | Check | Expected |

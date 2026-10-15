@@ -509,6 +509,7 @@ export function Row({
   disabled = false,
   onPress,
   label,
+  menu,
 }: {
   title: string;
   detail?: string;
@@ -520,6 +521,8 @@ export function Row({
   disabled?: boolean;
   onPress(): void;
   label?: string;
+  /** Context-menu handlers (right-click / long-press). */
+  menu?: object;
 }) {
   const { colors } = useTheme();
   return (
@@ -529,6 +532,7 @@ export function Row({
       accessibilityState={{ selected, disabled }}
       disabled={disabled}
       onPress={onPress}
+      {...(menu || {})}
       style={(state) => {
         const { pressed, hovered: hover, focused } = state as typeof state & { hovered?: boolean; focused?: boolean };
         const hovered = hover || focused;

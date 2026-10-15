@@ -19,6 +19,7 @@ import {
   priorities,
   type Status,
   type Task,
+  projectOrder,
 } from "../shared/model";
 import {
   Theme,
@@ -278,9 +279,9 @@ function BoardContent(
     )
       setMobileStatus("todo");
   }, [hideFinished, mobileStatus]);
-  const projects = (board?.projects || []).filter(
-    (p) => archived || !p.archivedAt,
-  );
+  const projects = (board?.projects || [])
+    .filter((p) => archived || !p.archivedAt)
+    .sort(projectOrder);
   const remembered = viewSettings.status === "ready" ? boardViewValues(viewSettings.values).lastProjectId : "";
   const project =
     projects.find((p) => p.id === projectId) ||
@@ -521,6 +522,9 @@ function BoardContent(
     );
   };
   const projectMenuClose = () => setMenu(null);
+  const moveProjectRpc = useRpc(rpc.moveProject);
+  const reorderProject = (id: string, direction: "up" | "down" | "top") =>
+    void doAction(() => moveProjectRpc({ id, direction }));
   const shortcutsOn = Platform.OS === "web" && !compact;
   const withKey = (text: string, key: string) =>
     shortcutsOn ? `${text} (${key})` : text;
@@ -837,14 +841,24 @@ function BoardContent(
         >
           <Modal.Content contentContainerStyle={{ padding: space[3], gap: space[1] }}>
             <Theme.Provider value={props.theme}>
-              {projects.map((p) => (
+              {projects.map((p, index) => (
                 <Row
                   key={p.id}
                   title={p.title}
                   detail={p.primaryPath}
                   icon={p.archivedAt ? "Archive" : "Folder"}
                   selected={project?.id === p.id}
-                  trailing={p.archivedAt ? <Badge>Archived</Badge> : undefined}
+                  trailing={
+                    <View style={{ flexDirection: "row", alignItems: "center", gap: 2 }}>
+                      {p.archivedAt && <Badge>Archived</Badge>}
+                      {projects.length > 1 && (
+                        <>
+                          <IconButton icon="ChevronUp" size={touch ? 36 : 26} label={`Move ${p.title} up`} disabled={index === 0 || pending} onPress={() => reorderProject(p.id, "up")} />
+                          <IconButton icon="ChevronDown" size={touch ? 36 : 26} label={`Move ${p.title} down`} disabled={index === projects.length - 1 || pending} onPress={() => reorderProject(p.id, "down")} />
+                        </>
+                      )}
+                    </View>
+                  }
                   onPress={() => {
                     chooseProject(p.id);
                     setTask("");

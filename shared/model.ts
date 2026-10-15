@@ -36,6 +36,8 @@ export const projectSchema = z.object({
   archivedAt: timestamp.nullable(),
   /** Session-driven status rules (AUTO-STATUS-SPEC). Absent means enabled. */
   autoStatus: z.boolean().optional(),
+  /** Display order in the project chooser (lower first); absent sorts by creation. */
+  position: z.number().optional(),
 });
 export const taskSchema = z.object({
   id: z.string(),
@@ -165,3 +167,10 @@ export const taskPlacement = z
     message: "Choose one drop anchor.",
   });
 export type TaskPlacement = z.infer<typeof taskPlacement>;
+
+/** Chooser order: explicit position first, then creation time. */
+export function projectOrder<T extends { position?: number; createdAt: string; id: string }>(a: T, b: T) {
+  const pa = a.position ?? Number.MAX_SAFE_INTEGER,
+    pb = b.position ?? Number.MAX_SAFE_INTEGER;
+  return pa - pb || a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id);
+}

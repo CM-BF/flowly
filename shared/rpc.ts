@@ -218,3 +218,8 @@ export const sessionImage = defineRpc({
   }),
   output: z.object({ dataUri: z.string() }),
 });
+export const moveProject = defineRpc({
+  name: "projects.move",
+  input: z.strictObject({ id: z.string().min(1).max(200), direction: z.enum(["up", "down", "top"]) }),
+  output: z.array(z.string()),
+});

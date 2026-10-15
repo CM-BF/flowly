@@ -12,6 +12,7 @@ import {
   type Task,
   type TaskEdit,
   type TaskPlacement,
+  projectOrder,
 } from "../shared/model";
 
 export class StoreInvalidError extends Error {}
@@ -229,6 +230,26 @@ export class BoardStore {
           to: task.status,
         });
       return { value: task, changed: true };
+    });
+  }
+  /**
+   * Reorders projects for the chooser. Order is presentation, not project
+   * data: no revision bump, so agent writes holding a project revision are
+   * unaffected. All projects are renumbered 0..n in the resulting order.
+   */
+  moveProject(input: { id: string; direction: "up" | "down" | "top" }) {
+    return this.transaction((board) => {
+      const ordered = [...board.projects].sort(projectOrder);
+      const index = ordered.findIndex((p) => p.id === input.id);
+      if (index < 0) throw new Error("Project not found.");
+      const target =
+        input.direction === "top" ? 0 : input.direction === "up" ? Math.max(0, index - 1) : Math.min(ordered.length - 1, index + 1);
+      const changed = target !== index || ordered.some((p, i) => p.position !== i);
+      if (!changed) return { value: ordered.map((p) => p.id), changed: false };
+      const [moved] = ordered.splice(index, 1);
+      ordered.splice(target, 0, moved);
+      ordered.forEach((p, i) => (p.position = i));
+      return { value: ordered.map((p) => p.id), changed: true };
     });
   }
   event(board: Board, input: Omit<BoardEvent, "id" | "at">) {
