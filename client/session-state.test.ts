@@ -87,7 +87,7 @@ test("preview extracts only recent text with reader-facing author labels", () =>
 });
 
 test("consecutive thinking and tool calls merge into one activity block", () => {
-  const entry = (key: string, author: string) => ({ key, author, text: key, kind: author });
+  const entry = (key: string, author: string) => ({ key, author, text: key, kind: author, messageId: undefined });
   const blocks = groupTranscript([
     entry("u", "You"),
     entry("t1", "Thinking"),

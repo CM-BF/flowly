@@ -161,6 +161,15 @@ Status: authorized by the user's 2026-10-14 request to redesign the whole Kanban
 - The block's key is its first entry, so expanded state survives streaming updates. Expand uses the shared Enter motion; the chevron rotates.
 - Verified on a live running session: two blocks collapsed, expand works, no console errors (`docs/verification/activity-groups.png`).
 
+## 7n. Attach images to session messages (2026-10-15, user report)
+
+- Web/desktop: paste an image into the session composer, drop image files on it, or use the attach button (left of the input). Up to 4 PNG/JPEG/GIF/WebP images per message, 5 MB each; anything rejected is explained in a toast. Thumbnails sit above the input and can be removed. A message may be images only.
+- Native (iOS/Android): no attach control. The plugin host exposes no image picker module (only react, react-native, plugin, react-query, zod), so mobile users attach in Paseo itself.
+- Sending: immediate sends pass `images` (base64) to the SDK's `agent.send`. Queued messages keep their images as daemon files (`plugin-data/.../composer-images/<item>-<n>.<ext>`, 0600) referenced from `composer.json`. They are sent with the message on drain or "Send now", then deleted. Removing the message, or dropping a wrapped-up card's queue, deletes them too. A queued message with images can be removed but not edited back into the composer.
+- Transcript: the daemon timeline records only a message's text, so the client passes its own message ID (queued: the item ID) and shows your images from an in-memory cache. After a reload the message shows its text only. Your images are compact (≤200 px, never upscaled); agent images keep up to 360 px.
+- Exception to "no DOM": `client/web-images.ts` alone listens for paste/drop events on the composer's web node and opens the browser file chooser. It is feature-detected, renders no HTML, and is inert on native.
+- Verified e2e with a disposable fixture card (Haiku session, worktree): pasted image sent immediately (agent answered "Red"), image queued while running then drained ("Blue"), image-only queued message ("Purple"), two images in one message ("Orange, Teal"); composer thumbnails and transcript images in `docs/verification/image-attach-*.png`. Fixture cleaned up: card wrapped up/archived, session archived, worktree removed, test branch deleted, `composer-images/` empty.
+
 ## 8. Acceptance
 
 | Check | Expected |

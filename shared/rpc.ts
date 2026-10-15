@@ -11,7 +11,7 @@ import {
   taskSchema,
 } from "./model";
 import { healthSchema, preparationSchema } from "./tools";
-import { composerStateSchema, composerTarget, queuedMessageSchema } from "./composer";
+import { composerStateSchema, composerTarget, maxImages, outgoingImageSchema, queuedMessageSchema } from "./composer";
 import {
   sessionReadStateSchema,
   sessionReadReceiptSchema,
@@ -196,7 +196,9 @@ export const saveDraft = defineRpc({
 });
 export const queueMessage = defineRpc({
   name: "composer.queue",
-  input: composerTarget.extend({ text: z.string().trim().min(1).max(20000) }),
+  input: composerTarget
+    .extend({ text: z.string().trim().max(20000), images: z.array(outgoingImageSchema).max(maxImages).optional() })
+    .refine((v) => !!v.text || !!v.images?.length, "Write a message or attach an image."),
   output: queuedMessageSchema,
 });
 export const unqueueMessage = defineRpc({

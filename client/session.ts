@@ -1,3 +1,4 @@
+import type { OutgoingImage } from "../shared/composer";
 import type {
   PaseoApi,
   PaseoWorkspaceAgentCreateOptions,
@@ -65,6 +66,8 @@ export async function sendCardInstruction(
   }) => Promise<{ available: boolean; reason: string; context: string }>,
   instruction: string,
   mode: "steer" | "interrupt" = "steer",
+  images: OutgoingImage[] = [],
+  messageId?: string,
 ) {
   const [actor, scope] = await Promise.all([
     workspaceSession(paseo, agentId, task.workspaceId, "restore"),
@@ -73,12 +76,11 @@ export async function sendCardInstruction(
   if (!scope.available) throw new Error(scope.reason);
   await paseo.agents
     .ref(agentId)
-    .send(
-      instruction,
-      actor.status === "running" || actor.status === "initializing"
-        ? { activeTurnBehavior: mode }
-        : {},
-    );
+    .send(instruction, {
+      ...(actor.status === "running" || actor.status === "initializing" ? { activeTurnBehavior: mode } : {}),
+      ...(images.length ? { images } : {}),
+      ...(messageId ? { messageId } : {}),
+    });
 }
 
 /**

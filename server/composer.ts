@@ -1,9 +1,17 @@
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import type { PaseoApi } from "@getpaseo/client";
 import type { BoardStore } from "./store";
-import { composerStateSchema, type ComposerState } from "../shared/composer";
+import { composerStateSchema, type ComposerState, type OutgoingImage } from "../shared/composer";
+
+type QueuedImage = { file: string; mimeType: OutgoingImage["mimeType"] };
+const extension: Record<OutgoingImage["mimeType"], string> = {
+  "image/png": "png",
+  "image/jpeg": "jpg",
+  "image/gif": "gif",
+  "image/webp": "webp",
+};
 
 const empty = (): ComposerState => ({ version: 1, sessions: {} });
 
@@ -17,6 +25,35 @@ export class ComposerStore {
   constructor(readonly directory: string) {}
   get path() {
     return join(this.directory, "composer.json");
+  }
+  /** Queued messages' images live beside composer.json until sent or removed. */
+  get imageDirectory() {
+    return join(this.directory, "composer-images");
+  }
+  async writeImages(itemId: string, images: readonly OutgoingImage[]): Promise<QueuedImage[]> {
+    if (!images.length) return [];
+    await mkdir(this.imageDirectory, { recursive: true, mode: 0o700 });
+    return Promise.all(
+      images.map(async (image, index) => {
+        const file = `${itemId}-${index}.${extension[image.mimeType]}`;
+        await writeFile(join(this.imageDirectory, file), Buffer.from(image.data, "base64"), { mode: 0o600 });
+        return { file, mimeType: image.mimeType };
+      }),
+    );
+  }
+  async readImages(images: readonly QueuedImage[] = []): Promise<OutgoingImage[]> {
+    return Promise.all(
+      images.map(async (image) => {
+        try {
+          return { data: (await readFile(join(this.imageDirectory, image.file))).toString("base64"), mimeType: image.mimeType };
+        } catch {
+          throw new Error("An image attached to this queued message is missing.");
+        }
+      }),
+    );
+  }
+  async removeImages(images: readonly QueuedImage[] = []) {
+    await Promise.all(images.map((image) => rm(join(this.imageDirectory, image.file), { force: true })));
   }
   private async load(): Promise<ComposerState> {
     try {
@@ -48,9 +85,14 @@ export class ComposerStore {
   }
 }
 
-type Send = (paseo: PaseoApi, agentId: string, text: string, steer: boolean) => Promise<void>;
-const defaultSend: Send = async (paseo, agentId, text, steer) => {
-  await paseo.agents.ref(agentId).send(text, steer ? { activeTurnBehavior: "steer" } : {});
+type Send = (paseo: PaseoApi, agentId: string, text: string, steer: boolean, images?: OutgoingImage[], messageId?: string) => Promise<void>;
+const defaultSend: Send = async (paseo, agentId, text, steer, images, messageId) => {
+  // The queued item's ID becomes the message ID, so the sending client can match its images.
+  await paseo.agents.ref(agentId).send(text, {
+    ...(steer ? { activeTurnBehavior: "steer" as const } : {}),
+    ...(images?.length ? { images } : {}),
+    ...(messageId ? { messageId } : {}),
+  });
 };
 
 export class ComposerService {
@@ -93,26 +135,36 @@ export class ComposerService {
     });
   }
 
-  async push(input: { taskId: string; agentId: string; text: string }, paseo: PaseoApi) {
+  async push(input: { taskId: string; agentId: string; text: string; images?: OutgoingImage[] }, paseo: PaseoApi) {
     await this.verify(input.taskId, input.agentId, paseo);
-    const item = { id: randomUUID(), text: input.text, at: new Date(this.clock()).toISOString() };
-    await this.store.mutate((state) => {
-      const entry = this.entry(state, input.agentId, input.taskId);
-      if (entry.queue.length >= 50) throw new Error("Queue is full (50 messages).");
-      entry.queue.push(item);
-      entry.lastError = null;
-    });
+    const id = randomUUID();
+    const images = await this.store.writeImages(id, input.images || []);
+    const item = { id, text: input.text, at: new Date(this.clock()).toISOString(), ...(images.length ? { images } : {}) };
+    try {
+      await this.store.mutate((state) => {
+        const entry = this.entry(state, input.agentId, input.taskId);
+        if (entry.queue.length >= 50) throw new Error("Queue is full (50 messages).");
+        entry.queue.push(item);
+        entry.lastError = null;
+      });
+    } catch (error) {
+      await this.store.removeImages(images);
+      throw error;
+    }
     // The turn may already have ended between the client's check and now.
     void this.drain(input.agentId, paseo);
     return item;
   }
 
-  remove(input: { agentId: string; id: string }) {
-    return this.store.mutate((state) => {
+  async remove(input: { agentId: string; id: string }) {
+    const removed = await this.store.mutate((state) => {
       const entry = state.sessions[input.agentId];
+      const found = entry?.queue.find((m) => m.id === input.id);
       if (entry) entry.queue = entry.queue.filter((m) => m.id !== input.id);
-      return { ok: true };
+      return found;
     });
+    await this.store.removeImages(removed?.images);
+    return { ok: true };
   }
 
   /** "Send now": steer the running turn with a queued message (Paseo parity). */
@@ -127,7 +179,8 @@ export class ComposerService {
     });
     const running = agent.status === "running" || agent.status === "initializing";
     try {
-      await this.send(paseo, input.agentId, item.text, running);
+      await this.send(paseo, input.agentId, item.text, running, await this.store.readImages(item.images), item.id);
+      await this.store.removeImages(item.images);
     } catch (error) {
       await this.store.mutate((state) => {
         const entry = this.entry(state, input.agentId, input.taskId);
@@ -164,7 +217,8 @@ export class ComposerService {
       if (!item) return false;
       this.lastDrain.set(agentId, this.clock());
       try {
-        await this.send(paseo, agentId, item.text, false);
+        await this.send(paseo, agentId, item.text, false, await this.store.readImages(item.images), item.id);
+        await this.store.removeImages(item.images);
         await this.store.mutate((s) => {
           const e = s.sessions[agentId];
           if (e) e.lastError = null;
@@ -188,10 +242,18 @@ export class ComposerService {
     const board = await this.board.read();
     const live = new Set(board.tasks.filter((t) => !t.archivedAt).map((t) => t.id));
     const before = await this.store.read();
-    if (Object.values(before.sessions).some((e) => !live.has(e.taskId)))
-      await this.store.mutate((s) => {
-        for (const [id, e] of Object.entries(s.sessions)) if (!live.has(e.taskId)) delete s.sessions[id];
+    if (Object.values(before.sessions).some((e) => !live.has(e.taskId))) {
+      const dropped = await this.store.mutate((s) => {
+        const images: QueuedImage[] = [];
+        for (const [id, e] of Object.entries(s.sessions))
+          if (!live.has(e.taskId)) {
+            for (const m of e.queue) images.push(...(m.images || []));
+            delete s.sessions[id];
+          }
+        return images;
       });
+      await this.store.removeImages(dropped);
+    }
     const state = await this.store.read();
     for (const [agentId, entry] of Object.entries(state.sessions))
       if (entry.queue.length) void this.drain(agentId, paseo);

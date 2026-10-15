@@ -2,7 +2,7 @@ import { useEffect, useRef } from "react";
 import { useRpc } from "@getpaseo/plugin/client";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import * as rpc from "../shared/rpc";
-import type { ComposerState } from "../shared/composer";
+import type { ComposerState, OutgoingImage } from "../shared/composer";
 
 const key = ["ultra", "composer"] as const;
 
@@ -48,8 +48,13 @@ export function useComposer(enabled = true) {
       if (immediate) return flush();
       timers.current.set(agentId, { timer: setTimeout(flush, 500), flush });
     },
-    async queue(taskId: string, agentId: string, text: string) {
-      const temp = { id: `pending-${Date.now()}`, text, at: new Date().toISOString() };
+    async queue(taskId: string, agentId: string, text: string, images: OutgoingImage[] = []) {
+      const temp = {
+        id: `pending-${Date.now()}`,
+        text,
+        at: new Date().toISOString(),
+        ...(images.length ? { images: images.map((image, i) => ({ file: `pending-${i}.png`, mimeType: image.mimeType })) } : {}),
+      };
       patch((s) => ({
         ...s,
         sessions: {
@@ -61,7 +66,7 @@ export function useComposer(enabled = true) {
         },
       }));
       try {
-        await push({ taskId, agentId, text });
+        return await push({ taskId, agentId, text, ...(images.length ? { images } : {}) });
       } finally {
         refresh();
       }

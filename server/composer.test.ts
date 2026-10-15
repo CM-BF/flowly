@@ -24,18 +24,20 @@ async function setup(status = "running") {
   const agent = { id: "a", workspaceId: "w", status, archivedAt: null, pendingPermissions: [] as unknown[] };
   const paseo = { agents: { ref: () => ({ refresh: async () => ({ agent }) }) } } as unknown as PaseoApi;
   const sent: { text: string; steer: boolean }[] = [];
+  const images: unknown[] = [];
   let fail = false;
   let now_ = 1_000_000;
   const service = new ComposerService(
     new ComposerStore(board.directory),
     board,
-    async (_p, _id, text, steer) => {
+    async (_p, _id, text, steer, attached) => {
       if (fail) throw new Error("offline");
       sent.push({ text, steer });
+      if (attached?.length) images.push(...attached);
     },
     () => now_,
   );
-  return { service, paseo, agent, sent, setFail: (v: boolean) => (fail = v), tick: (ms: number) => (now_ += ms), board };
+  return { service, paseo, agent, sent, images, setFail: (v: boolean) => (fail = v), tick: (ms: number) => (now_ += ms), board };
 }
 
 test("drafts and queued messages persist across a new service instance (plugin reload)", async () => {
@@ -98,4 +100,23 @@ test("entries of archived cards are pruned", async () => {
   });
   await x.service.drainAll(x.paseo);
   expect((await x.service.read()).sessions).toEqual({});
+});
+
+test("queued images are kept as daemon files, sent with their message, then deleted", async () => {
+  const x = await setup("running");
+  const png = { data: Buffer.from("png-bytes").toString("base64"), mimeType: "image/png" as const };
+  const item = await x.service.push({ taskId: "t", agentId: "a", text: "", images: [png] }, x.paseo);
+  const dir = join(x.board.directory, "composer-images");
+  expect(item.images).toEqual([{ file: `${item.id}-0.png`, mimeType: "image/png" }]);
+  expect((await readFile(join(dir, `${item.id}-0.png`))).toString()).toBe("png-bytes");
+  await settle();
+  x.agent.status = "idle";
+  expect(await x.service.drain("a", x.paseo)).toBe(true);
+  expect(x.images).toEqual([png]);
+  await expect(readFile(join(dir, `${item.id}-0.png`))).rejects.toThrow();
+  // Removing a queued message deletes its image too.
+  x.agent.status = "running";
+  const other = await x.service.push({ taskId: "t", agentId: "a", text: "x", images: [png] }, x.paseo);
+  await x.service.remove({ agentId: "a", id: other.id });
+  await expect(readFile(join(dir, `${other.id}-0.png`))).rejects.toThrow();
 });

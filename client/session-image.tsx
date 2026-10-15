@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Animated, Image, Pressable, View } from "react-native";
 import { Icon } from "@getpaseo/plugin/client/react-native";
 import { useRpc } from "@getpaseo/plugin/client";
@@ -14,7 +14,18 @@ import { motionDuration, useMotionValue } from "./motion";
  * on the daemon machine) are served by the plugin daemon, scoped to images this
  * session's transcript references. Tap to view larger.
  */
-export function SessionImage({ taskId, agentId, image }: { taskId: string; agentId: string; image: ImageRef }) {
+export function SessionImage({
+  taskId,
+  agentId,
+  image,
+  maxWidth = 360,
+}: {
+  taskId: string;
+  agentId: string;
+  image: ImageRef;
+  /** Upper bound; small images keep their natural width (never upscaled). */
+  maxWidth?: number;
+}) {
   const theme = useTheme();
   const { colors } = theme;
   const read = useRpc(rpc.sessionImage);
@@ -28,10 +39,28 @@ export function SessionImage({ taskId, agentId, image }: { taskId: string; agent
     retry: false,
   });
   const uri = local ? served.data?.dataUri : image.src;
+  const [natural, setNatural] = useState(0);
   const [ratio, setRatio] = useState(4 / 3),
     [loaded, setLoaded] = useState(false),
     [failed, setFailed] = useState(""),
     [open, setOpen] = useState(false);
+  useEffect(() => {
+    // RN-web's onLoad carries no size; ask for it directly (both platforms).
+    if (!uri) return;
+    let alive = true;
+    Image.getSize(
+      uri,
+      (width, height) => {
+        if (!alive || !width || !height) return;
+        setRatio(Math.max(0.5, Math.min(3, width / height)));
+        setNatural(Math.max(48, width));
+      },
+      () => undefined,
+    );
+    return () => {
+      alive = false;
+    };
+  }, [uri]);
   const fade = useMotionValue(loaded ? 1 : 0, motionDuration.forward, 0);
   const error = failed || (served.error ? message(served.error) : "");
   if (error)
@@ -49,7 +78,7 @@ export function SessionImage({ taskId, agentId, image }: { taskId: string; agent
         accessibilityRole="imagebutton"
         accessibilityLabel={`${image.alt}. Open larger`}
         onPress={() => uri && setOpen(true)}
-        style={{ ...noFocusRing, width: "100%", maxWidth: 360 }}
+        style={{ ...noFocusRing, width: "100%", maxWidth: natural ? Math.min(natural, maxWidth) : maxWidth }}
       >
         <View
           style={{
@@ -71,7 +100,10 @@ export function SessionImage({ taskId, agentId, image }: { taskId: string; agent
                 style={{ width: "100%", height: "100%" }}
                 onLoad={(event) => {
                   const source = (event.nativeEvent as { source?: { width?: number; height?: number } }).source;
-                  if (source?.width && source.height) setRatio(Math.max(0.5, Math.min(3, source.width / source.height)));
+                  if (source?.width && source.height) {
+                    setRatio(Math.max(0.5, Math.min(3, source.width / source.height)));
+                    setNatural(Math.max(48, source.width));
+                  }
                   setLoaded(true);
                 }}
                 onError={() => setFailed("could not be displayed")}

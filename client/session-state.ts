@@ -70,6 +70,7 @@ export function recentSessionOutput(
       name?: unknown;
       status?: unknown;
       messageId?: unknown;
+      clientMessageId?: unknown;
       callId?: unknown;
     };
   }[],
@@ -81,7 +82,15 @@ export function recentSessionOutput(
       const text = tool
         ? `${item.name} · ${typeof item.status === "string" ? item.status : "activity"}`
         : item.text;
-      if (typeof text !== "string" || !text.trim()) return [];
+      const messageId =
+        typeof item.messageId === "string"
+          ? item.messageId
+          : typeof item.clientMessageId === "string"
+            ? item.clientMessageId
+            : undefined;
+      // An image-only message from this client has empty text but a known ID.
+      const imageOnly = item.type.includes("user") && !!messageId && typeof text === "string";
+      if (typeof text !== "string" || (!text.trim() && !imageOnly)) return [];
       const author = item.type.includes("user")
         ? "You"
         : item.type.includes("assistant")
@@ -98,6 +107,7 @@ export function recentSessionOutput(
           author,
           text,
           kind: tool ? "tool" : item.type,
+          messageId,
         },
       ];
     })

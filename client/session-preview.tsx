@@ -2,6 +2,7 @@ import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from "rea
 import {
   ActivityIndicator,
   Animated,
+  Image,
   Platform,
   Pressable,
   View,
@@ -48,6 +49,9 @@ import { resolveSend, sendBehaviorText, sendBehaviors, type SendBehavior } from 
 import { useComposer } from "./composer";
 import { extractImages } from "../shared/images";
 import { SessionImage } from "./session-image";
+import { imageInputSupported, listenForImages, pickImageFiles, readImages, type Attachment } from "./web-images";
+import { maxImages } from "../shared/composer";
+import { newMessageId, rememberSentImages, sentImages } from "./sent-images";
 import { eventPoint, menuHandlers, useMenuOpener, type MenuEntry } from "./context-menu";
 import { boardViewSettings, boardViewValues } from "../shared/settings";
 import { ComposerChips, useSessionConfig, type ChipMenuId } from "./session-settings";
@@ -229,6 +233,28 @@ export function SessionPreview({
   const queueEntry = composer.entry(sessionId);
   const queued = queueEntry?.queue || [];
   const running = active?.status === "running" || active?.status === "initializing";
+  // Images attached to the next message (web: paste, drop or the attach button).
+  const [attachments, setAttachmentsState] = useState<Attachment[]>([]);
+  const attachmentsRef = useRef<Attachment[]>([]);
+  const setAttachments = (next: Attachment[]) => {
+    attachmentsRef.current = next;
+    setAttachmentsState(next);
+  };
+  const addImageFiles = async (files: Parameters<typeof readImages>[0]) => {
+    if (!files.length) return;
+    try {
+      const { images, problems } = await readImages(files, maxImages - attachmentsRef.current.length);
+      if (!mounted.current) return;
+      if (images.length) setAttachments([...attachmentsRef.current, ...images].slice(0, maxImages));
+      if (problems.length) toast.error(problems.join(" "));
+    } catch (e) {
+      toast.error(message(e));
+    }
+  };
+  const addImages = useRef(addImageFiles);
+  addImages.current = addImageFiles;
+  const [composerNode, setComposerNode] = useState<View | null>(null);
+  useEffect(() => listenForImages(composerNode, (files) => void addImages.current(files)), [composerNode]);
   const submitState = useRef({ canWrite, preferred, running, pendingPermission: false });
   submitState.current = {
     canWrite,
@@ -306,24 +332,33 @@ export function SessionPreview({
   async function submitInstruction(alternate = false) {
     const { canWrite: writable, preferred: behavior, running: busyTurn, pendingPermission } = submitState.current;
     const instruction = draftBuffer.read();
-    if (!mounted.current || !writable || !instruction.trim()) return;
+    const attached = attachmentsRef.current;
+    const images = attached.map(({ data, mimeType }) => ({ data, mimeType }));
+    if (!mounted.current || !writable || (!instruction.trim() && !images.length)) return;
     const action = resolveSend(behavior, { running: busyTurn, alternate, pendingPermission });
     if (action.kind === "queue") {
       // Paseo parity: queued messages are sent when the current turn ends.
-      void composer.queue(task.id, sessionId, instruction).catch((e) => {
-        // Never lose the text: put it back in the composer.
+      void composer.queue(task.id, sessionId, instruction, images).then((item) =>
+        rememberSentImages(item.id, attached.map((a) => a.uri)),
+      ).catch((e) => {
+        // Never lose the text or images: put them back in the composer.
         onDraftChange(sessionId, instruction);
+        if (mounted.current) setAttachments([...attached, ...attachmentsRef.current].slice(0, maxImages));
         setError(message(e));
       });
       draftBuffer.clear(instruction);
       onDraftChange(sessionId, "", instruction);
+      setAttachments([]);
       setComposerOpen(false);
       return;
     }
     await perform(async () => {
-      await sendCardInstruction(paseo, task, sessionId, contextRead, instruction, action.activeTurnBehavior);
+      const messageId = newMessageId();
+      rememberSentImages(messageId, attached.map((a) => a.uri));
+      await sendCardInstruction(paseo, task, sessionId, contextRead, instruction, action.activeTurnBehavior, images, messageId);
       draftBuffer.clear(instruction);
       onDraftChange(sessionId, "", instruction);
+      if (mounted.current) setAttachments(attachmentsRef.current.filter((a) => !attached.includes(a)));
       if (mounted.current) setComposerOpen(false);
       if (mounted.current) tail.jumpToLatest();
       await current.refetch();
@@ -331,9 +366,9 @@ export function SessionPreview({
     });
   }
   const tone = state ? sessionTone(colors, state, !!attention?.unread) : colors.foregroundMuted;
-  const canSend = canWrite && !!draft.trim();
+  const canSend = canWrite && (!!draft.trim() || attachments.length > 0);
   // Paseo parity: a running session with an empty composer shows Stop.
-  const stopMode = running && !draft.trim() && canWrite && !busy;
+  const stopMode = running && !draft.trim() && !attachments.length && canWrite && !busy;
   const sendSize = touch ? 34 : 28;
   // Native phones type in the host bottom sheet: it tracks the real IME height
   // (candidate bars, keyboard switches) which plugin-side keyboard events cannot.
@@ -357,7 +392,7 @@ export function SessionPreview({
                             .then(() => toast.show("Sent to the running turn", { variant: "success" }))
                             .catch((e) => setError(message(e))) }]
                       : []),
-                    { id: "edit", label: "Edit", icon: "Pencil", disabled: m.id.startsWith("pending-"), onPress: () =>
+                    { id: "edit", label: "Edit", icon: "Pencil", disabled: m.id.startsWith("pending-") || !!m.images?.length, onPress: () =>
                         void composer.remove(sessionId, m.id).then(() =>
                           onDraftChange(sessionId, draft.trim() ? `${draft}\n${m.text}` : m.text)) },
                     { kind: "separator", id: "s" },
@@ -377,8 +412,16 @@ export function SessionPreview({
                 >
                   <Icon name="Clock" size={13} color={colors.foregroundMuted} />
                   <View style={{ flex: 1, minWidth: 0 }}>
-                    <Label size={font.sm} lines={1} selectable={false}>{m.text.replace(/\s+/g, " ")}</Label>
+                    <Label size={font.sm} lines={1} selectable={false}>
+                      {m.text.replace(/\s+/g, " ") || (m.images?.length === 1 ? "Image" : `${m.images?.length || 0} images`)}
+                    </Label>
                   </View>
+                  {!!m.images?.length && !!m.text.trim() && (
+                    <View style={{ flexDirection: "row", alignItems: "center", gap: 2 }}>
+                      <Icon name="Image" size={12} color={colors.foregroundMuted} />
+                      <Label muted size={font.xs} selectable={false}>{m.images.length}</Label>
+                    </View>
+                  )}
                   <Label muted size={font.xs} selectable={false}>Queued</Label>
                   {running && !m.id.startsWith("pending-") && (
                     <Button
@@ -415,11 +458,10 @@ export function SessionPreview({
             />
           )}
           <View
+            ref={inSheet ? undefined : setComposerNode}
             style={{
-              flexDirection: "row",
-              alignItems: "flex-end",
-              gap: space[2],
-              paddingLeft: space[3],
+              gap: space[1.5],
+              paddingLeft: imageInputSupported ? space[1.5] : space[3],
               paddingRight: space[1.5],
               paddingVertical: space[1.5],
               borderWidth: 1,
@@ -428,6 +470,25 @@ export function SessionPreview({
               backgroundColor: canWrite ? colors.surface0 : colors.surface1,
             }}
           >
+            {attachments.length > 0 && (
+              <View style={{ flexDirection: "row", flexWrap: "wrap", gap: space[1.5], paddingLeft: imageInputSupported ? space[1.5] : 0 }}>
+                {attachments.map((a) => (
+                  <AttachmentThumb key={a.id} attachment={a} onRemove={() => setAttachments(attachmentsRef.current.filter((x) => x.id !== a.id))} />
+                ))}
+              </View>
+            )}
+            <View style={{ flexDirection: "row", alignItems: "flex-end", gap: space[2] }}>
+            {imageInputSupported && (
+              <View style={{ marginBottom: (36 - sendSize) / 2 }}>
+                <IconButton
+                  icon="ImagePlus"
+                  size={sendSize}
+                  label="Attach images"
+                  disabled={!canWrite || attachments.length >= maxImages}
+                  onPress={() => void pickImageFiles().then((files) => addImages.current(files))}
+                />
+              </View>
+            )}
             <TextInput
               accessibilityLabel="Follow-up instruction"
               accessibilityHint={
@@ -556,6 +617,7 @@ export function SessionPreview({
               )}
             </Pressable>
             )}
+            </View>
           </View>
           <View style={{ flexDirection: "row", alignItems: "center", gap: space[2], zIndex: 2 }}>
             <View style={{ flex: 1, minWidth: 0 }}>
@@ -1050,9 +1112,12 @@ function TranscriptEntry({
     () => (entry.author === "You" || entry.author === "Agent" ? extractImages(entry.text) : { text: entry.text, images: [] }),
     [entry.author, entry.text],
   );
-  const pictures = images.map((image) => (
-    <SessionImage key={image.src} taskId={taskId} agentId={agentId} image={image} />
+  const sent = entry.author === "You" ? sentImages(entry.messageId) : [];
+  const pictures = [...images, ...sent.map((src, i) => ({ src, alt: `Image ${i + 1}` }))].map((image) => (
+    // Your own images stay compact beside your message.
+    <SessionImage key={image.src} taskId={taskId} agentId={agentId} image={image} maxWidth={entry.author === "You" ? 200 : 360} />
   ));
+  if (entry.author === "You" && !text && !pictures.length) return null;
   if (entry.author === "You")
     return (
       <View style={{ alignItems: "flex-end", paddingLeft: space[6] + space[2], gap: space[1.5] }}>
@@ -1085,6 +1150,45 @@ function TranscriptEntry({
       <Label muted size={font.xs}>{entry.author}</Label>
       <Label muted size={font.md}>{entry.text}</Label>
     </View>
+  );
+}
+
+/** An image waiting to be sent: thumbnail with a remove button. */
+function AttachmentThumb({ attachment, onRemove }: { attachment: Attachment; onRemove(): void }) {
+  const { colors } = useTheme();
+  return (
+    <Enter distance={4}>
+      <View style={{ width: 52, height: 52 }}>
+        <Image
+          source={{ uri: attachment.uri }}
+          accessibilityLabel={attachment.name}
+          resizeMode="cover"
+          style={{ width: 52, height: 52, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface2 }}
+        />
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={`Remove ${attachment.name}`}
+          onPress={onRemove}
+          hitSlop={6}
+          style={{
+            ...noFocusRing,
+            position: "absolute",
+            top: -5,
+            right: -5,
+            width: 18,
+            height: 18,
+            borderRadius: 9,
+            alignItems: "center",
+            justifyContent: "center",
+            backgroundColor: colors.foreground,
+            borderWidth: 1.5,
+            borderColor: colors.surface0,
+          }}
+        >
+          <Icon name="X" size={10} color={colors.surface0} />
+        </Pressable>
+      </View>
+    </Enter>
   );
 }
 

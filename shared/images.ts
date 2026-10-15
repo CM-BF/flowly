@@ -39,6 +39,6 @@ export function extractImages(text: string): { text: string; images: ImageRef[] 
 
 /** Local path for a file reference (file:// stripped); null for remote URLs. */
 export function localImagePath(src: string) {
-  if (/^https?:\/\//i.test(src)) return null;
+  if (/^https?:\/\//i.test(src) || /^data:image\//i.test(src)) return null;
   return src.replace(/^file:\/\//i, "");
 }
