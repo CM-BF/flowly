@@ -277,10 +277,10 @@ export function TaskForm({
           <Choices
             title="Status"
             value={status}
-            options={statuses.map((s) => ({
-              value: s,
-              label: statusLabels[s],
-            }))}
+            // New tasks start in an active column (finished ones only when added from that column).
+            options={statuses
+              .filter((s) => task || (s !== "done" && s !== "cancelled") || s === defaultStatus)
+              .map((s) => ({ value: s, label: statusLabels[s] }))}
             onChange={setStatus}
           />
           <Choices

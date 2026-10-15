@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { sortTasks } from "../shared/sort";
-import { Animated, View, type ScrollView as NativeScrollView } from "react-native";
+import { Animated, Pressable, View, type ScrollView as NativeScrollView } from "react-native";
 import { ScrollView } from "@getpaseo/plugin/client/react-native";
 import type { Status, Task } from "../shared/model";
 import { statusLabels } from "../shared/model";
-import { IconButton, Label, font, radius, space, useTheme, verticalScroll, verticalContent } from "./ui";
+import { IconButton, Label, font, noFocusRing, radius, space, useTheme, verticalScroll, verticalContent } from "./ui";
+import { menuHandlers, useMenuOpener } from "./context-menu";
 import { StatusIcon } from "./status";
 import type { CardDrag } from "./card";
 import { useMotionPresence, useMotionValue } from "./motion";
@@ -53,6 +54,8 @@ export function DesktopColumns({
   sortColumn = (column) => sortTasks(column, "manual"),
   manualOrder = true,
   onReorderBlocked = () => undefined,
+  collapsed = [],
+  onToggleCollapse,
   renderCard,
   onAdd,
   onDrop,
@@ -66,12 +69,17 @@ export function DesktopColumns({
   manualOrder?: boolean;
   /** A within-column drop while a non-manual sort is active. */
   onReorderBlocked?(): void;
+  /** Columns shown as a narrow strip (still a drop target). */
+  collapsed?: readonly Status[];
+  onToggleCollapse?(status: Status): void;
   cancelKey: string;
   renderCard(task: Task, drag: CardDrag, dragging: boolean): ReactNode;
   onAdd(status: Status): void;
   onDrop(input: Placement): void;
 }) {
   const { colors } = useTheme();
+  const openMenu = useMenuOpener();
+  const [hoverHeader, setHoverHeader] = useState<Status | null>(null);
   const cardGap = space[2];
   const viewportRef = useRef<View>(null),
     scrollRef = useRef<NativeScrollView>(null);
@@ -221,6 +229,50 @@ export function DesktopColumns({
             placementUpdate(dragging.task, status, dragging.slot, order.current[status])
               ? (dragging.slot?.lineY ?? null)
               : null;
+          const headerMenu = menuHandlers(openMenu, statusLabels[status], () => [
+            { id: "add", label: "Add task", icon: "Plus", disabled, onPress: () => onAdd(status) },
+            ...(onToggleCollapse
+              ? [{ id: "collapse", label: collapsed.includes(status) ? "Expand column" : "Collapse column", icon: collapsed.includes(status) ? "ChevronsLeftRight" : "ChevronsRightLeft", onPress: () => onToggleCollapse(status) }]
+              : []),
+          ]);
+          if (collapsed.includes(status))
+            return (
+              <Pressable
+                key={status}
+                accessibilityRole="button"
+                accessibilityLabel={`Expand ${statusLabels[status]}, ${column.length} ${column.length === 1 ? "task" : "tasks"}`}
+                onPress={() => onToggleCollapse?.(status)}
+                {...headerMenu}
+                onLayout={(e) => {
+                  const { x, width } = e.nativeEvent.layout;
+                  columns.current = [...columns.current.filter((c) => c.status !== status), { status, x, width }];
+                }}
+                style={(state) => {
+                  const { hovered } = state as typeof state & { hovered?: boolean };
+                  return {
+                    ...noFocusRing,
+                    width: 44,
+                    minHeight: 0,
+                    alignItems: "center",
+                    paddingTop: space[3],
+                    gap: space[2],
+                    borderRadius: radius.xl,
+                    backgroundColor: highlighted ? colors.surface2 : hovered ? colors.surface2 : colors.surface1,
+                    overflow: "hidden",
+                  };
+                }}
+              >
+                <StatusIcon status={status} />
+                <Label muted size={font.sm} selectable={false}>{column.length}</Label>
+                {/* Vertical title: a rotated label in a box as tall as the text is wide. */}
+                <View style={{ width: 20, height: 140, alignItems: "center", justifyContent: "center" }}>
+                  <View style={{ width: 140, alignItems: "center", transform: [{ rotate: "90deg" }] }}>
+                    <Label medium size={font.md} lines={1} selectable={false}>{statusLabels[status]}</Label>
+                  </View>
+                </View>
+                <LaneAccent active={!!highlighted} />
+              </Pressable>
+            );
           return (
             <View
               key={status}
@@ -239,14 +291,20 @@ export function DesktopColumns({
                 overflow: "hidden",
               }}
             >
-              <View
+              <Pressable
+                accessible={false}
+                {...headerMenu}
+                onHoverIn={() => setHoverHeader(status)}
+                onHoverOut={() => setHoverHeader((h) => (h === status ? null : h))}
                 style={{
+                  ...noFocusRing,
                   paddingLeft: space[3],
                   paddingRight: space[1.5],
                   height: 44,
                   flexDirection: "row",
                   alignItems: "center",
                   gap: space[2],
+                  ...({ cursor: "default" } as object),
                 }}
               >
                 <StatusIcon status={status} />
@@ -258,6 +316,17 @@ export function DesktopColumns({
                     {column.length}
                   </Label>
                 </View>
+                {onToggleCollapse && (
+                  // Always mounted (RN-web clears hover on press); only revealed on header hover.
+                  <View style={{ opacity: hoverHeader === status ? 1 : 0 }}>
+                    <IconButton
+                      icon="ChevronsRightLeft"
+                      size={28}
+                      label={`Collapse ${statusLabels[status]}`}
+                      onPress={() => onToggleCollapse(status)}
+                    />
+                  </View>
+                )}
                 <IconButton
                   icon="Plus"
                   size={28}
@@ -265,7 +334,7 @@ export function DesktopColumns({
                   disabled={disabled}
                   onPress={() => onAdd(status)}
                 />
-              </View>
+              </Pressable>
               <View
                 ref={(list) => {
                   lists.current[status] = list;

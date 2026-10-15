@@ -13,7 +13,10 @@ export type ShortcutAction =
   | "next"
   | "previous"
   | "left"
-  | "right";
+  | "right"
+  | "move-left"
+  | "move-right"
+  | "edit";
 
 export type BoardIntent = Extract<
   ShortcutAction,
@@ -27,6 +30,8 @@ export const shortcutHelp: readonly { keys: string[]; title: string }[] = [
   { keys: ["A"], title: "Needs attention" },
   { keys: ["J", "K"], title: "Next / previous card in column" },
   { keys: ["H", "L"], title: "Card in left / right column" },
+  { keys: ["⇧H", "⇧L"], title: "Move the open card to the left / right column" },
+  { keys: ["E"], title: "Edit the open card" },
   { keys: ["Esc"], title: "Back from session, then close sidebar" },
   { keys: ["?"], title: "Show keyboard shortcuts" },
 ];
@@ -40,6 +45,7 @@ const letters: Record<string, ShortcutAction> = {
   k: "previous",
   h: "left",
   l: "right",
+  e: "edit",
 };
 
 export interface ShortcutKey {
@@ -62,21 +68,29 @@ export function resolveShortcut(
   if (key === "Escape") return "escape";
   if (key === "/") return "filters";
   if (key === "?") return "shortcuts";
-  if (key.length !== 1 || event.shiftKey) return null;
+  if (key.length !== 1) return null;
+  if (event.shiftKey) {
+    const lower = key.toLowerCase();
+    return lower === "h" ? "move-left" : lower === "l" ? "move-right" : null;
+  }
   return letters[key.toLowerCase()] ?? null;
 }
 
 /** Visible desktop columns in display order, each sorted like DesktopColumns. */
-export function taskGrid(statuses: readonly Status[], tasks: readonly Task[]) {
-  return statuses.map((status) =>
-    tasks
-      .filter((t) => t.status === status)
-      .sort(
-        (a, b) =>
-          a.position - b.position || a.createdAt.localeCompare(b.createdAt),
-      )
-      .map((t) => t.id),
-  );
+export function taskGrid(
+  statuses: readonly Status[],
+  tasks: readonly Task[],
+  sortColumn: (column: Task[]) => Task[] = (column) =>
+    [...column].sort((a, b) => a.position - b.position || a.createdAt.localeCompare(b.createdAt)),
+) {
+  return statuses.map((status) => sortColumn(tasks.filter((t) => t.status === status)).map((t) => t.id));
+}
+
+/** The status a card moves to with ⇧H / ⇧L: the adjacent shown column, if any. */
+export function adjacentStatus(statuses: readonly Status[], current: Status, direction: "move-left" | "move-right") {
+  const index = statuses.indexOf(current);
+  if (index < 0) return null;
+  return statuses[index + (direction === "move-right" ? 1 : -1)] ?? null;
 }
 
 export function navigateGrid(

@@ -1,6 +1,7 @@
 import { defineSettings } from "@getpaseo/plugin";
 import { z } from "zod";
 import { boardSorts } from "./sort";
+import { statusSchema } from "./model";
 
 /** Host-scoped board view preferences (not board data). */
 export const boardViewSettings = defineSettings({
@@ -15,6 +16,8 @@ export const boardViewSettings = defineSettings({
     startAgentOnCreate: z.boolean().default(true),
     /** Order of cards inside each column. */
     boardSort: z.enum(boardSorts).default("manual"),
+    /** Desktop columns shown as a narrow strip. */
+    collapsedColumns: z.array(statusSchema).max(7).default([]),
   }),
 });
 

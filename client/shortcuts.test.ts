@@ -7,6 +7,7 @@ import {
   parseBoardIntent,
   resolveShortcut,
   taskGrid,
+  adjacentStatus,
 } from "./shortcuts";
 
 describe("board shortcut keys", () => {
@@ -30,6 +31,9 @@ describe("board shortcut keys", () => {
       expect(resolveShortcut({ key: "Escape", [mod]: true }, true)).toBeNull();
     }
     expect(resolveShortcut({ key: "N", shiftKey: true }, true)).toBeNull();
+    expect(resolveShortcut({ key: "H", shiftKey: true }, true)).toBe("move-left");
+    expect(resolveShortcut({ key: "L", shiftKey: true }, true)).toBe("move-right");
+    expect(resolveShortcut({ key: "e" }, true)).toBe("edit");
     expect(resolveShortcut({ key: "x" }, true)).toBeNull();
     expect(resolveShortcut({ key: "ArrowDown" }, true)).toBeNull();
     expect(resolveShortcut({ key: "Enter" }, true)).toBeNull();
@@ -108,4 +112,16 @@ describe("Command Center board intents", () => {
       parseBoardIntent({ taskId: "t", sessionId: "s", workspaceId: "w", requestId: "r" }, now),
     ).toBeNull();
   });
+});
+
+test("navigation follows the board sort; ⇧H/⇧L target the adjacent shown column", () => {
+  const t = (id: string, status: Task["status"], position: number, priority: Task["priority"]) =>
+    ({ id, status, position, priority, createdAt: "2026-10-01T00:00:00Z" }) as Task;
+  const tasks = [t("a", "todo", 0, "low"), t("b", "todo", 1, "urgent")];
+  expect(taskGrid(["todo"], tasks)).toEqual([["a", "b"]]);
+  const byPriority = (c: Task[]) => [...c].sort((x, y) => (x.priority === "urgent" ? -1 : 0) - (y.priority === "urgent" ? -1 : 0));
+  expect(taskGrid(["todo"], tasks, byPriority)).toEqual([["b", "a"]]);
+  expect(adjacentStatus(["backlog", "todo", "in_progress"], "todo", "move-right")).toBe("in_progress");
+  expect(adjacentStatus(["backlog", "todo", "in_progress"], "backlog", "move-left")).toBeNull();
+  expect(adjacentStatus(["todo"], "done", "move-left")).toBeNull();
 });

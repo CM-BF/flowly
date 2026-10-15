@@ -83,6 +83,8 @@ import {
   shortcutHelp,
   shortcutsBlocked,
   taskGrid,
+  adjacentStatus,
+  type ShortcutAction,
   type BoardIntent,
 } from "./shortcuts";
 
@@ -298,6 +300,15 @@ function BoardContent(
     : serverProjects;
   const remembered = viewSettings.status === "ready" ? boardViewValues(viewSettings.values).lastProjectId : "";
   const boardSort: BoardSort = viewSettings.status === "ready" ? boardViewValues(viewSettings.values).boardSort : "manual";
+  const collapsedColumns = viewSettings.status === "ready" ? boardViewValues(viewSettings.values).collapsedColumns : [];
+  const toggleCollapse = (status: Status) => {
+    if (viewSettings.status !== "ready") return;
+    const values = boardViewValues(viewSettings.values);
+    const next = values.collapsedColumns.includes(status)
+      ? values.collapsedColumns.filter((s) => s !== status)
+      : [...values.collapsedColumns, status];
+    void viewSettings.save({ ...values, collapsedColumns: next }, viewSettings.revision);
+  };
   const chooseSort = (next: BoardSort) => {
     if (viewSettings.status !== "ready" || next === boardSort) return;
     void viewSettings.save({ ...boardViewValues(viewSettings.values), boardSort: next }, viewSettings.revision);
@@ -558,7 +569,7 @@ function BoardContent(
   const shortcutsOn = Platform.OS === "web" && !compact;
   const withKey = (text: string, key: string) =>
     shortcutsOn ? `${text} (${key})` : text;
-  function runIntent(intent: BoardIntent | "escape" | "next" | "previous" | "left" | "right") {
+  function runIntent(intent: BoardIntent | Exclude<ShortcutAction, BoardIntent>) {
     switch (intent) {
       case "new-task":
         if (!project || project.archivedAt) return false;
@@ -577,9 +588,22 @@ function BoardContent(
         if (!task) return false;
         setEscapeRequest({ taskId: task.id, key: `escape-${Date.now()}` });
         return true;
+      case "edit":
+        if (!task || task.archivedAt || project?.archivedAt) return false;
+        setTaskForm({ task, status: task.status });
+        return true;
+      case "move-left":
+      case "move-right": {
+        if (!task || task.archivedAt || project?.archivedAt || pending) return false;
+        const target = adjacentStatus(compact ? statuses : shownStatuses, task.status, intent);
+        if (!target) return false;
+        move({ id: task.id, revision: task.revision, status: target });
+        return true;
+      }
       default: {
         if (compact) return false;
-        const next = navigateGrid(taskGrid(shownStatuses, visible), task?.id || "", intent);
+        const expanded = shownStatuses.filter((s) => !collapsedColumns.includes(s));
+        const next = navigateGrid(taskGrid(expanded, visible, sortColumn), task?.id || "", intent);
         if (!next) return false;
         if (next !== task?.id) setTask(next);
         return true;
@@ -809,6 +833,8 @@ function BoardContent(
                     cancelKey={`${project.id}|${search}|${priority}|${archived}|${hideFinished}|${taskId}|${menu}|${actionTask?.id}|${projectForm}|${!!taskForm}`}
                     sortColumn={sortColumn}
                     manualOrder={boardSort === "manual"}
+                    collapsed={collapsedColumns}
+                    onToggleCollapse={toggleCollapse}
                     onReorderBlocked={() =>
                       toast.show(`Sorted by ${boardSortText[boardSort].label.toLowerCase()}. Switch to Manual to reorder within a column.`, { variant: "info" })
                     }

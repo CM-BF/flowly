@@ -178,6 +178,13 @@ Status: authorized by the user's 2026-10-14 request to redesign the whole Kanban
 - Sorting is `shared/sort.ts` (`sortTasks`), unit-tested for every mode and its fallback.
 - Verified on the live board: menu entries, choosing Priority, the blocked in-column drag toast, persistence across reload, and switching back to Manual.
 
+## 7p. Board basics polish (2026-10-15, audit at user request)
+
+- **Collapsible columns (desktop).** A column header shows a collapse button on hover, and right-clicking the header offers Add task / Collapse column. A collapsed column is a 44 px strip with its icon, count and vertical title. Click the strip, or use its context menu, to expand. Strips stay drop targets: a dropped card is appended in manual order. Collapsed columns are remembered per host (`collapsedColumns` in `board-view`). The collapse button stays mounted and only fades in, because RN-web clears hover on press.
+- **Keyboard.** J/K/H/L now follow the active sort and skip collapsed columns (bug fix). ⇧H / ⇧L move the open card to the adjacent shown column, and E edits it. Both are listed in the shortcuts sheet.
+- **Create form.** New tasks offer only active statuses (Backlog to Blocked); Done or Cancelled appear only when the task is added from that column. The Status row no longer wraps. Editing still offers every status.
+- Verified on the live board: collapse via the hover button, persistence across reload, expand via click and via the strip menu, E opening Edit, and the create form layout (`docs/verification/collapsed-columns.png`). ⇧H/⇧L is covered by unit tests plus the existing move path. It was not exercised on live cards, to avoid writing status history onto your real tasks.
+
 ## 8. Acceptance
 
 | Check | Expected |
