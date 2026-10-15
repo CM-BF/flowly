@@ -3,7 +3,7 @@ import { Animated, PanResponder, Pressable, View } from "react-native";
 import { Icon } from "@getpaseo/plugin/client/react-native";
 import type { Task } from "../shared/model";
 import { Badge, Dot, IconButton, Label, font, radius, relativeTime, space, tint, touch, useTheme } from "./ui";
-import { PriorityIcon, priorityLabels } from "./status";
+import { PriorityIcon, priorityAccent, priorityLabels } from "./status";
 import type { Point } from "./geometry";
 import type { SessionAttentionSummary } from "../shared/session-attention";
 import { PulseDot, motionDuration, useMotionValue } from "./motion";
@@ -126,6 +126,7 @@ export function TaskCard({
   ).current;
   const signals = summaryState === "ready" || summaryState === "stale" ? summary : undefined;
   const showActions = !drag || hovered || selected;
+  const accent = priorityAccent(colors, task.priority);
   return (
     <Animated.View
       {...(drag && !disabled ? pan.panHandlers : {})}
@@ -220,6 +221,22 @@ export function TaskCard({
           questions={questions}
         />
       </Pressable>
+      {accent && (
+        // Urgent/High: a stripe down the left edge, readable from across the board.
+        <View
+          pointerEvents="none"
+          style={{
+            position: "absolute",
+            top: -1,
+            bottom: -1,
+            left: -1,
+            width: 4,
+            borderTopLeftRadius: radius.lg,
+            borderBottomLeftRadius: radius.lg,
+            backgroundColor: accent,
+          }}
+        />
+      )}
       <Animated.View
         pointerEvents="none"
         style={{
@@ -346,19 +363,35 @@ function CardSignals({
   } else if (sessions)
     items.push(<Signal key="fallback" icon="MessageSquare" text={running ? `${running}/${sessions} running` : `${sessions}`} />);
   const priority = task.priority !== "normal";
+  const accent = priorityAccent(colors, task.priority);
   if (!priority && !items.length && !legacy && !task.archivedAt) return null;
   return (
     <View style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "center", columnGap: space[3], rowGap: space[1] }}>
-      {priority && (
-        <View accessibilityLabel={`${priorityLabels[task.priority]} priority`} style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
-          <PriorityIcon priority={task.priority} size={13} />
-          {task.priority === "urgent" && (
-            <Label size={font.sm} color={colors.statusDanger} selectable={false}>
-              Urgent
-            </Label>
-          )}
+      {priority && (accent ? (
+        <View
+          accessibilityLabel={`${priorityLabels[task.priority]} priority`}
+          style={{
+            flexDirection: "row",
+            alignItems: "center",
+            gap: 3,
+            height: 20,
+            paddingLeft: 5,
+            paddingRight: 7,
+            borderRadius: radius.md,
+            backgroundColor: tint(accent, 0.14),
+          }}
+        >
+          <PriorityIcon priority={task.priority} size={12} />
+          <Label size={font.xs} bold color={accent} selectable={false}>
+            {priorityLabels[task.priority]}
+          </Label>
         </View>
-      )}
+      ) : (
+        <View accessibilityLabel={`${priorityLabels[task.priority]} priority`} style={{ flexDirection: "row", alignItems: "center", gap: 3 }}>
+          <PriorityIcon priority={task.priority} size={13} />
+          <Label muted size={font.xs} selectable={false}>{priorityLabels[task.priority]}</Label>
+        </View>
+      ))}
       {items}
       {!!task.archivedAt && <Badge>Archived</Badge>}
       {legacy && <Badge>Legacy</Badge>}

@@ -24,7 +24,7 @@ export function StatusIcon({ status, size = 14 }: { status: Status; size?: numbe
 type Priority = Task["priority"];
 const priorityGlyph: Record<Priority, { icon: string; color(c: Colors): string } | null> = {
   urgent: { icon: "TriangleAlert", color: (c) => c.statusDanger },
-  high: { icon: "SignalHigh", color: (c) => c.foreground },
+  high: { icon: "ArrowUp", color: (c) => c.statusWarning },
   normal: null,
   low: { icon: "SignalLow", color: (c) => c.foregroundMuted },
 };
@@ -34,6 +34,11 @@ export const priorityLabels: Record<Priority, string> = {
   normal: "Normal",
   low: "Low",
 };
+
+/** The emphasis colour of a priority that deserves attention (Urgent, High), else null. */
+export function priorityAccent(colors: Colors, priority: Priority): string | null {
+  return priority === "urgent" ? colors.statusDanger : priority === "high" ? colors.statusWarning : null;
+}
 
 /** Renders nothing for Normal priority: the default carries no signal. */
 export function PriorityIcon({ priority, size = 14, always = false }: { priority: Priority; size?: number; always?: boolean }) {

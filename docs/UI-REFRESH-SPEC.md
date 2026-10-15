@@ -276,6 +276,12 @@ Verified live: collapse widths 280→141→89→48→44 and expand 44→111→18
 - "Mark as unread" holds through plain presses inside the view. Focusing the composer, sending, "Mark as read" or reopening clear it.
 - Verified with two windows: A kept the Init session open and untouched while B marked it unread (standing in for a turn finishing unseen). After 9 s it was still unread; one press inside A read it. The session ended read, as it started.
 
+## 7ac. Prominent card priority (2026-10-15, user request)
+
+- Urgent and High cards have a 4 px stripe down the card's left edge (danger red / warning amber) and a tinted pill at the start of the card's signal row (icon + bold label in the same colour). Low shows a muted icon and the word "Low". Normal shows nothing.
+- The High glyph is now an amber up arrow (`ArrowUp`, `statusWarning`) instead of a grey signal icon, everywhere `PriorityIcon` is used (card and drawer property chip). `priorityAccent()` in `client/status.tsx` defines which priorities are emphasized.
+- Verified on the live board (`docs/verification/card-priority.png`).
+
 ## 8. Acceptance
 
 | Check | Expected |
