@@ -162,3 +162,10 @@ export const wrapup = defineRpc({
   }),
   output: wrapupResultSchema,
 });
+export const managedSessions = defineRpc({
+  name: "sessions.managed",
+  input: z.strictObject({}),
+  output: z.array(
+    z.object({ agentId: z.string(), taskId: z.string(), workspaceId: z.string() }),
+  ),
+});

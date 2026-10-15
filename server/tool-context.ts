@@ -1,4 +1,4 @@
-import { mkdir, readFile, writeFile, rename } from "node:fs/promises";
+import { mkdir, readFile, readdir, writeFile, rename } from "node:fs/promises";
 import { join } from "node:path";
 import {
   randomBytes,
@@ -150,6 +150,21 @@ export class ToolSecrets {
     } catch {
       return false;
     }
+  }
+  /** All Kanban-managed sessions with their bound card (no credentials). */
+  async managedSessions(): Promise<{ agentId: string; taskId: string; workspaceId: string }[]> {
+    let names: string[] = [];
+    try {
+      names = await readdir(join(this.directory, "sessions"));
+    } catch {
+      return [];
+    }
+    const found = await Promise.all(
+      names
+        .filter((name) => name.endsWith(".json"))
+        .map((name) => this.managedIdentity(name.slice(0, -5))),
+    );
+    return found.filter((identity): identity is ToolIdentity => !!identity);
   }
   /** Bound identity of a Kanban-managed session, or null. */
   async managedIdentity(agentId: string): Promise<ToolIdentity | null> {

@@ -337,6 +337,16 @@ function BoardContent(
     },
     [],
   );
+  const managedRead = useRpc(rpc.managedSessions);
+  const managed = useQuery({
+    queryKey: ["ultra", "managed"],
+    queryFn: () => managedRead({}),
+    refetchInterval: 10000,
+  });
+  const managedIds = useMemo(
+    () => new Set((managed.data || []).map((m) => m.agentId)),
+    [managed.data],
+  );
   const readUnavailable = readState.isPending || readState.isError;
   const attention = useMemo(
     () =>
@@ -434,7 +444,7 @@ function BoardContent(
           board?.events || [],
         )}
         summaryState={summaryState}
-        outputSession={pickOutputSession(sessions, t.workspaceId)}
+        outputSession={pickOutputSession(sessions, t.workspaceId, managedIds)}
         questions={board ? cardQuestions(t, board.events).length : 0}
         flash={flashing.has(t.id)}
         drag={drag}

@@ -38,11 +38,16 @@ const time = (iso: string | null | undefined) => {
 export function pickOutputSession(
   agents: readonly SessionCandidate[],
   workspaceId: string,
+  managed?: ReadonlySet<string>,
 ): OutputSession | null {
+  // When the card has Kanban-managed sessions, summarize those only: other
+  // sessions sharing the workspace (e.g. a main checkout) are unrelated chats.
+  const live = agents.filter(
+    (a) => a.workspaceId === workspaceId && !a.archivedAt && !!a.updatedAt,
+  );
+  const own = managed ? live.filter((a) => managed.has(a.id)) : [];
   let best: SessionCandidate | null = null;
-  for (const agent of agents) {
-    if (agent.workspaceId !== workspaceId || agent.archivedAt || !agent.updatedAt)
-      continue;
+  for (const agent of own.length ? own : live) {
     if (!best) {
       best = agent;
       continue;

@@ -36,6 +36,7 @@ export default function contribute(server: PluginServerContext) {
     tools.attach(paseo);
     return store.view();
   });
+  server.handle(rpc.managedSessions, () => tools.secrets.managedSessions());
   server.handle(rpc.toolsHealth, async (_, { paseo }) => {
     tools.attach(paseo);
     await tools.start().catch(() => undefined);

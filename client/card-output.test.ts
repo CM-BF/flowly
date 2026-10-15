@@ -120,3 +120,14 @@ test("running sessions share one output cache key per refresh window", async () 
   // Idle sessions refetch on every real change.
   expect(outputCacheKey({ id: "s", updatedAt: at(1000), status: "idle" })).toBe(at(1000));
 });
+
+test("managed sessions win the summary; unrelated workspace chats are ignored when present", async () => {
+  const { pickOutputSession } = await import("./card-output");
+  const agents = [
+    { id: "chat", workspaceId: "w", updatedAt: "2026-10-15T02:00:00Z" },
+    { id: "kanban", workspaceId: "w", updatedAt: "2026-10-15T01:00:00Z" },
+  ];
+  expect(pickOutputSession(agents, "w", new Set(["kanban"]))?.id).toBe("kanban");
+  expect(pickOutputSession(agents, "w", new Set())?.id).toBe("chat");
+  expect(pickOutputSession(agents, "w")?.id).toBe("chat");
+});
