@@ -8,7 +8,7 @@ import {
   type PluginSurfaceProps,
 } from "@getpaseo/plugin/client";
 import { useQuery } from "@tanstack/react-query";
-import type { Task, Project, BoardEvent } from "../shared/model";
+import type { Task, Project, BoardEvent, Idea } from "../shared/model";
 import { historyStatusLabel, legacyStatus, priorities, taskTypeLabels, taskTypes, type Status } from "../shared/model";
 import { enabledStatuses, laneName } from "../shared/lanes";
 import * as rpc from "../shared/rpc";
@@ -51,6 +51,7 @@ import { openNativeSession } from "./session-state";
 import { cardQuestions } from "../shared/progress";
 import { TaskProgress } from "./task-progress";
 import { TaskUsage } from "./task-usage";
+import { IdeaOrigin, TaskIdeas } from "./task-ideas";
 
 type TaskDrawerProps = Parameters<typeof TaskDrawerView>[0];
 
@@ -67,6 +68,8 @@ function TaskDrawerView({
   onClose,
   onEdit,
   onDelete,
+  onCreateFromIdea,
+  onOpenTask,
   onStatusChanged,
   refresh,
   sessionEntry,
@@ -87,6 +90,10 @@ function TaskDrawerView({
   onEdit(): void;
   /** Opens the permanent-delete confirmation (archived cards only). */
   onDelete?(): void;
+  /** Opens the new-task form prefilled from an idea (IDEAS-SPEC §6). */
+  onCreateFromIdea?(idea: Idea): void;
+  /** Opens another card's drawer (idea source or result). */
+  onOpenTask?(id: string): void;
   /** After this drawer changed the card's status (the board may ask to wrap up). */
   onStatusChanged?(from: Status, to: Status): void;
   refresh(): void;
@@ -649,10 +656,19 @@ function TaskDrawerView({
                 )}
               </View>
             )}
+            {onOpenTask && <IdeaOrigin task={task} onOpenTask={onOpenTask} />}
             {!!task.description && (
               <Label size={font.base} selectable>{task.description}</Label>
             )}
             <TaskProgress taskId={task.id} active={active} />
+            {onCreateFromIdea && onOpenTask && (
+              <TaskIdeas
+                taskId={task.id}
+                disabled={!active || !!task.archivedAt || !!project.archivedAt}
+                onCreate={onCreateFromIdea}
+                onOpenTask={onOpenTask}
+              />
+            )}
             <View style={{ gap: space[2] }}>
               <SectionHeader title="Sessions" count={liveSessions.length}>
                 <Button

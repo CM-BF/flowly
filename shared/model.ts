@@ -107,7 +107,35 @@ export const taskSchema = z.object({
   archivedAt: timestamp.nullable(),
   /** The plugin created this workspace for the card (not linked to an existing one). Absent on older cards. */
   ownsWorkspace: z.boolean().optional(),
+  /** Created from an idea proposed on another card (IDEAS-SPEC §2.2). */
+  origin: z.object({ taskId: z.string(), ideaId: z.string() }).optional(),
 });
+/** A follow-up an agent proposed on its card; the user may turn it into a card (IDEAS-SPEC). */
+export const ideaStatuses = ["open", "accepted", "dismissed"] as const;
+export const ideaLimits = { title: 120, detail: 4000, rationale: 1000, context: 4000, openPerTask: 10, keptPerTask: 50 } as const;
+export const ideaSchema = z.object({
+  id: z.string(),
+  taskId: z.string(),
+  projectId: z.string(),
+  agentId: z.string(),
+  eventId: z.string(),
+  title: z.string().trim().min(1).max(ideaLimits.title),
+  detail: z.string().max(ideaLimits.detail),
+  rationale: z.string().max(ideaLimits.rationale),
+  context: z.string().max(ideaLimits.context),
+  type: taskTypeSchema.optional(),
+  priority: prioritySchema.optional(),
+  status: z.enum(ideaStatuses),
+  acceptedTaskId: z.string().optional(),
+  createdAt: timestamp,
+  updatedAt: timestamp,
+});
+export type Idea = z.infer<typeof ideaSchema>;
+export const ideaEdit = z.strictObject({
+  id: z.string().min(1),
+  status: z.enum(["open", "dismissed"]),
+});
+export type IdeaEdit = z.infer<typeof ideaEdit>;
 export const eventSchema = z.object({
   id: z.string(),
   taskId: z.string(),
@@ -129,6 +157,8 @@ export const boardSchema = z.object({
   projects: z.array(projectSchema),
   tasks: z.array(taskSchema),
   events: z.array(eventSchema),
+  /** Absent in files written before ideas (IDEAS-SPEC §2.1). */
+  ideas: z.array(ideaSchema).default([]),
 });
 export const previousBoardSchema = boardSchema.extend({
   version: z.literal(2),
@@ -142,7 +172,7 @@ export const receiptSchema = z.object({
   agentId: z.string(),
   taskId: z.string(),
   payloadHash: z.string(),
-  action: z.enum(["status", "progress"]),
+  action: z.enum(["status", "progress", "idea"]),
   eventId: z.string(),
   taskRevision: z.number().int().positive(),
   projectRevision: z.number().int().positive(),
@@ -168,6 +198,7 @@ export const emptyBoard = (): Board => ({
   projects: [],
   tasks: [],
   events: [],
+  ideas: [],
   agentReceipts: [],
 });
 export const projectInput = z.strictObject({
@@ -228,6 +259,8 @@ export const taskInput = z.strictObject({
   workspaceId: z.string().optional(),
   baseRef: z.string().default(""),
   branchName: z.string().optional(),
+  /** Create from this open idea (IDEAS-SPEC §6). */
+  ideaId: z.string().min(1).optional(),
 });
 export const taskEdit = z.strictObject({
   id: z.string(),

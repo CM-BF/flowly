@@ -1,6 +1,8 @@
 import { defineRpc } from "@getpaseo/plugin";
 import { z } from "zod";
 import {
+  ideaEdit,
+  ideaSchema,
   boardSchema,
   projectInput,
   projectEdit,
@@ -126,6 +128,12 @@ export const updateTask = defineRpc({
   name: "tasks.update",
   input: taskEdit,
   output: taskSchema,
+});
+/** Dismiss or restore an idea (IDEAS-SPEC §7). */
+export const updateIdea = defineRpc({
+  name: "ideas.update",
+  input: ideaEdit,
+  output: ideaSchema,
 });
 export const deleteTask = defineRpc({
   name: "tasks.delete",

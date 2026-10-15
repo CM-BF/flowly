@@ -16,6 +16,8 @@ import {
   type ProjectEdit,
   type ProjectRemoval,
   type TaskDeletion,
+  type IdeaEdit,
+  ideaLimits,
   projectOrder,
 } from "../shared/model";
 
@@ -297,6 +299,7 @@ export class BoardStore {
         tasks: board.tasks.filter((t) => taskIds.has(t.id)),
         events: board.events.filter((e) => taskIds.has(e.taskId)),
         agentReceipts: board.agentReceipts.filter((r) => taskIds.has(r.taskId)),
+        ideas: board.ideas.filter((i) => taskIds.has(i.taskId)),
       };
       const folder = join(this.directory, "removed");
       await mkdir(folder, { recursive: true, mode: 0o700 });
@@ -306,6 +309,7 @@ export class BoardStore {
       board.tasks = board.tasks.filter((t) => !taskIds.has(t.id));
       board.events = board.events.filter((e) => !taskIds.has(e.taskId));
       board.agentReceipts = board.agentReceipts.filter((r) => !taskIds.has(r.taskId));
+      board.ideas = board.ideas.filter((i) => !taskIds.has(i.taskId));
       return { id: project.id, removedTasks: taskIds.size, backup };
     });
   }
@@ -325,6 +329,7 @@ export class BoardStore {
         tasks: [task],
         events: board.events.filter((e) => e.taskId === task.id),
         agentReceipts: board.agentReceipts.filter((r) => r.taskId === task.id),
+        ideas: board.ideas.filter((i) => i.taskId === task.id),
       };
       const folder = join(this.directory, "removed");
       await mkdir(folder, { recursive: true, mode: 0o700 });
@@ -333,7 +338,35 @@ export class BoardStore {
       board.tasks = board.tasks.filter((t) => t !== task);
       board.events = board.events.filter((e) => e.taskId !== task.id);
       board.agentReceipts = board.agentReceipts.filter((r) => r.taskId !== task.id);
+      board.ideas = board.ideas.filter((i) => i.taskId !== task.id);
       return { id: task.id, backup };
+    });
+  }
+  /** Dismisses or restores an idea; accepted ideas are final (IDEAS-SPEC §7). */
+  updateIdea(input: IdeaEdit) {
+    return this.transaction((board) => {
+      const idea = board.ideas.find((i) => i.id === input.id);
+      if (!idea) throw new Error("Idea not found.");
+      if (idea.status === "accepted") throw new Error("This idea already became a card.");
+      if (idea.status === input.status) return { value: idea, changed: false };
+      const task = board.tasks.find((t) => t.id === idea.taskId),
+        project = board.projects.find((p) => p.id === idea.projectId);
+      if (!task || task.archivedAt || !project || project.archivedAt)
+        throw new Error("The card or project is archived.");
+      if (
+        input.status === "open" &&
+        board.ideas.filter((i) => i.taskId === idea.taskId && i.status === "open").length >= ideaLimits.openPerTask
+      )
+        throw new Error(`This card already has ${ideaLimits.openPerTask} open ideas.`);
+      idea.status = input.status;
+      idea.updatedAt = new Date().toISOString();
+      this.event(board, {
+        taskId: idea.taskId,
+        actor: "human",
+        action: input.status === "dismissed" ? "idea_dismissed" : "idea_restored",
+        note: idea.title,
+      });
+      return { value: idea, changed: true };
     });
   }
   moveProject(input: { id: string; direction?: "up" | "down" | "top"; to?: number }) {

@@ -2,7 +2,8 @@ export const cliSource = String.raw`#!/usr/bin/env node
 import {readFile, writeFile} from 'node:fs/promises';
 
 const args=process.argv.slice(2), opts={}, positional=[];
-const allowed=new Set(['context-file','save-request','request-file','task-revision','project-revision','note','kind']);
+const allowed=new Set(['context-file','save-request','request-file','task-revision','project-revision','note','kind','title','detail','rationale','context','type','priority']);
+const ideaFlags=['title','detail','rationale','context','type','priority'];
 function fail(message){throw new Error(message);}
 try {
   for(let i=0;i<args.length;i++) {
@@ -10,7 +11,7 @@ try {
     if(arg.startsWith('--')) {const key=arg.slice(2);if(!allowed.has(key)||Object.hasOwn(opts,key))fail('Unknown or duplicate flag: '+arg); const value=args[++i];if(value===undefined||value.startsWith('--'))fail('Missing value for '+arg);opts[key]=value;}
     else positional.push(arg);
   }
-  const command=positional[0];if(!['current','get','status','note'].includes(command))fail('Usage: current [--save-request path] | status <design|development|test|blocked|in_review> | note, with --context-file and --request-file.');
+  const command=positional[0];if(!['current','get','status','note','idea'].includes(command))fail('Usage: current [--save-request path] | status <design|development|test|blocked|in_review> | note | idea --title --detail --rationale [--context --type --priority], with --context-file and --request-file.');
   if(positional.length!==(command==='status'?2:1))fail('Unexpected positional arguments.');
   const path=opts['context-file']||process.env.ULTRA_KANBAN_CONTEXT_FILE;if(!path)fail('No session context. Use the command supplied by the card drawer.');
   const context=JSON.parse(await readFile(path,'utf8'));
@@ -19,16 +20,19 @@ try {
   const discovery=JSON.parse(await readFile(context.discoveryFile,'utf8'));
   const url=new URL(discovery.url);if(discovery.version!==1||url.protocol!=='http:'||url.hostname!=='127.0.0.1'||url.pathname!=='/')fail('Invalid loopback service discovery file.');
   let input={}, action='get';
+  if(command!=='idea'&&ideaFlags.some(k=>opts[k]!==undefined))fail('--'+ideaFlags.find(k=>opts[k]!==undefined)+' is only valid for idea.');
   if(command==='get'||command==='current') {if(['request-file','task-revision','project-revision','note','kind'].some(k=>opts[k]!==undefined))fail('Write flags are not valid for current.');}
   else {
     if(opts['save-request'])fail('--save-request is only valid for current.');
-    if(!opts['request-file']||!opts.note?.trim())fail('Writes require --request-file and a nonempty --note.');
+    if(command==='idea'){if(!opts['request-file']||!opts.title?.trim()||!opts.detail?.trim()||!opts.rationale?.trim())fail('idea requires --request-file, --title, --detail and --rationale.');if(opts.note||opts.kind)fail('--note and --kind are not valid for idea.');}
+    else if(!opts['request-file']||!opts.note?.trim())fail('Writes require --request-file and a nonempty --note.');
     const snapshot=JSON.parse(await readFile(opts['request-file'],'utf8'));
     if(snapshot.identity?.agentId!==context.identity.agentId||snapshot.identity?.taskId!==context.identity.taskId)fail('Snapshot belongs to another session/card.');
     if(!snapshot.request||!snapshot.revision)fail('Invalid request snapshot. Run current --save-request first.');
     for(const [key,part] of [['task-revision','task'],['project-revision','project']])if(opts[key]!==undefined&&(!/^[1-9][0-9]*$/.test(opts[key])||Number(opts[key])!==snapshot.revision[part]))fail('Explicit revision does not match the snapshot.');
     input={expectedRevision:snapshot.revision,request:snapshot.request,note:opts.note};
-    if(command==='status'){if(opts.kind)fail('--kind is only valid for note.');action='status';input.status=positional[1];}
+    if(command==='idea'){action='idea';input={expectedRevision:snapshot.revision,request:snapshot.request};for(const k of ideaFlags)if(opts[k]!==undefined)input[k]=opts[k];}
+    else if(command==='status'){if(opts.kind)fail('--kind is only valid for note.');action='status';input.status=positional[1];}
     else {action='progress';input.kind=opts.kind||'progress';}
   }
   const response=await fetch(new URL('api',url),{method:'POST',headers:{Authorization:'Bearer '+context.credential,'Content-Type':'application/json'},body:JSON.stringify({action,input}),signal:AbortSignal.timeout(20000)});

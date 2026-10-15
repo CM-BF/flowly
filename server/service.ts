@@ -376,6 +376,8 @@ export class BoardService {
         throw new Error("Project is unavailable or archived.");
       const laneError = laneProblem(project, input.status);
       if (laneError) throw new Error(laneError);
+      // Checked before any workspace exists, and again when the card is written (IDEAS-SPEC §6).
+      if (input.ideaId) openIdea(board, input.ideaId, project.id);
       const repoPaths = [project.primaryPath];
       const sourcePath = project.primaryPath;
       let workspaceId = input.workspaceId;
@@ -446,6 +448,7 @@ export class BoardService {
           const p = current.projects.find((p) => p.id === project.id);
           if (!p || p.archivedAt || p.primaryPath !== sourcePath)
             throw new Error("Project changed during workspace creation.");
+          const idea = input.ideaId ? openIdea(current, input.ideaId, project.id) : undefined;
           const now = new Date().toISOString();
           const task = {
             id: randomUUID(),
@@ -472,6 +475,7 @@ export class BoardService {
             updatedAt: now,
             archivedAt: null,
             ownsWorkspace: input.mode !== "existing",
+            ...(idea ? { origin: { taskId: idea.taskId, ideaId: idea.id } } : {}),
           };
           current.tasks.push(task);
           this.store.event(current, {
@@ -479,6 +483,17 @@ export class BoardService {
             actor: "human",
             action: "created",
           });
+          if (idea) {
+            idea.status = "accepted";
+            idea.acceptedTaskId = task.id;
+            idea.updatedAt = now;
+            this.store.event(current, {
+              taskId: idea.taskId,
+              actor: "human",
+              action: "idea_accepted",
+              note: `${idea.title} → ${task.title}`,
+            });
+          }
           return task;
         });
       } catch (error) {
@@ -524,6 +539,7 @@ export class BoardService {
         project,
         directories,
         workspace?.workspaceDirectory || task.sourcePath,
+        task.origin ? board.tasks.find((t) => t.id === task.origin!.taskId) : undefined,
       ),
       directories,
       workspaceRepoPaths: matches,
@@ -531,4 +547,12 @@ export class BoardService {
         workspace?.projectDisplayName || workspace?.projectId || "Unavailable",
     };
   }
+}
+
+/** The open idea `id` of this project, or an error (IDEAS-SPEC §6). */
+export function openIdea(board: Board, id: string, projectId: string) {
+  const idea = board.ideas.find((i) => i.id === id);
+  if (!idea || idea.status !== "open" || idea.projectId !== projectId)
+    throw new Error("This idea is no longer open.");
+  return idea;
 }

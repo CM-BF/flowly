@@ -1,8 +1,10 @@
 import { isSummarizer } from "../shared/summary";
 import { enabledStatuses, laneEnabled, laneName } from "../shared/lanes";
 import type { PaseoApi } from "@getpaseo/client";
+import { randomUUID } from "node:crypto";
 import {
   agentStatuses,
+  ideaInputSchema,
   progressInputSchema,
   statusInputSchema,
   type ToolIdentity,
@@ -10,12 +12,13 @@ import {
   type ToolResult,
   type StatusInput,
   type ProgressInput,
+  type IdeaInput,
 } from "../shared/tools";
 import { BoardStore } from "./store";
 import { BoardService } from "./service";
 import { ToolSecrets, digest } from "./tool-context";
 import { ToolError } from "./tool-error";
-import { isWorkStatus, legacyStatus, type Receipt, type Status } from "../shared/model";
+import { ideaLimits, isWorkStatus, legacyStatus, type Board, type Idea, type Receipt, type Status } from "../shared/model";
 import { isLegacyScope } from "../shared/scope";
 
 export class AgentService {
@@ -141,9 +144,17 @@ export class AgentService {
         repoPaths: r.context.workspaceRepoPaths,
       },
       sessions: { entries: entries.slice(0, 20), partial, unavailableReason },
-      activity: (await this.store.read()).events
-        .filter((e) => e.taskId === r.task.id)
-        .slice(-20),
+      ...(await this.store.read().then((board) => ({
+        activity: board.events.filter((e) => e.taskId === r.task.id).slice(-20),
+        ideas: board.ideas
+          .filter((i) => i.taskId === r.task.id)
+          .map((i) => ({
+            id: i.id,
+            title: i.title,
+            status: i.status,
+            ...(i.acceptedTaskId ? { acceptedTaskId: i.acceptedTaskId } : {}),
+          })),
+      }))),
     };
     if (recordAccess)
       this.accesses.set(identity.agentId, {
@@ -154,13 +165,15 @@ export class AgentService {
   }
   async write(
     identity: ToolIdentity,
-    action: "status" | "progress",
+    action: "status" | "progress" | "idea",
     raw: unknown,
   ): Promise<ToolResult> {
-    const input: StatusInput | ProgressInput =
+    const input: StatusInput | ProgressInput | IdeaInput =
       action === "status"
         ? statusInputSchema.parse(raw)
-        : progressInputSchema.parse(raw);
+        : action === "idea"
+          ? ideaInputSchema.parse(raw)
+          : progressInputSchema.parse(raw);
     const signed = this.secrets.validateRequest(
       identity,
       input.request,
@@ -177,7 +190,8 @@ export class AgentService {
             "REQUEST_REUSED",
             "Request already committed with different parameters.",
           );
-        return { value: { receipt: existing, replayed: true }, changed: false };
+        const idea = board.ideas.find((i) => i.eventId === existing.eventId);
+        return { value: { receipt: existing, replayed: true, ideaId: idea?.id }, changed: false };
       }
       const age = this.clock() - Date.parse(signed.issuedAt);
       if (age > 15 * 60 * 1000 || age < -30000)
@@ -222,6 +236,7 @@ export class AgentService {
           "Agent receipt capacity is full; no unexpired receipt was removed. Try after expiry or use the human board UI.",
           true,
         );
+      if (action === "idea") checkIdea(board, task.id, (input as IdeaInput).title);
       const previous = task.status,
         next = action === "status" ? resolveAgentStatus((input as StatusInput).status, previous) : previous;
       if (next !== previous && !laneEnabled(project, next))
@@ -234,16 +249,47 @@ export class AgentService {
         task.revision++;
         task.updatedAt = new Date(this.clock()).toISOString();
       }
-      const event = this.store.event(board, {
-        taskId: task.id,
-        agentId: identity.agentId,
-        actor: "agent",
-        action: next !== previous ? "status_changed" : "progress_reported",
-        note: input.note,
-        reportKind:
-          action === "progress" ? (input as ProgressInput).kind : "progress",
-        ...(next !== previous ? { from: previous, to: next } : {}),
-      });
+      const event =
+        action === "idea"
+          ? this.store.event(board, {
+              taskId: task.id,
+              agentId: identity.agentId,
+              actor: "agent",
+              action: "idea_proposed",
+              note: (input as IdeaInput).title,
+            })
+          : this.store.event(board, {
+              taskId: task.id,
+              agentId: identity.agentId,
+              actor: "agent",
+              action: next !== previous ? "status_changed" : "progress_reported",
+              note: (input as StatusInput | ProgressInput).note,
+              reportKind:
+                action === "progress" ? (input as ProgressInput).kind : "progress",
+              ...(next !== previous ? { from: previous, to: next } : {}),
+            });
+      let ideaId: string | undefined;
+      if (action === "idea") {
+        const idea = input as IdeaInput;
+        ideaId = randomUUID();
+        board.ideas.push({
+          id: ideaId,
+          taskId: task.id,
+          projectId: project.id,
+          agentId: identity.agentId,
+          eventId: event.id,
+          title: idea.title,
+          detail: idea.detail,
+          rationale: idea.rationale,
+          context: idea.context,
+          ...(idea.type ? { type: idea.type } : {}),
+          ...(idea.priority ? { priority: idea.priority } : {}),
+          status: "open",
+          createdAt: event.at,
+          updatedAt: event.at,
+        });
+        pruneIdeas(board, task.id);
+      }
       const receipt: Receipt = {
         key,
         agentId: identity.agentId,
@@ -258,7 +304,7 @@ export class AgentService {
         expiresAt: new Date(this.clock() + 7 * 86400000).toISOString(),
       };
       board.agentReceipts.push(receipt);
-      return { value: { receipt, replayed: false }, changed: true };
+      return { value: { receipt, replayed: false, ideaId }, changed: true };
     });
     const {
       key: _key,
@@ -272,11 +318,12 @@ export class AgentService {
         at: new Date(this.clock()).toISOString(),
         action,
       });
-      return { receipt, replayed: result.replayed, current };
+      return { receipt, replayed: result.replayed, ...ideaField(result.ideaId), current };
     } catch (e) {
       return {
         receipt,
         replayed: result.replayed,
+        ...ideaField(result.ideaId),
         current: null,
         contextError: e instanceof Error ? e.message : "Re-read the task.",
       };
@@ -288,4 +335,29 @@ export class AgentService {
 export function resolveAgentStatus(requested: StatusInput["status"], current: Status): Status {
   if (requested !== legacyStatus) return requested;
   return isWorkStatus(current) ? current : "development";
+}
+
+const ideaField = (ideaId: string | undefined) => (ideaId ? { ideaId } : {});
+export const ideaTitleKey = (title: string) => title.trim().toLowerCase();
+
+/** Rejects a duplicate open title or an eleventh open idea on the card (IDEAS-SPEC §3). */
+export function checkIdea(board: Board, taskId: string, title: string) {
+  const open = board.ideas.filter((i) => i.taskId === taskId && i.status === "open");
+  const duplicate = open.find((i) => ideaTitleKey(i.title) === ideaTitleKey(title));
+  if (duplicate)
+    throw new ToolError("IDEA_DUPLICATE", `This card already has an open idea with that title (${duplicate.id}).`);
+  if (open.length >= ideaLimits.openPerTask)
+    throw new ToolError(
+      "IDEA_LIMIT",
+      `This card already has ${ideaLimits.openPerTask} open ideas. Stop proposing until the user accepts or dismisses some.`,
+    );
+}
+
+/** Keeps at most `keptPerTask` ideas per card, dropping the oldest closed ones first. */
+export function pruneIdeas(board: Board, taskId: string) {
+  const own = board.ideas.filter((i) => i.taskId === taskId);
+  const excess = own.length - ideaLimits.keptPerTask;
+  if (excess <= 0) return;
+  const drop = new Set<Idea>(own.filter((i) => i.status !== "open").slice(0, excess));
+  board.ideas = board.ideas.filter((i) => !drop.has(i));
 }

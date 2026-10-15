@@ -272,9 +272,19 @@ function startStatus(project: Project, requested: Status): Status {
   return lanes.find((s) => s !== "done" && s !== "cancelled") ?? lanes[0];
 }
 
+/** A new task prefilled from an idea (IDEAS-SPEC §6). */
+export type TaskSeed = {
+  ideaId: string;
+  title: string;
+  description: string;
+  type?: TaskType;
+  priority?: Task["priority"];
+};
+
 export function TaskForm({
   project,
   task: initialTask,
+  seed,
   defaultStatus = "todo",
   onClose,
   onSaved,
@@ -282,6 +292,7 @@ export function TaskForm({
 }: {
   project: Project;
   task?: Task;
+  seed?: TaskSeed;
   defaultStatus?: Status;
   onClose: () => void;
   /** `launch` reports the optional first agent started with a new task. */
@@ -294,11 +305,11 @@ export function TaskForm({
     update = useRpc(rpc.updateTask);
   const resources = useResourcesQuery();
   const board = useBoardQuery();
-  const [title, setTitle] = useState(task?.title || ""),
-    [description, setDescription] = useState(task?.description || ""),
+  const [title, setTitle] = useState(task?.title || seed?.title || ""),
+    [description, setDescription] = useState(task?.description || seed?.description || ""),
     [status, setStatus] = useState<Status>(task?.status || startStatus(project, defaultStatus)),
-    [priority, setPriority] = useState(task?.priority || "normal"),
-    [type, setType] = useState<TaskType | "">(task?.type || ""),
+    [priority, setPriority] = useState(task?.priority || seed?.priority || "normal"),
+    [type, setType] = useState<TaskType | "">(task?.type || seed?.type || ""),
     [mode, setMode] = useState<"directory" | "worktree" | "existing">(
       "directory",
     ),
@@ -359,6 +370,7 @@ export function TaskForm({
             workspaceId: mode === "existing" ? workspaceId : undefined,
             baseRef,
             branchName,
+            ...(seed ? { ideaId: seed.ideaId } : {}),
           });
       if (task) return onSaved(result.id, undefined, result.status);
       if (!startChosen) return onSaved(result.id);
@@ -385,7 +397,7 @@ export function TaskForm({
   return (
     <Modal
       open
-      title={task ? "Edit task" : "Create task"}
+      title={task ? "Edit task" : seed ? "Create task from idea" : "Create task"}
       onOpenChange={(open) => {
         if (!open && !pending) onClose();
       }}

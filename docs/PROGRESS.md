@@ -1,5 +1,13 @@
 # Implementation progress
 
+## Ideas cards — 2026-10-15
+
+- [x] Card request "agent执行过程中根据现状提供下一步计划，在任务中提议下一步可以做的任务，用户觉得好可以点击idea卡片创建新的任务卡片并把上下文带进去". User chose: ideas come from the working agent via a tool (A), show on the source card's drawer plus a card badge (A), and Create task opens the prefilled new-task form (A); then "直接实现，不审阅方案". Wrote [ideas spec](IDEAS-SPEC.md). Baseline commit of the prior working tree first (the repository already existed, so no re-init).
+- [x] Data: `board.ideas` (absent reads as `[]`, board stays v4), optional `task.origin`, receipt action `idea`. Agent tool `kanban_propose_idea` (signed request, replay, `IDEA_DUPLICATE`, `IDEA_LIMIT` 10 open, 50 kept per card), `kanban_get_task` lists the card's ideas, CLI `idea` subcommand, skill rule. `ideas.update` (dismiss/restore). `tasks.create` with `ideaId` checks before the workspace and again in the write, linking both ways atomically. Card delete / project remove back up and drop ideas.
+- [x] Client: lightbulb count on cards, drawer Ideas section (open cards with Create task / Dismiss, closed group with links and Restore), "From idea on …" line, new-task form prefilled from the idea and source progress ("Create task from idea"); session context line `Derived from card: …`.
+- [x] PASS: typecheck; `npm test` 279 passed / 63 skipped (new `server/ideas.test.ts`, tool-server MCP/CLI idea checks). Plugin reloaded.
+- [ ] Luna (`codex/gpt-6-luna`, full access) live acceptance: see [verification](verification/ideas.md).
+
 ## App performance — 2026-10-15
 
 - [x] Card request "app端存在一些性能问题，例如动画卡顿、session卡片加载慢等，输入框不跟手、丢字、自动关闭输入法等情况". Audit, then [performance spec](PERFORMANCE-SPEC.md) before code. Cause: the phone's JS thread was busy decoding large polls (relay E2EE in JS) and re-rendering the whole tree on every poll.

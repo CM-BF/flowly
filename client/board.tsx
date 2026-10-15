@@ -20,6 +20,7 @@ import {
   type Task,
   type Project,
   type BoardEvent,
+  type Idea,
   projectOrder,
 } from "../shared/model";
 import type { PaseoAgent } from "@getpaseo/client";
@@ -55,7 +56,8 @@ import {
   type AttentionItem,
 } from "./attention";
 import { relativeTime } from "./ui";
-import { ProjectForm, TaskForm } from "./forms";
+import { ProjectForm, TaskForm, type TaskSeed } from "./forms";
+import { ideaDescription } from "../shared/ideas";
 import { TaskDrawer } from "./drawer";
 import { DeleteTaskDialog } from "./task-delete";
 import { useBoardQuery, useLiveAgents, useResourcesQuery } from "./queries";
@@ -216,7 +218,7 @@ function BoardContent(
     [projectForm, setProjectForm] = useState<"new" | "edit" | null>(null),
     [removing, setRemoving] = useState<Project | null>(null),
     [deleting, setDeleting] = useState<Task | null>(null),
-    [taskForm, setTaskForm] = useState<{ task?: Task; status: Status } | null>(
+    [taskForm, setTaskForm] = useState<{ task?: Task; status: Status; seed?: TaskSeed } | null>(
       null,
     ),
     [error, setError] = useState(""),
@@ -611,6 +613,11 @@ function BoardContent(
     const workspaceIds = new Set((resources.data?.workspaces || []).map((w) => w.id));
     return { eventsByTask, agentsByWorkspace, workspaceIds };
   }, [board?.events, agents.data, resources.data]);
+  const openIdeaCount = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const i of board?.ideas || []) if (i.status === "open") counts.set(i.taskId, (counts.get(i.taskId) || 0) + 1);
+    return counts;
+  }, [board?.ideas]);
   // Stable for every card (memoized cards; PERFORMANCE-SPEC §3).
   const openCard = useStableCallback((t: Task) => setTask(t.id));
   const openCardActions = useStableCallback((t: Task) => setActionTask(t));
@@ -618,6 +625,24 @@ function BoardContent(
   // Stable drawer callbacks (memoized drawer).
   const closeDrawer = useStableCallback(() => setTask(""));
   const editDrawerTask = useStableCallback(() => task && setTaskForm({ task, status: task.status }));
+  // IDEAS-SPEC §6: the new-task form, prefilled from the idea and its source card.
+  const createFromIdea = useStableCallback((idea: Idea) =>
+    setTaskForm({
+      status: "todo",
+      seed: {
+        ideaId: idea.id,
+        title: idea.title,
+        description: ideaDescription(
+          idea,
+          board?.tasks.find((t) => t.id === idea.taskId),
+          cardProgress(summaries.data, idea.taskId),
+        ),
+        type: idea.type,
+        priority: idea.priority,
+      },
+    }),
+  );
+  const openTaskById = useStableCallback((id: string) => setTask(id));
   const deleteDrawerTask = useStableCallback(() => drawer.item && setDeleting(drawer.item.task));
   const drawerStatusChanged = useStableCallback((from: Status | undefined, to: Status) =>
     drawer.item && askWrapup(drawer.item.task.id, from, to),
@@ -657,6 +682,7 @@ function BoardContent(
         outputSession={pickOutputSession(sessions, t.workspaceId, managedIds)}
         progress={cardProgress(summaries.data, t.id)}
         questions={board ? cardQuestions(t, events).length : 0}
+        ideas={openIdeaCount.get(t.id) || 0}
         flash={flashing.has(t.id)}
         drag={drag}
         dragging={dragging}
@@ -780,6 +806,8 @@ function BoardContent(
         onClose={closeDrawer}
         onEdit={editDrawerTask}
         onDelete={deleteDrawerTask}
+        onCreateFromIdea={createFromIdea}
+        onOpenTask={openTaskById}
         onStatusChanged={drawerStatusChanged}
         refresh={stableRefresh}
         sessionDefaults={sessionDefaults}
@@ -1478,9 +1506,10 @@ function BoardContent(
         )}
         {taskForm && project && (
           <TaskForm
-            key={taskForm.task?.id || taskForm.status}
+            key={taskForm.task?.id || taskForm.seed?.ideaId || taskForm.status}
             project={project}
             task={taskForm.task}
+            seed={taskForm.seed}
             defaultStatus={taskForm.status}
             onClose={() => setTaskForm(null)}
             agentDefaults={sessionDefaults}

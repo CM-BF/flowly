@@ -76,6 +76,7 @@ export function TaskCard({
   output,
   progress,
   questions = 0,
+  ideas = 0,
   flash = false,
   dragging,
   disabled,
@@ -97,6 +98,8 @@ export function TaskCard({
   progress?: { state: string; at: string } | null;
   /** Open agent questions awaiting the user's reply. */
   questions?: number;
+  /** Open ideas proposed on this card (IDEAS-SPEC §5.1). */
+  ideas?: number;
   /** Briefly emphasize a card whose status just changed (often an automatic move). */
   flash?: boolean;
   dragging?: boolean;
@@ -225,6 +228,7 @@ export function TaskCard({
         accessibilityLabel={[
           `Open task ${task.title}`,
           questions ? `Needs you: ${questions} open question${questions === 1 ? "" : "s"}` : "",
+          ideas ? `${ideas} idea${ideas === 1 ? "" : "s"}` : "",
           progress ? `Progress: ${progress.state}` : "",
           `${priorityLabels[task.priority]} priority${task.type ? `, ${taskTypeLabels[task.type]}` : ""}${task.archivedAt ? ", archived" : ""}${legacy ? ", legacy scope" : ""}`,
           summaryState === "ready" && summary
@@ -270,6 +274,7 @@ export function TaskCard({
           running={running}
           sessions={sessions}
           questions={questions}
+          ideas={ideas}
         />
       </Pressable>
       {accent && (
@@ -386,6 +391,7 @@ function CardSignals({
   running,
   sessions,
   questions,
+  ideas,
 }: {
   task: Task;
   legacy: boolean;
@@ -395,6 +401,7 @@ function CardSignals({
   running: number;
   sessions: number;
   questions: number;
+  ideas: number;
 }) {
   const { colors } = useTheme();
   const items: ReactNode[] = [];
@@ -432,7 +439,7 @@ function CardSignals({
     items.push(<Signal key="fallback" icon="MessageSquare" text={running ? `${running}/${sessions} running` : `${sessions}`} />);
   const priority = task.priority !== "normal";
   const accent = priorityAccent(colors, task.priority);
-  if (!task.type && !priority && !items.length && !legacy && !task.archivedAt) return null;
+  if (!task.type && !priority && !items.length && !ideas && !legacy && !task.archivedAt) return null;
   return (
     <View style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "center", columnGap: space[3], rowGap: space[1] }}>
       {(!!task.type || priority) && (
@@ -452,6 +459,7 @@ function CardSignals({
         </View>
       )}
       {items}
+      {!!ideas && <Signal icon="Lightbulb" color={colors.statusWarning} text={`${ideas}`} />}
       {!!task.archivedAt && <Badge>Archived</Badge>}
       {legacy && <Badge>Legacy</Badge>}
     </View>

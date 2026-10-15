@@ -1,5 +1,16 @@
 import { z } from "zod";
-import { taskSchema, projectSchema, eventSchema, receiptSchema, statusSchema, legacyStatus } from "./model";
+import {
+  taskSchema,
+  projectSchema,
+  eventSchema,
+  receiptSchema,
+  statusSchema,
+  legacyStatus,
+  ideaLimits,
+  ideaStatuses,
+  prioritySchema,
+  taskTypeSchema,
+} from "./model";
 
 export const agentStatuses = ["design", "development", "test", "blocked", "in_review"] as const;
 export const revisionSchema = z.strictObject({
@@ -26,6 +37,32 @@ export const statusInputSchema = z.strictObject({
 export const progressInputSchema = z.strictObject({
   ...base,
   kind: z.enum(["progress", "blocker", "result", "question"]).default("progress"),
+});
+/** kanban_propose_idea (IDEAS-SPEC §3): a follow-up outside this card's scope. */
+export const ideaInputSchema = z.strictObject({
+  expectedRevision: revisionSchema,
+  request: requestSchema,
+  title: z.string().trim().min(1).max(ideaLimits.title).describe("Short task title for the follow-up card."),
+  detail: z
+    .string()
+    .trim()
+    .min(1)
+    .max(ideaLimits.detail)
+    .describe("What the follow-up task should do and how to tell it is done."),
+  rationale: z
+    .string()
+    .trim()
+    .min(1)
+    .max(ideaLimits.rationale)
+    .describe("Why it is worth doing and what in this card's work led to it."),
+  context: z
+    .string()
+    .trim()
+    .max(ideaLimits.context)
+    .default("")
+    .describe("Files, branches and findings the new task needs; its agent cannot see this conversation."),
+  type: taskTypeSchema.optional(),
+  priority: prioritySchema.optional(),
 });
 export const identitySchema = z.strictObject({
   agentId: z.string().min(1),
@@ -65,6 +102,15 @@ export const toolContextSchema = z.object({
     unavailableReason: z.string(),
   }),
   activity: z.array(eventSchema),
+  /** Ideas proposed on this card (IDEAS-SPEC §3), to avoid proposing duplicates. */
+  ideas: z.array(
+    z.object({
+      id: z.string(),
+      title: z.string(),
+      status: z.enum(ideaStatuses),
+      acceptedTaskId: z.string().optional(),
+    }),
+  ),
 });
 export const toolResultSchema = z.object({
   receipt: receiptSchema.omit({
@@ -73,6 +119,8 @@ export const toolResultSchema = z.object({
     expiresAt: true,
   }),
   replayed: z.boolean(),
+  /** The proposed idea, for kanban_propose_idea. */
+  ideaId: z.string().optional(),
   current: toolContextSchema.nullable(),
   contextError: z.string().optional(),
 });
@@ -100,3 +148,4 @@ export type ToolResult = z.infer<typeof toolResultSchema>;
 export type ToolPreparation = z.infer<typeof preparationSchema>;
 export type StatusInput = z.infer<typeof statusInputSchema>;
 export type ProgressInput = z.infer<typeof progressInputSchema>;
+export type IdeaInput = z.infer<typeof ideaInputSchema>;

@@ -19,6 +19,7 @@ function board(status: Status, extra: { autoStatus?: boolean; archived?: boolean
       createdAt: now, updatedAt: now, archivedAt: extra.archived ? now : null,
     }],
     events: [],
+    ideas: [],
     agentReceipts: [],
   } as Board;
 }

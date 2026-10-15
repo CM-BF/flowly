@@ -78,6 +78,7 @@ test("MCP initialize/list can precede actor creation; live calls require SDK con
     "kanban_get_task",
     "kanban_update_status",
     "kanban_report_progress",
+    "kanban_propose_idea",
   ]);
   const cold = await mcp("tools/call", {
     name: "kanban_get_task",
@@ -104,6 +105,20 @@ test("MCP initialize/list can precede actor creation; live calls require SDK con
     },
   });
   expect(updated.result.structuredContent.receipt.status).toBe("development");
+  const proposed = await mcp("tools/call", {
+    name: "kanban_propose_idea",
+    arguments: {
+      expectedRevision: updated.result.structuredContent.current.revision,
+      request: updated.result.structuredContent.current.request,
+      title: "Follow-up",
+      detail: "Do the next thing.",
+      rationale: "Found while working.",
+    },
+  });
+  expect(proposed.result.structuredContent.receipt.action).toBe("idea");
+  expect(proposed.result.structuredContent.current.ideas).toEqual([
+    { id: proposed.result.structuredContent.ideaId, title: "Follow-up", status: "open" },
+  ]);
 });
 test("loopback host/origin/credential guards and scoped request validation", async () => {
   const x = await setup();
@@ -241,7 +256,24 @@ test("CLI runs a complete scoped flow; replay, wrong env, snapshots and flags", 
     "Ready for human review",
   );
   expect(finished.receipt.status).toBe("in_review");
+  await cli("current", "--save-request", snapshot);
+  const proposed = await cli(
+    "idea",
+    "--request-file",
+    snapshot,
+    "--title",
+    "CLI idea",
+    "--detail",
+    "Do it.",
+    "--rationale",
+    "Seen while testing.",
+    "--type",
+    "chore",
+  );
+  expect(proposed.current.ideas).toEqual([{ id: proposed.ideaId, title: "CLI idea", status: "open" }]);
   for (const args of [
+    ["idea", "--request-file", snapshot, "--title", "No detail", "--rationale", "r"],
+    ["note", "--request-file", snapshot, "--note", "n", "--title", "misplaced"],
     ["current", "--unknown", "x"],
     [
       "current",
