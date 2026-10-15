@@ -30,6 +30,12 @@ Spec: [PERFORMANCE-SPEC](../PERFORMANCE-SPEC.md). Implementation session `f77e53
 - PASS: typecheck; `npm test` 267 passed / 63 skipped (new `server/archived-sessions.test.ts`: only the card workspace's archived non-summarizer sessions, across pages; unknown card refused); plugin reloaded; live `sessions.archived` on this card: 0 entries, 2 B, 30 ms. The client used to page every agent incl. archived on each card open (first page alone 562 KB).
 - UNRUN: perceived smoothness of opening a card/session on a real phone.
 
+## Follow-up: sideways drift
+
+- PASS: app typecheck (`client/`, `server/`, `shared/` clean); `npm test` 266 passed / 1 failed / 63 skipped, the failure being `server/tool-server.test.ts` tool count from the concurrent Ideas-card work (new tool), not this change; plugin reloaded.
+- At the time, `tsc` also reported fixture type errors from that concurrent work (`TaskDrawer` gained `onCreateFromIdea`/`onOpenTask`).
+- UNRUN: the Android device check that the drift is gone.
+
 ## UNRUN
 
 - Real-device smoothness, frame rate, IME/keyboard behavior and typing on iOS/Android phones and tablets, over LAN and relay. Synthetic tests do not prove frame rate.

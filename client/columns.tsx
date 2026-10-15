@@ -8,7 +8,7 @@ import { IconButton, Label, font, noFocusRing, radius, space, touch, useTheme, v
 import { menuHandlers, useMenuOpener } from "./context-menu";
 import { StatusIcon } from "./status";
 import type { CardDrag } from "./card";
-import { Enter, motionDuration, useMotionPresence, useMotionValue } from "./motion";
+import { Enter, motionDuration, useMotionPresence, useMotionValue, lerp } from "./motion";
 import {
   columnAtPoint,
   columnGap,
@@ -40,7 +40,7 @@ function LaneFrame({ status, collapsed, onLayout, frameRef, children }: { status
       testID={`lane-${status}`}
       onLayout={(e) => onLayout(e.nativeEvent.layout.x, e.nativeEvent.layout.width)}
       style={{
-        width: open.interpolate({ inputRange: [0, 1], outputRange: [collapsedWidth, columnWidth] }),
+        width: lerp(open, [collapsedWidth, columnWidth]),
         minHeight: 0,
         overflow: "hidden",
         borderRadius: radius.xl,
@@ -458,7 +458,7 @@ export function DesktopColumns({
             position: "absolute",
             zIndex: 20,
             opacity: ghost.progress,
-            transform: [{ scale: ghost.progress.interpolate({ inputRange: [0, 1], outputRange: [0.96, 1.02] }) }],
+            transform: [{ scale: lerp(ghost.progress, [0.96, 1.02]) }],
             left: Math.max(
               4,
               Math.min(

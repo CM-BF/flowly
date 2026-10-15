@@ -13,7 +13,7 @@ import {
   type ViewStyle,
 } from "react-native";
 import { Icon, TextInput } from "@getpaseo/plugin/client/react-native";
-import { motionDuration, useMotionValue } from "./motion";
+import { motionDuration, useMotionValue, lerp } from "./motion";
 import { useShortcutBlock } from "./shortcuts";
 
 /** Host Paseo scale (0.11.2): 4pt grid, 12–18 type, 4–12 radii. */
@@ -772,7 +772,7 @@ function SwitchTrack({ value }: { value: boolean }) {
           height: 14,
           borderRadius: 7,
           backgroundColor: value ? colors.accentForeground : colors.surface0,
-          transform: [{ translateX: thumb.interpolate({ inputRange: [0, 1], outputRange: [0, 14] }) }],
+          transform: [{ translateX: lerp(thumb, [0, 14]) }],
         }}
       />
     </View>

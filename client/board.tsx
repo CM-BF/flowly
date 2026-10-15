@@ -75,7 +75,7 @@ import { ResizeGrip } from "./resize";
 import { drawerWidth, isCompactLayout } from "./geometry";
 import { useSessionReads } from "./session-reads";
 import { sessionAttentionSummary } from "../shared/session-attention";
-import { MotionProvider, MotionReveal, useMotionPresence } from "./motion";
+import { MotionProvider, MotionReveal, useMotionPresence, lerp } from "./motion";
 import { SortableList } from "./sortable-list";
 import { useBoardView } from "./board-view";
 import { OverviewBar } from "./overview-bar";
@@ -755,7 +755,7 @@ function BoardContent(
           : { width: width + 8, minHeight: 0, flexShrink: 0 }),
         flexDirection: "row",
         opacity: drawer.progress,
-        transform: [{ translateX: drawer.progress.interpolate({ inputRange: [0, 1], outputRange: [32, 0] }) }],
+        transform: [{ translateX: lerp(drawer.progress, [32, 0]) }],
       }}
     >
       {!compact && (

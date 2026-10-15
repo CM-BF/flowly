@@ -69,7 +69,7 @@ import { SessionMarkdown } from "./session-content";
 import { coalescedRefresh, useSessionFollowTail } from "./session-follow";
 import { useSessionReads } from "./session-reads";
 import { sessionAttention } from "../shared/session-attention";
-import { Enter, MotionReveal, PulseDot, motionDuration, useMotionPresence, useMotionValue, useReducedMotion, useSettled } from "./motion";
+import { Enter, MotionReveal, PulseDot, motionDuration, useMotionPresence, useMotionValue, useReducedMotion, useSettled, lerp } from "./motion";
 import { useKeyboardInset } from "./keyboard";
 import { composerEnterAction, createDraftBuffer, createDraftReporter, restoredDraft, type ComposerKey } from "./session-input";
 
@@ -1036,7 +1036,7 @@ export function SessionPreview({
                 right: space[3],
                 zIndex: 2,
                 opacity: latest.progress,
-                transform: [{ translateY: latest.progress.interpolate({ inputRange: [0, 1], outputRange: [6, 0] }) }],
+                transform: [{ translateY: lerp(latest.progress, [6, 0]) }],
               }}
             >
               <Pressable
@@ -1320,7 +1320,7 @@ const ActivityBlock = memo(function ActivityBlock({ block, live }: { block: Extr
             </Label>
           </View>
         )}
-        <Animated.View style={{ transform: [{ rotate: turn.interpolate({ inputRange: [0, 1], outputRange: ["0deg", "90deg"] }) }] }}>
+        <Animated.View style={{ transform: [{ rotate: lerp(turn, ["0deg", "90deg"]) }] }}>
           <Icon name="ChevronRight" size={12} color={colors.foregroundMuted} />
         </Animated.View>
       </Pressable>
@@ -1362,7 +1362,7 @@ function QueuedRow({ menu, style, children }: { menu: object; style: object; chi
     <Animated.View
       style={{
         opacity: enter,
-        transform: [{ translateY: enter.interpolate({ inputRange: [0, 1], outputRange: [6, 0] }) }],
+        transform: [{ translateY: lerp(enter, [6, 0]) }],
       }}
     >
       <Pressable {...menu} accessibilityRole="none" style={{ ...noFocusRing, ...style }}>

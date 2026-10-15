@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from "react";
 import { Animated, Pressable, View } from "react-native";
-import { useMotionPresence } from "./motion";
+import { useMotionPresence, lerp } from "./motion";
 import { Icon, ScrollView } from "@getpaseo/plugin/client/react-native";
 import { Label, TextBox, font, radius, space, touch, useTheme, noFocusRing } from "./ui";
 import { filterOptions, type PickerOption } from "./options";
@@ -101,7 +101,7 @@ export function PickerRow({
           pointerEvents={list.active ? "auto" : "none"}
           style={{
             opacity: list.progress,
-            transform: [{ translateY: list.progress.interpolate({ inputRange: [0, 1], outputRange: [-4, 0] }) }],
+            transform: [{ translateY: lerp(list.progress, [-4, 0]) }],
             borderTopWidth: 1,
             borderColor: colors.border,
             backgroundColor: colors.surface1,

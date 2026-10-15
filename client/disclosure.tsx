@@ -1,7 +1,7 @@
 import { useState, type ReactNode } from "react";
 import { Animated, Pressable, View } from "react-native";
 import { Icon } from "@getpaseo/plugin/client/react-native";
-import { useMotionPresence } from "./motion";
+import { useMotionPresence, lerp } from "./motion";
 import { Label, font, touch, useTheme } from "./ui";
 
 export function Disclosure({ title, summary, open, disabled, onChange, children }: {
@@ -29,7 +29,7 @@ export function Disclosure({ title, summary, open, disabled, onChange, children 
           opacity: disabled ? 0.4 : pressed ? 0.7 : 1,
         })}
       >
-        <Animated.View style={{ transform: [{ rotate: presence.progress.interpolate({ inputRange: [0, 1], outputRange: ["0deg", "90deg"] }) }] }}>
+        <Animated.View style={{ transform: [{ rotate: lerp(presence.progress, ["0deg", "90deg"]) }] }}>
           <Icon name="ChevronRight" size={16} color={colors.foregroundMuted} />
         </Animated.View>
         <View style={{ flex: 1, minWidth: 0 }}>
@@ -45,7 +45,7 @@ export function Disclosure({ title, summary, open, disabled, onChange, children 
           importantForAccessibility={presence.active ? "auto" : "no-hide-descendants"}
           style={{
             overflow: "hidden",
-            height: presence.progress.interpolate({ inputRange: [0, 1], outputRange: [0, height] }),
+            height: lerp(presence.progress, [0, height]),
             opacity: presence.progress,
           }}
         >

@@ -8,6 +8,7 @@
 - [x] PASS: typecheck; `npm test` 266 passed / 63 skipped; plugin reloaded; live RPC sizes and agent stream checked. [Verification](verification/performance.md).
 - [x] Follow-up "session card右边的最后活跃时间垂直居中": the time moved out of the title row, beside the chevron, centered on the row.
 - [x] Follow-up "打开任务卡内容、打开session，动画都很卡": heavy sections and reads wait for the open transition (`useSettled`); archived sessions from the daemon (`sessions.archived`) instead of paging every agent on each open; phone card is an overlay above the still laid-out board. PASS: typecheck; `npm test` 267 passed / 63 skipped; reloaded; live RPC check.
+- [x] Follow-up "上下滚动的时候会出现这种水平漂移问题": cached interpolation nodes (`lerp`), final-value sync after native transitions, no reveal on first mount. PASS: app typecheck; tests (one failure from the concurrent Ideas work); reloaded.
 - [ ] UNRUN: real-device smoothness/IME on iOS/Android over LAN and relay; Luna UI acceptance; stale renderer fixtures (pre-existing).
 
 ## Automatic status as a setting — 2026-10-15

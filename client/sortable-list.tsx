@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { Animated, PanResponder, View } from "react-native";
 import { listDropIndex, listShift } from "./geometry";
-import { motionDuration, useMotionValue, useReducedMotion } from "./motion";
+import { motionDuration, useMotionValue, useReducedMotion, lerp } from "./motion";
 import { useTheme } from "./ui";
 
 type Drag = { id: string; from: number; dy: number; to: number };
@@ -187,7 +187,7 @@ function SortableRow({
         // The held row tracks the pointer immediately; the others slide.
         transform: [
           held ? { translateY: dy } : { translateY: slide },
-          { scale: lift.interpolate({ inputRange: [0, 1], outputRange: [1, 1.01] }) },
+          { scale: lerp(lift, [1, 1.01]) },
         ],
         ...(held ? ({ cursor: "grabbing" } as object) : {}),
       }}

@@ -6,7 +6,7 @@ import { useQuery } from "@tanstack/react-query";
 import type { PaseoAgent } from "@getpaseo/client";
 import * as rpc from "../shared/rpc";
 import { Label, font, message, noFocusRing, radius, space, tint, touch, useTheme } from "./ui";
-import { useMotionPresence } from "./motion";
+import { useMotionPresence, lerp } from "./motion";
 
 type Feature = NonNullable<PaseoAgent["features"]>[number];
 export type ChipMenuId = "model" | "thinking" | "mode";
@@ -133,7 +133,7 @@ export function ChipMenu({ open, items, inline, footer }: { open: boolean; items
           shadowRadius: 16,
           shadowOffset: { width: 0, height: 6 },
           opacity: presence.progress,
-          transform: [{ translateY: presence.progress.interpolate({ inputRange: [0, 1], outputRange: [6, 0] }) }],
+          transform: [{ translateY: lerp(presence.progress, [6, 0]) }],
         },
       ]}
     >

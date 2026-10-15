@@ -36,6 +36,38 @@ export function MotionProvider({ children }: { children: ReactNode }) {
   return <ReduceMotion.Provider value={reduced}>{children}</ReduceMotion.Provider>;
 }
 
+/**
+ * One interpolation node per value and range, reused across renders. A new
+ * node each render re-attaches the native animated graph and commits the
+ * JS-side (stale) value mid-animation; on Android's new architecture that can
+ * leave a view at its start offset (user report: content drifting sideways).
+ */
+const interpolations = new WeakMap<object, Map<string, Animated.AnimatedInterpolation<number | string>>>();
+export function lerp<T extends number | string>(
+  value: Animated.Value | Animated.AnimatedInterpolation<number>,
+  outputRange: T[],
+  inputRange: number[] = [0, 1],
+): Animated.AnimatedInterpolation<T> {
+  let byRange = interpolations.get(value);
+  if (!byRange) interpolations.set(value, (byRange = new Map()));
+  const key = JSON.stringify([inputRange, outputRange]);
+  let node = byRange.get(key);
+  if (!node) byRange.set(key, (node = value.interpolate({ inputRange, outputRange: outputRange as number[] | string[] })));
+  return node as Animated.AnimatedInterpolation<T>;
+}
+
+/**
+ * Start a transition and, when it finishes on the native driver, set its final
+ * value from JS as well: native updates never reach the shadow tree, so this
+ * guarantees the committed props match what is on screen.
+ */
+function play(animation: Animated.CompositeAnimation, value: Animated.Value, toValue: number, nativeDriver: boolean, done?: (finished: boolean) => void) {
+  animation.start(({ finished }) => {
+    if (finished && nativeDriver) value.setValue(toValue);
+    done?.(finished);
+  });
+}
+
 function timing(value: Animated.Value, toValue: number, duration: number, nativeDriver = Platform.OS !== "web", easing = enterEasing) {
   return Animated.timing(value, {
     toValue,
@@ -55,8 +87,9 @@ export function useMotionValue(target: number, duration: number = motionDuration
       return;
     }
     // Layout properties (width/height) cannot use the native driver.
-    const animation = timing(value, target, duration, layout ? false : undefined);
-    animation.start();
+    const native = !layout && Platform.OS !== "web";
+    const animation = timing(value, target, duration, native);
+    play(animation, value, target, native);
     return () => animation.stop();
   }, [value, target, duration, reduced]);
   return value;
@@ -96,7 +129,7 @@ export function useMotionPresence<T>(item: T | undefined | null, key: string, na
     const animation = key
       ? timing(progress, 1, motionDuration.forward, nativeDriver)
       : timing(progress, 0, motionDuration.reverse, nativeDriver, exitEasing);
-    animation.start(({ finished }) => { if (finished) finish(); });
+    play(animation, progress, key ? 1 : 0, nativeDriver, (finished) => { if (finished) finish(); });
     return () => {
       alive = false;
       animation.stop();
@@ -118,21 +151,27 @@ export function MotionReveal({
   const [progress] = useState(() => new Animated.Value(1));
   const previous = useRef<string | undefined>(undefined);
   useLayoutEffect(() => {
-    if (previous.current === transitionKey || reduced) {
+    // First mount: the surrounding surface brings it in; only identity changes animate.
+    if (previous.current === undefined || previous.current === transitionKey || reduced) {
       previous.current = transitionKey;
       progress.setValue(1);
       return;
     }
     previous.current = transitionKey;
     progress.setValue(0);
-    const animation = timing(progress, 1, direction < 0 ? motionDuration.reverse : motionDuration.forward);
-    animation.start();
-    return () => animation.stop();
+    const native = Platform.OS !== "web";
+    const animation = timing(progress, 1, direction < 0 ? motionDuration.reverse : motionDuration.forward, native);
+    play(animation, progress, 1, native);
+    return () => {
+      animation.stop();
+      // An interrupted reveal never stays offset.
+      progress.setValue(1);
+    };
   }, [transitionKey, direction, reduced, progress]);
   return (
     <Animated.View {...props} style={[style, {
-      opacity: progress.interpolate({ inputRange: [0, 1], outputRange: [0.65, 1] }),
-      transform: [{ translateX: progress.interpolate({ inputRange: [0, 1], outputRange: [direction * distance, 0] }) }],
+      opacity: lerp(progress, [0.65, 1]),
+      transform: [{ translateX: lerp(progress, [direction * distance, 0]) }],
     }]}>{children}</Animated.View>
   );
 }
@@ -180,7 +219,7 @@ export function Enter({ children, distance = 6, style }: { children: ReactNode; 
         style,
         {
           opacity: progress,
-          transform: [{ translateY: progress.interpolate({ inputRange: [0, 1], outputRange: [distance, 0] }) }],
+          transform: [{ translateY: lerp(progress, [distance, 0]) }],
         },
       ]}
     >

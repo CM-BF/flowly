@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Animated, Pressable, View } from "react-native";
 import { Icon } from "@getpaseo/plugin/client/react-native";
-import { motionDuration, useMotionValue } from "./motion";
+import { motionDuration, useMotionValue, lerp } from "./motion";
 import type { PluginTheme } from "@getpaseo/plugin";
 import { usePaseo, useSettings } from "@getpaseo/plugin/client";
 import { useQuery } from "@tanstack/react-query";
@@ -36,7 +36,7 @@ export function SettingsFab({ open = false, onPress }: { open?: boolean; onPress
         bottom: space[3],
         opacity: shown,
         transform: [
-          { translateY: shown.interpolate({ inputRange: [0, 1], outputRange: [8, 0] }) },
+          { translateY: lerp(shown, [8, 0]) },
           { scale: lift },
         ],
       }}
@@ -69,7 +69,7 @@ export function SettingsFab({ open = false, onPress }: { open?: boolean; onPress
           elevation: lit ? 4 : 2,
         }}
       >
-        <Animated.View style={{ transform: [{ rotate: turn.interpolate({ inputRange: [0, 1], outputRange: ["0deg", "90deg"] }) }] }}>
+        <Animated.View style={{ transform: [{ rotate: lerp(turn, ["0deg", "90deg"]) }] }}>
           <Icon name="Settings" size={17} color={lit ? colors.foreground : colors.foregroundMuted} />
         </Animated.View>
       </Pressable>

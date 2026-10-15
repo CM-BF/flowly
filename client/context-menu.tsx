@@ -3,7 +3,7 @@ import { Animated, Pressable, View, type GestureResponderEvent } from "react-nat
 import { Icon } from "@getpaseo/plugin/client/react-native";
 import { Modal } from "./modal";
 import { Label, Row, Theme, font, noFocusRing, radius, space, touch, useTheme } from "./ui";
-import { useMotionPresence } from "./motion";
+import { useMotionPresence, lerp } from "./motion";
 
 export type MenuEntry =
   | { kind?: "item"; id: string; label: string; icon?: string; leading?: ReactNode; danger?: boolean; checked?: boolean; disabled?: boolean; onPress(): void }
@@ -113,7 +113,7 @@ export function ContextMenuProvider({ compact, children }: { compact: boolean; c
                 shadowRadius: 18,
                 shadowOffset: { width: 0, height: 8 },
                 opacity: presence.progress,
-                transform: [{ scale: presence.progress.interpolate({ inputRange: [0, 1], outputRange: [0.97, 1] }) }],
+                transform: [{ scale: lerp(presence.progress, [0.97, 1]) }],
               }}
             >
               {shown.entries.map((entry) =>

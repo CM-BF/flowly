@@ -63,6 +63,14 @@ The transitions run on the native driver, but they started in the same frame tha
 - `sessions.archived { taskId }`: the daemon returns the card workspace's archived, non-summarizer sessions. The client no longer pages every agent (hundreds of KB) on each open.
 - Phone: the open card is an opaque overlay above the board, which stays laid out (covered, not focusable, hidden from accessibility). Opening and Back change no layout underneath. The board no longer replays its own reveal when a card opens or closes.
 
+### Follow-up: sideways drift while scrolling (user report with an Android capture)
+
+The open card's content (its header included) sat offset to the left while the host header did not, i.e. the details view's own reveal transform (it slides from the left) stayed at a stale start value. Two weaknesses in the shared primitives made that possible on Android's new architecture: every render built new interpolation nodes (re-attaching the native graph and committing the JS-side value mid-animation), and nothing forced the end value into the committed props.
+
+- `lerp(value, outputRange)` (`client/motion.tsx`) returns one cached interpolation node per value and range; every plugin animation uses it.
+- Shared transitions set their final value from JS when the native animation finishes, and an interrupted reveal resets to its rest value.
+- `MotionReveal` no longer animates on first mount (the surrounding card or board already brings it in); only identity changes animate.
+
 ## 4. Constraints kept
 
 - No second Paseo connection: the subscription uses the supplied SDK. No new dependency, no DOM, no private host import.

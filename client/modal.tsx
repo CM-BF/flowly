@@ -7,7 +7,7 @@ import {
   type ModalProps,
 } from "@getpaseo/plugin/client/react-native";
 import { useShortcutBlock } from "./shortcuts";
-import { MotionBridge, motionDuration, useMotionValue, useReducedMotion } from "./motion";
+import { MotionBridge, motionDuration, useMotionValue, useReducedMotion, lerp } from "./motion";
 
 /** Host Modal that suspends board shortcuts while open; the host keeps Esc and focus. */
 const OpenContext = createContext(true);
@@ -31,7 +31,7 @@ function ModalEnter({ gap, fill, children }: { gap: number; fill: boolean; child
         gap,
         ...(fill ? { flex: 1, minHeight: 0 } : {}),
         opacity: progress,
-        transform: [{ translateY: progress.interpolate({ inputRange: [0, 1], outputRange: [8, 0] }) }],
+        transform: [{ translateY: lerp(progress, [8, 0]) }],
       }}
     >
       {children}
