@@ -67,7 +67,8 @@ export function TaskCard({
   const { colors } = useTheme();
   const outputTime = output ? relativeTime(output.at) : "";
   const opacity = useMotionValue(dragging ? 0.45 : 1, undefined, 0.65);
-  const [hovered, setHovered] = useState(false);
+  const [hovered, setHovered] = useState(false),
+    [focused, setFocused] = useState(false);
   // Quick in, slow out: noticeable without holding attention.
   const flashOpacity = useMotionValue(flash ? 1 : 0, flash ? motionDuration.forward : 900);
   const current = useRef({ task, drag, disabled });
@@ -156,7 +157,7 @@ export function TaskCard({
       }
       style={{
         borderWidth: 1,
-        borderColor: selected
+        borderColor: selected || focused
           ? colors.accent
           : hovered
             ? tint(colors.foregroundMuted, 0.45)
@@ -187,6 +188,8 @@ export function TaskCard({
         onPress={() => {
           if (Date.now() >= suppressUntil.current) onOpen();
         }}
+        onFocus={() => setFocused(true)}
+        onBlur={() => setFocused(false)}
         style={({ pressed }) => ({
           paddingHorizontal: space[3],
           paddingTop: space[2] + 2,
@@ -194,7 +197,9 @@ export function TaskCard({
           paddingRight: space[3] + 24,
           gap: space[2],
           opacity: pressed ? 0.8 : 1,
-        })}
+          // No browser focus ring; focus is shown with the card's own accent border.
+          outlineStyle: "none",
+        }) as never}
       >
         <Label medium size={font.base} lines={3} selectable={false}>
           {task.title}

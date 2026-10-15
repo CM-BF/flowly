@@ -51,6 +51,11 @@ export function tint(color: string, alpha: number) {
 }
 
 type Hoverable = PressableStateCallbackType & { hovered?: boolean };
+/**
+ * Web: suppress the browser's square focus outline on pressables; components
+ * show focus with their own hover/selected styling instead.
+ */
+export const noFocusRing = { outlineStyle: "none" } as unknown as ViewStyle;
 
 export function Label({
   children,
@@ -134,8 +139,10 @@ export function Button({
       accessibilityState={{ disabled }}
       onPress={onPress}
       style={(state) => {
-        const { pressed, hovered } = state as Hoverable;
+        const { pressed, hovered: hover, focused } = state as typeof state & { hovered?: boolean; focused?: boolean };
+        const hovered = hover || focused;
         return {
+          ...noFocusRing,
           paddingHorizontal: hasText ? space[3] : 0,
           height: control,
           minWidth: control,
@@ -207,8 +214,10 @@ export function IconButton({
       onPress={onPress}
       hitSlop={touch ? undefined : 4}
       style={(state) => {
-        const { pressed, hovered } = state as Hoverable;
+        const { pressed, hovered: hover, focused } = state as typeof state & { hovered?: boolean; focused?: boolean };
+        const hovered = hover || focused;
         return {
+          ...noFocusRing,
           width: size,
           height: size,
           borderRadius: radius.md,
@@ -333,8 +342,10 @@ export function Choices<T extends string>({
               disabled={option.disabled}
               onPress={() => onChange(option.value)}
               style={(state) => {
-                const { hovered } = state as Hoverable;
+                const { hovered: hover, focused } = state as Hoverable & { focused?: boolean };
+        const hovered = hover || focused;
                 return {
+                  ...noFocusRing,
                   paddingHorizontal: space[3],
                   height: touch ? 40 : 28,
                   justifyContent: "center",
@@ -516,8 +527,10 @@ export function Row({
       disabled={disabled}
       onPress={onPress}
       style={(state) => {
-        const { pressed, hovered } = state as Hoverable;
+        const { pressed, hovered: hover, focused } = state as typeof state & { hovered?: boolean; focused?: boolean };
+        const hovered = hover || focused;
         return {
+          ...noFocusRing,
           flexDirection: "row",
           alignItems: "center",
           gap: space[3],

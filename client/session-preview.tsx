@@ -1,4 +1,4 @@
-import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import {
   ActivityIndicator,
   Platform,
@@ -16,6 +16,7 @@ import { useShortcutBlock } from "./shortcuts";
 import {
   usePaseo,
   useRpc,
+  useSettings,
   type PluginSurfaceProps,
 } from "@getpaseo/plugin/client";
 import { useQuery } from "@tanstack/react-query";
@@ -36,12 +37,14 @@ import {
   useTheme,
   Theme,
   Actions,
+  Row,
   message,
   tint,
   verticalScroll,
-  verticalContent,
-} from "./ui";
+  verticalContent, noFocusRing } from "./ui";
 import { sessionTone } from "./status";
+import { resolveSend, sendBehaviorText, sendBehaviors, sendQueue, type SendBehavior } from "./send-queue";
+import { boardViewSettings } from "../shared/settings";
 import {
   openNativeSession,
   recentSessionOutput,
@@ -109,7 +112,7 @@ export function SessionPreview({
     [focused, setFocused] = useState(false),
     [composerOpen, setComposerOpen] = useState(false),
     [confirmArchive, setConfirmArchive] = useState(false),
-    [sendMode, setSendMode] = useState<"steer" | "interrupt">("steer");
+    [modePicker, setModePicker] = useState(false);
   useShortcutBlock(focused);
   const lock = useRef(false);
   const tail = useSessionFollowTail();
@@ -200,8 +203,21 @@ export function SessionPreview({
     !unavailable &&
     !current.isError &&
     !busy;
-  const submitState = useRef({ canWrite, mode: sendMode });
-  submitState.current = { canWrite, mode: sendMode };
+  const view = useSettings(boardViewSettings);
+  const preferred: SendBehavior = view.status === "ready" ? view.values.sendBehavior : "steer";
+  const setPreferred = (next: SendBehavior) => {
+    if (view.status === "ready" && view.values.sendBehavior !== next)
+      void view.save({ ...view.values, sendBehavior: next }, view.revision);
+  };
+  const queued = useSyncExternalStore(sendQueue.subscribe, () => sendQueue.get(sessionId));
+  const running = active?.status === "running" || active?.status === "initializing";
+  const submitState = useRef({ canWrite, preferred, running, pendingPermission: false });
+  submitState.current = {
+    canWrite,
+    preferred,
+    running,
+    pendingPermission: !!active?.pendingPermissions?.length,
+  };
   async function perform(action: () => Promise<unknown>) {
     if (!mounted.current || lock.current || !beginOperation(sessionId)) return;
     lock.current = true;
@@ -232,12 +248,21 @@ export function SessionPreview({
       onBack();
     }
   }
-  async function submitInstruction() {
-    const { canWrite: writable, mode } = submitState.current;
+  async function submitInstruction(alternate = false) {
+    const { canWrite: writable, preferred: behavior, running: busyTurn, pendingPermission } = submitState.current;
     const instruction = draftBuffer.read();
     if (!mounted.current || !writable || !instruction.trim()) return;
+    const action = resolveSend(behavior, { running: busyTurn, alternate, pendingPermission });
+    if (action.kind === "queue") {
+      // Paseo parity: queued messages are sent when the current turn ends.
+      sendQueue.push(sessionId, instruction);
+      draftBuffer.clear(instruction);
+      onDraftChange(sessionId, "", instruction);
+      setComposerOpen(false);
+      return;
+    }
     await perform(async () => {
-      await sendCardInstruction(paseo, task, sessionId, contextRead, instruction, mode);
+      await sendCardInstruction(paseo, task, sessionId, contextRead, instruction, action.activeTurnBehavior);
       draftBuffer.clear(instruction);
       onDraftChange(sessionId, "", instruction);
       if (mounted.current) setComposerOpen(false);
@@ -256,27 +281,39 @@ export function SessionPreview({
     if (!active) return null;
     return (
       <>
-          {((!inSheet && !tail.following) || active.status === "running") && (
-            <View style={{ flexDirection: "row", alignItems: "center", gap: space[2], flexWrap: "wrap" }}>
-              {active.status === "running" && (
-                <Choices
-                  title="Running session action"
-                  hideTitle
-                  value={sendMode}
-                  options={[
-                    { value: "steer", label: "Steer", disabled: busy || !canWrite },
-                    { value: "interrupt", label: compact ? "Interrupt" : "Interrupt and send", disabled: busy || !canWrite },
-                  ]}
-                  onChange={setSendMode}
-                />
-              )}
-              <View style={{ flex: 1 }} />
-              {!inSheet && !tail.following && (
-                <Button quiet icon="ArrowDown" onPress={tail.jumpToLatest}>
-                  Jump to latest
-                </Button>
-              )}
+          {queued.length > 0 && (
+            <View style={{ gap: 4 }}>
+              {queued.map((m) => (
+                <View
+                  key={m.id}
+                  style={{
+                    flexDirection: "row",
+                    alignItems: "center",
+                    gap: space[2],
+                    paddingLeft: space[3],
+                    paddingRight: 2,
+                    minHeight: 30,
+                    borderRadius: radius.md,
+                    backgroundColor: colors.surface2,
+                  }}
+                >
+                  <Icon name="Clock" size={13} color={colors.foregroundMuted} />
+                  <View style={{ flex: 1, minWidth: 0 }}>
+                    <Label size={font.sm} lines={1} selectable={false}>{m.text.replace(/\s+/g, " ")}</Label>
+                  </View>
+                  <Label muted size={font.xs} selectable={false}>Queued</Label>
+                  <IconButton icon="X" size={26} label="Remove queued message" onPress={() => sendQueue.remove(sessionId, m.id)} />
+                </View>
+              ))}
             </View>
+          )}
+          {inSheet && (
+            <Choices
+              title="When the session is running"
+              value={preferred}
+              options={sendBehaviors.map((b) => ({ value: b, label: sendBehaviorText[b].label }))}
+              onChange={setPreferred}
+            />
           )}
           <View
             style={{
@@ -327,7 +364,7 @@ export function SessionPreview({
                 const action = composerEnterAction(event.nativeEvent as ComposerKey);
                 if (action === "native") return;
                 event.preventDefault();
-                if (action === "submit") void submitInstruction();
+                if (action === "submit" || action === "alternate") void submitInstruction(action === "alternate");
               }}
               onSubmitEditing={(event) => {
                 if (Platform.OS === "web") return;
@@ -335,7 +372,7 @@ export function SessionPreview({
                 if (action === "submit") void submitInstruction();
               }}
               scrollEnabled
-              editable={canWrite}
+              editable={!!active}
               placeholder={
                 active.archivedAt
                   ? "Send a message to restore this session…"
@@ -361,14 +398,16 @@ export function SessionPreview({
             <Pressable
               accessibilityRole="button"
               accessibilityLabel={busy ? "Sending instruction" : "Send instruction"}
-              accessibilityHint={active.status === "running" ? (sendMode === "interrupt" ? "Interrupts the running turn, then sends" : "Steers the running turn") : undefined}
+              accessibilityHint={running ? sendBehaviorText[preferred].detail : undefined}
               accessibilityState={{ disabled: !canSend, busy }}
               disabled={!canSend}
               onPress={() => void submitInstruction()}
               hitSlop={6}
               style={(state) => {
-                const { pressed, hovered } = state as typeof state & { hovered?: boolean };
+                const { pressed, hovered: hover, focused } = state as typeof state & { hovered?: boolean; focused?: boolean };
+        const hovered = hover || focused;
                 return {
+                  ...noFocusRing,
                   width: sendSize,
                   height: sendSize,
                   marginBottom: (36 - sendSize) / 2,
@@ -387,7 +426,7 @@ export function SessionPreview({
                 <ActivityIndicator size="small" color={colors.accentForeground} />
               ) : (
                 <Icon
-                  name={active.status === "running" && sendMode === "interrupt" ? "CornerDownLeft" : "ArrowUp"}
+                  name={running ? (preferred === "queue" ? "ListPlus" : preferred === "interrupt" ? "CornerDownLeft" : "ArrowUp") : "ArrowUp"}
                   size={touch ? 18 : 16}
                   color={canSend ? colors.accentForeground : colors.foregroundMuted}
                 />
@@ -573,7 +612,7 @@ export function SessionPreview({
                     await agent.send(
                       prepared.instructions,
                       latest.status === "running"
-                        ? { activeTurnBehavior: sendMode }
+                        ? { activeTurnBehavior: "steer" }
                         : {},
                     );
                     setFeedback(
@@ -699,15 +738,36 @@ export function SessionPreview({
           {(!!error || !!feedback) && (
             <Notice tone={error ? "danger" : "success"}>{error || feedback}</Notice>
           )}
+          {!tail.following && (
+            // Floats above the composer so it never pushes the input around.
+            <View pointerEvents="box-none" style={{ position: "absolute", top: -40, right: space[3], zIndex: 2 }}>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Jump to latest"
+                onPress={tail.jumpToLatest}
+                style={{
+                  flexDirection: "row",
+                  alignItems: "center",
+                  gap: 4,
+                  height: 30,
+                  paddingHorizontal: space[2] + 2,
+                  borderRadius: 15,
+                  borderWidth: 1,
+                  borderColor: colors.border,
+                  backgroundColor: colors.surface0,
+                  shadowColor: "#000",
+                  shadowOpacity: 0.08,
+                  shadowRadius: 6,
+                  shadowOffset: { width: 0, height: 2 },
+                }}
+              >
+                <Icon name="ArrowDown" size={13} color={colors.foreground} />
+                <Label size={font.sm} medium selectable={false}>Latest</Label>
+              </Pressable>
+            </View>
+          )}
           {sheetComposer ? (
             <>
-              {!tail.following && (
-                <View style={{ flexDirection: "row", justifyContent: "flex-end" }}>
-                  <Button quiet icon="ArrowDown" onPress={tail.jumpToLatest}>
-                    Jump to latest
-                  </Button>
-                </View>
-              )}
               <Pressable
                 accessibilityRole="button"
                 accessibilityLabel="Write a follow-up instruction"
@@ -736,9 +796,9 @@ export function SessionPreview({
                         : "Message this session…"}
                   </Label>
                 </View>
-                {active.status === "running" && (
+                {(running || queued.length > 0) && (
                   <Label muted size={font.xs} selectable={false}>
-                    {sendMode === "interrupt" ? "Interrupt" : "Steer"}
+                    {queued.length ? `${queued.length} queued · ` : ""}{sendBehaviorText[preferred].label}
                   </Label>
                 )}
                 <View
@@ -763,12 +823,59 @@ export function SessionPreview({
             renderComposer(false)
           )}
           {!compact && Platform.OS === "web" && (
-            <Label muted size={font.xs} selectable={false}>
-              Enter to send · Shift+Enter for a new line
-            </Label>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: space[2], minHeight: 20 }}>
+              <View style={{ flex: 1, minWidth: 0 }}>
+                <Label muted size={font.xs} lines={1} selectable={false}>
+                  {running
+                    ? `Enter: ${sendBehaviorText[preferred].label} · ⌘/Ctrl+Enter: ${preferred === "queue" ? "Send now" : "Queue"} · Shift+Enter: new line`
+                    : "Enter to send · Shift+Enter for a new line"}
+                </Label>
+              </View>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={`When running: ${sendBehaviorText[preferred].label}. Change`}
+                onPress={() => setModePicker(true)}
+                hitSlop={6}
+                style={{ flexDirection: "row", alignItems: "center", gap: 2 }}
+              >
+                <Label muted size={font.xs} selectable={false}>
+                  When running: <Label size={font.xs} medium selectable={false}>{sendBehaviorText[preferred].label}</Label>
+                </Label>
+                <Icon name="ChevronDown" size={12} color={colors.foregroundMuted} />
+              </Pressable>
+            </View>
           )}
         </View>
       )}
+      <Modal
+        open={modePicker && visible}
+        title="When the session is running"
+        onOpenChange={(open) => {
+          if (!open) setModePicker(false);
+        }}
+      >
+        <Modal.Content contentContainerStyle={{ padding: space[3], gap: space[1] }}>
+          <Theme.Provider value={theme}>
+            {sendBehaviors.map((b) => (
+              <Row
+                key={b}
+                title={sendBehaviorText[b].label}
+                detail={sendBehaviorText[b].detail}
+                selected={preferred === b}
+                onPress={() => {
+                  setPreferred(b);
+                  setModePicker(false);
+                }}
+              />
+            ))}
+            <View style={{ paddingHorizontal: space[3], paddingTop: space[1] }}>
+              <Label muted size={font.xs}>
+                Same options as Paseo's “Default send” setting. Plugins cannot read that setting, so choose it here.
+              </Label>
+            </View>
+          </Theme.Provider>
+        </Modal.Content>
+      </Modal>
       <Modal
         open={confirmArchive && visible}
         title="Archive running session?"

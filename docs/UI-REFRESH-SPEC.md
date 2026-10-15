@@ -81,6 +81,12 @@ Status: authorized by the user's 2026-10-14 request to redesign the whole Kanban
 - Drawer Sessions list shows live sessions; archived ones move to a collapsed "Archived · n" group at the bottom. The Sessions count shows live sessions.
 - Verified live with a fixture card (archive → grouped → restore by message), then wrapped up: [evidence](verification/session-archive-restore.png).
 
+## 7g. Focus rings, composer stability, Paseo send parity (2026-10-15, user report)
+
+- **Focus rings**: the board root (focusable for shortcuts) and every plugin pressable suppress the browser's square focus outline (`noFocusRing`); focus is shown with the component's own hover/selected styling, and cards show their rounded accent border while focused. Verified: focused card computes `outline: none`.
+- **Composer stability**: the drawer's task-context query keeps its previous data across revision changes (automatic status moves no longer blank it and flash "unavailable"); the composer input stays editable whenever the session exists — only the send button follows availability — so typing is never dropped. No rows appear/disappear above the input: "Latest" is a floating pill, the Steer/Interrupt segmented row is removed. Verified live on a running session: 40 typed characters, constant input position/height, focus retained; New task dialog position constant while the drawer is open.
+- **Send while running (Paseo parity)**: options Steer / Queue / Interrupt with Paseo's semantics — Enter uses the preference, Cmd/Ctrl+Enter the alternative (queue for steer/interrupt; send now for queue); a queued message waiting behind a permission prompt interrupts instead. Paseo's own setting is client-local and not readable by plugins, so the board keeps a host-scoped copy (`board-view.sendBehavior`, default Steer) changed from the composer footer ("When running: …") or the native sheet. Queued messages show above the input (removable) and are sent one per finished turn by the board even when the preview is closed; a failed send returns to the front of the queue with an error toast.
+
 ## 8. Acceptance
 
 | Check | Expected |

@@ -64,7 +64,7 @@ export async function sendCardInstruction(
     id: string;
   }) => Promise<{ available: boolean; reason: string; context: string }>,
   instruction: string,
-  mode: "steer" | "interrupt",
+  mode: "steer" | "interrupt" = "steer",
 ) {
   const [actor, scope] = await Promise.all([
     workspaceSession(paseo, agentId, task.workspaceId, "restore"),
@@ -75,6 +75,8 @@ export async function sendCardInstruction(
     .ref(agentId)
     .send(
       instruction,
-      actor.status === "running" ? { activeTurnBehavior: mode } : {},
+      actor.status === "running" || actor.status === "initializing"
+        ? { activeTurnBehavior: mode }
+        : {},
     );
 }

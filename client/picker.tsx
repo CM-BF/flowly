@@ -1,7 +1,7 @@
 import { useState, type ReactNode } from "react";
 import { Pressable, View } from "react-native";
 import { Icon, ScrollView, TextInput } from "@getpaseo/plugin/client/react-native";
-import { Label, font, radius, space, touch, useTheme } from "./ui";
+import { Label, font, radius, space, touch, useTheme, noFocusRing } from "./ui";
 import { filterOptions, type PickerOption } from "./options";
 import { useShortcutBlock } from "./shortcuts";
 export type { PickerOption } from "./options";
@@ -67,8 +67,10 @@ export function PickerRow({
           onToggle();
         }}
         style={(state) => {
-          const { pressed, hovered } = state as typeof state & { hovered?: boolean };
+          const { pressed, hovered: hover, focused } = state as typeof state & { hovered?: boolean; focused?: boolean };
+        const hovered = hover || focused;
           return {
+            ...noFocusRing,
             flexDirection: "row",
             alignItems: "center",
             gap: space[3],
@@ -155,8 +157,10 @@ export function PickerRow({
                   disabled={option.disabled}
                   onPress={() => onChange(option.value)}
                   style={(state) => {
-                    const { pressed, hovered } = state as typeof state & { hovered?: boolean };
+                    const { pressed, hovered: hover, focused } = state as typeof state & { hovered?: boolean; focused?: boolean };
+        const hovered = hover || focused;
                     return {
+                      ...noFocusRing,
                       flexDirection: "row",
                       alignItems: "center",
                       gap: space[2],

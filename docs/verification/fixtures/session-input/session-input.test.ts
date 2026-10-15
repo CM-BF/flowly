@@ -6,9 +6,13 @@ describe("composerEnterAction", () => {
     expect(composerEnterAction({ key: "Enter" })).toBe("submit");
     expect(composerEnterAction({ key: "Enter", repeat: true })).toBe("suppress");
   });
+  test("Cmd/Ctrl+Enter submits with the alternate running behaviour (Paseo parity)", () => {
+    expect(composerEnterAction({ key: "Enter", ctrlKey: true })).toBe("alternate");
+    expect(composerEnterAction({ key: "Enter", metaKey: true })).toBe("alternate");
+    expect(composerEnterAction({ key: "Enter", metaKey: true, isComposing: true })).toBe("native");
+  });
   test.each([
-    { key: "Enter", shiftKey: true }, { key: "Enter", ctrlKey: true },
-    { key: "Enter", metaKey: true }, { key: "Enter", altKey: true },
+    { key: "Enter", shiftKey: true }, { key: "Enter", altKey: true },
     { key: "Enter", isComposing: true }, { key: "Enter", keyCode: 229 },
     { key: "a" }, { key: "Enter", shiftKey: true, repeat: true },
   ])("preserves host handling for %#", (event) => {

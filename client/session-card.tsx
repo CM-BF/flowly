@@ -2,7 +2,7 @@ import { Pressable, View } from "react-native";
 import { Icon } from "@getpaseo/plugin/client/react-native";
 import type { PaseoAgent } from "@getpaseo/client";
 import type { BoardEvent } from "../shared/model";
-import { Dot, Label, font, relativeTime, space, tint, touch, useTheme } from "./ui";
+import { Dot, Label, font, relativeTime, space, tint, touch, useTheme, noFocusRing } from "./ui";
 import { sessionState } from "./session-state";
 import { sessionTone } from "./status";
 import { PulseDot } from "./motion";
@@ -42,8 +42,10 @@ export function SessionCard({
       accessibilityLabel={`Preview ${agent.title || agent.id}: ${state.label}${unread ? ", unread" : ""}${!readStateUnavailable && attention?.needsAttention ? ", needs attention" : ""}`}
       onPress={onPress}
       style={(pressState) => {
-        const { pressed, hovered } = pressState as typeof pressState & { hovered?: boolean };
+        const { pressed, hovered: hover, focused } = pressState as typeof pressState & { hovered?: boolean; focused?: boolean };
+        const hovered = hover || focused;
         return {
+          ...noFocusRing,
           flexDirection: "row",
           alignItems: "center",
           gap: space[3],

@@ -10,10 +10,12 @@ export type ComposerKey = {
   repeat?: boolean;
 };
 
-export function composerEnterAction(event: ComposerKey): "submit" | "suppress" | "native" {
-  if (event.key !== "Enter" || event.shiftKey || event.ctrlKey || event.metaKey || event.altKey ||
+/** Enter submits; Cmd/Ctrl+Enter submits with the alternate running behaviour (Paseo). */
+export function composerEnterAction(event: ComposerKey): "submit" | "alternate" | "suppress" | "native" {
+  if (event.key !== "Enter" || event.shiftKey || event.altKey ||
       event.isComposing || event.keyCode === 229) return "native";
-  return event.repeat ? "suppress" : "submit";
+  if (event.repeat) return "suppress";
+  return event.ctrlKey || event.metaKey ? "alternate" : "submit";
 }
 
 /** Keep input changes until their controlled parent props acknowledge them. */

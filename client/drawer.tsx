@@ -30,8 +30,7 @@ import {
   useTheme,
   message,
   verticalScroll,
-  verticalContent,
-} from "./ui";
+  verticalContent, noFocusRing } from "./ui";
 import { PriorityIcon, StatusIcon, priorityLabels } from "./status";
 import { listAgents } from "./resources";
 import { isLegacyScope } from "../shared/scope";
@@ -157,6 +156,9 @@ export function TaskDrawer({
     queryFn: () => contextRead({ id: task.id }),
     enabled: active,
     refetchInterval: 5000,
+    // A revision bump (e.g. an automatic status move) must not blank the
+    // context and briefly mark the workspace unavailable.
+    placeholderData: (previous) => previous,
   });
   const sessions = useQuery({
     queryKey: ["ultra", "sessions", task.workspaceId],
@@ -612,8 +614,10 @@ function Property({
       disabled={disabled}
       onPress={onPress}
       style={(state) => {
-        const { pressed, hovered } = state as typeof state & { hovered?: boolean };
+        const { pressed, hovered: hover, focused } = state as typeof state & { hovered?: boolean; focused?: boolean };
+        const hovered = hover || focused;
         return {
+          ...noFocusRing,
           flexDirection: "row",
           alignItems: "center",
           gap: space[1.5],

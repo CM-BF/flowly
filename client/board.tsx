@@ -1,4 +1,4 @@
-import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { Animated, Platform, Pressable, View } from "react-native";
 import { Icon, ScrollView, useToast } from "@getpaseo/plugin/client/react-native";
 import { Modal } from "./modal";
@@ -42,8 +42,7 @@ import {
   touch,
   useTheme,
   verticalScroll,
-  verticalContent,
-} from "./ui";
+  verticalContent, noFocusRing } from "./ui";
 import { StatusIcon, priorityLabels } from "./status";
 import {
   attentionBadgeText,
@@ -61,6 +60,8 @@ import { LiveTaskCard, type CardDrag } from "./card";
 import { pickOutputSession } from "./card-output";
 import { cardQuestions } from "../shared/progress";
 import { statusChanges } from "./changes";
+import { sendQueue } from "./send-queue";
+import { sendCardInstruction } from "./session";
 import { DesktopColumns, type Placement } from "./columns";
 import { ResizeGrip } from "./resize";
 import { drawerWidth, isCompactLayout } from "./geometry";
@@ -282,7 +283,7 @@ function BoardContent(
   const chooseProject = (id: string) => {
     setProject(id);
     if (viewSettings.status === "ready" && viewSettings.values.lastProjectId !== id)
-      void viewSettings.save({ lastProjectId: id }, viewSettings.revision);
+      void viewSettings.save({ ...viewSettings.values, lastProjectId: id }, viewSettings.revision);
   };
   useEffect(() => {
     setActionTask(null);
@@ -347,6 +348,30 @@ function BoardContent(
     () => new Set((managed.data || []).map((m) => m.agentId)),
     [managed.data],
   );
+  // Drain queued follow-ups (Paseo "queue" behaviour) once a session's turn ends,
+  // even if its preview is closed. One message per observed turn change.
+  const queueContext = useRpc(rpc.taskContext);
+  const queuedSessions = useSyncExternalStore(sendQueue.subscribe, () => sendQueue.sessions().join("|"));
+  const drainGate = useRef(new Map<string, string>());
+  useEffect(() => {
+    if (!board || !agents.data) return;
+    for (const id of sendQueue.sessions()) {
+      const agent = agents.data.find((a) => a.id === id);
+      if (!agent || agent.status === "running" || agent.status === "initializing") continue;
+      if (drainGate.current.has(id) && drainGate.current.get(id) === agent.updatedAt) continue;
+      const target = board.tasks.find((t) => t.workspaceId === agent.workspaceId);
+      if (!target) continue;
+      const next = sendQueue.take(id);
+      if (!next) continue;
+      drainGate.current.set(id, agent.updatedAt);
+      void sendCardInstruction(paseo, target, id, queueContext, next.text)
+        .catch((e) => {
+          sendQueue.restore(id, next);
+          toast.error(`Queued message was not sent: ${message(e)}`);
+        })
+        .finally(() => void agents.refetch());
+    }
+  }, [agents.data, board, queuedSessions]);
   const readUnavailable = readState.isPending || readState.isError;
   const attention = useMemo(
     () =>
@@ -511,7 +536,8 @@ function BoardContent(
       <View
         {...(keyboardProps as {})}
         onLayout={(e) => setSurfaceWidth(e.nativeEvent.layout.width)}
-        style={{ flex: 1, minHeight: 0, overflow: "hidden", backgroundColor: colors.surface0 }}
+        // The root only takes focus to receive shortcuts; it must not draw a focus ring.
+        style={{ flex: 1, minHeight: 0, overflow: "hidden", backgroundColor: colors.surface0, outlineStyle: "none" } as never}
       >
         {!(compact && task) && (
           <View
@@ -1144,8 +1170,10 @@ function ProjectSwitcher({
       accessibilityLabel={`Project: ${title}. Choose or manage project${shortcut ? ` (${shortcut})` : ""}`}
       onPress={onPress}
       style={(state) => {
-        const { pressed, hovered } = state as typeof state & { hovered?: boolean };
+        const { pressed, hovered: hover, focused } = state as typeof state & { hovered?: boolean; focused?: boolean };
+        const hovered = hover || focused;
         return {
+          ...noFocusRing,
           flexDirection: "row",
           alignItems: "center",
           gap: space[2],
@@ -1188,8 +1216,10 @@ function AttentionButton({
       accessibilityLabel={`${count ? `Needs attention, ${count} cards` : "Needs attention"}${shortcut ? ` (${shortcut})` : ""}`}
       onPress={onPress}
       style={(state) => {
-        const { pressed, hovered } = state as typeof state & { hovered?: boolean };
+        const { pressed, hovered: hover, focused } = state as typeof state & { hovered?: boolean; focused?: boolean };
+        const hovered = hover || focused;
         return {
+          ...noFocusRing,
           flexDirection: "row",
           alignItems: "center",
           gap: space[1.5],
@@ -1231,8 +1261,10 @@ function FilterButton({
       accessibilityLabel={`${count ? `Task filters, ${count} active` : "Task filters"}${shortcut ? ` (${shortcut})` : ""}`}
       onPress={onPress}
       style={(state) => {
-        const { pressed, hovered } = state as typeof state & { hovered?: boolean };
+        const { pressed, hovered: hover, focused } = state as typeof state & { hovered?: boolean; focused?: boolean };
+        const hovered = hover || focused;
         return {
+          ...noFocusRing,
           flexDirection: "row",
           alignItems: "center",
           gap: space[1.5],
