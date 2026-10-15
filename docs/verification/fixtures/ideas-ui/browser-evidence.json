@@ -1,0 +1,98 @@
+{
+  "startedAt": "2026-10-15T19:15:41.639Z",
+  "method": "Playwright 1.63 headless Chromium; isolated non-persistent browser context; granted local-network-access permission for https://app.paseo.sh; local app connected directly to 127.0.0.1:6767",
+  "checks": {
+    "boardBadge": {
+      "cardVisible": true,
+      "threeIdeasText": true
+    },
+    "sectionOrder": {
+      "sessionsBeforeIdeas": true,
+      "ideasBeforeDetails": true,
+      "openCountThree": true
+    },
+    "expandCollapse": {
+      "whatToDoAppeared": true,
+      "contextAppeared": true,
+      "collapsedAgain": true,
+      "observedJank": "No visible jump or clipping in the settled expanded screenshot; transition timing not frame-recorded."
+    },
+    "dismiss": {
+      "closedOneVisible": true,
+      "openCountTwo": true
+    },
+    "restore": {
+      "openCountThree": true,
+      "restoreButtonGone": true
+    },
+    "createForm": {
+      "opened": true,
+      "titlePrefillVisible": true,
+      "bugfixPrefillVisible": true,
+      "highPriorityVisible": true,
+      "descriptionHasWhyContextAndSource": true,
+      "inputs": [
+        {
+          "value": "Fix stale filter state after refresh",
+          "placeholder": "What needs doing?",
+          "aria": "Title",
+          "type": null
+        },
+        {
+          "value": "Reproduce the stale filter state after a refresh. Add a regression test that verifies the selected filter is restored from the URL and the result list matches it.\n\nWhy: The URL and visible filter can diverge after a refresh, so users may think they are looking at one result set while the page is showing another.\n\nContext:\nFiles: client/search/filter-state.ts and client/search/filter-state.test.ts. Branch: ideas-ui-fixture. The refresh path currently hydrates the result list before URL state; verify ordering and retain the query string as the source of truth. Do not change unrelated search behavior.\n\nFrom card: Ideas UI source card A (ce36b545-93a9-4c83-b903-c17ae19b4605)\n\nSource progress:\nDisposable source card for Ideas UI acceptance testing.\n- Setup-only task; no workspace files edited or created\n- Three ideas proposed via kanban_propose_idea; all succeeded\n- Source card status left unchanged in Todo",
+          "placeholder": "",
+          "aria": "Description",
+          "type": null
+        },
+        {
+          "value": "",
+          "placeholder": "What should the agent do first?",
+          "aria": "Instruction",
+          "type": null
+        },
+        {
+          "value": "",
+          "placeholder": null,
+          "aria": null,
+          "type": null
+        }
+      ]
+    },
+    "createFormTextExcerpt": "urce card status left unchanged in Todo\nNext\nWaiting on the person's acceptance review of the three proposed ideas.\nUpdated 6m ago · Haiku 5.5\nShow more\nHistory\nSessions\n1\nStart session\nIdeas UI Luna acceptance worker\nTurn ended · codex · gpt-6-luna\n6m ago\nIdeas\n3\nFix stale filter state after refresh\nBug fix\nHigh\n6m ago\nThe URL and visible filter can diverge after a refresh, so users may think they are looking at one result set while the page is showing another.\nNot now\nGood idea\nDocument the filter recovery workflow\n6m ago\nA concise recovery guide would help support answer common questions.\nNot now\nGood idea\nAdd a filter-state diagnostic event\n6m ago\nA diagnostic event would make hard-to-reproduce customer reports easier to investigate. It should identify whether URL hydration completed before result rendering and help separate stale state from an incorrect query. Keep the event low volume, avoid logging user-entered query text, and document the fields so future investigations can compare behavior across refreshes.\nNot now\nGood idea\nDetails & workspace\nIdeas UI source card A\nUsage\n309K tokens · 65% cached · 2 turns\nActivity\n8\nCreate task from idea\nTitle\nDescription\nStatus\nBacklog\nTodo\nDesign\nDevelopment\nTest\nIn review\nBlocked\nPriority\nLow\nNormal\nHigh\nUrgent\nType\nNone\nFeature\nBug fix\nResearch\nRefactor\nDocs\nChore\nProject root · /private/var/folders/0b/f1crzdg95g5fwbq49s_3pw9c0000gq/T/paseo-kanban-ideas-ui-CXY4tI\nWorkspace\nNew in directory\nNew isolated worktree\nLink existing\nStart an agent now\nCreate the task, then start its first session with Kanban tools. Turn off to add the task only and start later.\nAgent\nProvider\nLoading…\nModel\nGPT-6-Luna\nReasoning\nmedium\nPermissions\nFull Access\nInstruction\nThe title and description are included automatically.\nCancel\nCreate and start",
+    "agentToggleOff": {
+      "checked": null,
+      "buttonTexts": [
+        "New isolated worktree",
+        "Link existing",
+        "Cancel",
+        "Create task"
+      ],
+      "startButtonRemoved": true
+    },
+    "savedWithoutAgent": {
+      "formClosed": true,
+      "sourceClosedLinkVisible": false,
+      "newTitleOnBoardOrDrawer": true,
+      "sourceIdeaId": "92e19aee-f82b-47bf-8d39-2d932a788c7f"
+    },
+    "originBacklink": {
+      "fromIdeaLine": true,
+      "backlinkRolePresent": true
+    }
+  },
+  "consoleErrors": [],
+  "screenshots": [
+    "ideas-ui-board-desktop-light.png",
+    "ideas-ui-drawer-desktop-light.png",
+    "ideas-ui-expanded-desktop-light.png",
+    "ideas-ui-dismissed-desktop-light.png",
+    "ideas-ui-restored-desktop-light.png",
+    "ideas-ui-create-form-desktop-light.png",
+    "ideas-ui-create-form-bottom-desktop-light.png",
+    "ideas-ui-after-save-desktop-light.png",
+    "ideas-ui-derived-card-origin-desktop-light.png"
+  ],
+  "error": "locator.click: Timeout 8000ms exceeded.\nCall log:\n\u001b[2m  - waiting for getByRole('link', { name: 'Open source task Ideas UI source card A' })\u001b[22m\n\u001b[2m    - locator resolved to <div role=\"link\" tabindex=\"0\" class=\"css-g5y9jx r-1loqt21 r-1otgn73\" aria-label=\"Open source task Ideas UI source card A\">…</div>\u001b[22m\n\u001b[2m  - attempting click action\u001b[22m\n\u001b[2m    - waiting for element to be visible, enabled and stable\u001b[22m\n\u001b[2m  - element was detached from the DOM, retrying\u001b[22m\n\n    at /Users/bofan.wang/Developer/personal/paseo-utlra-kanban/docs/verification/fixtures/ideas-ui/browser-check.mjs:88:85",
+  "partialPageText": "Add a project\nOpen a folder on your machine\nImport session\nOpen a Claude Code, Codex or other session you started in a terminal\nSetup providers\nConfigure Claude Code, Codex, and more\nStar\nSponsor\nCommunity",
+  "finishedAt": "2026-10-15T19:15:55.698Z"
+}

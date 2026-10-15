@@ -1,0 +1,26 @@
+{
+  "startedAt": "2026-10-15T19:21:40.910Z",
+  "fixtureIds": {
+    "project": "909f09b2-2dd6-4a5c-b4c9-e5c882e4b890",
+    "task": "ce36b545-93a9-4c83-b903-c17ae19b4605",
+    "worker": "515d644c-2c8c-48d5-ad33-327427816eec",
+    "directory": "/var/folders/0b/f1crzdg95g5fwbq49s_3pw9c0000gq/T/paseo-kanban-ideas-ui-CXY4tI",
+    "derivedTask": "387e46b5-3fcf-4ad1-a4a5-0f288b8c5771",
+    "derivedWorkspace": "wks_72909721ace128f9"
+  },
+  "checks": {
+    "workerOwned": true,
+    "workerArchived": true,
+    "projectRemoved": true,
+    "ownedBackupRemoved": true,
+    "tempDirectoryRemoved": true,
+    "boardProjectAbsent": true,
+    "boardFixtureTasksAbsent": true,
+    "boardFixtureIdeasAbsent": true,
+    "nativeProjectAbsent": true,
+    "fixtureWorkspacesAbsent": true,
+    "workerStillArchived": true
+  },
+  "backupPath": "/Users/bofan.wang/.paseo/plugin-data/paseo-ultra-kanban/removed/909f09b2-2dd6-4a5c-b4c9-e5c882e4b890-2026-10-15T19-21-42-227Z.json",
+  "finishedAt": "2026-10-15T19:21:42.936Z"
+}

@@ -1,0 +1,56 @@
+{
+  "startedAt": "2026-10-15T19:09:32.341Z",
+  "project": "909f09b2-2dd6-4a5c-b4c9-e5c882e4b890",
+  "task": "ce36b545-93a9-4c83-b903-c17ae19b4605",
+  "worker": "515d644c-2c8c-48d5-ad33-327427816eec",
+  "directory": "/var/folders/0b/f1crzdg95g5fwbq49s_3pw9c0000gq/T/paseo-kanban-ideas-ui-CXY4tI",
+  "ideaIds": [
+    "92e19aee-f82b-47bf-8d39-2d932a788c7f",
+    "33a14fec-69cd-4ac4-a45d-f1fe2ba176cf",
+    "7cb80e98-5c7b-40b2-993d-db1e64f3f710"
+  ],
+  "proposals": [
+    {
+      "title": "Fix stale filter state after refresh",
+      "ideaId": "92e19aee-f82b-47bf-8d39-2d932a788c7f",
+      "type": "bugfix",
+      "priority": "high",
+      "optionalFieldsOmitted": false
+    },
+    {
+      "title": "Document the filter recovery workflow",
+      "ideaId": "33a14fec-69cd-4ac4-a45d-f1fe2ba176cf",
+      "type": null,
+      "priority": null,
+      "optionalFieldsOmitted": true
+    },
+    {
+      "title": "Add a filter-state diagnostic event",
+      "ideaId": "7cb80e98-5c7b-40b2-993d-db1e64f3f710",
+      "type": null,
+      "priority": null,
+      "optionalFieldsOmitted": true
+    }
+  ],
+  "cleanup": {
+    "workerOwned": true,
+    "workerArchived": true,
+    "projectRemoved": true,
+    "ownedBackupRemoved": true,
+    "tempDirectoryRemoved": true,
+    "boardProjectAbsent": true,
+    "boardFixtureTasksAbsent": true,
+    "boardFixtureIdeasAbsent": true,
+    "nativeProjectAbsent": true,
+    "fixtureWorkspacesAbsent": true,
+    "workerStillArchived": true
+  },
+  "workspace": "wks_894c895389ea960f",
+  "workerProvider": "codex/gpt-6-luna",
+  "workerModeIdAtCreation": "full-access",
+  "workerSetup": "idle",
+  "workerTurnStatus": "idle",
+  "nativeProjectId": "prj_c0f6aa948c315b42",
+  "derivedTask": "387e46b5-3fcf-4ad1-a4a5-0f288b8c5771",
+  "derivedWorkspace": "wks_72909721ace128f9"
+}
