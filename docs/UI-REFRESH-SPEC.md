@@ -223,6 +223,14 @@ Lanes define the workflow everywhere:
 
 Verified live: collapse widths 280→141→89→48→44 and expand 44→111→182→248→269→280; Filters without "Show finished"; editor locks In progress and In review (1 card each); renaming Todo to "Ready" and turning Backlog off updated the board; both were reverted afterwards (`docs/verification/lane-editor.png`, `lanes-board.png`). Unit tests cover the lane helpers, the server guards, and the agent allowed/unavailable statuses.
 
+## 7u. Board overview row (2026-10-15, user request)
+
+- A row under the toolbar summarizes the current project: live cards (archived excluded, regardless of search/priority filters) and how many are in Done; how many cards have a session working (with the session count when higher), or "Idle" when none do; "N need you" (open agent questions or permission requests); "N unread" (finished results not yet read); errors; and the In review and Blocked lanes by their project names. Zero counts and lanes that are off are hidden.
+- "Needs you", unread and errors open the Attention list. Lane chips jump to the lane: on compact they switch the lane tab, on desktop they expand the lane if it is collapsed. The running chip uses the pulse dot. Chips fade in when they appear, and the row scrolls horizontally on narrow screens.
+- The toolbar's old "N tasks" label now only appears as "N shown" while filters are active.
+- Counting is `client/overview.ts` (`boardOverview`), unit-tested, including hiding lanes that are off.
+- Verified on desktop (`docs/verification/board-overview.png`).
+
 ## 8. Acceptance
 
 | Check | Expected |

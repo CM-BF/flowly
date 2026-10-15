@@ -67,6 +67,8 @@ import { useSessionReads } from "./session-reads";
 import { sessionAttentionSummary } from "../shared/session-attention";
 import { MotionProvider, MotionReveal, useMotionPresence } from "./motion";
 import { SortableList } from "./sortable-list";
+import { OverviewBar } from "./overview-bar";
+import { boardOverview } from "./overview";
 import { enabledStatuses, laneName } from "../shared/lanes";
 import { boardSortText, boardSorts, sortTasks, type BoardSort } from "../shared/sort";
 import {
@@ -637,7 +639,7 @@ function BoardContent(
               gap: space[2],
               flexDirection: "row",
               alignItems: "center",
-              borderBottomWidth: 1,
+              borderBottomWidth: project ? 0 : 1,
               borderColor: colors.border,
             }}
           >
@@ -647,9 +649,10 @@ function BoardContent(
               shortcut={shortcutsOn ? "P" : ""}
               onPress={() => setMenu("projects")}
             />
-            {!compact && !!project && (
+            {!compact && !!project && filterCount > 0 && (
+              // The overview counts the whole project; with filters on, say how many are shown.
               <Label muted size={font.sm} selectable={false}>
-                {visible.length} {visible.length === 1 ? "task" : "tasks"}
+                {visible.length} shown
               </Label>
             )}
             <View style={{ flex: 1 }} />
@@ -702,6 +705,17 @@ function BoardContent(
               </Button>
             )}
           </View>
+        )}
+        {!(compact && task) && project && board && (
+          <OverviewBar
+            overview={boardOverview(project, board.tasks, agents.data || [], attention)}
+            nameOf={nameOf}
+            onAttention={() => setMenu("attention")}
+            onLane={(status) => {
+              if (compact) setMobileStatus(status);
+              else if (collapsedColumns.includes(status)) toggleCollapse(status);
+            }}
+          />
         )}
         {(data.error || error) && (
           <View style={{ paddingHorizontal: space[3], paddingTop: space[3], gap: space[2] }}>
