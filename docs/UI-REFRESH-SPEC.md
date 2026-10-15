@@ -147,7 +147,7 @@ Status: authorized by the user's 2026-10-14 request to redesign the whole Kanban
 ## 7l. Project order (2026-10-15, user request)
 
 - Projects carry an optional `position`; the chooser and default selection use `projectOrder` (position, then creation time). Legacy records without a position keep their creation order.
-- Desktop: drag a project row with the mouse (grip on the right signals it). The held row follows the pointer immediately; the rows it passes slide aside (short, Reduce-Motion aware); the release never selects the project. The dropped order shows at once and is kept until the refreshed board agrees (5 s fallback; cleared on error).
+- Desktop: drag a project row with the mouse (grip on the left signals it). The held row follows the pointer immediately; the rows it passes slide aside (short, Reduce-Motion aware); the release never selects the project. The dropped order shows at once and is kept until the refreshed board agrees (5 s fallback; cleared on error).
 - Touch: up/down buttons per row (a drag would fight the host bottom sheet).
 - `projects.move` accepts either `direction` (`up | down | top`) or `to` (target index); the client maps a drop in the visible list (archived may be hidden) onto the full order.
 - `projects.move` renumbers all projects in one serialized write. Ordering is presentation metadata: it does not bump the board revision, so it never invalidates an open edit.

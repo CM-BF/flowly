@@ -880,19 +880,26 @@ function BoardContent(
                     detail={p.primaryPath}
                     icon={p.archivedAt ? "Archive" : "Folder"}
                     selected={project?.id === p.id}
+                    leading={
+                      !touch && projects.length > 1 ? (
+                        // Grip on the left, tucked against the folder icon.
+                        <View
+                          accessibilityLabel="Drag to reorder"
+                          style={{ width: 14, marginLeft: -space[1.5], marginRight: -space[1.5], alignItems: "center", ...({ cursor: "grab" } as object) }}
+                        >
+                          <Icon name="GripVertical" size={14} color={colors.foregroundMuted} />
+                        </View>
+                      ) : undefined
+                    }
                     trailing={
                       <View style={{ flexDirection: "row", alignItems: "center", gap: 2 }}>
                         {p.archivedAt && <Badge>Archived</Badge>}
-                        {touch && projects.length > 1 ? (
+                        {touch && projects.length > 1 && (
                           <>
                             <IconButton icon="ChevronUp" size={36} label={`Move ${p.title} up`} disabled={index === 0 || pending} onPress={() => reorderProject(p.id, { direction: "up" })} />
                             <IconButton icon="ChevronDown" size={36} label={`Move ${p.title} down`} disabled={index === projects.length - 1 || pending} onPress={() => reorderProject(p.id, { direction: "down" })} />
                           </>
-                        ) : projects.length > 1 ? (
-                          <View accessibilityLabel="Drag to reorder" style={{ paddingHorizontal: 4, ...({ cursor: "grab" } as object) }}>
-                            <Icon name="GripVertical" size={14} color={colors.foregroundMuted} />
-                          </View>
-                        ) : null}
+                        )}
                       </View>
                     }
                     onPress={() => {
