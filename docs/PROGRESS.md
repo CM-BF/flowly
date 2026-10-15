@@ -1,5 +1,15 @@
 # Implementation progress
 
+## Project insights — 2026-10-16
+
+- [x] Card request "项目整体天级统计、变更总结" / "为项目增加一个project级别的统计、总结、insight的功能". User chose purpose A (daily review and planning the day) and approved an untrimmed flow log; then "先这么实现看看". Wrote [insights spec](PROJECT-INSIGHTS-SPEC.md).
+- [x] Daemon: `flow/<projectId>.jsonl` appended after each board commit (notes not stored), reconciled from the board at startup and before each read (first run backfilled 533 events); card delete rewrites it with a `removed/` backup, project remove moves it to `removed/`. Rule A1 resumes undone by A1r are ignored (not rework, no new review wait).
+- [x] `insights.project` (etag): day stats in the client's time zone, 7-day averages and trend, lane dwell medians, In review / Blocked waits, rules R1–R7, git commits (root + first-level child repos, `git log --all --numstat`). `insights.digest` / `insights.digest-refresh`: LLM daily digest in `digests.json` (60 days per project), auto for past days when *Daily digest* is on, run in the project root's workspace (else the latest card workspace) and archived in `finally`.
+- [x] Client: *Insights* chip in the overview bar and shortcut I; page with day navigation, number tiles, Waiting on you, Suggestions, Summary, Last 7 days; Esc / ‹ Board returns. *Daily digest* toggle in settings.
+- [x] PASS: typecheck; `npm test` 308 passed / 63 skipped (new insights, flow-log, git-stats, digest and service tests); plugin reloaded; analysis checked against this board's real data.
+- [x] Luna UI acceptance (session `bceb36e5`, worker `03d2ee59`) in a headless app.paseo.sh client, 1440×900 and 390×844 light/dark: 9 PASS, 1 FAIL (Commits tile hid its average behind the line delta), fixed afterwards (hint and average share the line). Digest generated with Haiku 5.5 and its sessions archived; fixtures cleaned. [Verification](verification/project-insights.md).
+- [ ] UNRUN: digest model-error paths; Electron window and a physical phone; re-screenshot after the tile fix.
+
 ## Ideas cards — 2026-10-15
 
 - [x] Card request "agent执行过程中根据现状提供下一步计划，在任务中提议下一步可以做的任务，用户觉得好可以点击idea卡片创建新的任务卡片并把上下文带进去". User chose: ideas come from the working agent via a tool (A), show on the source card's drawer plus a card badge (A), and Create task opens the prefilled new-task form (A); then "直接实现，不审阅方案". Wrote [ideas spec](IDEAS-SPEC.md). Baseline commit of the prior working tree first (the repository already existed, so no re-init).

@@ -1,0 +1,205 @@
+{
+  "startedAt": "2026-10-15T21:39:58.896Z",
+  "provider": "codex/gpt-6-luna",
+  "modeIdAtCreation": "full-access",
+  "directory": "/var/folders/0b/f1crzdg95g5fwbq49s_3pw9c0000gq/T/paseo-project-insights-FauNA8",
+  "project": {
+    "id": "ab61444b-e2eb-4aa6-b5a8-3bdc12856fa8",
+    "title": "Project Insights a1db61b8",
+    "description": "Disposable Project Insights acceptance fixture.",
+    "paseoProjectId": "prj_28d35f86304b62a7",
+    "primaryPath": "/private/var/folders/0b/f1crzdg95g5fwbq49s_3pw9c0000gq/T/paseo-project-insights-FauNA8",
+    "repos": [
+      "/private/var/folders/0b/f1crzdg95g5fwbq49s_3pw9c0000gq/T/paseo-project-insights-FauNA8"
+    ],
+    "revision": 1,
+    "createdAt": "2026-10-15T21:40:02.122Z",
+    "updatedAt": "2026-10-15T21:40:02.122Z",
+    "archivedAt": null
+  },
+  "cards": [
+    {
+      "id": "68936876-7dc1-4153-9b34-19393409715a",
+      "workspaceId": "wks_beaad3a5f3bf0b0b",
+      "title": "Insights review flow card",
+      "initialStatus": "todo",
+      "priority": "normal"
+    },
+    {
+      "id": "5fb32215-a478-4e44-be73-ec1660a7c29c",
+      "workspaceId": "wks_5c12e14a57ce573a",
+      "title": "Insights completed card",
+      "initialStatus": "todo",
+      "priority": "normal"
+    },
+    {
+      "id": "9d64a04f-41e5-48e6-a490-df778aa9e7ce",
+      "workspaceId": "wks_0a06575e8fc194e9",
+      "title": "Insights urgent next card",
+      "initialStatus": "todo",
+      "priority": "urgent"
+    },
+    {
+      "id": "d30d915d-f0c4-4a5c-ae44-e400662ad282",
+      "workspaceId": "wks_e51a4ce25f34540f",
+      "title": "Insights second review card",
+      "initialStatus": "todo",
+      "priority": "normal"
+    }
+  ],
+  "testSessionId": "03d2ee59-2b2e-4936-9e8b-4a95acf71121",
+  "cleanup": {},
+  "gitHead": "590c05f182df0dd6ebb9b0be78f2fadf0b933fab",
+  "gitLog": "590c05f Revise sample source\na034747 Add sample source file\n643e810 Add fixture README",
+  "testSessionSetup": "idle",
+  "today": "2026-10-16",
+  "tz": "Asia/Singapore",
+  "insightsSnapshot": {
+    "etag": "QIfiSWZ4X6EMc7PecXkJSoRFwtg",
+    "value": {
+      "day": "2026-10-16",
+      "today": "2026-10-16",
+      "stats": {
+        "created": 4,
+        "done": 1,
+        "cancelled": 0,
+        "reopened": 0,
+        "rework": 1,
+        "turns": {
+          "completed": 1,
+          "failed": 0,
+          "canceled": 0
+        },
+        "agentMs": 9825,
+        "peakSessions": 1,
+        "questions": 0,
+        "permissions": 0,
+        "ideas": 0,
+        "ideasAccepted": 0,
+        "lanes": {
+          "in_review": 2,
+          "done": 1,
+          "todo": 1
+        },
+        "commits": 3,
+        "added": 7,
+        "deleted": 1
+      },
+      "average": {
+        "created": 0,
+        "done": 0,
+        "rework": 0,
+        "turns": 0,
+        "agentMs": 0,
+        "commits": 0
+      },
+      "trend": [
+        {
+          "day": "2026-10-10",
+          "created": 0,
+          "done": 0,
+          "work": 0
+        },
+        {
+          "day": "2026-10-11",
+          "created": 0,
+          "done": 0,
+          "work": 0
+        },
+        {
+          "day": "2026-10-12",
+          "created": 0,
+          "done": 0,
+          "work": 0
+        },
+        {
+          "day": "2026-10-13",
+          "created": 0,
+          "done": 0,
+          "work": 0
+        },
+        {
+          "day": "2026-10-14",
+          "created": 0,
+          "done": 0,
+          "work": 0
+        },
+        {
+          "day": "2026-10-15",
+          "created": 0,
+          "done": 0,
+          "work": 0
+        },
+        {
+          "day": "2026-10-16",
+          "created": 4,
+          "done": 1,
+          "work": 0
+        }
+      ],
+      "dwell": {
+        "todo": 5,
+        "development": 6,
+        "in_review": 6
+      },
+      "review": [
+        {
+          "taskId": "68936876-7dc1-4153-9b34-19393409715a",
+          "since": "2026-10-15T21:40:02.323Z"
+        },
+        {
+          "taskId": "d30d915d-f0c4-4a5c-ae44-e400662ad282",
+          "since": "2026-10-15T21:40:03.531Z"
+        }
+      ],
+      "blocked": [],
+      "insights": [
+        {
+          "rule": "R7",
+          "severity": "info",
+          "text": "Nothing is running. Next up: “Insights urgent next card”.",
+          "taskIds": [
+            "9d64a04f-41e5-48e6-a490-df778aa9e7ce"
+          ]
+        }
+      ],
+      "git": {
+        "repos": 1,
+        "error": null,
+        "topFiles": [
+          {
+            "path": "src.txt",
+            "changes": 6,
+            "commits": 2
+          },
+          {
+            "path": "README.md",
+            "changes": 2,
+            "commits": 1
+          }
+        ]
+      },
+      "incomplete": 0
+    }
+  },
+  "digestBefore": {
+    "entry": null,
+    "running": false,
+    "error": null,
+    "enabled": true,
+    "empty": false
+  },
+  "nativeProjectId": "prj_28d35f86304b62a7",
+  "projectRevision": 1,
+  "revisions": {
+    "68936876-7dc1-4153-9b34-19393409715a": 7,
+    "5fb32215-a478-4e44-be73-ec1660a7c29c": 3,
+    "9d64a04f-41e5-48e6-a490-df778aa9e7ce": 1,
+    "d30d915d-f0c4-4a5c-ae44-e400662ad282": 2
+  },
+  "cleanupEvidence": "cleanup-evidence.json",
+  "digestSessions": [
+    "2e5ceaac-b43f-4bd2-9d85-442d5e1694ae",
+    "9c98cba1-7c79-4006-85b8-242600e1d26d"
+  ]
+}

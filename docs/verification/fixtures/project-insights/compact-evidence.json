@@ -1,0 +1,72 @@
+{
+  "startedAt": "2026-10-15T21:50:18.024Z",
+  "viewport": {
+    "width": 390,
+    "height": 844
+  },
+  "method": "Playwright headless Chromium 1.63, isolated context, local-network-access granted only to https://app.paseo.sh",
+  "checks": {
+    "insightsEntryVisible": true,
+    "compactLight": {
+      "metrics": {
+        "innerWidth": 390,
+        "docWidth": 390,
+        "bodyWidth": 390
+      },
+      "noHorizontalOverflow": true,
+      "tileLabels": [
+        {
+          "label": "Done: 1, 7-day average 0",
+          "y": 199
+        },
+        {
+          "label": "New: 4, 7-day average 0",
+          "y": 199
+        },
+        {
+          "label": "Rework: 1, 7-day average 0",
+          "y": 199
+        },
+        {
+          "label": "Turns: 1, 7-day average 0",
+          "y": 295
+        },
+        {
+          "label": "Agent time: 10s, 7-day average 0",
+          "y": 295
+        },
+        {
+          "label": "Commits: 3, 7-day average 0",
+          "y": 295
+        }
+      ],
+      "tilesWrap": true,
+      "trendCollapsedByDefault": true
+    },
+    "headerControls": {
+      "back": true,
+      "previous": true,
+      "next": true
+    },
+    "compactPreviousUsable": true,
+    "compactNextUsable": true,
+    "compactTrendOpens": true,
+    "compactDark": {
+      "metrics": {
+        "innerWidth": 390,
+        "docWidth": 390,
+        "bodyWidth": 390,
+        "background": "rgb(24, 27, 26)"
+      },
+      "noHorizontalOverflow": true
+    }
+  },
+  "screenshots": [
+    "board-compact-light.png",
+    "insights-compact-light.png",
+    "insights-compact-dark.png"
+  ],
+  "consoleErrors": [],
+  "pageErrors": [],
+  "finishedAt": "2026-10-15T21:50:23.238Z"
+}

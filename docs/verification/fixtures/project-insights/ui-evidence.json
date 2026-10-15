@@ -1,0 +1,95 @@
+{
+  "startedAt": "2026-10-15T21:47:14.787Z",
+  "method": "Playwright headless Chromium 1.63, isolated context, local-network-access granted only to https://app.paseo.sh",
+  "checks": {
+    "overviewChipVisible": true,
+    "tiles": {
+      "expected": {
+        "Done": "1",
+        "New": "4",
+        "Rework": "1",
+        "Turns": "1",
+        "Commits": "3"
+      },
+      "matched": {
+        "Done": true,
+        "New": true,
+        "Rework": true,
+        "Turns": true,
+        "Commits": true
+      },
+      "agentTimeShown": true,
+      "sevenDayAveragesShown": true,
+      "accessibilityTileLabels": [
+        "Done: 1, 7-day average 0",
+        "New: 4, 7-day average 0",
+        "Rework: 1, 7-day average 0",
+        "Turns: 1, 7-day average 0",
+        "Agent time: 10s, 7-day average 0",
+        "Commits: 3, 7-day average 0"
+      ]
+    },
+    "waitingRows": {
+      "reviewCard": true,
+      "secondReviewCard": true,
+      "waitedDuration": true
+    },
+    "r7": {
+      "expected": "Nothing is running. Next up: “Insights urgent next card”.",
+      "matched": true,
+      "urgentCardListed": true
+    },
+    "waitingRowVisible": true,
+    "waitingRowOpensCard": true,
+    "r7OpensCard": true,
+    "dayNavigationYesterday": {
+      "showsYesterday": true,
+      "waitingHidden": true,
+      "suggestionsHidden": true
+    },
+    "dayNavigationToday": {
+      "returnedToToday": true,
+      "nextDisabled": true
+    },
+    "digestGeneratingObserved": "UNRUN this pass; summary had already been generated in the previous run.",
+    "digest": {
+      "headlineOrError": "Updated 2m ago · Haiku 5.5",
+      "groupedBullets": [
+        "Done",
+        "Progressed",
+        "Issues",
+        "Next"
+      ],
+      "updatedModel": true,
+      "generatingEnded": true,
+      "emptyNoActivity": false,
+      "generatedInThisPass": false
+    },
+    "digestCardLinkVisible": true,
+    "digestCardLinkOpensCard": true,
+    "lastSevenDays": {
+      "sectionOpen": true,
+      "topFiles": true,
+      "medians": true,
+      "bars": true
+    },
+    "boardReturnButton": true,
+    "keyboardIToggle": true,
+    "escapeReturn": true
+  },
+  "screenshots": [
+    "board-desktop-light.png",
+    "insights-desktop-light.png",
+    "waiting-card-drawer-desktop-light.png",
+    "r7-card-drawer-desktop-light.png",
+    "digest-desktop-light.png",
+    "digest-card-drawer-desktop-light.png",
+    "trend-desktop-light.png",
+    "keyboard-board-return-desktop-light.png",
+    "ui-error-state.png"
+  ],
+  "consoleErrors": [],
+  "pageErrors": [],
+  "error": "locator.click: Timeout 10000ms exceeded.\nCall log:\n\u001b[2m  - waiting for getByRole('button', { name: /Project insights/ })\u001b[22m\n\n    at /Users/bofan.wang/Developer/personal/paseo-utlra-kanban/docs/verification/fixtures/project-insights/ui-check.mjs:123:96\n    at async file:///Users/bofan.wang/Developer/personal/paseo-utlra-kanban/docs/verification/fixtures/project-insights/ui-check.mjs:123:3",
+  "finishedAt": "2026-10-15T21:47:38.533Z"
+}

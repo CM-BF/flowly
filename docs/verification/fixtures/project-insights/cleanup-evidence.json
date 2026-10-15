@@ -1,0 +1,94 @@
+{
+  "startedAt": "2026-10-15T21:52:35.387Z",
+  "fixtureIds": {
+    "project": "ab61444b-e2eb-4aa6-b5a8-3bdc12856fa8",
+    "nativeProject": "prj_28d35f86304b62a7",
+    "testSession": "03d2ee59-2b2e-4936-9e8b-4a95acf71121",
+    "cards": [
+      "68936876-7dc1-4153-9b34-19393409715a",
+      "5fb32215-a478-4e44-be73-ec1660a7c29c",
+      "9d64a04f-41e5-48e6-a490-df778aa9e7ce",
+      "d30d915d-f0c4-4a5c-ae44-e400662ad282"
+    ],
+    "workspaces": [
+      "wks_beaad3a5f3bf0b0b",
+      "wks_5c12e14a57ce573a",
+      "wks_0a06575e8fc194e9",
+      "wks_e51a4ce25f34540f"
+    ],
+    "directory": "/var/folders/0b/f1crzdg95g5fwbq49s_3pw9c0000gq/T/paseo-project-insights-FauNA8"
+  },
+  "checks": {
+    "fixtureOwnedBeforeRemoval": true,
+    "flowContainsEveryFixtureCard": true,
+    "flowContainsTransitions": true,
+    "testSessionArchived": true,
+    "flowMovedToRemoved": true,
+    "tempDirectoryRemoved": true,
+    "ownedRemovedBackupsDeleted": true,
+    "boardProjectAbsent": true,
+    "boardCardsAbsent": true,
+    "nativeProjectAbsent": true,
+    "fixtureWorkspacesAbsent": true,
+    "testSessionArchivedAfterRemoval": true,
+    "flowBackupDeleted": true
+  },
+  "errors": [],
+  "digestSessions": [
+    {
+      "id": "2e5ceaac-b43f-4bd2-9d85-442d5e1694ae",
+      "name": "Kanban digest · Project Insights a1db61b8 · 2026-10-16",
+      "status": "closed",
+      "archived": true,
+      "labels": {
+        "ultra-kanban": "summarizer",
+        "ultra-kanban-project": "ab61444b-e2eb-4aa6-b5a8-3bdc12856fa8"
+      }
+    },
+    {
+      "id": "9c98cba1-7c79-4006-85b8-242600e1d26d",
+      "name": "Kanban digest · Project Insights a1db61b8 · 2026-10-16",
+      "status": "closed",
+      "archived": true,
+      "labels": {
+        "ultra-kanban": "summarizer",
+        "ultra-kanban-project": "ab61444b-e2eb-4aa6-b5a8-3bdc12856fa8"
+      }
+    }
+  ],
+  "flow": {
+    "sourcePath": "/Users/bofan.wang/.paseo/plugin-data/paseo-ultra-kanban/flow/ab61444b-e2eb-4aa6-b5a8-3bdc12856fa8.jsonl",
+    "lineCount": 16,
+    "eventActions": {
+      "created": 4,
+      "status_changed": 9,
+      "workspace_auto_archived": 1,
+      "agent.turn_started": 1,
+      "agent.turn_ended": 1
+    },
+    "fixtureTaskIds": [
+      "68936876-7dc1-4153-9b34-19393409715a",
+      "5fb32215-a478-4e44-be73-ec1660a7c29c",
+      "9d64a04f-41e5-48e6-a490-df778aa9e7ce",
+      "d30d915d-f0c4-4a5c-ae44-e400662ad282"
+    ],
+    "copiedEvidence": "flow-before-removal.jsonl"
+  },
+  "removeResult": {
+    "id": "ab61444b-e2eb-4aa6-b5a8-3bdc12856fa8",
+    "removedTasks": 4,
+    "backup": "/Users/bofan.wang/.paseo/plugin-data/paseo-ultra-kanban/removed/ab61444b-e2eb-4aa6-b5a8-3bdc12856fa8-2026-10-15T21-52-36-818Z.json",
+    "paseo": {
+      "removed": true,
+      "workspaces": 3,
+      "error": ""
+    }
+  },
+  "removedArtifacts": [
+    "/Users/bofan.wang/.paseo/plugin-data/paseo-ultra-kanban/removed/ab61444b-e2eb-4aa6-b5a8-3bdc12856fa8-2026-10-15T21-52-36-818Z.json",
+    "/Users/bofan.wang/.paseo/plugin-data/paseo-ultra-kanban/removed/ab61444b-e2eb-4aa6-b5a8-3bdc12856fa8-digests-2026-10-15T21-52-37-214Z.json",
+    "/Users/bofan.wang/.paseo/plugin-data/paseo-ultra-kanban/removed/ab61444b-e2eb-4aa6-b5a8-3bdc12856fa8-flow-2026-10-15T21-52-37-214Z.jsonl",
+    "/Users/bofan.wang/.paseo/plugin-data/paseo-ultra-kanban/removed/ab61444b-e2eb-4aa6-b5a8-3bdc12856fa8-summaries-2026-10-15T21-52-37-211Z.json"
+  ],
+  "finishedAt": "2026-10-15T21:52:37.342Z"
+}

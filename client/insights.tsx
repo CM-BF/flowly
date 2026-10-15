@@ -189,7 +189,7 @@ function Numbers({ data, compact }: { data: ProjectInsights; compact: boolean })
             {t.value}
           </Label>
           <Label muted size={font.xs} lines={1} selectable={false}>
-            {t.hint || (t.avg ? `avg ${t.avg}/day` : " ")}
+            {[t.hint, t.avg ? `avg ${t.avg}/day` : ""].filter(Boolean).join(" · ") || " "}
           </Label>
         </View>
       ))}
