@@ -130,3 +130,34 @@ export function MotionReveal({
     }]}>{children}</Animated.View>
   );
 }
+
+/**
+ * Slow breathing dot for "working" states. Static under Reduce Motion; the
+ * loop stops on unmount or when `active` turns off.
+ */
+export function PulseDot({ color, size = 8, active = true }: { color: string; size?: number; active?: boolean }) {
+  const reduced = useContext(ReduceMotion);
+  const [value] = useState(() => new Animated.Value(1));
+  useEffect(() => {
+    if (!active || reduced) {
+      value.setValue(1);
+      return;
+    }
+    const loop = Animated.loop(
+      Animated.sequence([
+        timing(value, 0.35, 800),
+        timing(value, 1, 800),
+      ]),
+    );
+    loop.start();
+    return () => {
+      loop.stop();
+      value.setValue(1);
+    };
+  }, [active, reduced, value]);
+  return (
+    <Animated.View
+      style={{ width: size, height: size, borderRadius: size / 2, backgroundColor: color, opacity: value }}
+    />
+  );
+}

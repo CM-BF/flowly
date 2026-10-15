@@ -52,7 +52,7 @@ import { SessionMarkdown } from "./session-content";
 import { coalescedRefresh, useSessionFollowTail } from "./session-follow";
 import { useSessionReads } from "./session-reads";
 import { sessionAttention } from "../shared/session-attention";
-import { MotionReveal } from "./motion";
+import { MotionReveal, PulseDot } from "./motion";
 import { composerEnterAction, createDraftBuffer, type ComposerKey } from "./session-input";
 
 export function SessionPreview({
@@ -423,7 +423,7 @@ export function SessionPreview({
           </Label>
           {state ? (
             <View style={{ flexDirection: "row", alignItems: "center", gap: space[1.5], minWidth: 0 }}>
-              <Dot color={tone} size={7} />
+              <PulseDot color={tone} size={7} active={state.active} />
               <View style={{ flexShrink: 1, minWidth: 0 }}>
                 <Label muted size={font.sm} lines={1} selectable={false}>
                   <Label size={font.sm} medium color={state.active || state.label === "Error" || state.label === "Waiting for approval" ? tone : colors.foregroundMuted} selectable={false}>

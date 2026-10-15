@@ -65,7 +65,8 @@ export function pickOutputSession(
 }
 
 const inline = (text: string) =>
-  parseSessionInline(text.replace(/!(?=\[[^\]\n]+\]\()/g, ""))
+  // Images carry no readable progress; drop them instead of leaving "Image" alt text.
+  parseSessionInline(text.replace(/!\[[^\]\n]*\]\([^)\n]*\)/g, ""))
     .map((part) => part.text)
     .join("")
     .replace(/~~/g, "");

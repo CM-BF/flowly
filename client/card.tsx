@@ -6,7 +6,7 @@ import { Badge, Dot, IconButton, Label, font, radius, relativeTime, space, tint,
 import { PriorityIcon, priorityLabels } from "./status";
 import type { Point } from "./geometry";
 import type { SessionAttentionSummary } from "../shared/session-attention";
-import { motionDuration, useMotionValue } from "./motion";
+import { PulseDot, motionDuration, useMotionValue } from "./motion";
 import { useCardOutput, type CardOutput, type OutputSession } from "./card-output";
 
 export type CardDrag = {
@@ -267,14 +267,14 @@ function OutputLine({ output, time }: { output: CardOutput; time: string }) {
   );
 }
 
-function Signal({ color, icon, text }: { color?: string; icon?: string; text: string }) {
+function Signal({ color, icon, text, pulse = false }: { color?: string; icon?: string; text: string; pulse?: boolean }) {
   const { colors } = useTheme();
   return (
     <View style={{ flexDirection: "row", alignItems: "center", gap: 5 }}>
       {icon ? (
         <Icon name={icon} size={13} color={color || colors.foregroundMuted} />
       ) : (
-        <Dot color={color || colors.foregroundMuted} size={7} />
+        <PulseDot color={color || colors.foregroundMuted} size={7} active={pulse} />
       )}
       <Label size={font.sm} muted={!color} selectable={false}>
         {text}
@@ -321,6 +321,7 @@ function CardSignals({
       items.push(
         <Signal
           key="run"
+          pulse
           color={colors.accent}
           text={summary.starting && !summary.running ? `${summary.starting} starting` : `${summary.running + summary.starting} running`}
         />,

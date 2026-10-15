@@ -62,7 +62,7 @@ test("markdown markers are removed into one line", () => {
     plainOutputText(
       "# Done\n\n- [x] Fixed `card.tsx` with **bold** and _em_\n> see [docs](https://x.y) ![shot](a.png)\n\n---\n\n| A | B |\n| --- | --- |\n| 1 | 2 |\n\n```ts\nconst hidden = 1;\n```\n~~old~~ new",
     ),
-  ).toBe("Done Fixed card.tsx with bold and em see docs shot A B 1 2 old new");
+  ).toBe("Done Fixed card.tsx with bold and em see docs A B 1 2 old new");
   expect(plainOutputText("```sh\nnpm test\n```")).toBe("npm test");
   const long = plainOutputText("word ".repeat(100), 40);
   expect(long.length).toBeLessThanOrEqual(40);
@@ -130,4 +130,14 @@ test("managed sessions win the summary; unrelated workspace chats are ignored wh
   expect(pickOutputSession(agents, "w", new Set(["kanban"]))?.id).toBe("kanban");
   expect(pickOutputSession(agents, "w", new Set())?.id).toBe("chat");
   expect(pickOutputSession(agents, "w")?.id).toBe("chat");
+});
+
+test("image-only agent messages do not become a summary", async () => {
+  const { latestAgentOutput } = await import("./card-output");
+  const entries = [
+    { timestamp: "t1", item: { type: "assistant_message", text: "Fixed the bug in parser" } },
+    { timestamp: "t2", item: { type: "assistant_message", text: "![Image](file:///tmp/a.png)" } },
+  ];
+  expect(latestAgentOutput(entries)).toEqual({ text: "Fixed the bug in parser", at: "t1" });
+  expect(latestAgentOutput([{ timestamp: "t", item: { type: "assistant_message", text: "See ![chart](x.png) above" } }])?.text).toBe("See above");
 });

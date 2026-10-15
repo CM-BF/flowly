@@ -5,6 +5,7 @@ import type { BoardEvent } from "../shared/model";
 import { Dot, Label, font, relativeTime, space, tint, touch, useTheme } from "./ui";
 import { sessionState } from "./session-state";
 import { sessionTone } from "./status";
+import { PulseDot } from "./motion";
 import type { sessionAttention } from "../shared/session-attention";
 
 /** One row of the drawer's session list group. */
@@ -62,7 +63,7 @@ export function SessionCard({
       }}
     >
       <View style={{ width: 10, alignItems: "center" }}>
-        <Dot color={tone} size={8} />
+        <PulseDot color={tone} size={8} active={state.active} />
       </View>
       <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
         <View style={{ flexDirection: "row", alignItems: "center", gap: space[2] }}>
