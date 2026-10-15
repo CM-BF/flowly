@@ -260,6 +260,7 @@ export function TaskForm({
           provider: choice.provider,
           model: choice.chosenModel,
           mode: choice.chosenMode,
+          thinking: choice.chosenThinking,
           prompt: prompt.trim(),
           operationId: `first-session-${operationId}`,
         });

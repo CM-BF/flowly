@@ -255,6 +255,13 @@ Verified live: collapse widths 280→141→89→48→44 and expand 44→111→18
 - Fix: the board, session view and task form each saved the whole `board-view` document against the revision they last saw, and ignored `save()` returning false on a conflict. So one write could silently undo another (e.g. the sort lost when the last project or send behavior was saved). All writes now go through `useBoardView().update(patch)`. It merges the patch into the latest stored values, reloads and retries on a revision conflict (up to 4 attempts), and shows the change immediately until the stored values agree, reverting if it cannot be stored. The merge/retry logic (`saveMerged`) is unit-tested.
 - Verified live: setting sort Priority, search "kanban", priority High and Show archived all survived a reload (3 active filters, search field restored); the user's original sort (Recent activity, no filters) was then restored and confirmed after another reload.
 
+## 7z. Reasoning effort when creating an agent (2026-10-15, user request)
+
+- The shared agent picker (New session, and New task → Start an agent now) has a Reasoning row between Model and Permissions. It lists the chosen model's own `thinkingOptions`. The first entry, "Model default (…)", names the model's default. It is hidden for models without options and resets when the provider or model changes (an unknown choice falls back to the default).
+- The choice is sent as `config.thinkingOptionId` when the session is created (both creation paths). The remembered defaults (the newest session in the project's card workspaces) now include its reasoning option.
+- Verified e2e with a disposable worktree card: the picker offered Model default (Medium), Off, Low, Medium, High, Extra High, Max and Ultra Code for Haiku 5.5. Choosing Low created a session that `paseo agent inspect` reports as `Thinking low` (model claude-haiku-5-5, mode bypassPermissions). Fixture wrapped up: session and card archived, worktree removed, test branch deleted.
+- Observed once: the first attempt failed to create the worktree with "Cannot determine the selected repository's current named branch" (`git symbolic-ref HEAD` failed in the daemon), although the repository was on `main`. An immediate retry succeeded, and nothing was left behind. Not reproduced.
+
 ## 8. Acceptance
 
 | Check | Expected |

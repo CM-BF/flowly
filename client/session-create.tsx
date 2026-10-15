@@ -96,6 +96,7 @@ export function SessionCreate({
         provider,
         chosen,
         chosenMode,
+        choice.chosenThinking,
         newTitle,
         newPrompt,
         ordinary,
@@ -146,6 +147,7 @@ export function SessionCreate({
             ? { mcpServers: { "ultra-kanban": preparation.mcp } }
             : {}),
           ...(chosenMode ? { modeId: chosenMode } : {}),
+          ...(choice.chosenThinking ? { thinkingOptionId: choice.chosenThinking } : {}),
         },
         ...(preparation
           ? {

@@ -6,7 +6,7 @@ import { Label, font, space } from "./ui";
 import { PickerGroup, PickerRow } from "./picker";
 import { modelOptions, providerOptions } from "./options";
 
-export type AgentDefaults = { provider: string; model: string; mode: string } | null | undefined;
+export type AgentDefaults = { provider: string; model: string; mode: string; thinking?: string } | null | undefined;
 
 /**
  * Provider / model / permission choice shared by "New session" and "New task
@@ -17,7 +17,8 @@ export function useAgentChoice({ enabled, cwd, defaults }: { enabled: boolean; c
   const paseo = usePaseo();
   const [provider, setProviderState] = useState(defaults?.provider || "codex"),
     [model, setModel] = useState(defaults?.model || ""),
-    [mode, setMode] = useState(defaults?.mode || "");
+    [mode, setMode] = useState(defaults?.mode || ""),
+    [thinking, setThinking] = useState(defaults?.thinking || "");
   const providers = useQuery({
     queryKey: ["ultra", "providers"],
     queryFn: () => paseo.providers.listAvailable(),
@@ -54,6 +55,7 @@ export function useAgentChoice({ enabled, cwd, defaults }: { enabled: boolean; c
       setProviderState(available.find((p) => p.provider === "codex")?.provider || available[0].provider);
       setModel("");
       setMode("");
+      setThinking("");
     }
   }, [providers.data, provider]);
   const selectable = (models.data?.models || []).filter((m) => m.isSelectable !== false);
@@ -62,6 +64,10 @@ export function useAgentChoice({ enabled, cwd, defaults }: { enabled: boolean; c
     selectable.find((m) => m.isDefault)?.id ||
     selectable[0]?.id ||
     "";
+  // Reasoning effort: the model's own options; "" keeps the model default.
+  const thinkingOptions = selectable.find((m) => m.id === chosenModel)?.thinkingOptions || [];
+  const defaultThinking = selectable.find((m) => m.id === chosenModel)?.defaultThinkingOptionId || "";
+  const chosenThinking = thinking && thinkingOptions.some((t) => t.id === thinking) ? thinking : "";
   const chosenMode =
     mode && (!modes.isSuccess || modes.data?.modes?.some((m) => m.id === mode)) ? mode : "";
   const providerAvailable = !!providers.data?.providers.some((p) => p.available && p.provider === provider);
@@ -72,16 +78,22 @@ export function useAgentChoice({ enabled, cwd, defaults }: { enabled: boolean; c
       setProviderState(next);
       setModel("");
       setMode("");
+      setThinking("");
     },
     setModel,
     setMode,
+    setThinking,
     reset(next: AgentDefaults) {
       setProviderState(next?.provider || "codex");
       setModel(next?.model || "");
       setMode(next?.mode || "");
+      setThinking(next?.thinking || "");
     },
     chosenModel,
     chosenMode,
+    chosenThinking,
+    thinkingOptions,
+    defaultThinking,
     providers,
     providerInfo,
     models,
@@ -98,8 +110,9 @@ export function useAgentChoice({ enabled, cwd, defaults }: { enabled: boolean; c
 export type AgentChoice = ReturnType<typeof useAgentChoice>;
 
 export function AgentPicker({ choice, disabled = false }: { choice: AgentChoice; disabled?: boolean }) {
-  const [picker, setPicker] = useState<"provider" | "model" | "mode" | null>(null);
-  const toggle = (next: "provider" | "model" | "mode") => setPicker(picker === next ? null : next);
+  const [picker, setPicker] = useState<"provider" | "model" | "thinking" | "mode" | null>(null);
+  const toggle = (next: "provider" | "model" | "thinking" | "mode") => setPicker(picker === next ? null : next);
+  const defaultLabel = choice.thinkingOptions.find((t) => t.id === choice.defaultThinking)?.label;
   return (
     <View style={{ gap: space[1.5] }}>
       <Label medium size={font.sm} muted>
@@ -137,6 +150,26 @@ export function AgentPicker({ choice, disabled = false }: { choice: AgentChoice;
             setPicker(null);
           }}
         />
+        {choice.thinkingOptions.length > 0 && (
+          <PickerRow
+            title="Reasoning"
+            icon="Brain"
+            open={picker === "thinking"}
+            disabled={disabled}
+            loading={false}
+            value={choice.chosenThinking}
+            placeholder={defaultLabel ? `Model default (${defaultLabel})` : "Model default"}
+            options={[
+              { value: "", label: defaultLabel ? `Model default (${defaultLabel})` : "Model default", detail: "Use the model's default reasoning effort" },
+              ...choice.thinkingOptions.map((t) => ({ value: t.id, label: t.label, detail: t.description })),
+            ]}
+            onToggle={() => toggle("thinking")}
+            onChange={(t) => {
+              choice.setThinking(t);
+              setPicker(null);
+            }}
+          />
+        )}
         <PickerRow
           title="Permissions"
           icon="ShieldCheck"

@@ -103,7 +103,7 @@ export async function launchKanbanSession(
     }>;
   },
   task: { id: string; title: string; workspaceId: string },
-  choice: { provider: string; model: string; mode: string; title?: string; prompt?: string; operationId: string },
+  choice: { provider: string; model: string; mode: string; thinking?: string; title?: string; prompt?: string; operationId: string },
 ) {
   const scope = await deps.contextRead({ id: task.id });
   if (!scope.available) throw new Error(scope.reason);
@@ -116,6 +116,7 @@ export async function launchKanbanSession(
       systemPrompt: preparation.instructions,
       mcpServers: { "ultra-kanban": preparation.mcp },
       ...(choice.mode ? { modeId: choice.mode } : {}),
+      ...(choice.thinking ? { thinkingOptionId: choice.thinking } : {}),
     },
     env: {
       ULTRA_KANBAN_CONTEXT_FILE: preparation.contextFile,

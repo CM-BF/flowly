@@ -120,6 +120,7 @@ export function lastSessionSettings(
     provider: string;
     model: string | null;
     currentModeId?: string | null;
+    thinkingOptionId?: string | null;
   }[],
   workspaceIds: ReadonlySet<string>,
 ) {
@@ -127,6 +128,6 @@ export function lastSessionSettings(
     .filter((a) => !a.archivedAt && !!a.workspaceId && workspaceIds.has(a.workspaceId))
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0];
   return latest
-    ? { provider: latest.provider, model: latest.model || "", mode: latest.currentModeId || "" }
+    ? { provider: latest.provider, model: latest.model || "", mode: latest.currentModeId || "", thinking: latest.thinkingOptionId || "" }
     : null;
 }

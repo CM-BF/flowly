@@ -58,10 +58,10 @@ test("last session settings come from the newest active session in a card worksp
   const base = { archivedAt: null, provider: "codex", model: "m1", currentModeId: "full-access" };
   expect(lastSessionSettings([
     { ...base, workspaceId: "wa", createdAt: "2026-10-01T00:00:00Z" },
-    { ...base, workspaceId: "wb", createdAt: "2026-10-03T00:00:00Z", provider: "claude", model: "sonnet" },
+    { ...base, workspaceId: "wb", createdAt: "2026-10-03T00:00:00Z", provider: "claude", model: "sonnet", thinkingOptionId: "high" },
     { ...base, workspaceId: "elsewhere", createdAt: "2026-10-05T00:00:00Z", provider: "x" },
     { ...base, workspaceId: "wa", createdAt: "2026-10-06T00:00:00Z", archivedAt: "2026-10-07T00:00:00Z", provider: "y" },
-  ], new Set(["wa", "wb"]))).toEqual({ provider: "claude", model: "sonnet", mode: "full-access" });
+  ], new Set(["wa", "wb"]))).toEqual({ provider: "claude", model: "sonnet", mode: "full-access", thinking: "high" });
   expect(lastSessionSettings([], new Set())).toBeNull();
 });
 
