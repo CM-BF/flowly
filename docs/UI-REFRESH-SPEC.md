@@ -68,6 +68,14 @@ Status: authorized by the user's 2026-10-14 request to redesign the whole Kanban
 - **Status-change flash**: when a card's status differs from the previous board snapshot (often an automatic A1 move or another client), the card shows a 1.5pt accent border with a 6% accent wash that fades in quickly and out over ~0.9s, then clears after 1.6s. Never on first load; each flash owns its timer; reduce-motion snaps; timers cleared on unmount.
 - **Activity**: routine turn start/end records are hidden from the timeline (they still drive rules and markers); failed turns, questions (shown as "asked", full text emphasized) and rule changes ("Auto" badge with reason) are shown.
 
+## 7f. Session archive / restore in the drawer (2026-10-15, user request)
+
+- The public SDK exposes `agent.archive()` but no unarchive; the daemon restores an archived agent when it receives a prompt (Paseo's own behaviour). The plugin follows that model.
+- Session detail header: "Archive session" icon for live sessions. Running/starting sessions ask for confirmation first (archiving interrupts the turn). Success shows a toast and returns to the card details.
+- Archived session detail: the notice says sending a message restores it; the composer stays enabled with the placeholder "Send a message to restore this session…". The ordinary send path accepts an archived target (`workspaceSession(..., "restore")`); Kanban work instructions still require a live session.
+- Drawer Sessions list shows live sessions; archived ones move to a collapsed "Archived · n" group at the bottom. The Sessions count shows live sessions.
+- Verified live with a fixture card (archive → grouped → restore by message), then wrapped up: [evidence](verification/session-archive-restore.png).
+
 ## 8. Acceptance
 
 | Check | Expected |

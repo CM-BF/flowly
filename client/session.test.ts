@@ -137,3 +137,13 @@ test("follow-up verifies workspace/scope and uses the freshly read execution sta
     ),
   ).rejects.toThrow("archived");
 });
+
+test("archived sessions accept a restoring send but not live-only writes", async () => {
+  const { workspaceSession } = await import("./session");
+  const paseo = {
+    agents: { ref: () => ({ refresh: async () => ({ agent: { id: "a", workspaceId: "w", archivedAt: "2026-10-15T00:00:00Z" } }) }) },
+  } as never;
+  await expect(workspaceSession(paseo, "a", "w", true)).rejects.toThrow(/archived/);
+  await expect(workspaceSession(paseo, "a", "w", "restore")).resolves.toMatchObject({ id: "a" });
+  await expect(workspaceSession(paseo, "a", "other", "restore")).rejects.toThrow(/different workspace/);
+});

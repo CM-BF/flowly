@@ -40,7 +40,8 @@ export async function workspaceSession(
   paseo: PaseoApi,
   agentId: string,
   workspaceId: string,
-  writable = false,
+  /** true: must be live; "restore": archived is allowed (sending restores it, as in Paseo). */
+  writable: boolean | "restore" = false,
 ) {
   const result = await paseo.agents.ref(agentId).refresh();
   const agent = result?.agent;
@@ -48,7 +49,7 @@ export async function workspaceSession(
     throw new Error(
       "Session is unavailable or belongs to a different workspace.",
     );
-  if (writable && agent.archivedAt)
+  if (writable === true && agent.archivedAt)
     throw new Error("This session is archived.");
   if (writable && agent.providerUnavailable)
     throw new Error("This session's provider is unavailable.");
@@ -66,7 +67,7 @@ export async function sendCardInstruction(
   mode: "steer" | "interrupt",
 ) {
   const [actor, scope] = await Promise.all([
-    workspaceSession(paseo, agentId, task.workspaceId, true),
+    workspaceSession(paseo, agentId, task.workspaceId, "restore"),
     contextRead({ id: task.id }),
   ]);
   if (!scope.available) throw new Error(scope.reason);

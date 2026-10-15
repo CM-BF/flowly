@@ -43,6 +43,7 @@ import { sessionAttention } from "../shared/session-attention";
 import type { SessionEntry } from "./session-link";
 import { MotionReveal } from "./motion";
 import { TaskMetadata } from "./task-metadata";
+import { Disclosure } from "./disclosure";
 import { WrapupModal } from "./wrapup";
 import { cardQuestions } from "../shared/progress";
 
@@ -94,6 +95,7 @@ export function TaskDrawer({
     [highlighted, setHighlighted] = useState(""),
     [showNew, setShowNew] = useState(false),
     [showWrapup, setShowWrapup] = useState(false),
+    [showArchived, setShowArchived] = useState(false),
     [statusMenuOpen, setStatusMenuOpen] = useState(false),
     [detailsOpen, setDetailsOpen] = useState(false),
     [sending, setSending] = useState(false),
@@ -179,6 +181,26 @@ export function TaskDrawer({
     void sessions.refetch();
   };
   const questions = cardQuestions(task, events);
+  const ordered = [...(sessions.data || [])].sort(
+    (a, b) => b.createdAt.localeCompare(a.createdAt) || a.id.localeCompare(b.id),
+  );
+  const liveSessions = ordered.filter((a) => !a.archivedAt);
+  const archivedSessions = ordered.filter((a) => !!a.archivedAt);
+  const renderSession = (a: (typeof ordered)[number], index: number) => (
+    <SessionCard
+      key={a.id}
+      agent={a}
+      events={events}
+      first={index === 0}
+      highlighted={highlighted === a.id}
+      attention={sessionAttention(a, task.id, receipts, events)}
+      readStateUnavailable={readState.isPending || readState.isError}
+      onPress={() => {
+        setSelected(a.id);
+        setError("");
+      }}
+    />
+  );
   // Routine turn start/end records drive rules and markers; the timeline shows
   // what changed or needs a person (failed turns, permission requests stay).
   const meaningful = events.filter(
@@ -402,7 +424,7 @@ export function TaskDrawer({
               <Label size={font.base} selectable>{task.description}</Label>
             )}
             <View style={{ gap: space[2] }}>
-              <SectionHeader title="Sessions" count={sessions.data?.length || 0}>
+              <SectionHeader title="Sessions" count={liveSessions.length}>
                 <Button
                   quiet
                   icon="Plus"
@@ -434,7 +456,7 @@ export function TaskDrawer({
               )}
               {sessions.isPending ? (
                 <Label muted>Loading sessions…</Label>
-              ) : !(sessions.data || []).length && !sessions.error ? (
+              ) : !liveSessions.length && !sessions.error ? (
                 <View
                   style={{
                     paddingVertical: space[5],
@@ -456,38 +478,19 @@ export function TaskDrawer({
                   </View>
                 </View>
               ) : (
-                <View
-                  style={{
-                    borderRadius: radius.lg,
-                    borderWidth: 1,
-                    borderColor: colors.border,
-                    overflow: "hidden",
-                  }}
+                <SessionGroup list={liveSessions} render={renderSession} />
+              )}
+              {archivedSessions.length > 0 && (
+                <Disclosure
+                  title={`Archived · ${archivedSessions.length}`}
+                  open={showArchived}
+                  onChange={setShowArchived}
                 >
-                  {[...(sessions.data || [])]
-                    .sort(
-                      (a, b) =>
-                        b.createdAt.localeCompare(a.createdAt) ||
-                        a.id.localeCompare(b.id),
-                    )
-                    .map((a, index) => (
-                      <SessionCard
-                        key={a.id}
-                        agent={a}
-                        events={events}
-                        first={index === 0}
-                        highlighted={highlighted === a.id}
-                        attention={sessionAttention(a, task.id, receipts, events)}
-                        readStateUnavailable={
-                          readState.isPending || readState.isError
-                        }
-                        onPress={() => {
-                          setSelected(a.id);
-                          setError("");
-                        }}
-                      />
-                    ))}
-                </View>
+                  <Label muted size={font.sm}>
+                    Open one and send a message to restore it.
+                  </Label>
+                  <SessionGroup list={archivedSessions} render={renderSession} />
+                </Disclosure>
               )}
             </View>
             <TaskMetadata
@@ -691,6 +694,22 @@ function ActivityItem({
           {relativeTime(event.at)}
         </Label>
       </View>
+    </View>
+  );
+}
+
+function SessionGroup<T>({ list, render }: { list: T[]; render(item: T, index: number): ReactNode }) {
+  const { colors } = useTheme();
+  return (
+    <View
+      style={{
+        borderRadius: radius.lg,
+        borderWidth: 1,
+        borderColor: colors.border,
+        overflow: "hidden",
+      }}
+    >
+      {list.map(render)}
     </View>
   );
 }

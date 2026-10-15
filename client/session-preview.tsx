@@ -9,6 +9,7 @@ import {
   ScrollView,
   Icon,
   TextInput,
+  useToast,
 } from "@getpaseo/plugin/client/react-native";
 import { Modal } from "./modal";
 import { useShortcutBlock } from "./shortcuts";
@@ -34,6 +35,7 @@ import {
   touch,
   useTheme,
   Theme,
+  Actions,
   message,
   tint,
   verticalScroll,
@@ -96,6 +98,7 @@ export function SessionPreview({
     prepareExisting = useRpc(rpc.prepareExisting),
     accessRead = useRpc(rpc.accessState);
   const reads = useSessionReads();
+  const toast = useToast();
   const [draftBuffer] = useState(() => createDraftBuffer(draft));
   draftBuffer.sync(draft);
   const [sending, setSending] = useState(false),
@@ -105,6 +108,7 @@ export function SessionPreview({
     [inputHeight, setInputHeight] = useState(36),
     [focused, setFocused] = useState(false),
     [composerOpen, setComposerOpen] = useState(false),
+    [confirmArchive, setConfirmArchive] = useState(false),
     [sendMode, setSendMode] = useState<"steer" | "interrupt">("steer");
   useShortcutBlock(focused);
   const lock = useRef(false);
@@ -192,7 +196,6 @@ export function SessionPreview({
   const canWrite =
     visible &&
     !!active &&
-    !active.archivedAt &&
     !active.providerUnavailable &&
     !unavailable &&
     !current.isError &&
@@ -214,6 +217,19 @@ export function SessionPreview({
       lock.current = false;
       endOperation(sessionId);
       setSending(false);
+    }
+  }
+  async function archiveSession() {
+    setConfirmArchive(false);
+    let archived = false;
+    await perform(async () => {
+      await workspaceSession(paseo, sessionId, task.workspaceId);
+      await agent.archive();
+      archived = true;
+    });
+    if (archived && mounted.current) {
+      toast.show("Session archived. Send it a message later to restore it.", { variant: "success" });
+      onBack();
     }
   }
   async function submitInstruction() {
@@ -320,7 +336,13 @@ export function SessionPreview({
               }}
               scrollEnabled
               editable={canWrite}
-              placeholder={compact ? "Message this session…" : "Tell this session what to do next…"}
+              placeholder={
+                active.archivedAt
+                  ? "Send a message to restore this session…"
+                  : compact
+                    ? "Message this session…"
+                    : "Tell this session what to do next…"
+              }
               placeholderTextColor={colors.foregroundMuted}
               style={{
                 flex: 1,
@@ -467,6 +489,18 @@ export function SessionPreview({
             onPress={() => setShowTools(!showTools)}
           />
         )}
+        {active && !active.archivedAt && (
+          <IconButton
+            icon="Archive"
+            label="Archive session"
+            disabled={!visible || busy}
+            onPress={() =>
+              active.status === "running" || active.status === "initializing"
+                ? setConfirmArchive(true)
+                : void archiveSession()
+            }
+          />
+        )}
         {typeof navigation?.openAgent === "function" && (
           <IconButton
             icon="ArrowUpRight"
@@ -596,7 +630,7 @@ export function SessionPreview({
             )}
             {!!active.archivedAt && (
               <Notice tone="info">
-                This session is archived. Its preview is read-only.
+                This session is archived. Sending a message restores it and continues the conversation.
               </Notice>
             )}
             {reads.query.error && <Notice>{message(reads.query.error)}</Notice>}
@@ -695,7 +729,11 @@ export function SessionPreview({
               >
                 <View style={{ flex: 1, minWidth: 0 }}>
                   <Label size={font.base} lines={1} muted={!draft.trim()} selectable={false}>
-                    {draft.trim() ? draft.trim().replace(/\s+/g, " ") : "Message this session…"}
+                    {draft.trim()
+                      ? draft.trim().replace(/\s+/g, " ")
+                      : active.archivedAt
+                        ? "Send a message to restore…"
+                        : "Message this session…"}
                   </Label>
                 </View>
                 {active.status === "running" && (
@@ -731,6 +769,25 @@ export function SessionPreview({
           )}
         </View>
       )}
+      <Modal
+        open={confirmArchive && visible}
+        title="Archive running session?"
+        onOpenChange={(open) => {
+          if (!open) setConfirmArchive(false);
+        }}
+      >
+        <Modal.Content>
+          <Theme.Provider value={theme}>
+            <Label size={font.base}>
+              Archiving interrupts the current turn. The conversation is kept; send it a message later to restore it.
+            </Label>
+            <Actions>
+              <Button quiet onPress={() => setConfirmArchive(false)}>Cancel</Button>
+              <Button danger icon="Archive" onPress={() => void archiveSession()}>Archive</Button>
+            </Actions>
+          </Theme.Provider>
+        </Modal.Content>
+      </Modal>
       {sheetComposer && active && (
         <Modal
           open={composerOpen && visible}
