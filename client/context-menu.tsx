@@ -81,12 +81,13 @@ export function ContextMenuProvider({ compact, children }: { compact: boolean; c
         {children}
         {!compact && shown && (
           <>
-            <Pressable
+            {/* Only an open menu catches outside clicks; a closing one never swallows the next click. */}
+            {presence.active && <Pressable
               accessibilityLabel="Close menu"
               onPress={close}
               {...({ onContextMenu: (e: { preventDefault?(): void }) => { e.preventDefault?.(); close(); } } as object)}
               style={{ ...noFocusRing, position: "absolute", top: 0, left: 0, right: 0, bottom: 0, zIndex: 200 }}
-            />
+            />}
             <Animated.View
               accessibilityRole="menu"
               pointerEvents={presence.active ? "auto" : "none"}

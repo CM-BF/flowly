@@ -262,6 +262,13 @@ Verified live: collapse widths 280→141→89→48→44 and expand 44→111→18
 - Verified e2e with a disposable worktree card: the picker offered Model default (Medium), Off, Low, Medium, High, Extra High, Max and Ultra Code for Haiku 5.5. Choosing Low created a session that `paseo agent inspect` reports as `Thinking low` (model claude-haiku-5-5, mode bypassPermissions). Fixture wrapped up: session and card archived, worktree removed, test branch deleted.
 - Observed once: the first attempt failed to create the worktree with "Cannot determine the selected repository's current named branch" (`git symbolic-ref HEAD` failed in the daemon), although the repository was on `main`. An immediate retry succeeded, and nothing was left behind. Not reproduced.
 
+## 7aa. Smoother menu exits (2026-10-15, user report)
+
+- Exits accelerate away: retained-presence exits (menus, chip menus, picker lists, disclosures, the drawer) use ease-in (quad, 160 ms) instead of the entrance's ease-out. The old curve dropped quickly and then lingered nearly invisible before vanishing. Entrances are unchanged.
+- The context-menu backdrop exists only while the menu is open, so a closing menu no longer swallows the next click.
+- When an item is chosen, the action still runs immediately (it is not delayed). Its first frames of work now fall into the slow start of the exit, so they no longer read as a stall.
+- Measured on the Sort menu: closing by clicking outside now fades 1.00 → 0.99 → 0.96 → … → 0.17 → gone in about 190 ms. Before, it went 1.00 → 0.59 within 50 ms and then lingered near 0 until 186 ms.
+
 ## 8. Acceptance
 
 | Check | Expected |

@@ -10,6 +10,9 @@ import {
 import { AccessibilityInfo, Animated, Easing, Platform, type ViewProps } from "react-native";
 
 export const motionDuration = { feedback: 120, forward: 220, reverse: 160 } as const;
+/** Entrances decelerate into place; exits accelerate away (no lingering, near-invisible tail). */
+const enterEasing = Easing.out(Easing.cubic);
+const exitEasing = Easing.in(Easing.quad);
 const ReduceMotion = createContext(true);
 
 export function MotionProvider({ children }: { children: ReactNode }) {
@@ -33,11 +36,11 @@ export function MotionProvider({ children }: { children: ReactNode }) {
   return <ReduceMotion.Provider value={reduced}>{children}</ReduceMotion.Provider>;
 }
 
-function timing(value: Animated.Value, toValue: number, duration: number, nativeDriver = Platform.OS !== "web") {
+function timing(value: Animated.Value, toValue: number, duration: number, nativeDriver = Platform.OS !== "web", easing = enterEasing) {
   return Animated.timing(value, {
     toValue,
     duration,
-    easing: Easing.out(Easing.cubic),
+    easing,
     useNativeDriver: nativeDriver,
     isInteraction: false,
   });
@@ -90,7 +93,9 @@ export function useMotionPresence<T>(item: T | undefined | null, key: string, na
       finish();
       return () => { alive = false; };
     }
-    const animation = timing(progress, key ? 1 : 0, key ? motionDuration.forward : motionDuration.reverse, nativeDriver);
+    const animation = key
+      ? timing(progress, 1, motionDuration.forward, nativeDriver)
+      : timing(progress, 0, motionDuration.reverse, nativeDriver, exitEasing);
     animation.start(({ finished }) => { if (finished) finish(); });
     return () => {
       alive = false;

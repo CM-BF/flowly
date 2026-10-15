@@ -57,7 +57,7 @@ export function createReactNativeMotionMock() {
         return { remove: () => { motionMockState.listenerRemovals++; motionMockState.listeners.delete(listener); } };
       },
     },
-    Easing: { cubic: (value: number) => value, out: (fn: any) => fn },
+    Easing: { cubic: (value: number) => value, quad: (value: number) => value * value, out: (fn: any) => fn, in: (fn: any) => fn },
     Platform: { OS: "web" },
   };
 }
