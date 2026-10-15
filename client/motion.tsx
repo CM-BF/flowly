@@ -183,3 +183,11 @@ export function Enter({ children, distance = 6, style }: { children: ReactNode; 
 export function useReducedMotion() {
   return useContext(ReduceMotion);
 }
+
+/**
+ * Re-provides the Reduce Motion preference inside host-rendered surfaces
+ * (modals render outside this tree, where the default is "reduced").
+ */
+export function MotionBridge({ reduced, children }: { reduced: boolean; children: ReactNode }) {
+  return <ReduceMotion.Provider value={reduced}>{children}</ReduceMotion.Provider>;
+}

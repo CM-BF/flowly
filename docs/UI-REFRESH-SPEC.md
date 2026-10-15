@@ -192,6 +192,14 @@ Status: authorized by the user's 2026-10-14 request to redesign the whole Kanban
 - `sessions.mark-read` input `token` is now optional and output nullable. With no native attention it only clears a manual mark; with native attention it records the current token, and a stale provided token is still rejected. New `sessions.mark-unread`. Both go through the same live-task/session/workspace validation, serialized writes, backup and atomic replace.
 - Verified live on an existing read session: mark unread from the row (card shows 1 unread), open it (auto-read, 0), mark unread from the header while viewing (stays 1), mark read (0, the original state). Unit tests cover the store transitions and the attention computation.
 
+## 7r. Dialog open motion (2026-10-15, user request)
+
+- Every plugin dialog (New task, Edit task, New session, Projects, Filters, Attention, Status, Wrap up, menus on touch, …) goes through `client/modal.tsx`. Its content now settles in on each open: opacity 0→1 and an 8 px rise over 220 ms. On close it eases out over 160 ms while the host fades the overlay.
+- On desktop the host dialog card itself appears instantly; it is host-owned and keeps its own transitions. Only the plugin-owned content animates. On mobile the host bottom sheet keeps its slide.
+- Fix: host dialogs render outside the plugin tree, where the Reduce Motion context fell back to "reduced", so all plugin motion inside dialogs (picker rows, toggles, callouts) was silently off. `MotionBridge` now passes the real preference in. Reduce Motion still disables all of it.
+- The single wrapper view keeps the caller's `contentContainerStyle.gap` (host default 16) and fills the body for `scrollable={false}`, so layouts are unchanged.
+- Verified on desktop: frame samples for New task (twice), Filters and New session show 0→1 opacity / 8→0 px over about 200 ms; screenshots match the previous layouts.
+
 ## 8. Acceptance
 
 | Check | Expected |
