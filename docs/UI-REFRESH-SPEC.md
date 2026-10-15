@@ -243,6 +243,12 @@ Verified live: collapse widths 280→141→89→48→44 and expand 44→111→18
 - This happens once per project selection. A linked or Attention-opened card keeps its own lane, and the user's later tab choices are kept until the project changes.
 - Verified in the compact layout: Ultra Kanban (Backlog and Todo empty) opens on In progress.
 
+## 7x. Composer layout: text on top, actions below (2026-10-15, user feedback)
+
+- The session composer stacks its content: attachment thumbnails (when any), then the text area spanning the full width, then an action row with attach images on the left and send/stop on the right. Multi-line text no longer sits between bottom-aligned buttons, and the buttons stay put while the text grows.
+- One line is 28 px (20 px line + 4 px padding), clamped up to 108/160 px. The web mirror and native content size use the same padding.
+- Verified with an empty composer and a three-line CJK draft (`docs/verification/composer-multiline.png`).
+
 ## 8. Acceptance
 
 | Check | Expected |

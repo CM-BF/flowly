@@ -72,6 +72,10 @@ import { sessionAttention } from "../shared/session-attention";
 import { Enter, MotionReveal, PulseDot, motionDuration, useMotionPresence, useMotionValue } from "./motion";
 import { composerEnterAction, createDraftBuffer, type ComposerKey } from "./session-input";
 
+/** Composer text area: vertical padding and the one-line height (20 px line). */
+const inputPad = 4;
+const inputMin = 20 + 2 * inputPad;
+
 export function SessionPreview({
   task,
   sessionId,
@@ -124,7 +128,7 @@ export function SessionPreview({
   const [sending, setSending] = useState(false),
     [error, setError] = useState(""),
     [showTools, setShowTools] = useState(false),
-    [inputHeight, setInputHeight] = useState(36),
+    [inputHeight, setInputHeight] = useState(inputMin),
     [focused, setFocused] = useState(false),
     [composerOpen, setComposerOpen] = useState(false),
     [confirmArchive, setConfirmArchive] = useState(false),
@@ -401,7 +405,7 @@ export function SessionPreview({
   // (candidate bars, keyboard switches) which plugin-side keyboard events cannot.
   const sheetComposer = Platform.OS !== "web";
   const fitInput = (contentHeight: number, inSheet: boolean) => {
-    const next = Math.max(36, Math.min(compact && !inSheet ? 108 : 160, Math.ceil(contentHeight)));
+    const next = Math.max(inputMin, Math.min(compact && !inSheet ? 108 : 160, Math.ceil(contentHeight)));
     setInputHeight((current) => (current === next ? current : next));
   };
   const renderComposer = (inSheet: boolean) => {
@@ -490,11 +494,12 @@ export function SessionPreview({
           )}
           <View
             ref={inSheet ? undefined : setComposerNode}
+            // Text spans the full width; actions sit on their own row below (attach left, send right).
             style={{
-              gap: space[1.5],
-              paddingLeft: imageInputSupported ? space[1.5] : space[3],
-              paddingRight: space[1.5],
-              paddingVertical: space[1.5],
+              gap: space[1],
+              paddingHorizontal: space[1.5],
+              paddingTop: space[2],
+              paddingBottom: space[1.5],
               borderWidth: 1,
               borderColor: focused ? colors.foregroundMuted : colors.border,
               borderRadius: 18,
@@ -502,25 +507,13 @@ export function SessionPreview({
             }}
           >
             {attachments.length > 0 && (
-              <View style={{ flexDirection: "row", flexWrap: "wrap", gap: space[1.5], paddingLeft: imageInputSupported ? space[1.5] : 0 }}>
+              <View style={{ flexDirection: "row", flexWrap: "wrap", gap: space[1.5], paddingHorizontal: space[1.5], paddingTop: 2 }}>
                 {attachments.map((a) => (
                   <AttachmentThumb key={a.id} attachment={a} onRemove={() => setAttachments(attachmentsRef.current.filter((x) => x.id !== a.id))} />
                 ))}
               </View>
             )}
-            <View style={{ flexDirection: "row", alignItems: "flex-end", gap: space[2] }}>
-            {imageInputSupported && (
-              <View style={{ marginBottom: (36 - sendSize) / 2 }}>
-                <IconButton
-                  icon="ImagePlus"
-                  size={sendSize}
-                  label="Attach images"
-                  disabled={!canWrite || attachments.length >= maxImages}
-                  onPress={() => void pickImageFiles().then((files) => addImages.current(files))}
-                />
-              </View>
-            )}
-            <View style={{ flex: 1, minWidth: 0 }}>
+            <View style={{ minWidth: 0, paddingHorizontal: space[1.5] }}>
             {Platform.OS === "web" && (
               // Invisible copy of the draft at the input's width and font: its height is the input's height.
               <View pointerEvents="none" style={{ position: "absolute", left: 0, right: 0, top: 0, opacity: 0 }}>
@@ -528,7 +521,7 @@ export function SessionPreview({
                   accessibilityElementsHidden
                   importantForAccessibility="no-hide-descendants"
                   onLayout={(e) => fitInput(e.nativeEvent.layout.height, inSheet)}
-                  style={{ paddingVertical: space[2], fontSize: font.base, lineHeight: 20 }}
+                  style={{ paddingVertical: inputPad, fontSize: font.base, lineHeight: 20 }}
                 >
                   {draft ? (draft.endsWith("\n") ? `${draft} ` : draft) : " "}
                 </NativeText>
@@ -551,7 +544,7 @@ export function SessionPreview({
               onContentSizeChange={(event) => {
                 // Web: the mirror below measures instead (a textarea's scrollHeight never shrinks).
                 if (Platform.OS === "web") return;
-                fitInput(event.nativeEvent.contentSize.height + 2 * space[2], inSheet);
+                fitInput(event.nativeEvent.contentSize.height + 2 * inputPad, inSheet);
               }}
               multiline
               autoFocus={inSheet}
@@ -582,10 +575,10 @@ export function SessionPreview({
               placeholderTextColor={colors.foregroundMuted}
               style={{
                 height: inputHeight,
-                minHeight: 36,
+                minHeight: inputMin,
                 maxHeight: compact && !inSheet ? 108 : 160,
                 minWidth: 0,
-                paddingVertical: space[2],
+                paddingVertical: inputPad,
                 fontSize: font.base,
                 lineHeight: 20,
                 color: colors.foreground,
@@ -594,6 +587,18 @@ export function SessionPreview({
               } as never}
             />
             </View>
+            <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+            {imageInputSupported ? (
+              <IconButton
+                icon="ImagePlus"
+                size={sendSize}
+                label="Attach images"
+                disabled={!canWrite || attachments.length >= maxImages}
+                onPress={() => void pickImageFiles().then((files) => addImages.current(files))}
+              />
+            ) : (
+              <View />
+            )}
             {stopMode ? (
               <Pressable
                 accessibilityRole="button"
@@ -606,7 +611,6 @@ export function SessionPreview({
                     ...noFocusRing,
                     width: sendSize,
                     height: sendSize,
-                    marginBottom: (36 - sendSize) / 2,
                     alignItems: "center",
                     justifyContent: "center",
                     borderRadius: sendSize / 2,
@@ -633,7 +637,6 @@ export function SessionPreview({
                   ...noFocusRing,
                   width: sendSize,
                   height: sendSize,
-                  marginBottom: (36 - sendSize) / 2,
                   alignItems: "center",
                   justifyContent: "center",
                   borderRadius: sendSize / 2,
