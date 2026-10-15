@@ -661,14 +661,6 @@ function TaskDrawerView({
               <Label size={font.base} selectable>{task.description}</Label>
             )}
             <TaskProgress taskId={task.id} active={active} />
-            {onCreateFromIdea && onOpenTask && (
-              <TaskIdeas
-                taskId={task.id}
-                disabled={!active || !!task.archivedAt || !!project.archivedAt}
-                onCreate={onCreateFromIdea}
-                onOpenTask={onOpenTask}
-              />
-            )}
             <View style={{ gap: space[2] }}>
               <SectionHeader title="Sessions" count={liveSessions.length}>
                 <Button
@@ -739,6 +731,14 @@ function TaskDrawerView({
                 </Disclosure>
               )}
             </View>
+            {onCreateFromIdea && onOpenTask && (
+              <TaskIdeas
+                taskId={task.id}
+                disabled={!active || !!task.archivedAt || !!project.archivedAt}
+                onCreate={onCreateFromIdea}
+                onOpenTask={onOpenTask}
+              />
+            )}
             {settled && (
             // Below the sessions, so mounting them after the transition moves nothing above.
             <Enter distance={4} style={{ gap: space[5] }}>

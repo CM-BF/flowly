@@ -79,7 +79,7 @@ idea 不是任务卡：不进泳道、不占 workspace、不改来源卡状态�
 
 ### 5.2 侧栏 Ideas 区块
 
-位置：Progress 之后、Sessions 之前。卡片没有任何 idea 时整个区块不渲染。
+位置：Sessions 之后、Details 之前（2026-10-15 用户反馈：放到 Sessions 下面）。卡片没有任何 idea 时整个区块不渲染。
 
 - 标题 `Ideas`，计数为 open 数。
 - 每个 open idea 一张小卡片：标题（加粗）、类型/优先级标签（有才显示）、理由（最多 2 行）。点击卡片展开 detail 与 context（不截断）。按钮：**Create task**（主操作）、**Dismiss**（安静按钮）。
