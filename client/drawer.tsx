@@ -24,6 +24,7 @@ import {
   font,
   radius,
   relativeTime,
+  tint,
   space,
   touch,
   useTheme,
@@ -43,6 +44,7 @@ import type { SessionEntry } from "./session-link";
 import { MotionReveal } from "./motion";
 import { TaskMetadata } from "./task-metadata";
 import { WrapupModal } from "./wrapup";
+import { cardQuestions } from "../shared/progress";
 
 export function TaskDrawer({
   task,
@@ -176,6 +178,7 @@ export function TaskDrawer({
     refresh();
     void sessions.refetch();
   };
+  const questions = cardQuestions(task, events);
   // Routine turn start/end records drive rules and markers; the timeline shows
   // what changed or needs a person (failed turns, permission requests stay).
   const meaningful = events.filter(
@@ -334,6 +337,44 @@ export function TaskDrawer({
                 </View>
               </View>
             )}
+            {questions.map((q) => (
+              <View
+                key={q.id}
+                accessibilityLabel={`Question from ${sessions.data?.find((a) => a.id === q.agentId)?.title || "agent"}: ${q.note || ""}`}
+                style={{
+                  gap: space[2],
+                  padding: space[3],
+                  borderRadius: radius.lg,
+                  borderWidth: 1,
+                  borderColor: tint(colors.statusWarning, 0.4),
+                  backgroundColor: tint(colors.statusWarning, 0.07),
+                }}
+              >
+                <View style={{ flexDirection: "row", alignItems: "center", gap: space[2] }}>
+                  <Icon name="MessageCircleQuestion" size={15} color={colors.statusWarning} />
+                  <View style={{ flex: 1, minWidth: 0 }}>
+                    <Label medium size={font.sm} lines={1} selectable={false}>
+                      {sessions.data?.find((a) => a.id === q.agentId)?.title || "Agent"} needs you
+                    </Label>
+                  </View>
+                  <Label muted size={font.xs} selectable={false}>{relativeTime(q.at)}</Label>
+                </View>
+                <Label size={font.base} selectable>{q.note || "The agent asked a question."}</Label>
+                <View style={{ flexDirection: "row", justifyContent: "flex-end" }}>
+                  <Button
+                    primary
+                    icon="Reply"
+                    disabled={!active || !q.agentId}
+                    onPress={() => {
+                      if (q.agentId) setSelected(q.agentId);
+                      setError("");
+                    }}
+                  >
+                    Reply
+                  </Button>
+                </View>
+              </View>
+            ))}
             {(task.status === "done" || task.status === "cancelled") && !task.archivedAt && !project.archivedAt && (
               <View
                 style={{

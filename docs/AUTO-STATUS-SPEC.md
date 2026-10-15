@@ -16,6 +16,7 @@
 | 规则 | 触发 | 条件 | 动作 |
 | --- | --- | --- | --- |
 | **A1 开工 / 继续** | 看板管理的 session 开始一轮（`agent.turn_started`） | 卡片在 Backlog、Todo、In review、Blocked；项目 `autoStatus` 未关闭 | 状态 → In progress，task revision +1，活动 `status_changed`，actor=system，`rule="A1"`，note 标明哪个 session 开始了工作 |
+| **A1r 恢复** | 看板管理的 session 一轮结束 | 本轮由 A1 从 In review/Blocked 拉回，本轮该 session 没有任何看板报告，回合未失败，且之后没有其他状态变更 | 恢复到原状态（`rule="A1r"`），避免一句“谢谢”让已交付的卡看起来又在进行中 |
 | A2 交付 | agent 调 `kanban_update_status(in_review)` | 已有 | 不变 |
 | **M1 问题** | agent 调 `kanban_report_progress(kind="question")` | — | 不改状态；卡片显示“需要你回答”，直到该 session 开始下一轮（即你已回复）或 agent 再次报告 |
 | **M2 静默结束** | 看板管理的 session 一轮结束 | 卡片 In progress；该轮内该 session 没有任何看板报告 | 不改状态；该 session 的 Attention 项标注 “No report” |
@@ -31,6 +32,8 @@ M1、M2 由共享纯函数从活动记录推导，客户端和测试共用：
 openQuestion(agentId) = 该 agent 最近一条 kind=question 的报告晚于它最近一次 turn_started，且之后没有它的其他报告
 silentTurn(agentId)   = 卡片 In progress，该 agent 最近一次 turn_ended 晚于最近一次 turn_started，且两者之间没有它的报告
 ```
+
+卡片侧栏顶部为每个待回答问题显示提示块（提问 session、问题原文、Reply 按钮直达该 session 预览）。
 
 ## 3. 数据与兼容
 
