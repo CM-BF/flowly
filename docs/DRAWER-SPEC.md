@@ -2,6 +2,8 @@
 
 Status: authorized by the user's 2026-10-14 sidebar redesign request. This replaces the earlier drawer width buttons, flat status choices and separate workspace block in UI-UX/session specs. Single-root, session ownership and business-state rules remain current.
 
+2026-10-15 drawer dropdowns: Status, Type and Priority buttons open a dropdown anchored below the button (a sheet on phones/native) and save the chosen value directly. Supersedes the Status selector/modal described below. See [TASK-TYPE-SPEC](TASK-TYPE-SPEC.md#ui).
+
 2026-10-14 compact status-label correction: the user-provided phone capture shows the selected value as `T...`. The installed Paseo 0.11.2 `SettingsSelect` uses a `SettingsRow` whose label has `flexBasis: 160`; the plugin constrained the entire selector to at most 240 pt, leaving too little space for the value and chevron. On compact layouts, replace that row with a full-width, themed Status button showing the complete selected label, and open a host Modal containing the seven status choices. Keep the chooser collapsed until tapped and in the same header action group as Edit and Archive. Use the existing guarded task-update/CAS/toast flow for a different value; the same value makes no write. Disabled/archive/inactive/pending behavior and card/session status independence remain unchanged. Bridge the plugin theme inside `Modal.Content` for Android. Wide layouts keep the host `SettingsSelect`. Acceptance requires source/typecheck and focused compact selected-label/action/disabled checks; actual phone text visibility and modal gestures remain a separate device check, deferred under the user's code-only acceptance choice.
 
 ## Layout and behavior

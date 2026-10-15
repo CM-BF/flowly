@@ -37,7 +37,7 @@ describe.skipIf(!rendererPath)("drag motion and lane selection (synthetic render
     const drop = vi.fn();
     let drag: any;
     let tree: any;
-    act(() => { tree = create(<DesktopColumns statuses={["todo", "in_progress"]} tasks={[task]} disabled={false} cancelKey="fixture" onAdd={() => {}} onDrop={drop} renderCard={(item, callbacks) => { drag = callbacks; return <TaskCard task={item} selected={false} legacy={false} available sessions={0} running={0} drag={callbacks} onOpen={() => {}} onActions={() => {}} />; }} />); });
+    act(() => { tree = create(<DesktopColumns statuses={["todo", "development"]} tasks={[task]} disabled={false} cancelKey="fixture" onAdd={() => {}} onDrop={drop} renderCard={(item, callbacks) => { drag = callbacks; return <TaskCard task={item} selected={false} legacy={false} available sessions={0} running={0} drag={callbacks} onOpen={() => {}} onActions={() => {}} />; }} />); });
     const laneLabels = tree.root.findAllByType("Label").filter((label: any) => String(label.props.children).includes("To do") || String(label.props.children).includes("In progress"));
     expect(laneLabels.length).toBeGreaterThan(0);
     expect(laneLabels.every((label: any) => label.props.selectable === false)).toBe(true);

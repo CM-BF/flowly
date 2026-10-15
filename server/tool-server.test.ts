@@ -99,11 +99,11 @@ test("MCP initialize/list can precede actor creation; live calls require SDK con
     arguments: {
       expectedRevision: ctx.revision,
       request: ctx.request,
-      status: "in_progress",
+      status: "development",
       note: "MCP actual call",
     },
   });
-  expect(updated.result.structuredContent.receipt.status).toBe("in_progress");
+  expect(updated.result.structuredContent.receipt.status).toBe("development");
 });
 test("loopback host/origin/credential guards and scoped request validation", async () => {
   const x = await setup();
@@ -206,7 +206,7 @@ test("CLI runs a complete scoped flow; replay, wrong env, snapshots and flags", 
   expect(current.identity).toEqual(x.identity);
   const started = await cli(
     "status",
-    "in_progress",
+    "development",
     "--request-file",
     snapshot,
     "--note",
@@ -214,7 +214,7 @@ test("CLI runs a complete scoped flow; replay, wrong env, snapshots and flags", 
   );
   const replay = await cli(
     "status",
-    "in_progress",
+    "development",
     "--request-file",
     snapshot,
     "--note",

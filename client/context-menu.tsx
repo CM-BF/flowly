@@ -1,4 +1,4 @@
-import { createContext, useContext, useRef, useState, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useRef, useState, type ReactNode } from "react";
 import { Animated, Pressable, View, type GestureResponderEvent } from "react-native";
 import { Icon } from "@getpaseo/plugin/client/react-native";
 import { Modal } from "./modal";
@@ -6,11 +6,11 @@ import { Label, Row, Theme, font, noFocusRing, radius, space, touch, useTheme } 
 import { useMotionPresence } from "./motion";
 
 export type MenuEntry =
-  | { kind?: "item"; id: string; label: string; icon?: string; danger?: boolean; checked?: boolean; disabled?: boolean; onPress(): void }
+  | { kind?: "item"; id: string; label: string; icon?: string; leading?: ReactNode; danger?: boolean; checked?: boolean; disabled?: boolean; onPress(): void }
   | { kind: "separator"; id: string }
   | { kind: "label"; id: string; label: string };
 
-type Point = { x: number; y: number };
+export type Point = { x: number; y: number };
 type Opener = (at: Point, title: string, entries: MenuEntry[]) => void;
 const Context = createContext<Opener | null>(null);
 
@@ -60,10 +60,16 @@ export function ContextMenuProvider({ compact, children }: { compact: boolean; c
   const [origin, setOrigin] = useState({ x: 0, y: 0, width: 0, height: 0 });
   const seq = useRef(0);
   const presence = useMotionPresence(menu, menu ? String(menu.key) : "");
-  const open: Opener = (at, title, entries) => {
-    root.current?.measureInWindow((x, y, width, height) => setOrigin({ x, y, width, height }));
+  // Stable: it is the context value, and a new one would re-render every
+  // consumer (the whole board) on each menu open/close (PERFORMANCE-SPEC §3).
+  const compactRef = useRef(compact);
+  compactRef.current = compact;
+  const open = useCallback<Opener>((at, title, entries) => {
+    // Phones show a bottom sheet: no anchoring geometry needed.
+    if (!compactRef.current)
+      root.current?.measureInWindow((x, y, width, height) => setOrigin({ x, y, width, height }));
     setMenu({ at, title, entries, key: ++seq.current });
-  };
+  }, []);
   const close = () => setMenu(null);
   const run = (entry: MenuEntry) => {
     close();
@@ -140,9 +146,9 @@ export function ContextMenuProvider({ compact, children }: { compact: boolean; c
                     }}
                   >
                     <View style={{ width: 16, alignItems: "center" }}>
-                      {entry.icon ? (
+                      {entry.leading ?? (entry.icon ? (
                         <Icon name={entry.icon} size={14} color={entry.danger ? colors.statusDanger : colors.foregroundMuted} />
-                      ) : null}
+                      ) : null)}
                     </View>
                     <View style={{ flex: 1, minWidth: 0 }}>
                       <Label size={font.md} lines={1} color={entry.danger ? colors.statusDanger : undefined} selectable={false}>
@@ -172,7 +178,8 @@ export function ContextMenuProvider({ compact, children }: { compact: boolean; c
                   <Row
                     key={entry.id}
                     title={entry.label}
-                    icon={entry.icon}
+                    icon={entry.leading ? undefined : entry.icon}
+                    leading={entry.leading}
                     iconColor={entry.danger ? colors.statusDanger : undefined}
                     selected={entry.checked}
                     disabled={entry.disabled}

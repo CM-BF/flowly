@@ -1,5 +1,5 @@
-import { createContext, useContext, useState } from "react";
-import type { ReactNode } from "react";
+import { createContext, useContext, useEffect, useRef, useState } from "react";
+import type { ComponentProps, ReactNode } from "react";
 import type { PluginTheme } from "@getpaseo/plugin";
 import {
   Animated,
@@ -198,6 +198,7 @@ export function IconButton({
   active = false,
   color,
   size = control,
+  onHoverChange,
 }: {
   icon: string;
   label: string;
@@ -206,6 +207,7 @@ export function IconButton({
   active?: boolean;
   color?: string;
   size?: number;
+  onHoverChange?(hovered: boolean): void;
 }) {
   const { colors } = useTheme();
   return (
@@ -215,6 +217,8 @@ export function IconButton({
       accessibilityState={{ disabled, selected: active }}
       disabled={disabled}
       onPress={onPress}
+      onHoverIn={onHoverChange && (() => onHoverChange(true))}
+      onHoverOut={onHoverChange && (() => onHoverChange(false))}
       hitSlop={touch ? undefined : 4}
       style={(state) => {
         const { pressed, hovered: hover, focused } = state as typeof state & { hovered?: boolean; focused?: boolean };
@@ -241,6 +245,69 @@ export function IconButton({
   );
 }
 
+type TextBoxProps = Omit<ComponentProps<typeof TextInput>, "value" | "defaultValue" | "onChangeText"> & {
+  value: string;
+  onChangeText(text: string): void;
+  /** Report typing to the parent only after this much quiet (and on blur/unmount). */
+  commitDelay?: number;
+};
+
+/**
+ * Text input for plugin forms that stays smooth while typing (AGENTS.md "Text
+ * input"). Native: the input owns its text — `defaultValue` is a seed that only
+ * changes (with a remount) when the parent's value changes from outside; React
+ * Native pushes any changed value/defaultValue back into the native view, which
+ * erases characters typed meanwhile and breaks IME composition. Web: local
+ * state, so a keystroke re-renders only this input. `commitDelay` keeps
+ * expensive parents (board filtering) out of the typing path.
+ */
+export function TextBox({ value, onChangeText, commitDelay = 0, onBlur, ...props }: TextBoxProps) {
+  const native = Platform.OS !== "web";
+  const [shown, setShown] = useState(value);
+  const [mount, setMount] = useState(0);
+  const committed = useRef(value);
+  const typed = useRef(value);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const report = useRef(onChangeText);
+  report.current = onChangeText;
+  const commit = () => {
+    if (timer.current) clearTimeout(timer.current);
+    timer.current = null;
+    if (typed.current === committed.current) return;
+    committed.current = typed.current;
+    report.current(typed.current);
+  };
+  useEffect(() => () => commit(), []);
+  useEffect(() => {
+    if (value === committed.current) return;
+    // An outside change (reset, restore, clear filters): show it.
+    if (timer.current) clearTimeout(timer.current);
+    timer.current = null;
+    committed.current = value;
+    typed.current = value;
+    setShown(value);
+    if (native) setMount((m) => m + 1);
+  }, [value]);
+  return (
+    <TextInput
+      {...props}
+      key={native ? `text-${mount}` : undefined}
+      {...(native ? { defaultValue: shown } : { value: shown })}
+      onChangeText={(text) => {
+        typed.current = text;
+        if (!native) setShown(text);
+        if (commitDelay <= 0) return commit();
+        if (timer.current) clearTimeout(timer.current);
+        timer.current = setTimeout(commit, commitDelay);
+      }}
+      onBlur={(event) => {
+        commit();
+        onBlur?.(event);
+      }}
+    />
+  );
+}
+
 export function Field({
   title,
   value,
@@ -249,6 +316,7 @@ export function Field({
   placeholder = "",
   editable = true,
   hint,
+  commitDelay,
 }: {
   title: string;
   value: string;
@@ -257,6 +325,7 @@ export function Field({
   placeholder?: string;
   editable?: boolean;
   hint?: string;
+  commitDelay?: number;
 }) {
   const { colors } = useTheme();
   const [focused, setFocused] = useState(false);
@@ -266,10 +335,11 @@ export function Field({
       <Label medium size={font.sm} muted>
         {title}
       </Label>
-      <TextInput
+      <TextBox
         accessibilityLabel={title}
         value={value}
         onChangeText={onChange}
+        commitDelay={commitDelay}
         multiline={multiline}
         editable={editable}
         placeholder={placeholder}
@@ -568,8 +638,9 @@ export function Row({
           </Label>
         )}
       </View>
-      {trailing}
+      {/* The check sits before the trailing value so trailing values stay in one column. */}
       {selected && <Icon name="Check" size={16} color={colors.foreground} />}
+      {trailing}
     </Pressable>
   );
 }

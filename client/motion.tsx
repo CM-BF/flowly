@@ -137,33 +137,36 @@ export function MotionReveal({
   );
 }
 
+/** One breath (1 → 0.35 → 1) sampled from a cosine, so a linear native loop eases in and out. */
+const pulseInput = [0, 0.125, 0.25, 0.375, 0.5, 0.625, 0.75, 0.875, 1];
+const pulseOutput = pulseInput.map((t) => Math.round((0.675 + 0.325 * Math.cos(2 * Math.PI * t)) * 1000) / 1000);
+const linear = (t: number) => t;
+
 /**
  * Slow breathing dot for "working" states. Static under Reduce Motion; the
- * loop stops on unmount or when `active` turns off.
+ * loop stops on unmount or when `active` turns off. One timing looped on the
+ * native driver (a looped `sequence` restarts through JS every cycle and
+ * freezes whenever the JS thread is busy; PERFORMANCE-SPEC §3).
  */
 export function PulseDot({ color, size = 8, active = true }: { color: string; size?: number; active?: boolean }) {
   const reduced = useContext(ReduceMotion);
-  const [value] = useState(() => new Animated.Value(1));
+  const [value] = useState(() => new Animated.Value(0));
+  const [opacity] = useState(() => value.interpolate({ inputRange: pulseInput, outputRange: pulseOutput }));
   useEffect(() => {
     if (!active || reduced) {
-      value.setValue(1);
+      value.setValue(0);
       return;
     }
-    const loop = Animated.loop(
-      Animated.sequence([
-        timing(value, 0.35, 800),
-        timing(value, 1, 800),
-      ]),
-    );
+    const loop = Animated.loop(timing(value, 1, 1600, undefined, linear));
     loop.start();
     return () => {
       loop.stop();
-      value.setValue(1);
+      value.setValue(0);
     };
   }, [active, reduced, value]);
   return (
     <Animated.View
-      style={{ width: size, height: size, borderRadius: size / 2, backgroundColor: color, opacity: value }}
+      style={{ width: size, height: size, borderRadius: size / 2, backgroundColor: color, opacity }}
     />
   );
 }
@@ -184,6 +187,54 @@ export function Enter({ children, distance = 6, style }: { children: ReactNode; 
       {children}
     </Animated.View>
   );
+}
+
+/**
+ * Animated height for clamp/expand. The first measured target is applied
+ * immediately (no reveal on mount); later targets animate on the JS driver
+ * (height is a layout property) and interrupt any running animation.
+ */
+export function useMotionHeight(target: number | null) {
+  const reduced = useContext(ReduceMotion);
+  const [value] = useState(() => new Animated.Value(target ?? 0));
+  const placed = useRef(target !== null);
+  const previous = useRef(target);
+  useLayoutEffect(() => {
+    if (target === null) return;
+    if (!placed.current || reduced) {
+      placed.current = true;
+      previous.current = target;
+      value.setValue(target);
+      return;
+    }
+    const opening = target > (previous.current ?? 0);
+    previous.current = target;
+    const animation = timing(value, target, opening ? motionDuration.forward : motionDuration.reverse, false, opening ? enterEasing : exitEasing);
+    animation.start();
+    return () => animation.stop();
+  }, [value, target, reduced]);
+  return value;
+}
+
+/**
+ * False until the enter transition that started when `key` appeared (or
+ * changed) has finished; true at once under Reduce Motion. Gate heavy content
+ * and its requests on it, so mounting and decoding never compete with the
+ * transition's frames (PERFORMANCE-SPEC §3).
+ */
+export function useSettled(key: string, duration: number = motionDuration.forward) {
+  const reduced = useContext(ReduceMotion);
+  const [settled, setSettled] = useState(reduced ? key : "");
+  useEffect(() => {
+    if (reduced) {
+      setSettled(key);
+      return;
+    }
+    // One frame past the transition, so its last frames are not shared either.
+    const timer = setTimeout(() => setSettled(key), duration + 32);
+    return () => clearTimeout(timer);
+  }, [key, reduced, duration]);
+  return reduced || settled === key;
 }
 
 export function useReducedMotion() {

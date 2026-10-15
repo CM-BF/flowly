@@ -1,4 +1,5 @@
 import type { PaseoApi, PaseoAgent } from "@getpaseo/client";
+import { isSummarizer } from "../shared/summary";
 
 export async function listAgents(
   paseo: PaseoApi,
@@ -15,7 +16,8 @@ export async function listAgents(
     agents.push(
       ...page.entries
         .map((e) => e.agent)
-        .filter((a) => !workspaceId || a.workspaceId === workspaceId),
+        // Progress summarizers are plugin plumbing, not the card's sessions.
+        .filter((a) => (!workspaceId || a.workspaceId === workspaceId) && !isSummarizer(a)),
     );
     cursor = page.pageInfo.nextCursor ?? undefined;
   } while (cursor);

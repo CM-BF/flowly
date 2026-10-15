@@ -51,7 +51,7 @@ test("project lanes: turning a lane off needs it empty; disabled lanes reject ca
     b.tasks.push({ id: "t1", projectId: "a", workspaceId: "w", sourcePath: "/a", repoPaths: ["/a"], title: "T", description: "", status: "blocked", priority: "normal", position: 0, revision: 1, operationId: "o", createdAt: now, updatedAt: now, archivedAt: null });
   });
   const lanes = (off: string[]) =>
-    (["backlog", "todo", "in_progress", "in_review", "blocked", "done", "cancelled"] as const).map((status) => ({
+    (["backlog", "todo", "design", "development", "test", "in_review", "blocked", "done", "cancelled"] as const).map((status) => ({
       status,
       enabled: !off.includes(status),
       ...(status === "todo" ? { name: "Ready" } : {}),

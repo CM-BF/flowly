@@ -1,6 +1,6 @@
 import type { PluginTheme } from "@getpaseo/plugin";
 import { Icon } from "@getpaseo/plugin/client/react-native";
-import type { Status, Task } from "../shared/model";
+import { legacyStatus, type HistoryStatus, type Status, type Task, type TaskType } from "../shared/model";
 import { tint, useTheme } from "./ui";
 
 type Colors = PluginTheme["colors"];
@@ -8,16 +8,19 @@ type Colors = PluginTheme["colors"];
 const statusGlyph: Record<Status, { icon: string; color(c: Colors): string }> = {
   backlog: { icon: "CircleDashed", color: (c) => c.foregroundMuted },
   todo: { icon: "Circle", color: (c) => c.foregroundMuted },
-  in_progress: { icon: "CircleDot", color: (c) => c.statusWarning },
+  design: { icon: "CircleEllipsis", color: (c) => c.foreground },
+  development: { icon: "CircleDot", color: (c) => c.statusWarning },
+  test: { icon: "CircleGauge", color: (c) => c.accent },
   in_review: { icon: "CircleDotDashed", color: (c) => c.accent },
   blocked: { icon: "CircleSlash", color: (c) => c.statusDanger },
   done: { icon: "CircleCheck", color: (c) => c.statusSuccess },
   cancelled: { icon: "CircleX", color: (c) => c.foregroundMuted },
 };
 
-export function StatusIcon({ status, size = 14 }: { status: Status; size?: number }) {
+export function StatusIcon({ status, size = 14 }: { status: HistoryStatus; size?: number }) {
   const { colors } = useTheme();
-  const glyph = statusGlyph[status];
+  // History written before board v4 can name the retired In progress.
+  const glyph = statusGlyph[status === legacyStatus ? "development" : status];
   return <Icon name={glyph.icon} size={size} color={glyph.color(colors)} />;
 }
 
@@ -46,6 +49,22 @@ export function PriorityIcon({ priority, size = 14, always = false }: { priority
   const glyph = priorityGlyph[priority] || (always ? { icon: "SignalMedium", color: (c: Colors) => c.foregroundMuted } : null);
   if (!glyph) return null;
   return <Icon name={glyph.icon} size={size} color={glyph.color(colors)} />;
+}
+
+const typeIcons: Record<TaskType, string> = {
+  feature: "Sparkles",
+  bugfix: "Bug",
+  research: "FlaskConical",
+  refactor: "Shapes",
+  docs: "FileText",
+  chore: "Wrench",
+};
+
+/** A task type's glyph; an untyped card gets a muted placeholder only when `always`. */
+export function TypeIcon({ type, size = 14, always = false }: { type?: TaskType; size?: number; always?: boolean }) {
+  const { colors } = useTheme();
+  if (!type && !always) return null;
+  return <Icon name={type ? typeIcons[type] : "Tag"} size={size} color={colors.foregroundMuted} />;
 }
 
 /** Session visual tone derived from the shared sessionState label set. */

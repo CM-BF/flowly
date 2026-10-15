@@ -1,0 +1,114 @@
+{
+  "at": "2026-10-15T04:48:51.057Z",
+  "title": "ultra-picker-fixture-1792039729165",
+  "checks": [
+    {
+      "name": "list-directories defaults to home",
+      "pass": true,
+      "detail": {
+        "path": "/Users/bofan.wang",
+        "native": "finder",
+        "entries": 28
+      }
+    },
+    {
+      "name": "macOS reports Finder dialog",
+      "pass": true,
+      "detail": "finder"
+    },
+    {
+      "name": "fixture listing marks git",
+      "pass": true,
+      "detail": [
+        {
+          "name": "repo-a",
+          "path": "/private/var/folders/0b/f1crzdg95g5fwbq49s_3pw9c0000gq/T/ultra-picker-live-8Py1TM/repo-a",
+          "git": true
+        },
+        {
+          "name": "repo-b",
+          "path": "/private/var/folders/0b/f1crzdg95g5fwbq49s_3pw9c0000gq/T/ultra-picker-live-8Py1TM/repo-b",
+          "git": false
+        },
+        {
+          "name": "repo-c",
+          "path": "/private/var/folders/0b/f1crzdg95g5fwbq49s_3pw9c0000gq/T/ultra-picker-live-8Py1TM/repo-c",
+          "git": false
+        }
+      ]
+    },
+    {
+      "name": "invalid target rejected",
+      "pass": true,
+      "detail": "Request failed: Not an existing directory: /private/var/folders/0b/f1crzdg95g5fwbq49s_3pw9c0000gq/T/ultra-picker-live-8Py1TM/missing requestType=plugin.rpc.invoke.request code=handler_error"
+    },
+    {
+      "name": "rejected create left no directory",
+      "pass": true,
+      "detail": []
+    },
+    {
+      "name": "linked root under fixed parent",
+      "pass": true,
+      "detail": "/Users/bofan.wang/.paseo/plugin-data/paseo-ultra-kanban/projects/ultra-picker-fixture-1792039729165"
+    },
+    {
+      "name": "links recorded",
+      "pass": true,
+      "detail": [
+        {
+          "name": "repo-a",
+          "target": "/private/var/folders/0b/f1crzdg95g5fwbq49s_3pw9c0000gq/T/ultra-picker-live-8Py1TM/repo-a"
+        },
+        {
+          "name": "repo-b",
+          "target": "/private/var/folders/0b/f1crzdg95g5fwbq49s_3pw9c0000gq/T/ultra-picker-live-8Py1TM/repo-b"
+        }
+      ]
+    },
+    {
+      "name": "symlinks on disk",
+      "pass": true
+    },
+    {
+      "name": "native project registered at linked root",
+      "pass": true,
+      "detail": {
+        "projectId": "prj_4a905efa68dde0a4",
+        "name": "ultra-picker-fixture-1792039729165",
+        "kind": "non_git",
+        "path": "/Users/bofan.wang/.paseo/plugin-data/paseo-ultra-kanban/projects/ultra-picker-fixture-1792039729165"
+      }
+    },
+    {
+      "name": "set-links swaps b for c",
+      "pass": true,
+      "detail": [
+        {
+          "name": "repo-a",
+          "target": "/private/var/folders/0b/f1crzdg95g5fwbq49s_3pw9c0000gq/T/ultra-picker-live-8Py1TM/repo-a"
+        },
+        {
+          "name": "repo-c",
+          "target": "/private/var/folders/0b/f1crzdg95g5fwbq49s_3pw9c0000gq/T/ultra-picker-live-8Py1TM/repo-c"
+        }
+      ]
+    },
+    {
+      "name": "stale revision rejected",
+      "pass": true,
+      "detail": "Request failed: Revision conflict: reload the project before saving. requestType=plugin.rpc.invoke.request code=handler_error"
+    },
+    {
+      "name": "board shows linked project",
+      "pass": true
+    }
+  ],
+  "cleanup": {
+    "native": "deleted",
+    "board": "removed",
+    "linkedRoot": "removed",
+    "nativeGone": true,
+    "fixture": "removed"
+  }
+}

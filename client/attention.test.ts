@@ -15,7 +15,7 @@ const project = (id: string, archivedAt: string | null = null) => ({
 });
 const task = (id: string, workspaceId: string, projectId = "p", archivedAt: string | null = null) => ({
   id, projectId, workspaceId, sourcePath: "/p", repoPaths: ["/p"], title: id, description: "",
-  status: "in_progress" as const, priority: "normal" as const, position: 0, revision: 1,
+  status: "development" as const, priority: "normal" as const, position: 0, revision: 1,
   operationId: id, createdAt: now, updatedAt: now, archivedAt,
 });
 const agent = (id: string, workspaceId: string, extra: Record<string, unknown> = {}) => ({
@@ -105,7 +105,7 @@ test("agent questions flag a card even when read; silent unread turns are annota
   ];
   const board = {
     projects: [project("p")],
-    tasks: [task("a", "wa"), { ...task("b", "wb"), status: "in_progress" as const }],
+    tasks: [task("a", "wa"), { ...task("b", "wb"), status: "development" as const }],
     events,
   };
   const items = attentionItems(board, [agent("s1", "wa"), agent("s2", "wb", finished)], [], false);

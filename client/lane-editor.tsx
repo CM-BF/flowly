@@ -1,7 +1,7 @@
 import { View } from "react-native";
-import { Icon, TextInput } from "@getpaseo/plugin/client/react-native";
+import { Icon } from "@getpaseo/plugin/client/react-native";
 import { statusLabels, type Lane, type Status } from "../shared/model";
-import { IconButton, Label, Switch, font, radius, space, touch, useTheme } from "./ui";
+import { IconButton, Label, Switch, TextBox, font, radius, space, touch, useTheme } from "./ui";
 import { StatusIcon } from "./status";
 import { SortableList } from "./sortable-list";
 
@@ -74,7 +74,7 @@ export function LaneEditor({
                 )}
                 <StatusIcon status={lane.status} size={15} />
                 <View style={{ flex: 1, minWidth: 0 }}>
-                  <TextInput
+                  <TextBox
                     accessibilityLabel={`${statusLabels[lane.status]} lane name`}
                     value={lane.name ?? ""}
                     onChangeText={(name) => update(lane.status, { name })}

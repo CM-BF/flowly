@@ -11,7 +11,7 @@ const item = (t: Task, extra: Partial<AttentionItem>) =>
 
 test("overview counts live cards, working sessions and what needs you", () => {
   const tasks = [
-    task("a", "in_progress"),
+    task("a", "development"),
     task("b", "in_review"),
     task("c", "done"),
     task("d", "blocked"),
@@ -38,6 +38,6 @@ test("overview counts live cards, working sessions and what needs you", () => {
     blocked: 1,
   });
   // Lanes that are off report null (hidden), not zero.
-  const lanes = (["backlog", "todo", "in_progress", "in_review", "blocked", "done", "cancelled"] as const).map((status) => ({ status, enabled: status !== "blocked" }));
+  const lanes = (["backlog", "todo", "design", "development", "test", "in_review", "blocked", "done", "cancelled"] as const).map((status) => ({ status, enabled: status !== "blocked" }));
   expect(boardOverview({ ...project, lanes }, tasks.filter((t) => t.status !== "blocked"), [], []).blocked).toBeNull();
 });

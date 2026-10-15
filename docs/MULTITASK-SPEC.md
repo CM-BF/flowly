@@ -75,9 +75,29 @@
 - 设置读取统一经 `boardViewValues` 补全默认值，因为宿主不会对旧存储值套用新字段的默认值。
 - 实测：新建并启动 haiku session、侧栏自动打开并显示运行中、A1 自动转 In progress；随后 Wrap up 清理（[截图](verification/create-and-start.png)）。
 
+## 补充：移到 Done/Cancelled 时收尾（2026-10-15）
+
+用户要求：卡片移到 Done 或 Cancelled 时默认询问是否 wrap up，同意则归档 workspace；设置中可改为自动归档。
+
+- 设置：host 设置 `wrap-up.autoWrapup`（Ultra Kanban settings → Finishing cards → Auto wrap up），默认关闭。
+- 触发：人在看板（菜单 Move to、拖拽放置）、侧栏状态、编辑表单中把卡片从非 Done/Cancelled 改为 Done 或 Cancelled。Done ↔ Cancelled 之间互相移动不触发。
+- **关闭（默认）**：该客户端在状态写入成功后弹出 “Wrap up this card?”：
+  - 先跑 Wrap up 检查，展示阻止项/警告，规则与手动 Wrap up 相同（有警告时按钮为 “Wrap up anyway”）。
+  - 确认后归档 session/workspace，卡片**保留**在看板上（RPC `tasks.wrapup` 带 `keepCard=true`，记录活动 `wrapped_up`，备注含 “card kept”，不改卡片 revision）。
+  - “Not now” 关闭，不动任何资源；之后仍可用侧栏 Wrap up。
+  - 卡片已没有可归档内容（workspace 不可用，或 workspace 不归本卡且无 session）时不弹出。
+- **开启**：daemon 在状态写入后后台执行，不阻塞写入；同一卡片同时只跑一次。只有在没有阻止项、没有警告、workspace 归本卡所有时才归档 workspace（Paseo 同时归档其 session 和终端），卡片保留，记录 `workspace_auto_archived`；否则不动资源，记录 `workspace_auto_archive_skipped`（附原因），之后可手动 Wrap up。执行前再确认卡片仍为 Done/Cancelled 且 revision 未变。
+- 归属：新卡记录 `ownsWorkspace`（新建 directory/worktree 为 true，关联已有 workspace 为 false）。旧卡没有该字段时，Paseo workspace 标题与卡片标题一致才视为本卡创建（插件创建时用卡片标题命名）。归本卡所有的 workspace（含 directory 类）整体归档，directory 目录留在磁盘；worktree 目录可能被 Paseo 移除，分支保留。不归本卡的 directory workspace（如项目 main）从不归档，只归档其中的 session。
+- 已收尾状态：卡片最近一次 `wrapped_up` / `workspace_auto_archived` 之后没有 `workspace_restored`，也没有移回非 Done/Cancelled 状态时，视为已收尾（`shared/wrapup-state.ts`）。此时侧栏 “Finished” 区块改为 “Wrapped up”（显示归档了什么、何时归档，以及移出 Done/Cancelled 可恢复），不再显示 Wrap up 按钮和菜单项，也不再提示 “Workspace is unavailable or archived.”。
+- 侧栏手动 Wrap up 不变（仍会归档卡片），只是同样整体归档归本卡所有的 directory workspace。
+
+## 补充：移出 Done/Cancelled 时恢复 workspace（2026-10-15）
+
+把已收尾的卡片移出 Done/Cancelled 时，后台恢复收尾时归档的 workspace：沿用同一 workspace ID，worktree 被删除的会在原分支上重建。同时恢复该次收尾归档的 session（用户自己归档的不动）。详见 [WORKSPACE-RESTORE-SPEC](WORKSPACE-RESTORE-SPEC.md)。
+
 ## 不做
 
-agent 自动推进、阶段、提问、自动启动（见 ROADMAP-V2 远期）、卡片排序/筛选增强（C）、卡片备注（E）、自动/延迟收尾。
+agent 自动推进、阶段、提问、自动启动（见 ROADMAP-V2 远期）、卡片排序/筛选增强（C）、卡片备注（E）、延迟收尾、自动归档卡片本身。
 
 ## 验收
 

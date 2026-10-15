@@ -1,4 +1,4 @@
-import type { BoardEvent, Task } from "./model";
+import { isWorkStatus, type BoardEvent, type Task } from "./model";
 
 /**
  * Markers derived from a card's activity (AUTO-STATUS-SPEC M1/M2). Lifecycle
@@ -26,13 +26,13 @@ export function openQuestion(
   return !started || started.at <= report.at ? report : null;
 }
 
-/** The session's latest turn ended while the card was in progress without any Kanban report. */
+/** The session's latest turn ended while the card was in a work stage without any Kanban report. */
 export function silentTurn(
   task: Pick<Task, "status">,
   events: readonly BoardEvent[],
   agentId: string,
 ): boolean {
-  if (task.status !== "in_progress") return false;
+  if (!isWorkStatus(task.status)) return false;
   const mine = events.filter((e) => e.agentId === agentId);
   const ended = latest(mine, (e) => e.action === "agent.turn_ended");
   const started = latest(mine, (e) => e.action === "agent.turn_started");

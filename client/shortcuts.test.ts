@@ -51,14 +51,14 @@ const task = (id: string, status: Task["status"], position: number) =>
 
 describe("card grid navigation", () => {
   const grid = taskGrid(
-    ["todo", "in_progress", "blocked", "in_review"],
+    ["todo", "development", "blocked", "in_review"],
     [
       task("t2", "todo", 2),
       task("t1", "todo", 1),
       task("t3", "todo", 3),
       task("r1", "in_review", 1),
-      task("p1", "in_progress", 1),
-      task("p2", "in_progress", 2),
+      task("p1", "development", 1),
+      task("p2", "development", 2),
       task("x", "done", 1),
     ],
   );
@@ -121,7 +121,7 @@ test("navigation follows the board sort; ⇧H/⇧L target the adjacent shown col
   expect(taskGrid(["todo"], tasks)).toEqual([["a", "b"]]);
   const byPriority = (c: Task[]) => [...c].sort((x, y) => (x.priority === "urgent" ? -1 : 0) - (y.priority === "urgent" ? -1 : 0));
   expect(taskGrid(["todo"], tasks, byPriority)).toEqual([["b", "a"]]);
-  expect(adjacentStatus(["backlog", "todo", "in_progress"], "todo", "move-right")).toBe("in_progress");
-  expect(adjacentStatus(["backlog", "todo", "in_progress"], "backlog", "move-left")).toBeNull();
+  expect(adjacentStatus(["backlog", "todo", "development"], "todo", "move-right")).toBe("development");
+  expect(adjacentStatus(["backlog", "todo", "development"], "backlog", "move-left")).toBeNull();
   expect(adjacentStatus(["todo"], "done", "move-left")).toBeNull();
 });

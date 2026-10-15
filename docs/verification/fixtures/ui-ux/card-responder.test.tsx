@@ -165,7 +165,7 @@ describe.skipIf(!rendererPath)("TaskCard whole-card pointer responder (synthetic
   test("a valid cross-column end writes once with captured revision; pending disables drag", () => {
     const task = { ...cardTask("t7", "Move me"), revision: 9 };
     const onDrop = vi.fn();
-    const render = (disabled: boolean) => <DesktopColumns statuses={["todo", "in_progress"]} tasks={[task]} disabled={disabled} cancelKey="project|filter" onAdd={() => {}} onDrop={onDrop} renderCard={(t, drag) => <TaskCard task={t} selected={false} legacy={false} available sessions={0} running={0} drag={drag} disabled={disabled} onOpen={() => {}} onActions={() => {}} />} />;
+    const render = (disabled: boolean) => <DesktopColumns statuses={["todo", "development"]} tasks={[task]} disabled={disabled} cancelKey="project|filter" onAdd={() => {}} onDrop={onDrop} renderCard={(t, drag) => <TaskCard task={t} selected={false} legacy={false} available sessions={0} running={0} drag={drag} disabled={disabled} onOpen={() => {}} onActions={() => {}} />} />;
     let tree: any;
     act(() => { tree = create(render(false)); });
     const views = tree.root.findAllByType("View");
@@ -179,7 +179,7 @@ describe.skipIf(!rendererPath)("TaskCard whole-card pointer responder (synthetic
     act(() => root.props.onPanResponderGrant({ nativeEvent: { pageX: 120, pageY: 120 } }));
     act(() => root.props.onPanResponderRelease({ nativeEvent: { pageX: 420, pageY: 120 } }));
     expect(onDrop).toHaveBeenCalledTimes(1);
-    expect(onDrop).toHaveBeenCalledWith({ id: "t7", revision: 9, status: "in_progress", beforeId: null, afterId: null });
+    expect(onDrop).toHaveBeenCalledWith({ id: "t7", revision: 9, status: "development", beforeId: null, afterId: null });
     tree.unmount();
 
     onDrop.mockClear();

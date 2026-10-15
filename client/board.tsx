@@ -1,10 +1,11 @@
 import { useEffect, useId, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import { Animated, Platform, Pressable, View, type GestureResponderEvent } from "react-native";
+import { Animated, Platform, Pressable, View, useWindowDimensions, type GestureResponderEvent } from "react-native";
 import { Icon, ScrollView, useToast } from "@getpaseo/plugin/client/react-native";
 import { Modal } from "./modal";
 import {
   usePaseo,
   useRpc,
+  useSettings,
   type PluginSurfaceProps,
   type PluginWorkspacePanelProps,
   type PluginScreenParams,
@@ -13,10 +14,15 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import * as rpc from "../shared/rpc";
 import {
   priorities,
+  taskTypes,
+  taskTypeLabels,
   type Status,
   type Task,
+  type Project,
+  type BoardEvent,
   projectOrder,
 } from "../shared/model";
+import type { PaseoAgent } from "@getpaseo/client";
 import {
   Theme,
   Label,
@@ -51,9 +57,15 @@ import {
 import { relativeTime } from "./ui";
 import { ProjectForm, TaskForm } from "./forms";
 import { TaskDrawer } from "./drawer";
-import { listAgents } from "./resources";
+import { DeleteTaskDialog } from "./task-delete";
+import { useBoardQuery, useLiveAgents, useResourcesQuery } from "./queries";
+import { useStableCallback, useStableTheme } from "./stable";
 import { isLegacyScope } from "../shared/scope";
 import { LiveTaskCard, type CardDrag } from "./card";
+import { cardProgress, useSummaries } from "./task-progress";
+import { SettingsFab, SettingsModal } from "./summary-settings";
+import { WrapupModal } from "./wrapup";
+import { wrapupSettings, wrapupSettingsValues } from "../shared/settings";
 import { pickOutputSession } from "./card-output";
 import { cardQuestions } from "../shared/progress";
 import { statusChanges } from "./changes";
@@ -67,6 +79,9 @@ import { MotionProvider, MotionReveal, useMotionPresence } from "./motion";
 import { SortableList } from "./sortable-list";
 import { useBoardView } from "./board-view";
 import { OverviewBar } from "./overview-bar";
+import { lastViewedProject, pickProject, rememberViewedProject } from "./project-memory";
+import { ProjectTabs } from "./project-tabs";
+import { RemoveProjectDialog } from "./project-remove";
 import { boardOverview } from "./overview";
 import { enabledStatuses, laneName } from "../shared/lanes";
 import { boardSortText, boardSorts, sortTasks, type BoardSort } from "../shared/sort";
@@ -101,6 +116,9 @@ type WebKeyEvent = {
   stopPropagation(): void;
 };
 
+const noEvents: BoardEvent[] = [];
+const noAgents: PaseoAgent[] = [];
+
 // Module scope: a remounted board must not reopen a modal for a token it already handled.
 const appliedAttentionTokens = new Set<string>();
 const consumedIntents = new Set<string>();
@@ -108,11 +126,16 @@ const consumedIntents = new Set<string>();
 export function BoardScreen(
   props: PluginSurfaceProps & { workspaceId?: string; params?: PluginScreenParams },
 ) {
+  // Tablets get anchored menus with the desktop board; phones keep the bottom sheet.
+  const windowWidth = useWindowDimensions().width;
+  // The host may hand over a new theme object on unrelated renders; a new
+  // context value would re-render every themed component (PERFORMANCE-SPEC §3).
+  const theme = useStableTheme(props.theme);
   return (
     <MotionProvider>
-      <Theme.Provider value={props.theme}>
-        <ContextMenuProvider compact={props.layout.compact || props.layout.platform !== "web"}>
-          <BoardContent {...props} />
+      <Theme.Provider value={theme}>
+        <ContextMenuProvider compact={isCompactLayout(props.layout.compact, props.layout.platform, windowWidth)}>
+          <BoardContent {...props} theme={theme} />
         </ContextMenuProvider>
       </Theme.Provider>
     </MotionProvider>
@@ -127,7 +150,6 @@ function BoardContent(
 ) {
   const toast = useToast();
   const read = useRpc(rpc.readBoard),
-    resourcesRead = useRpc(rpc.listResources),
     updateProject = useRpc(rpc.updateProject),
     updateTask = useRpc(rpc.updateTask),
     reorder = useRpc(rpc.moveTask),
@@ -165,33 +187,35 @@ function BoardContent(
     (SessionEntry & { taskId: string }) | null
   >(null);
   const { query: readState, receipts } = useSessionReads();
-  const data = useQuery({
-    queryKey: ["ultra", "board"],
-    queryFn: () => read({}),
-    refetchInterval: 3000,
-  });
-  const resources = useQuery({
-    queryKey: ["ultra", "resources"],
-    queryFn: () => resourcesRead({}),
-    refetchInterval: 5000,
-  });
-  const agents = useQuery({
-    queryKey: ["ultra", "activity"],
-    queryFn: () => listAgents(paseo),
-    refetchInterval: 5000,
-  });
+  // Unchanged reads are a tiny etag round trip; agents stream (PERFORMANCE-SPEC §3).
+  const data = useBoardQuery({ refetchInterval: 3000 });
+  const resources = useResourcesQuery({ refetchInterval: 15000 });
+  const agents = useLiveAgents();
   const view = useBoardView();
+  // Moving a card into Done/Cancelled asks whether to wrap it up, unless the
+  // daemon does it automatically (Auto wrap up setting).
+  const wrapupPrefs = useSettings(wrapupSettings);
+  const [wrapPrompt, setWrapPrompt] = useState("");
+  const finished = (status?: Status) => status === "done" || status === "cancelled";
+  const askWrapup = (id: string, from: Status | undefined, to: Status) => {
+    if (!finished(to) || finished(from)) return;
+    if (wrapupPrefs.status !== "ready" || wrapupSettingsValues(wrapupPrefs.values).autoWrapup) return;
+    setWrapPrompt(id);
+  };
   const [projectId, setProject] = useState(""),
     [taskId, setTask] = useState(""),
     [search, setSearchState] = useState(""),
     [priority, setPriorityState] = useState("all"),
+    [taskType, setTaskTypeState] = useState("all"),
     [archived, setArchivedState] = useState(false),
-    [menu, setMenu] = useState<"projects" | "filters" | "status" | "attention" | "shortcuts" | null>(null),
+    [menu, setMenu] = useState<"projects" | "filters" | "status" | "attention" | "shortcuts" | "settings" | null>(null),
     [escapeRequest, setEscapeRequest] = useState<{ taskId: string; key: string } | null>(null),
     [startRequest, setStartRequest] = useState<{ taskId: string; key: string } | null>(null),
     [mobileStatus, setMobileStatus] = useState<Status>("todo"),
     [actionTask, setActionTask] = useState<Task | null>(null),
     [projectForm, setProjectForm] = useState<"new" | "edit" | null>(null),
+    [removing, setRemoving] = useState<Project | null>(null),
+    [deleting, setDeleting] = useState<Task | null>(null),
     [taskForm, setTaskForm] = useState<{ task?: Task; status: Status } | null>(
       null,
     ),
@@ -207,6 +231,7 @@ function BoardContent(
     filtersRestored.current = true;
     setSearchState(view.values.filterSearch);
     setPriorityState(view.values.filterPriority);
+    setTaskTypeState(view.values.filterType);
     setArchivedState(view.values.showArchived);
   }, [!!view.values]);
   const searchSave = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -221,6 +246,10 @@ function BoardContent(
   const setPriority = (next: string) => {
     setPriorityState(next);
     void view.update({ filterPriority: next as "all" });
+  };
+  const setTaskType = (next: string) => {
+    setTaskTypeState(next);
+    void view.update({ filterType: next as "all" });
   };
   const setArchived = (next: boolean | ((current: boolean) => boolean)) => {
     setArchivedState((current) => {
@@ -264,6 +293,7 @@ function BoardContent(
       setTask(target.task.id);
       setSearch("");
       setPriority("all");
+      setTaskType("all");
       setArchived(
         (current) =>
           current || !!target.project.archivedAt || !!target.task.archivedAt,
@@ -317,7 +347,6 @@ function BoardContent(
   const projects = projectOrderOverride
     ? serverProjects.slice().sort((a, b) => projectOrderOverride.indexOf(a.id) - projectOrderOverride.indexOf(b.id))
     : serverProjects;
-  const remembered = view.values?.lastProjectId || "";
   const boardSort: BoardSort = view.values?.boardSort || "manual";
   const collapsedColumns = view.values?.collapsedColumns || [];
   const toggleCollapse = (status: Status) => {
@@ -331,25 +360,29 @@ function BoardContent(
     if (!view.values || next === boardSort) return;
     void view.update({ boardSort: next });
   };
-  const project =
-    projects.find((p) => p.id === projectId) ||
-    projects.find((p) => p.id === remembered) ||
-    projects[0];
-  // Remember an explicit project choice for the next time the board opens.
-  const chooseProject = (id: string) => {
-    setProject(id);
-    if (view.values && view.values.lastProjectId !== id) void view.update({ lastProjectId: id });
-  };
+  const project = pickProject(projects, projectId, lastViewedProject());
+  // Returning to the board in this app run reopens the project viewed last; a cold start opens the first.
+  useEffect(() => rememberViewedProject(project?.id), [project?.id]);
+  const chooseProject = (id: string) => setProject(id);
   useEffect(() => {
     setActionTask(null);
   }, [project?.id]);
   const task = board?.tasks.find(
     (t) => t.id === taskId && t.projectId === project?.id,
   );
+  // Phone with a card open: the board stays mounted and laid out under the
+  // card's opaque overlay, so Back shows it at once with its scroll position
+  // and neither direction re-lays it out (PERFORMANCE-SPEC §2).
+  const boardHidden = compact && !!task;
+  const covered = {
+    pointerEvents: boardHidden ? ("none" as const) : ("auto" as const),
+    accessibilityElementsHidden: boardHidden,
+    importantForAccessibility: boardHidden ? ("no-hide-descendants" as const) : ("auto" as const),
+  };
   const drawerTarget = useMemo(() => task && project ? {
     task, project, events: board?.events.filter((e) => e.taskId === task.id) || [],
   } : undefined, [task, project, board?.events]);
-  const drawer = useMotionPresence(drawerTarget, drawerTarget ? `${project.id}|${task!.id}` : "");
+  const drawer = useMotionPresence(drawerTarget, drawerTarget ? `${drawerTarget.project.id}|${drawerTarget.task.id}` : "");
   const tasks = (board?.tasks || []).filter(
     (t) => t.projectId === project?.id && (archived || !t.archivedAt),
   );
@@ -358,11 +391,15 @@ function BoardContent(
       `${t.title}\n${t.description}`
         .toLowerCase()
         .includes(search.toLowerCase()) &&
-      (priority === "all" || t.priority === priority),
+      (priority === "all" || t.priority === priority) &&
+      (taskType === "all" || t.type === taskType),
   );
   // The project's lanes are its workflow: enabled lanes in their configured order.
   const shownStatuses = enabledStatuses(project);
   const nameOf = (status: Status) => laneName(project, status);
+  const wrapPromptTask = wrapPrompt
+    ? board?.tasks.find((t) => t.id === wrapPrompt && !t.archivedAt)
+    : undefined;
   // Compact: open each project on its first lane that has cards (once per
   // project; a linked card or the user's own tab choice wins afterwards).
   const autoLane = useRef("");
@@ -411,6 +448,7 @@ function BoardContent(
     [],
   );
   const managedRead = useRpc(rpc.managedSessions);
+  const summaries = useSummaries();
   const managed = useQuery({
     queryKey: ["ultra", "managed"],
     queryFn: () => managedRead({}),
@@ -449,6 +487,7 @@ function BoardContent(
   const filterCount =
     Number(!!search) +
     Number(priority !== "all") +
+    Number(taskType !== "all") +
     Number(archived);
   const refresh = () => {
     void data.refetch();
@@ -456,7 +495,7 @@ function BoardContent(
     void agents.refetch();
     void readState.refetch();
   };
-  async function doAction(action: () => Promise<unknown>, success = "") {
+  async function doAction(action: () => Promise<unknown>, success = "", after?: () => void) {
     if (mutationLock.current) return;
     mutationLock.current = true;
     setPending(true);
@@ -464,6 +503,7 @@ function BoardContent(
     try {
       await action();
       if (success) toast.show(success, { variant: "success" });
+      after?.();
     } catch (e) {
       setError(message(e));
     } finally {
@@ -473,9 +513,11 @@ function BoardContent(
     }
   }
   const move = (input: { id: string; revision: number; status: Status }) => {
+    const from = data.data?.tasks.find((t) => t.id === input.id)?.status;
     void doAction(
       () => updateTask(input),
       `Moved to ${nameOf(input.status)}`,
+      () => askWrapup(input.id, from, input.status),
     );
   };
   const place = (input: Placement) => {
@@ -483,6 +525,7 @@ function BoardContent(
     void doAction(
       () => placeTask(input),
       from === input.status ? "" : `Moved to ${nameOf(input.status)}`,
+      () => askWrapup(input.id, from, input.status),
     );
   };
   const openMenu = useMenuOpener();
@@ -539,15 +582,59 @@ function BoardContent(
             t.archivedAt ? "Card restored" : "Card archived",
           ),
       },
+      {
+        id: "delete",
+        label: "Delete permanently…",
+        icon: "Trash2",
+        danger: true,
+        disabled: pending || !!project?.archivedAt,
+        onPress: () => setDeleting(t),
+      },
     ];
   };
+  // One pass over events/agents/workspaces per data change; cards only look up
+  // (each card used to filter every event and agent on every render).
+  const cardIndex = useMemo(() => {
+    const eventsByTask = new Map<string, BoardEvent[]>();
+    for (const e of board?.events || []) {
+      const list = eventsByTask.get(e.taskId);
+      if (list) list.push(e);
+      else eventsByTask.set(e.taskId, [e]);
+    }
+    const agentsByWorkspace = new Map<string, PaseoAgent[]>();
+    for (const a of agents.data || []) {
+      if (!a.workspaceId) continue;
+      const list = agentsByWorkspace.get(a.workspaceId);
+      if (list) list.push(a);
+      else agentsByWorkspace.set(a.workspaceId, [a]);
+    }
+    const workspaceIds = new Set((resources.data?.workspaces || []).map((w) => w.id));
+    return { eventsByTask, agentsByWorkspace, workspaceIds };
+  }, [board?.events, agents.data, resources.data]);
+  // Stable for every card (memoized cards; PERFORMANCE-SPEC §3).
+  const openCard = useStableCallback((t: Task) => setTask(t.id));
+  const openCardActions = useStableCallback((t: Task) => setActionTask(t));
+  const cardMenuFor = useStableCallback((t: Task) => cardMenu(t));
+  // Stable drawer callbacks (memoized drawer).
+  const closeDrawer = useStableCallback(() => setTask(""));
+  const editDrawerTask = useStableCallback(() => task && setTaskForm({ task, status: task.status }));
+  const deleteDrawerTask = useStableCallback(() => drawer.item && setDeleting(drawer.item.task));
+  const drawerStatusChanged = useStableCallback((from: Status | undefined, to: Status) =>
+    drawer.item && askWrapup(drawer.item.task.id, from, to),
+  );
+  const stableRefresh = useStableCallback(() => refresh());
+  const sessionEntryConsumed = useStableCallback((requestId: string) =>
+    setSessionEntry((current) =>
+      current?.requestId === requestId &&
+      current.taskId === drawer.item?.task.id &&
+      current.sessionId === sessionEntry?.sessionId
+        ? null
+        : current,
+    ),
+  );
   const renderCard = (t: Task, drag?: CardDrag, dragging = false) => {
-    const workspace = resources.data?.workspaces.find(
-      (w) => w.id === t.workspaceId,
-    );
-    const sessions = (agents.data || []).filter(
-      (a) => a.workspaceId === t.workspaceId,
-    );
+    const sessions = cardIndex.agentsByWorkspace.get(t.workspaceId) || noAgents;
+    const events = cardIndex.eventsByTask.get(t.id) || noEvents;
     const summaryState =
       agents.isPending || readState.isPending
         ? "loading"
@@ -562,25 +649,21 @@ function BoardContent(
         task={t}
         selected={taskId === t.id}
         legacy={!!project && isLegacyScope(t, project)}
-        available={!!workspace}
+        available={cardIndex.workspaceIds.has(t.workspaceId)}
         running={sessions.filter((a) => a.status === "running").length}
         sessions={sessions.length}
-        summary={sessionAttentionSummary(
-          sessions,
-          t,
-          receipts,
-          board?.events || [],
-        )}
+        summary={sessionAttentionSummary(sessions, t, receipts, events)}
         summaryState={summaryState}
         outputSession={pickOutputSession(sessions, t.workspaceId, managedIds)}
-        questions={board ? cardQuestions(t, board.events).length : 0}
+        progress={cardProgress(summaries.data, t.id)}
+        questions={board ? cardQuestions(t, events).length : 0}
         flash={flashing.has(t.id)}
         drag={drag}
         dragging={dragging}
         disabled={pending || !!project?.archivedAt || !!t.archivedAt}
-        onOpen={() => setTask(t.id)}
-        onActions={() => setActionTask(t)}
-        menu={menuHandlers(openMenu, t.title, () => cardMenu(t))}
+        onOpen={openCard}
+        onActions={openCardActions}
+        menuFor={cardMenuFor}
       />
     );
   };
@@ -658,6 +741,61 @@ function BoardContent(
     consumedIntents.add(parsed.key);
     runIntent(parsed.intent);
   }, [props.params?.intent, props.params?.at, data.isPending]);
+  const drawerView = drawer.item && (
+    <Animated.View
+      testID="task-drawer-motion"
+      pointerEvents={drawer.active ? "auto" : "none"}
+      accessibilityElementsHidden={!drawer.active}
+      importantForAccessibility={drawer.active ? "auto" : "no-hide-descendants"}
+      style={{
+        // Phone: an opaque overlay above the still laid-out board, so opening
+        // or closing re-lays out nothing underneath (PERFORMANCE-SPEC §3).
+        ...(compact
+          ? { position: "absolute", top: 0, bottom: 0, left: 0, right: 0, zIndex: 30, backgroundColor: colors.surface0 }
+          : { width: width + 8, minHeight: 0, flexShrink: 0 }),
+        flexDirection: "row",
+        opacity: drawer.progress,
+        transform: [{ translateX: drawer.progress.interpolate({ inputRange: [0, 1], outputRange: [32, 0] }) }],
+      }}
+    >
+      {!compact && (
+        <ResizeGrip
+          width={width}
+          maxWidth={drawerWidth(720, surfaceWidth || 1000)}
+          onChange={(next) =>
+            setPreferredWidth(drawerWidth(next, surfaceWidth))
+          }
+        />
+      )}
+      <TaskDrawer
+        key={drawer.item.task.id}
+        active={drawer.active}
+        task={drawer.item.task}
+        project={drawer.item.project}
+        events={drawer.item.events}
+        compact={compact}
+        width={width}
+        navigation={props.navigation}
+        hostId={props.host.id}
+        onClose={closeDrawer}
+        onEdit={editDrawerTask}
+        onDelete={deleteDrawerTask}
+        onStatusChanged={drawerStatusChanged}
+        refresh={stableRefresh}
+        sessionDefaults={sessionDefaults}
+        escapeRequest={
+          escapeRequest?.taskId === drawer.item.task.id ? escapeRequest.key : undefined
+        }
+        startRequest={
+          startRequest?.taskId === drawer.item.task.id ? startRequest.key : undefined
+        }
+        sessionEntry={
+          sessionEntry?.taskId === drawer.item.task.id && drawer.active ? sessionEntry : undefined
+        }
+        onSessionEntryConsumed={sessionEntryConsumed}
+      />
+    </Animated.View>
+  );
   return (
     <Theme.Provider value={props.theme}>
       <View
@@ -667,8 +805,9 @@ function BoardContent(
         // The root only takes focus to receive shortcuts; it must not draw a focus ring.
         style={{ flex: 1, minHeight: 0, overflow: "hidden", backgroundColor: colors.surface0, outlineStyle: "none" } as never}
       >
-        {!(compact && task) && (
+        {(
           <View
+            {...covered}
             style={{
               paddingHorizontal: space[3],
               height: touch ? 56 : 48,
@@ -679,19 +818,30 @@ function BoardContent(
               borderColor: colors.border,
             }}
           >
-            <ProjectSwitcher
-              title={project?.title || "Projects"}
-              archived={!!project?.archivedAt}
-              shortcut={shortcutsOn ? "P" : ""}
-              onPress={() => setMenu("projects")}
-            />
+            {compact || projects.length === 0 ? (
+              <ProjectSwitcher
+                title={project?.title || "Projects"}
+                archived={!!project?.archivedAt}
+                shortcut={shortcutsOn ? "P" : ""}
+                onPress={() => setMenu("projects")}
+              />
+            ) : (
+              <ProjectTabs
+                projects={projects}
+                activeId={project?.id || ""}
+                shortcut={shortcutsOn ? "P" : ""}
+                onSelect={chooseProject}
+                onManage={() => setMenu("projects")}
+                onCreate={() => setProjectForm("new")}
+              />
+            )}
             {!compact && !!project && filterCount > 0 && (
               // The overview counts the whole project; with filters on, say how many are shown.
               <Label muted size={font.sm} selectable={false}>
                 {visible.length} shown
               </Label>
             )}
-            <View style={{ flex: 1 }} />
+            {(compact || projects.length === 0) && <View style={{ flex: 1 }} />}
             {shortcutsOn && (
               <IconButton
                 icon="Keyboard"
@@ -742,7 +892,8 @@ function BoardContent(
             )}
           </View>
         )}
-        {!(compact && task) && project && board && (
+        {project && board && (
+          <View {...covered}>
           <OverviewBar
             overview={boardOverview(project, board.tasks, agents.data || [], attention)}
             nameOf={nameOf}
@@ -752,6 +903,7 @@ function BoardContent(
               else if (collapsedColumns.includes(status)) toggleCollapse(status);
             }}
           />
+          </View>
         )}
         {(data.error || error) && (
           <View style={{ paddingHorizontal: space[3], paddingTop: space[3], gap: space[2] }}>
@@ -813,8 +965,8 @@ function BoardContent(
           </View>
         ) : (
           <View style={{ flex: 1, minHeight: 0, flexDirection: "row" }}>
-            {!(compact && task) && (
-              <MotionReveal transitionKey={`${project.id}|${compact ? mobileStatus : "columns"}|${compact && !task ? "board" : ""}`} direction={-1} distance={compact ? 0 : 18} style={{ flex: 1, minWidth: 0, minHeight: 0 }}>
+            {(
+              <MotionReveal transitionKey={`${project.id}|${compact ? mobileStatus : "columns"}`} direction={-1} distance={compact ? 0 : 18} {...covered} style={{ flex: 1, minWidth: 0, minHeight: 0 }}>
                 {compact ? (
                   <>
                     <View style={{ paddingHorizontal: space[2], paddingTop: space[2] }}>
@@ -871,14 +1023,14 @@ function BoardContent(
                     statuses={shownStatuses}
                     tasks={visible}
                     disabled={pending || !!project.archivedAt}
-                    cancelKey={`${project.id}|${search}|${priority}|${archived}|${shownStatuses.join(",")}|${taskId}|${menu}|${actionTask?.id}|${projectForm}|${!!taskForm}`}
+                    cancelKey={`${project.id}|${search}|${priority}|${taskType}|${archived}|${shownStatuses.join(",")}|${taskId}|${menu}|${actionTask?.id}|${projectForm}|${!!taskForm}`}
                     sortColumn={sortColumn}
                     manualOrder={boardSort === "manual"}
                     collapsed={collapsedColumns}
                     nameOf={nameOf}
                     onToggleCollapse={toggleCollapse}
                     onReorderBlocked={() =>
-                      toast.show(`Sorted by ${boardSortText[boardSort].label.toLowerCase()}. Switch to Manual to reorder within a column.`, { variant: "info" })
+                      toast.show(`Sorted by ${boardSortText[boardSort].label.toLowerCase()}. Drop on another lane to change status; switch to Manual to reorder within a column.`, { variant: "info" })
                     }
                     renderCard={renderCard}
                     onAdd={(status) => setTaskForm({ status })}
@@ -887,67 +1039,7 @@ function BoardContent(
                 )}
               </MotionReveal>
             )}
-            {drawer.item && (
-              <Animated.View
-                testID="task-drawer-motion"
-                pointerEvents={drawer.active ? "auto" : "none"}
-                accessibilityElementsHidden={!drawer.active}
-                importantForAccessibility={drawer.active ? "auto" : "no-hide-descendants"}
-                style={{
-                  width: compact ? "100%" : width + 8,
-                  flex: compact ? 1 : undefined,
-                  minHeight: 0,
-                  flexShrink: 0,
-                  flexDirection: "row",
-                  ...(compact && !task ? { position: "absolute", top: 0, bottom: 0, right: 0 } : {}),
-                  opacity: drawer.progress,
-                  transform: [{ translateX: drawer.progress.interpolate({ inputRange: [0, 1], outputRange: [32, 0] }) }],
-                }}
-              >
-                {!compact && (
-                  <ResizeGrip
-                    width={width}
-                    maxWidth={drawerWidth(720, surfaceWidth || 1000)}
-                    onChange={(next) =>
-                      setPreferredWidth(drawerWidth(next, surfaceWidth))
-                    }
-                  />
-                )}
-                <TaskDrawer
-                  key={drawer.item.task.id}
-                  active={drawer.active}
-                  task={drawer.item.task}
-                  project={drawer.item.project}
-                  events={drawer.item.events}
-                  compact={compact}
-                  width={width}
-                  navigation={props.navigation}
-                  hostId={props.host.id}
-                  onClose={() => setTask("")}
-                  onEdit={() => task && setTaskForm({ task, status: task.status })}
-                  refresh={refresh}
-                  sessionDefaults={sessionDefaults}
-                  escapeRequest={
-                    escapeRequest?.taskId === drawer.item.task.id ? escapeRequest.key : undefined
-                  }
-                  startRequest={
-                    startRequest?.taskId === drawer.item.task.id ? startRequest.key : undefined
-                  }
-                  sessionEntry={
-                    sessionEntry?.taskId === drawer.item.task.id && drawer.active ? sessionEntry : undefined
-                  }
-                  onSessionEntryConsumed={(requestId) =>
-                    setSessionEntry((current) =>
-                      current?.requestId === requestId &&
-                      current.taskId === drawer.item?.task.id &&
-                      current.sessionId === sessionEntry?.sessionId
-                        ? null
-                        : current,
-                    )
-                  }
-                />
-              </Animated.View>
-            )}
+            {!compact && drawerView}
           </View>
         )}
 
@@ -1021,19 +1113,26 @@ function BoardContent(
                       setProjectForm("edit");
                     }}
                   />
+                  {project.archivedAt && (
+                    // Archiving was folded into Remove; older archived projects can still come back.
+                    <Row
+                      title={`Restore ${project.title}`}
+                      icon="ArchiveRestore"
+                      disabled={pending}
+                      onPress={() => {
+                        projectMenuClose();
+                        void doAction(() => updateProject({ id: project.id, revision: project.revision, archived: false }));
+                      }}
+                    />
+                  )}
                   <Row
-                    title={project.archivedAt ? `Restore ${project.title}` : `Archive ${project.title}`}
-                    icon={project.archivedAt ? "ArchiveRestore" : "Archive"}
+                    title={`Remove “${project.title}”…`}
+                    icon="Trash2"
+                    iconColor={colors.statusDanger}
                     disabled={pending}
                     onPress={() => {
                       projectMenuClose();
-                      void doAction(() =>
-                        updateProject({
-                          id: project.id,
-                          revision: project.revision,
-                          archived: !project.archivedAt,
-                        }),
-                      );
+                      setRemoving(project);
                     }}
                   />
                 </>
@@ -1062,7 +1161,18 @@ function BoardContent(
                 title="Search"
                 value={search}
                 onChange={setSearch}
+                // Filtering re-renders the whole board: keep it out of the keystroke path.
+                commitDelay={150}
                 placeholder="Title or description"
+              />
+              <Choices
+                title="Type"
+                value={taskType}
+                options={[
+                  { value: "all", label: "All" },
+                  ...taskTypes.map((t) => ({ value: t, label: taskTypeLabels[t] })),
+                ]}
+                onChange={setTaskType}
               />
               <Choices
                 title="Priority"
@@ -1088,6 +1198,7 @@ function BoardContent(
                   onPress={() => {
                     setSearch("");
                     setPriority("all");
+                    setTaskType("all");
                     setArchived(false);
                   }}
                 >
@@ -1313,6 +1424,43 @@ function BoardContent(
             </Theme.Provider>
           </Modal.Content>
         </Modal>
+        {removing && (
+          <RemoveProjectDialog
+            project={removing}
+            theme={props.theme}
+            onClose={() => setRemoving(null)}
+            onRemoved={({ removedTasks, paseo }) => {
+              setRemoving(null);
+              setTask("");
+              if (projectId === removing.id) setProject("");
+              const cards = removedTasks ? ` with ${removedTasks} card${removedTasks === 1 ? "" : "s"}` : "";
+              if (paseo?.error)
+                toast.error(`${removing.title} removed from the board${cards}, but Paseo kept the project: ${paseo.error}`);
+              else
+                toast.show(
+                  `${removing.title} removed from the board${cards}${paseo?.removed ? " and from Paseo; files stay on disk" : "; it stays in Paseo"}`,
+                  { variant: "success" },
+                );
+              refresh();
+            }}
+          />
+        )}
+        {deleting && (
+          <DeleteTaskDialog
+            task={deleting}
+            theme={props.theme}
+            onClose={() => setDeleting(null)}
+            onDeleted={({ archived }) => {
+              setDeleting(null);
+              if (taskId === deleting.id) setTask("");
+              toast.show(
+                `${deleting.title} deleted${archived ? `; ${archived.workspace ? "workspace and " : ""}${archived.sessions} session${archived.sessions === 1 ? "" : "s"} archived` : ""}`,
+                { variant: "success" },
+              );
+              refresh();
+            }}
+          />
+        )}
         {projectForm && (
           <ProjectForm
             key={projectForm}
@@ -1336,11 +1484,29 @@ function BoardContent(
             defaultStatus={taskForm.status}
             onClose={() => setTaskForm(null)}
             agentDefaults={sessionDefaults}
-            onSaved={(id, launch) => {
+            onSaved={(id, launch, status) => {
+              if (taskForm.task && status) askWrapup(id, taskForm.task.status, status);
               setTask(id);
               setTaskForm(null);
               if (launch?.sessionId) toast.show("Task created and its agent started", { variant: "success" });
               else if (launch?.error) toast.error(`Task created, but the agent did not start: ${launch.error}. Start it from the task.`);
+              refresh();
+            }}
+          />
+        )}
+        {compact && drawerView}
+        {!(compact && task) && <SettingsFab open={menu === "settings"} onPress={() => setMenu("settings")} />}
+        <SettingsModal open={menu === "settings"} theme={props.theme} onClose={() => setMenu(null)} />
+        {wrapPromptTask && (
+          <WrapupModal
+            key={wrapPromptTask.id}
+            prompt
+            task={wrapPromptTask}
+            open
+            onClose={() => setWrapPrompt("")}
+            onDone={(summary) => {
+              setWrapPrompt("");
+              toast.show(summary, { variant: "success" });
               refresh();
             }}
           />

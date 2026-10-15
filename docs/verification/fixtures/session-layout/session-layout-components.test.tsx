@@ -316,8 +316,8 @@ describe.skipIf(!rendererPath)("session preview layout focused renderer", () => 
 
   test("recent output uses sequence keys, includes named tool summaries, and skips malformed tool calls", () => {
     expect(recentSessionOutput([
-      { seq: 12, item: { type: "tool_call", name: "search", status: "done" } },
-      { seq: 13, item: { type: "tool_call" } },
+      { seqStart: 12, item: { type: "tool_call", name: "search", status: "done" } },
+      { seqStart: 13, item: { type: "tool_call" } },
     ])).toEqual([{ key: "12-tool_call", author: "Tool", text: "search · done", kind: "tool" }]);
   });
 });

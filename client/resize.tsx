@@ -1,6 +1,6 @@
 import { useRef, useState } from "react";
 import { PanResponder, View } from "react-native";
-import { useTheme } from "./ui";
+import { touch, useTheme } from "./ui";
 
 export function ResizeGrip({
   width,
@@ -45,7 +45,7 @@ export function ResizeGrip({
       onPointerEnter={() => setHovered(true)}
       onPointerLeave={() => setHovered(false)}
       style={{
-        width: 8,
+        width: touch ? 16 : 8,
         alignItems: "center",
         cursor: "col-resize",
       } as never}

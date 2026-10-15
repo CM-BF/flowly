@@ -83,3 +83,8 @@ export function createDraftReporter(
     },
   };
 }
+
+/** The text of a send that failed after the composer was cleared, put back before anything typed since. */
+export function restoredDraft(sent: string, typed: string) {
+  return typed.trim() ? `${sent}\n${typed}` : sent;
+}

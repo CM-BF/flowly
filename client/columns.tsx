@@ -4,7 +4,7 @@ import { Animated, Pressable, View, type ScrollView as NativeScrollView } from "
 import { ScrollView } from "@getpaseo/plugin/client/react-native";
 import type { Status, Task } from "../shared/model";
 import { statusLabels } from "../shared/model";
-import { IconButton, Label, font, noFocusRing, radius, space, useTheme, verticalScroll, verticalContent } from "./ui";
+import { IconButton, Label, font, noFocusRing, radius, space, touch, useTheme, verticalScroll, verticalContent } from "./ui";
 import { menuHandlers, useMenuOpener } from "./context-menu";
 import { StatusIcon } from "./status";
 import type { CardDrag } from "./card";
@@ -31,11 +31,12 @@ export type Placement = NonNullable<ReturnType<typeof placementUpdate>>;
  * width is layout) and fades the new content in; the frame owns the layout
  * measurement used for drop targeting.
  */
-function LaneFrame({ status, collapsed, onLayout, children }: { status: Status; collapsed: boolean; onLayout(x: number, width: number): void; children: ReactNode }) {
+function LaneFrame({ status, collapsed, onLayout, frameRef, children }: { status: Status; collapsed: boolean; onLayout(x: number, width: number): void; frameRef(node: View | null): void; children: ReactNode }) {
   const { colors } = useTheme();
   const open = useMotionValue(collapsed ? 0 : 1, collapsed ? motionDuration.reverse : motionDuration.forward, collapsed ? 0 : 1, true);
   return (
     <Animated.View
+      ref={frameRef}
       testID={`lane-${status}`}
       onLayout={(e) => onLayout(e.nativeEvent.layout.x, e.nativeEvent.layout.width)}
       style={{
@@ -111,6 +112,9 @@ export function DesktopColumns({
   const { colors } = useTheme();
   const openMenu = useMenuOpener();
   const [hoverHeader, setHoverHeader] = useState<Status | null>(null);
+  // RN-web ends a Pressable's hover while a nested Pressable is hovered, so the header buttons report their own.
+  const [hoverHeaderButton, setHoverHeaderButton] = useState<string | null>(null);
+  const trackHeaderButton = (key: string) => (hovered: boolean) => setHoverHeaderButton((h) => (hovered ? key : h === key ? null : h));
   const cardGap = space[2];
   const viewportRef = useRef<View>(null),
     scrollRef = useRef<NativeScrollView>(null);
@@ -121,6 +125,7 @@ export function DesktopColumns({
   const cards = useRef<Record<string, { y: number; height: number }>>({}),
     order = useRef<Partial<Record<Status, string[]>>>({}),
     lists = useRef<Partial<Record<Status, View | null>>>({}),
+    frames = useRef<Partial<Record<Status, View | null>>>({}),
     listTops = useRef<Partial<Record<Status, number>>>({}),
     scrollY = useRef<Partial<Record<Status, number>>>({});
   const live = useRef<DragState | null>(null);
@@ -163,6 +168,16 @@ export function DesktopColumns({
       listTops.current = {};
       viewportRef.current?.measureInWindow((x, y, width, height) => {
         viewport.current = { x, y, width, height };
+        // Web onLayout only reports size changes, so lanes shifted by a sibling
+        // collapsing/expanding keep a stale x: re-measure them for this drag.
+        for (const [status, frame] of Object.entries(frames.current) as [Status, View | null][])
+          frame?.measureInWindow((laneX, _laneY, laneWidth) => {
+            columns.current = [
+              ...columns.current.filter((c) => c.status !== status),
+              { status, x: laneX - viewport.current.x + offset.current, width: laneWidth },
+            ];
+            if (live.current) move(live.current.point);
+          });
         if (live.current) move(live.current.point);
       });
       for (const [status, list] of Object.entries(lists.current) as [Status, View | null][])
@@ -191,6 +206,16 @@ export function DesktopColumns({
     },
     cancel,
   };
+  // Cards are memoized: hand them one drag object that always runs this
+  // render's handlers (PERFORMANCE-SPEC §3).
+  const latestDrag = useRef(drag);
+  latestDrag.current = drag;
+  const [stableDrag] = useState<CardDrag>(() => ({
+    start: (task, point) => latestDrag.current.start(task, point),
+    move: (point) => latestDrag.current.move(point),
+    end: (point) => latestDrag.current.end(point),
+    cancel: () => latestDrag.current.cancel(),
+  }));
   useEffect(() => {
     cancel();
   }, [cancelKey, disabled]);
@@ -266,12 +291,15 @@ export function DesktopColumns({
               ? [{ id: "collapse", label: collapsed.includes(status) ? "Expand column" : "Collapse column", icon: collapsed.includes(status) ? "ChevronsLeftRight" : "ChevronsRightLeft", onPress: () => onToggleCollapse(status) }]
               : []),
           ]);
+          const frameRef = (node: View | null) => {
+            frames.current[status] = node;
+          };
           const measure = (x: number, width: number) => {
             columns.current = [...columns.current.filter((c) => c.status !== status), { status, x, width }];
           };
           if (collapsed.includes(status))
             return (
-              <LaneFrame key={status} status={status} collapsed onLayout={measure}>
+              <LaneFrame key={status} status={status} collapsed onLayout={measure} frameRef={frameRef}>
               <Pressable
                 accessibilityRole="button"
                 accessibilityLabel={`Expand ${nameOf(status)}, ${column.length} ${column.length === 1 ? "task" : "tasks"}`}
@@ -305,7 +333,7 @@ export function DesktopColumns({
               </LaneFrame>
             );
           return (
-            <LaneFrame key={status} status={status} collapsed={false} onLayout={measure}>
+            <LaneFrame key={status} status={status} collapsed={false} onLayout={measure} frameRef={frameRef}>
             <View
               style={{
                 width: columnWidth,
@@ -342,12 +370,13 @@ export function DesktopColumns({
                   </Label>
                 </View>
                 {onToggleCollapse && (
-                  // Always mounted (RN-web clears hover on press); only revealed on header hover.
-                  <View style={{ opacity: hoverHeader === status ? 1 : 0 }}>
+                  // Always mounted (RN-web clears hover on press); revealed on header hover, always shown on touch.
+                  <View style={{ opacity: touch || hoverHeader === status || hoverHeaderButton?.startsWith(`${status}:`) ? 1 : 0 }}>
                     <IconButton
                       icon="ChevronsRightLeft"
                       size={28}
                       label={`Collapse ${nameOf(status)}`}
+                      onHoverChange={trackHeaderButton(`${status}:collapse`)}
                       onPress={() => onToggleCollapse(status)}
                     />
                   </View>
@@ -357,6 +386,7 @@ export function DesktopColumns({
                   size={28}
                   label={`Add task to ${nameOf(status)}`}
                   disabled={disabled}
+                  onHoverChange={trackHeaderButton(`${status}:add`)}
                   onPress={() => onAdd(status)}
                 />
               </Pressable>
@@ -391,7 +421,7 @@ export function DesktopColumns({
                       cards.current[t.id] = { y, height };
                     }}
                   >
-                    {renderCard(t, drag, dragging?.task.id === t.id)}
+                    {renderCard(t, stableDrag, dragging?.task.id === t.id)}
                   </View>
                 ))}
                 {!column.length && !!dragging && (

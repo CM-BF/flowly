@@ -1,0 +1,254 @@
+import { afterEach, expect, test } from "vitest";
+import type { PaseoApi } from "@getpaseo/client";
+import { mkdtemp, readdir, readFile, realpath, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { BoardStore } from "./store";
+import { SummaryService, SummaryStore } from "./summaries";
+import type { SummarySettings } from "../shared/summary";
+
+const roots: string[] = [];
+const settle = () => new Promise((r) => setTimeout(r, 30));
+afterEach(async () => {
+  await Promise.all(roots.splice(0).map((p) => rm(p, { recursive: true, force: true })));
+});
+
+type Reply = { status?: "idle" | "error" | "permission" | "timeout"; text?: string; error?: string; gate?: Promise<void> };
+
+async function setup(options: { claude?: boolean } = {}) {
+  const root = await realpath(await mkdtemp(join(tmpdir(), "ultra-summary-")));
+  roots.push(root);
+  const board = new BoardStore(join(root, "data"));
+  const now = new Date().toISOString();
+  await board.mutate((b) => {
+    b.projects.push({ id: "p", paseoProjectId: "n", title: "P", description: "", primaryPath: root, repos: [root], revision: 1, createdAt: now, updatedAt: now, archivedAt: null });
+    b.tasks.push({ id: "t", projectId: "p", workspaceId: "w", sourcePath: root, repoPaths: [root], title: "T", description: "", status: "development", priority: "normal", position: 0, revision: 1, operationId: "o", createdAt: now, updatedAt: now, archivedAt: null });
+  });
+  const replies: Reply[] = [];
+  const created: { workspaceId: string; parent: string; provider: string; prompt: string; labels: Record<string, string> }[] = [];
+  let archived = 0;
+  const paseo = {
+    providers: {
+      listAvailable: async () => ({
+        providers: [
+          { provider: "claude", available: options.claude ?? true },
+          { provider: "codex", available: true },
+        ],
+      }),
+      listModels: async (p: string) => ({ models: p === "claude" ? [{ id: "claude-haiku-5-5" }] : [{ id: "gpt-6-luna" }], error: null }),
+    },
+    workspaces: {
+      ref: (workspaceId: string) => ({
+        agents: {
+      create: async (o: { parent: string; config: { provider: string }; prompt: string; labels: Record<string, string> }) => {
+        created.push({ workspaceId, parent: o.parent, provider: o.config.provider, prompt: o.prompt, labels: o.labels });
+        const reply = replies.shift() || {};
+        return {
+          waitForFinish: async () => {
+            await reply.gate;
+            return { status: reply.status || "idle", final: null, error: reply.error || null, lastMessage: reply.text ?? null };
+          },
+          archive: async () => {
+            archived++;
+            return { archivedAt: now };
+          },
+        };
+      },
+        },
+      }),
+    },
+    agents: {},
+  } as unknown as PaseoApi;
+  let settings: SummarySettings = { summaryEnabled: true, summaryModel: "" };
+  const store = new SummaryStore(board.directory);
+  const service = new SummaryService(board, store, async () => settings);
+  const turn = (text: string) => [{ type: "user_message", text }, { type: "assistant_message", text: "ok " + text }];
+  const json = (state: string, update = true) => JSON.stringify({ update, state, target: "Goal: g", recap: "r", next: "n" });
+  return {
+    root,
+    board,
+    store,
+    service,
+    paseo,
+    replies,
+    created,
+    archived: () => archived,
+    turn,
+    json,
+    setSettings: (s: Partial<SummarySettings>) => (settings = { ...settings, ...s }),
+  };
+}
+
+test("a turn writes a version without touching board or task revisions; the session is archived", async () => {
+  const x = await setup();
+  const before = await x.board.read();
+  x.replies.push({ text: x.json("实现完成") });
+  await x.service.enqueue("t", "a1", x.turn("做登录"), x.paseo);
+  const latest = await x.store.latest("t");
+  expect(latest).toMatchObject({ state: "实现完成", target: "g", model: "claude/claude-haiku-5-5", agentIds: ["a1"] });
+  // Child of the finishing session in the card's own workspace: no new native project/workspace.
+  expect(x.created[0]).toMatchObject({ workspaceId: "w", parent: "a1", labels: { "ultra-kanban": "summarizer", "ultra-kanban-task": "t" } });
+  expect(x.created[0].prompt).toContain("User: 做登录");
+  expect(x.archived()).toBe(1);
+  const after = await x.board.read();
+  expect(after.revision).toBe(before.revision);
+  expect(after.tasks[0].revision).toBe(1);
+});
+
+test("falls back to GPT-6-Luna when Claude is unavailable", async () => {
+  const x = await setup({ claude: false });
+  x.replies.push({ text: x.json("s") });
+  await x.service.enqueue("t", "a1", x.turn("x"), x.paseo);
+  expect(x.created[0].provider).toBe("codex/gpt-6-luna");
+});
+
+test("update=false keeps the previous version; the first summary is always written", async () => {
+  const x = await setup();
+  x.replies.push({ text: x.json("first", false) });
+  await x.service.enqueue("t", "a1", x.turn("hi"), x.paseo);
+  expect(await x.store.history("t")).toHaveLength(1);
+  x.replies.push({ text: x.json("ignored", false) });
+  await x.service.enqueue("t", "a1", x.turn("thanks"), x.paseo);
+  const history = await x.store.history("t");
+  expect(history).toHaveLength(1);
+  expect(history[0].state).toBe("first");
+  expect(x.created[1].prompt).toContain("State: first");
+});
+
+test("one run per card; turns ending meanwhile merge into a single follow-up", async () => {
+  const x = await setup();
+  let release!: () => void;
+  x.replies.push({ text: x.json("one"), gate: new Promise<void>((r) => (release = r)) }, { text: x.json("two") });
+  const first = x.service.enqueue("t", "a1", x.turn("first"), x.paseo);
+  await settle();
+  expect(x.service.running()).toEqual(["t"]);
+  await x.service.enqueue("t", "a2", x.turn("second"), x.paseo);
+  await x.service.enqueue("t", "a1", x.turn("third"), x.paseo);
+  expect(x.created).toHaveLength(1);
+  release();
+  await first;
+  expect(x.created).toHaveLength(2);
+  expect(x.created[1].prompt).toContain("User: second");
+  expect(x.created[1].prompt).toContain("User: third");
+  expect((await x.store.latest("t"))?.agentIds.sort()).toEqual(["a1", "a2"]);
+  expect(x.service.running()).toEqual([]);
+});
+
+test("failures are recorded, the old summary kept, and the session still archived", async () => {
+  const x = await setup();
+  x.replies.push({ text: x.json("good") });
+  await x.service.enqueue("t", "a1", x.turn("a"), x.paseo);
+  for (const reply of [{ status: "timeout" as const }, { status: "permission" as const }, { text: "not json" }]) {
+    x.replies.push(reply);
+    await x.service.enqueue("t", "a1", x.turn("b"), x.paseo);
+  }
+  const state = await x.store.read();
+  expect(state.errors).toEqual([expect.objectContaining({ taskId: "t", message: expect.stringMatching(/no JSON/) })]);
+  expect((await x.store.latest("t"))?.state).toBe("good");
+  expect(x.archived()).toBe(4);
+  x.replies.push({ text: x.json("again") });
+  await x.service.enqueue("t", "a1", x.turn("c"), x.paseo);
+  expect((await x.store.read()).errors).toEqual([]);
+});
+
+test("an unavailable configured model is an error without creating a session", async () => {
+  const x = await setup();
+  x.setSettings({ summaryModel: "codex/gpt-6-sol" });
+  await x.service.enqueue("t", "a1", x.turn("a"), x.paseo);
+  expect(x.created).toHaveLength(0);
+  expect((await x.store.read()).errors[0].message).toMatch(/not available/);
+});
+
+test("archived cards and empty turns are skipped", async () => {
+  const x = await setup();
+  await x.service.enqueue("t", "a1", [{ type: "reasoning" }], x.paseo);
+  await x.board.mutate((b) => (b.tasks[0].archivedAt = new Date().toISOString()));
+  await x.service.enqueue("t", "a1", x.turn("a"), x.paseo);
+  expect(x.created).toHaveLength(0);
+});
+
+test("keeps the newest 50 versions per card", async () => {
+  const x = await setup();
+  for (let i = 0; i < 53; i++)
+    await x.store.add({ taskId: "t", model: "m", agentIds: [], state: `s${i}`, target: "", recap: "", next: "" });
+  await x.store.add({ taskId: "other", model: "m", agentIds: [], state: "o", target: "", recap: "", next: "" });
+  const history = await x.store.history("t");
+  expect(history).toHaveLength(50);
+  expect(history[0].state).toBe("s52");
+  expect(history[49].state).toBe("s3");
+});
+
+test("project removal backs up then drops the cards' summaries", async () => {
+  const x = await setup();
+  await x.store.add({ taskId: "t", model: "m", agentIds: [], state: "s", target: "", recap: "", next: "" });
+  await x.store.add({ taskId: "keep", model: "m", agentIds: [], state: "k", target: "", recap: "", next: "" });
+  await x.store.setError("t", "bad");
+  const backup = await x.store.removeTasks("p", new Set(["t"]));
+  expect(backup).toBeTruthy();
+  const saved = JSON.parse(await readFile(backup!, "utf8"));
+  expect(saved.entries).toHaveLength(1);
+  expect(saved.errors).toHaveLength(1);
+  const state = await x.store.read();
+  expect(state.entries.map((e) => e.taskId)).toEqual(["keep"]);
+  expect(state.errors).toEqual([]);
+  expect(await x.store.removeTasks("p", new Set(["none"]))).toBeNull();
+  expect(await readdir(join(x.board.directory, "removed"))).toHaveLength(1);
+});
+
+test("invalid summary data is preserved, not reset", async () => {
+  const x = await setup();
+  await x.store.add({ taskId: "t", model: "m", agentIds: [], state: "s", target: "", recap: "", next: "" });
+  const { writeFile } = await import("node:fs/promises");
+  await writeFile(x.store.path, "{broken");
+  await expect(x.store.read()).rejects.toThrow(/preserved/);
+  await expect(x.store.add({ taskId: "t", model: "m", agentIds: [], state: "s", target: "", recap: "", next: "" })).rejects.toThrow();
+  expect(await readFile(x.store.path, "utf8")).toBe("{broken");
+});
+
+test("manual refresh summarizes the latest turn of the most recent managed session", async () => {
+  const x = await setup();
+  const timelines: Record<string, unknown[]> = {
+    old: [{ item: { type: "user_message", text: "old" }, timestamp: "2026-01-01" }],
+    new: [
+      { item: { type: "user_message", text: "earlier" }, timestamp: "2026-02-01" },
+      { item: { type: "user_message", text: "latest ask" }, timestamp: "2026-02-02" },
+      { item: { type: "assistant_message", text: "answer" }, timestamp: "2026-02-03" },
+    ],
+  };
+  (x.paseo.agents as unknown as { ref: unknown }).ref = (id: string) => ({
+    timeline: { refetch: async () => ({ entries: timelines[id] }) },
+  });
+  await expect(x.service.refresh("t", [], x.paseo)).rejects.toThrow(/no Kanban sessions/);
+  x.replies.push({ text: x.json("refreshed") });
+  expect(await x.service.refresh("t", ["old", "new"], x.paseo)).toEqual({ queued: true });
+  await settle();
+  expect(x.created[0].prompt).toContain("User: latest ask");
+  expect(x.created[0].prompt).not.toContain("User: earlier");
+  expect((await x.store.latest("t"))?.agentIds).toEqual(["new"]);
+});
+
+test("overview lists latest per card, running cards, errors and the setting", async () => {
+  const x = await setup();
+  await x.store.add({ taskId: "t", model: "m", agentIds: [], state: "a", target: "", recap: "", next: "" });
+  await x.store.add({ taskId: "t", model: "m", agentIds: [], state: "b", target: "", recap: "", next: "" });
+  x.setSettings({ summaryEnabled: false });
+  const o = await x.service.overview();
+  expect(o.latest.map((e) => e.state)).toEqual(["b"]);
+  expect(o).toMatchObject({ running: [], errors: [], enabled: false });
+});
+
+test("versions written before target existed read with an empty target", async () => {
+  const x = await setup();
+  const { writeFile } = await import("node:fs/promises");
+  const { mkdir } = await import("node:fs/promises");
+  await mkdir(x.board.directory, { recursive: true });
+  await writeFile(
+    x.store.path,
+    JSON.stringify({ version: 1, entries: [{ id: "e", taskId: "t", at: "2026-10-15T00:00:00Z", model: "m", agentIds: [], state: "old", recap: "", next: "" }], errors: [] }),
+  );
+  expect((await x.store.latest("t"))?.target).toBe("");
+  x.replies.push({ text: x.json("new") });
+  await x.service.enqueue("t", "a1", x.turn("x"), x.paseo);
+  expect(x.created[0].prompt).toContain("Target: (not set yet)");
+  expect((await x.store.latest("t"))?.target).toBe("g");
+});

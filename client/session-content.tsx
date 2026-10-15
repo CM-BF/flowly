@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { memo, useMemo, useState } from "react";
 import { Linking, Platform, Text, View } from "react-native";
 import { Icon } from "@getpaseo/plugin/client/react-native";
 import { parseSessionInline, parseSessionMarkdown } from "./session-markdown";
@@ -6,7 +6,8 @@ import { Label, useTheme } from "./ui";
 
 const mono = Platform.OS === "ios" ? "Menlo" : "monospace";
 
-function Inline({
+// Memoized by its text: a transcript re-render must not re-parse unchanged messages.
+const Inline = memo(function Inline({
   text,
   size = 14,
   bold = false,
@@ -17,6 +18,7 @@ function Inline({
 }) {
   const { colors } = useTheme();
   const [linkError, setLinkError] = useState(false);
+  const parts = useMemo(() => parseSessionInline(text), [text]);
   return (
     <View style={{ minWidth: 0, flexShrink: 1 }}>
       <Text
@@ -28,7 +30,7 @@ function Inline({
           flexShrink: 1,
         }}
       >
-        {parseSessionInline(text).map((part, index) => {
+        {parts.map((part, index) => {
           const link =
             part.kind === "link" && /^https?:\/\//i.test(part.url || "");
           return (
@@ -64,9 +66,9 @@ function Inline({
       {linkError && <Label muted>Unable to open this link.</Label>}
     </View>
   );
-}
+});
 
-export function SessionMarkdown({ text }: { text: string }) {
+export const SessionMarkdown = memo(function SessionMarkdown({ text }: { text: string }) {
   const { colors } = useTheme();
   const blocks = useMemo(() => parseSessionMarkdown(text), [text]);
   return (
@@ -211,4 +213,4 @@ export function SessionMarkdown({ text }: { text: string }) {
       })}
     </View>
   );
-}
+});

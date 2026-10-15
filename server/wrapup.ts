@@ -32,15 +32,21 @@ export class WrapupService {
     readonly git: Git = defaultGit,
   ) {}
 
-  async check(id: string, paseo: PaseoApi): Promise<WrapupCheck> {
+  /**
+   * `delete` is the preflight for archiving before a permanent delete
+   * (TASK-DELETE-SPEC): any lane, archived cards too.
+   */
+  async check(id: string, paseo: PaseoApi, purpose: "wrapup" | "delete" = "wrapup"): Promise<WrapupCheck> {
     const board = await this.store.read();
     const task = board.tasks.find((t) => t.id === id);
     if (!task) throw new Error("Task not found.");
     const blockers: string[] = [],
       warnings: string[] = [];
-    if (task.archivedAt) blockers.push("Card is already archived.");
-    if (task.status !== "done" && task.status !== "cancelled")
-      blockers.push("Only Done or Cancelled cards can be wrapped up.");
+    if (purpose === "wrapup") {
+      if (task.archivedAt) blockers.push("Card is already archived.");
+      if (task.status !== "done" && task.status !== "cancelled")
+        blockers.push("Only Done or Cancelled cards can be wrapped up.");
+    }
     const workspace = await paseo.workspaces.ref(task.workspaceId).refresh();
     const kind = workspace?.workspaceKind ?? null;
     const directory = workspace?.workspaceDirectory ?? null;
@@ -55,6 +61,13 @@ export class WrapupService {
       blockers.push(
         `${active} session${active === 1 ? " is" : "s are"} still running. Stop or wait for ${active === 1 ? "it" : "them"} first.`,
       );
+    // Cards linked to an existing workspace (e.g. the project's main one) never
+    // archive it unless it is a worktree. Older cards lack the flag; the plugin
+    // titled the workspaces it created after the card.
+    const owned =
+      !!workspace &&
+      (task.ownsWorkspace ??
+        (workspace.title || workspace.name || "").trim() === task.title.trim());
     let git: WrapupCheck["git"] = null;
     if (kind === "worktree" && directory) {
       try {
@@ -91,7 +104,7 @@ export class WrapupService {
       workspace: workspace
         ? { id: task.workspaceId, kind: kind || "unknown", directory: directory || "" }
         : null,
-      archiveWorkspace: kind === "worktree",
+      archiveWorkspace: kind === "worktree" || owned,
       sessions: sessions.length,
       git,
       blockers,
@@ -100,14 +113,14 @@ export class WrapupService {
   }
 
   async run(
-    input: { id: string; revision: number; acknowledgeWarnings: boolean },
+    input: { id: string; revision: number; acknowledgeWarnings: boolean; keepCard?: boolean; purpose?: "wrapup" | "delete" },
     paseo: PaseoApi,
   ): Promise<WrapupResult> {
-    const check = await this.check(input.id, paseo);
+    const check = await this.check(input.id, paseo, input.purpose);
     if (check.revision !== input.revision)
       throw new Error("Revision conflict: this card changed. Review the wrap-up again.");
     if (check.blockers.length)
-      throw new Error(`Cannot wrap up: ${check.blockers.join(" ")}`);
+      throw new Error(`Cannot ${input.purpose === "delete" ? "archive" : "wrap up"}: ${check.blockers.join(" ")}`);
     if (check.warnings.length && !input.acknowledgeWarnings)
       throw new Error(`Confirm the warnings first: ${check.warnings.join(" ")}`);
     let archivedSessions = 0,
@@ -137,13 +150,20 @@ export class WrapupService {
     }
     if (failures.length)
       throw new Error(
-        `Wrap-up incomplete; the card was not archived. ${archivedSessions} session(s) archived. Failed: ${failures.join("; ")}. Retry to continue.`,
+        `${input.purpose === "delete" ? "Archive incomplete; the card was not deleted." : "Wrap-up incomplete; the card was not archived."} ${archivedSessions} session(s) archived. Failed: ${failures.join("; ")}. Retry to continue.`,
       );
     const note = [
       `${archivedSessions} session(s) archived`,
-      archivedWorkspace ? "worktree workspace archived" : "workspace kept",
+      archivedWorkspace ? "workspace archived" : "workspace kept",
       ...(check.warnings.length ? [`acknowledged: ${check.warnings.join(" ")}`] : []),
     ].join("; ");
+    if (input.keepCard) {
+      await this.store.mutate((board) => {
+        if (board.tasks.some((t) => t.id === input.id))
+          this.store.event(board, { taskId: input.id, actor: "human", action: "wrapped_up", note: `${note}; card kept` });
+      });
+      return { archivedSessions, archivedWorkspace, note };
+    }
     await this.store.mutate((board) => {
       const task = board.tasks.find((t) => t.id === input.id);
       if (!task) throw new Error("Task not found.");
@@ -161,5 +181,55 @@ export class WrapupService {
       });
     });
     return { archivedSessions, archivedWorkspace, note };
+  }
+
+  /**
+   * Runs after a human moves a card to Done or Cancelled with auto wrap-up on: archives the card's own workspace
+   * (and with it its sessions) when the wrap-up preflight is fully clean. The
+   * card itself stays on the board; anything else is left for manual Wrap up.
+   */
+  async autoArchive(id: string, paseo: PaseoApi): Promise<void> {
+    const pending = this.autoRuns.get(id);
+    if (pending) return pending;
+    const run = this.autoArchiveOnce(id, paseo).finally(() => this.autoRuns.delete(id));
+    this.autoRuns.set(id, run);
+    return run;
+  }
+
+  private readonly autoRuns = new Map<string, Promise<void>>();
+
+  private async autoArchiveOnce(id: string, paseo: PaseoApi) {
+    const record = (action: string, note: string) =>
+      this.store.mutate((board) => {
+        if (board.tasks.some((t) => t.id === id))
+          this.store.event(board, { taskId: id, actor: "system", action, note });
+      });
+    let check: WrapupCheck;
+    try {
+      check = await this.check(id, paseo);
+    } catch (e) {
+      await record("workspace_auto_archive_skipped", `Preflight failed: ${e instanceof Error ? e.message : String(e)}`);
+      return;
+    }
+    if (!check.workspace) return;
+    const reasons = [...check.blockers, ...check.warnings];
+    if (!check.archiveWorkspace)
+      reasons.push("The workspace is not owned by this card.");
+    if (reasons.length) {
+      await record("workspace_auto_archive_skipped", `${reasons.join(" ")} Use Wrap up when ready.`);
+      return;
+    }
+    const current = (await this.store.read()).tasks.find((t) => t.id === id);
+    if (!current || current.archivedAt || (current.status !== "done" && current.status !== "cancelled") || current.revision !== check.revision) return;
+    const result = await paseo.workspaces
+      .archive(check.workspace.id)
+      .catch((e: unknown) => ({ error: e instanceof Error ? e.message : String(e), archivedAt: null }));
+    if (result.error || !result.archivedAt)
+      await record("workspace_auto_archive_skipped", `Archiving failed: ${result.error || "not archived"}. Use Wrap up to retry.`);
+    else
+      await record(
+        "workspace_auto_archived",
+        `${check.workspace.kind === "worktree" ? "Worktree" : "Workspace"} and ${check.sessions} session(s) archived; the directory ${check.workspace.kind === "worktree" ? "may be removed by Paseo, the branch is kept" : "stays on disk"}.`,
+      );
   }
 }

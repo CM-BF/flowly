@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { View } from "react-native";
 import { Icon } from "@getpaseo/plugin/client/react-native";
 import { Modal } from "./modal";
@@ -8,7 +8,7 @@ import type { Task } from "../shared/model";
 import * as rpc from "../shared/rpc";
 import { Actions, Button, Label, Notice, Theme, font, message, space, useTheme } from "./ui";
 
-function CheckRow({ tone, text }: { tone: "ok" | "warn" | "block"; text: string }) {
+export function CheckRow({ tone, text }: { tone: "ok" | "warn" | "block"; text: string }) {
   const { colors } = useTheme();
   return (
     <View style={{ flexDirection: "row", gap: space[2], alignItems: "flex-start" }}>
@@ -26,15 +26,21 @@ function CheckRow({ tone, text }: { tone: "ok" | "warn" | "block"; text: string 
   );
 }
 
-/** Explicit wrap-up of a finished card: preflight, then archive sessions/worktree and the card. */
+/**
+ * Explicit wrap-up of a finished card: preflight, then archive sessions/worktree
+ * and the card. `prompt` is the question asked right after a move into
+ * Done/Cancelled: it archives the resources but keeps the card on the board.
+ */
 export function WrapupModal({
   task,
   open,
+  prompt = false,
   onClose,
   onDone,
 }: {
   task: Task;
   open: boolean;
+  prompt?: boolean;
   onClose(): void;
   onDone(summary: string): void;
 }) {
@@ -53,6 +59,11 @@ export function WrapupModal({
   const data = check.data;
   const blocked = !data || data.blockers.length > 0;
   const warned = !!data?.warnings.length;
+  // Nothing of this card is left to archive: don't ask.
+  const empty = !!data && (!data.workspace || (!data.archiveWorkspace && !data.sessions));
+  useEffect(() => {
+    if (open && prompt && empty) onClose();
+  }, [open, prompt, empty]);
   async function confirm() {
     if (!data || pending) return;
     setPending(true);
@@ -62,10 +73,11 @@ export function WrapupModal({
         id: task.id,
         revision: data.revision,
         acknowledgeWarnings: warned,
+        ...(prompt ? { keepCard: true } : {}),
       });
       onDone(
         result.archivedWorkspace
-          ? "Wrapped up: worktree and sessions archived"
+          ? `Wrapped up: workspace and sessions archived`
           : `Wrapped up: ${result.archivedSessions} session${result.archivedSessions === 1 ? "" : "s"} archived`,
       );
     } catch (e) {
@@ -78,7 +90,7 @@ export function WrapupModal({
   return (
     <Modal
       open={open}
-      title="Wrap up"
+      title={prompt ? "Wrap up this card?" : "Wrap up"}
       onOpenChange={(next) => {
         if (!next && !pending) onClose();
       }}
@@ -86,10 +98,18 @@ export function WrapupModal({
       <Modal.Content>
         <Theme.Provider value={theme}>
           <Label size={font.base}>
-            {data?.archiveWorkspace
-              ? "Archive this card's worktree workspace and its sessions, then archive the card. Paseo may remove the worktree directory; the branch is kept."
-              : "Archive this card's sessions, then archive the card. The workspace directory stays as it is."}
+            {(data?.archiveWorkspace && data.workspace?.kind === "worktree"
+              ? "Archive this card's worktree workspace and its sessions. Paseo may remove the worktree directory; the branch is kept."
+              : data?.archiveWorkspace
+                ? "Archive this card's workspace and its sessions. The directory stays on disk."
+                : "Archive this card's sessions. The workspace directory stays as it is.") +
+              (prompt ? " The card stays on the board." : " Then archive the card.")}
           </Label>
+          {prompt && (
+            <Label muted size={font.sm}>
+              To skip this question, turn on Auto wrap up in Ultra Kanban settings.
+            </Label>
+          )}
           {check.isPending ? (
             <Label muted>Checking…</Label>
           ) : check.error ? (
@@ -119,7 +139,7 @@ export function WrapupModal({
           {!!error && <Notice>{error}</Notice>}
           <Actions>
             <Button quiet disabled={pending} onPress={onClose}>
-              Cancel
+              {prompt ? "Not now" : "Cancel"}
             </Button>
             <Button
               primary={!warned}

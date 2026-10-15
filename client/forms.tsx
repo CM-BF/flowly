@@ -5,20 +5,24 @@ import { useState } from "react";
 import { View } from "react-native";
 import { Modal } from "./modal";
 import { usePaseo, useRpc } from "@getpaseo/plugin/client";
-import { useQuery } from "@tanstack/react-query";
+import { useBoardQuery, useResourcesQuery } from "./queries";
 import * as rpc from "../shared/rpc";
 import {
   priorities,
+  taskTypes,
+  taskTypeLabels,
+  type TaskType,
   type Lane,
   type Project,
   type Task,
   type Status,
 } from "../shared/model";
-import { Theme, useTheme, Button, Field, Choices, Notice, Label, Row, Actions, Toggle, message, basename, font, radius } from "./ui";
+import { Theme, useTheme, Button, IconButton, Field, Choices, Notice, Label, Row, Actions, Toggle, message, basename, font, radius, space } from "./ui";
 import { priorityLabels } from "./status";
 import { isLegacyScope } from "../shared/scope";
 import { AgentPicker, useAgentChoice, type AgentDefaults } from "./agent-choice";
 import { launchKanbanSession } from "./session";
+import { DirectoryChooser } from "./directory-picker";
 
 export function ProjectForm({
   project: initialProject,
@@ -35,16 +39,16 @@ export function ProjectForm({
   const theme = useTheme();
   const [project] = useState(initialProject);
   const create = useRpc(rpc.createProject),
-    update = useRpc(rpc.updateProject),
-    list = useRpc(rpc.listResources);
-  const resources = useQuery({
-    queryKey: ["ultra", "resources"],
-    queryFn: () => list({}),
-  });
+    createLinked = useRpc(rpc.createLinkedProject),
+    setLinks = useRpc(rpc.setProjectLinks),
+    update = useRpc(rpc.updateProject);
+  const resources = useResourcesQuery();
   const [title, setTitle] = useState(project?.title || ""),
     [description, setDescription] = useState(project?.description || ""),
     [primaryPath, setPrimary] = useState(project?.primaryPath || ""),
     [nativeId, setNative] = useState(project?.paseoProjectId || ""),
+    [source, setSource] = useState<"directory" | "linked" | "native">("directory"),
+    [links, setLinkList] = useState<string[]>(() => project?.links?.map((l) => l.target) ?? []),
     [autoStatus, setAutoStatus] = useState(project?.autoStatus !== false),
     [lanes, setLanes] = useState<Lane[]>(() => projectLanes(project)),
     [pending, setPending] = useState(false),
@@ -53,21 +57,29 @@ export function ProjectForm({
     setPending(true);
     setError("");
     try {
-      const result = project
-        ? await update({
-            id: project.id,
-            revision: project.revision,
-            title,
-            description,
-            ...(autoStatus !== (project.autoStatus !== false) ? { autoStatus } : {}),
-            ...(JSON.stringify(lanes) !== JSON.stringify(projectLanes(project)) ? { lanes } : {}),
-          })
-        : await create({
-            title,
-            description,
-            primaryPath,
-            ...(nativeId ? { paseoProjectId: nativeId } : {}),
-          });
+      if (project) {
+        let saved = await update({
+          id: project.id,
+          revision: project.revision,
+          title,
+          description,
+          ...(autoStatus !== (project.autoStatus !== false) ? { autoStatus } : {}),
+          ...(JSON.stringify(lanes) !== JSON.stringify(projectLanes(project)) ? { lanes } : {}),
+        });
+        if (project.links && JSON.stringify(links) !== JSON.stringify(project.links.map((l) => l.target)))
+          saved = await setLinks({ id: project.id, revision: saved.revision, links });
+        onSaved(saved.id);
+        return;
+      }
+      const result =
+        source === "linked"
+          ? await createLinked({ title, description, links })
+          : await create({
+              title,
+              description,
+              primaryPath,
+              ...(source === "native" && nativeId ? { paseoProjectId: nativeId } : {}),
+            });
       onSaved(result.id);
     } catch (e) {
       setError(message(e));
@@ -95,44 +107,70 @@ export function ProjectForm({
           />
           {!project && (
             <Choices
-              title="Paseo project"
-              value={nativeId}
+              title="Project root"
+              value={source}
               options={[
-                { value: "", label: "Register from directory" },
-                ...(resources.data?.projects || []).map((p) => ({
-                  value: p.id,
-                  label: p.name,
-                })),
+                { value: "directory", label: "Directory" },
+                { value: "linked", label: "Multiple repositories" },
+                { value: "native", label: "Existing Paseo project" },
               ]}
-              onChange={(id) => {
-                setNative(id);
-                const p = resources.data?.projects.find((p) => p.id === id);
-                if (p) {
-                  setPrimary(p.path);
-                }
+              onChange={(next) => {
+                setSource(next);
+                if (next !== "native") setNative("");
               }}
             />
           )}
-          <Field
-            title="Paseo project root"
-            value={primaryPath}
-            onChange={setPrimary}
-            editable={!project && !nativeId}
-            placeholder="/absolute/path/to/repo"
-          />
+          {!project && source === "native" && (
+            <Choices
+              title="Paseo project"
+              hideTitle
+              value={nativeId}
+              options={(resources.data?.projects || []).map((p) => ({
+                value: p.id,
+                label: p.name,
+              }))}
+              onChange={(id) => {
+                setNative(id);
+                const p = resources.data?.projects.find((p) => p.id === id);
+                if (p) setPrimary(p.path);
+              }}
+            />
+          )}
+          {(project ? !project.links : source !== "linked") && (
+            <Field
+              title="Paseo project root"
+              value={primaryPath}
+              onChange={setPrimary}
+              editable={!project && source === "directory"}
+              placeholder="/absolute/path/to/directory"
+            />
+          )}
+          {!project && source === "directory" && (
+            <DirectoryChooser disabled={pending} onPick={(paths) => paths[0] && setPrimary(paths[0])} />
+          )}
+          {(project ? !!project.links : source === "linked") && (
+            <LinkList
+              links={links}
+              root={project?.primaryPath}
+              disabled={pending}
+              onChange={setLinkList}
+            />
+          )}
           {project && <LaneEditor lanes={lanes} counts={laneCounts} disabled={pending} onChange={setLanes} />}
           {project && (
             <Toggle
-              title="Auto-update status from sessions"
-              detail="A Kanban session starting work moves the card to In progress, including after review or a blocker"
+              title="Auto-update status in this project"
+              detail="A Kanban session resuming after review moves the card to Development, after a blocker back to its previous stage. Applies only while Auto-update status is on in Ultra Kanban settings."
               value={autoStatus}
               onChange={setAutoStatus}
             />
           )}
-          <Label muted size={font.sm}>
-            For work across repositories, place them in a common directory and
-            use that directory as the Paseo project root.
-          </Label>
+          {!project && source !== "linked" && (
+            <Label muted size={font.sm}>
+              To work across several repositories, choose Multiple repositories,
+              or use a common parent directory as the project root.
+            </Label>
+          )}
           {resources.error && <Notice>{message(resources.error)}</Notice>}
           {error && <Notice>{error}</Notice>}
           <Actions>
@@ -141,7 +179,12 @@ export function ProjectForm({
             </Button>
             <Button
               primary
-              disabled={pending || !title.trim() || !primaryPath.trim()}
+              disabled={
+                pending ||
+                !title.trim() ||
+                ((project ? !!project.links : source === "linked") ? !links.length : !primaryPath.trim()) ||
+                (!project && source === "native" && !nativeId)
+              }
               onPress={() => void save()}
             >
               {pending ? "Saving…" : project ? "Save project" : "Create project"}
@@ -151,6 +194,74 @@ export function ProjectForm({
         </Theme.Provider>
       </Modal.Content>
     </Modal>
+  );
+}
+
+/** Repositories of a linked multi-repo project (PROJECT-PICKER-SPEC §2). */
+function LinkList({
+  links,
+  root,
+  disabled,
+  onChange,
+}: {
+  links: string[];
+  root?: string;
+  disabled: boolean;
+  onChange(links: string[]): void;
+}) {
+  const [typed, setTyped] = useState("");
+  const add = (paths: string[]) => {
+    const next = [...links];
+    for (const p of paths.map((p) => p.trim()).filter(Boolean)) if (!next.includes(p)) next.push(p);
+    onChange(next);
+  };
+  return (
+    <View style={{ gap: space[2] }}>
+      <Label medium size={font.sm} muted>
+        Repositories
+      </Label>
+      {links.length === 0 && (
+        <Label muted size={font.sm}>
+          Add the repositories or folders this project works across.
+        </Label>
+      )}
+      {links.map((path) => (
+        <View key={path} style={{ flexDirection: "row", alignItems: "center", gap: space[2] }}>
+          <View style={{ flex: 1, minWidth: 0 }}>
+            <Label lines={1}>{basename(path)}</Label>
+            <Label muted mono lines={1} size={font.sm}>
+              {path}
+            </Label>
+          </View>
+          <IconButton
+            icon="X"
+            label={`Remove ${basename(path)}`}
+            disabled={disabled || links.length <= (root ? 1 : 0)}
+            onPress={() => onChange(links.filter((l) => l !== path))}
+          />
+        </View>
+      ))}
+      <DirectoryChooser multiple disabled={disabled} onPick={add} />
+      <View style={{ flexDirection: "row", alignItems: "flex-end", gap: space[2] }}>
+        <View style={{ flex: 1, minWidth: 0 }}>
+          <Field title="Or type a path" value={typed} onChange={setTyped} placeholder="/absolute/path/to/repo" />
+        </View>
+        <Button
+          disabled={disabled || !typed.trim()}
+          onPress={() => {
+            add([typed]);
+            setTyped("");
+          }}
+        >
+          Add
+        </Button>
+      </View>
+      <Label muted size={font.sm}>
+        {root
+          ? `Links live in ${root}. Removing one deletes only the link, never the repository.`
+          : "Kanban creates a new folder with a link to each of these and registers it as the Paseo project. Cards use directory workspaces."}
+      </Label>
+    </View>
   );
 }
 
@@ -174,27 +285,20 @@ export function TaskForm({
   defaultStatus?: Status;
   onClose: () => void;
   /** `launch` reports the optional first agent started with a new task. */
-  onSaved: (id: string, launch?: { sessionId?: string; error?: string }) => void;
+  onSaved: (id: string, launch?: { sessionId?: string; error?: string }, status?: Status) => void;
   agentDefaults?: AgentDefaults;
 }) {
   const theme = useTheme();
   const [task] = useState(initialTask);
   const create = useRpc(rpc.createTask),
-    update = useRpc(rpc.updateTask),
-    list = useRpc(rpc.listResources);
-  const resources = useQuery({
-    queryKey: ["ultra", "resources"],
-    queryFn: () => list({}),
-  });
-  const boardRead = useRpc(rpc.readBoard);
-  const board = useQuery({
-    queryKey: ["ultra", "board"],
-    queryFn: () => boardRead({}),
-  });
+    update = useRpc(rpc.updateTask);
+  const resources = useResourcesQuery();
+  const board = useBoardQuery();
   const [title, setTitle] = useState(task?.title || ""),
     [description, setDescription] = useState(task?.description || ""),
     [status, setStatus] = useState<Status>(task?.status || startStatus(project, defaultStatus)),
     [priority, setPriority] = useState(task?.priority || "normal"),
+    [type, setType] = useState<TaskType | "">(task?.type || ""),
     [mode, setMode] = useState<"directory" | "worktree" | "existing">(
       "directory",
     ),
@@ -241,6 +345,7 @@ export function TaskForm({
             description,
             status,
             priority,
+            type: type || null,
           })
         : await create({
             projectId: project.id,
@@ -249,12 +354,14 @@ export function TaskForm({
             description,
             status,
             priority,
+            type: type || undefined,
             mode,
             workspaceId: mode === "existing" ? workspaceId : undefined,
             baseRef,
             branchName,
           });
-      if (task || !startChosen) return onSaved(result.id);
+      if (task) return onSaved(result.id, undefined, result.status);
+      if (!startChosen) return onSaved(result.id);
       try {
         const session = await launchKanbanSession({ paseo, contextRead, prepare }, result, {
           provider: choice.provider,
@@ -306,7 +413,19 @@ export function TaskForm({
             options={priorities.map((p) => ({ value: p, label: priorityLabels[p] }))}
             onChange={setPriority}
           />
-          <Label muted size={font.sm}>Project root · {project.primaryPath}</Label>
+          <Choices
+            title="Type"
+            value={type}
+            options={[
+              { value: "" as const, label: "None" },
+              ...taskTypes.map((t) => ({ value: t, label: taskTypeLabels[t] })),
+            ]}
+            onChange={setType}
+          />
+          <Label muted size={font.sm}>
+            Project root · {project.primaryPath}
+            {project.links ? ` · links ${project.links.map((l) => l.name).join(", ")}` : ""}
+          </Label>
           {task && isLegacyScope(task, project) && (
             <Notice tone="info">
               Legacy card scope is preserved:{" "}
@@ -323,7 +442,7 @@ export function TaskForm({
                 value={mode}
                 options={[
                   { value: "directory", label: "New in directory" },
-                  { value: "worktree", label: "New isolated worktree" },
+                  { value: "worktree", label: "New isolated worktree", disabled: !!project.links },
                   { value: "existing", label: "Link existing" },
                 ]}
                 onChange={setMode}

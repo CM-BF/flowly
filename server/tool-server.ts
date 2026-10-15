@@ -158,7 +158,7 @@ export class ToolServer {
           "kanban_update_status",
           {
             description:
-              "Move this card to one of allowedStatuses from get_task (in_progress, blocked or in_review when they are lanes of this project; lanes lists the names the user sees). Copy revisions and request from get_task, include a note. Done/cancelled are human decisions. Retry identical uncertain requests only.",
+              "Move this card to one of allowedStatuses from get_task (design, development, test, blocked or in_review when they are lanes of this project; lanes lists the names the user sees). Use the work stage that matches what you are doing now: design for plans/specs/research, development for implementation, test for verification; you decide where to start and may skip or go back. Keep it current: switch when the work changes, and at the start of each turn correct the stage the card was automatically resumed in if it does not match the work. Copy revisions and request from get_task, include a note. Done/cancelled are human decisions. Retry identical uncertain requests only.",
             inputSchema: statusInputSchema,
             outputSchema: toolResultSchema,
             annotations: {

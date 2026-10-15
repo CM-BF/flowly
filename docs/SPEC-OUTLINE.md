@@ -1,8 +1,22 @@
 # Paseo Kanban Plugin：Spec 大纲与路线图
 
+2026-10-15 app 性能优化：主因是手机 JS 线程被大体量轮询（relay 下 JS 解密）和无 memo 的整树重渲染占满。看板/summary/resources 改为 etag 读取（未变时 147 KB → 38 B），session 输出改用 daemon 精简 tail（68 KB → 9 KB），agent 列表改为 Paseo 订阅流（替代 5 s 全量轮询与侧栏每 3 s 扫描全部含归档 agent），卡片/侧栏/对话 memo 化，手机打开卡片不再卸载看板，运行脉冲改为原生循环；输入框原生自增高、发送即清空（失败恢复）、晚到的草稿恢复不再重挂载输入框。[增量 spec](PERFORMANCE-SPEC.md)和[验证](verification/performance.md)。
+2026-10-15 彻底删除卡片：任意 lane 的卡片在看板菜单与详情菜单中可“Delete permanently…”，确认后从看板删除卡片及其活动、回执和进展 summary（先备份到 `removed/`）；删除时可选择同时归档其 session 与自有 workspace，设置“Auto archive on delete”在预检干净时不再询问；并清理了 Ultra Kanban 下 worktree 已被旧收尾删除、无法恢复的 11 张归档卡。[增量 spec](TASK-DELETE-SPEC.md)。
+2026-10-15 任务类型：卡片可选 Feature / Bug fix / Research / Refactor / Docs / Chore 类型（可留空，旧卡无类型、无需迁移），在新建/编辑表单、卡片、侧栏、详情和筛选中显示；agent 会话上下文带上类型。[增量 spec](TASK-TYPE-SPEC.md)。
+2026-10-15 移出 Done 时恢复 workspace 与 session：已收尾的卡片移出 Done/Cancelled 时，后台恢复收尾时归档的本卡 workspace（同一 ID，被删除的 worktree 在原分支上重建），并恢复该次收尾归档的 session。插件 SDK 暂无 restore，临时用本机凭据直连 daemon，SDK 支持后替换。[增量 spec](WORKSPACE-RESTORE-SPEC.md)和[验证](verification/workspace-restore.md)。
+2026-10-15 工作流阶段拆分：In progress 拆为 Design → Development → Test，所有项目生效；看板数据升到 v4，进行中的卡片迁到 Development，泳道原位展开，历史保持原样并留 `board.pre-v4.json`；开工阶段由 agent 自行决定，从 In review 继续时进 Development、从 Blocked 继续时回到上一阶段；旧的 `in_progress` 工具调用作为别名兼容。[增量 spec](WORKFLOW-STAGES-SPEC.md)。
+2026-10-15 卡片 token 用量：读取本机 Claude Code / Codex 会话日志，按输入、缓存读写、输出（含推理）统计卡片各 session 用量，summarizer 单独小计，不计金额；侧栏 Usage 与 Activity 默认收起。[增量 spec](USAGE-STATS-SPEC.md)。
+2026-10-15 任务进展 summary：看板管理的 session 每轮完成后，daemon 用便宜模型（默认 Haiku 5.5，不可用时 GPT-6-Luna，可在设置中更改）开一个临时 session 更新卡片的 state / recap / next，保留每卡 50 个历史版本供 Done 后回查；不改卡片状态或 revision。[增量 spec](TASK-SUMMARY-SPEC.md)和[验证](verification/task-summary.md)。
+2026-10-15 移除 project：统一的 Remove 入口（取代 Archive），确认时选择仅从看板移除，或同时从 Paseo 移除原生 project（Paseo 无 project 归档；其移除不删除磁盘上的目录、worktree 与分支，有运行中 session 时不可选）；看板记录先备份。[增量 spec](PROJECT-REMOVE-SPEC.md)和[验证](verification/project-remove.md)。
+2026-10-15 桌面 project tab：看板顶栏以 tab 一键切换 project；回到 Ultra Kanban 时打开本次运行中最后查看的 project，冷启动打开第一个。[增量 spec](PROJECT-TABS-SPEC.md)和[验证](verification/project-tabs.md)。
+2026-10-15 project 目录选择与多 repo：新建 project 时可在应用内浏览目录或打开 Paseo 所在电脑的 Finder/Explorer 选择；新增“Multiple repositories”来源，插件在固定目录下新建空目录，以软链接加入所选 repo/目录，并以该目录注册原生 Paseo project。[增量 spec](PROJECT-PICKER-SPEC.md)和[验证](verification/project-picker.md)。
 2026-10-15 侧边栏入口待处理数：Ultra Kanban 侧边栏行显示与看板 Attention 同口径的数量角标（0 不显示），点角标直接打开 Needs attention；10 秒轮询。[增量 spec](SIDEBAR-BADGE-SPEC.md)。
 2026-10-15 卡片最近 agent 输出：卡片标题下单行显示所在 workspace 最近活跃 session 的最新 assistant 文本摘要与相对时间；仅可见卡片按 session updatedAt 限量 tail 拉取，并发 ≤3，异常时安静。[增量 spec](CARD-OUTPUT-SPEC.md)和[验证](verification/card-output.md)。
 2026-10-15 F3 列内拖拽排序：桌面拖拽显示插入线，同列重排或跨列定点放置，经 `tasks.place` 单次 CAS 写入；手机仍用菜单。[增量 spec](DRAG-REORDER-SPEC.md)。
+2026-10-15 手机/平板内联输入框：去掉点击后弹窗输入，原生端与 web 同样在 session 底部内联输入，按键盘实际遮挡高度上推；运行中显示发送方式选择。[增量 spec](SESSION-UX-SPEC.md#10-inline-native-composer--2026-10-15)。
+
+2026-10-15 平板桌面布局：原生端（iOS/Android）不再一律使用紧凑布局；宿主未标记 compact 且看板宽度 ≥ 760 时使用桌面多列看板和侧栏，宽度未测得前保持紧凑以免手机闪烁。平板上的上下文菜单改为长按位置锚定的浮层；卡片 Actions 按钮和列折叠按钮在触控端常显（无 hover）；侧栏调宽把手触控端加宽到 16pt。卡片拖拽仍仅限鼠标（触控滑动保留给滚动），触控端通过长按菜单移动卡片；键盘快捷键仍仅 web。验收：geometry 单测、typecheck、全量测试；真机 iPad/Android 平板外观与手势未运行（UNRUN）。
+
 2026-10-15 F4 桌面快捷键：插件 SDK 没有快捷键注册能力，也不能使用全局 DOM 监听，因此采用看板内快捷键（RN-Web `View` 的 `onKeyDown`，焦点在看板内时生效）和全局 Command Center 条目两条路径。[增量 spec](SHORTCUTS-SPEC.md)和[验证](verification/shortcuts.md)。
 
 2026-10-14 v2 路线图（规划草案，未实施）：对标 Multica 的人机协作工作流——agent 自行切换阶段、需要人时在卡片提醒并进入 Review、人确认后自动收尾。[ROADMAP-V2](ROADMAP-V2.md)。

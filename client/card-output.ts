@@ -1,6 +1,7 @@
 import { useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { usePaseo } from "@getpaseo/plugin/client";
+import { useRpc } from "@getpaseo/plugin/client";
+import { sessionTail } from "../shared/rpc";
 import { parseSessionInline, parseSessionMarkdown } from "./session-markdown";
 
 export const OUTPUT_TAIL_LIMIT = 20;
@@ -146,24 +147,23 @@ export function createLimiter(limit: number) {
 
 const limit = createLimiter(OUTPUT_CONCURRENCY);
 
-/** Latest output of the chosen session; refetches only when its updatedAt changes. */
-export function useCardOutput(session: OutputSession | null | undefined) {
-  const paseo = usePaseo();
+/**
+ * Latest output of the chosen session; refetches only when its updatedAt
+ * changes. Reads the daemon's slim tail (no tool payloads); outputs stay cached
+ * for 5 minutes so lane switches and Back do not refetch them.
+ */
+export function useCardOutput(session: OutputSession | null | undefined, taskId: string) {
+  const tail = useRpc(sessionTail);
   const query = useQuery({
     queryKey: ["ultra", "cardOutput", session?.id, session ? outputCacheKey(session) : ""],
     queryFn: ({ signal }) =>
       limit(async () => {
-        const response = await paseo.agents.ref(session!.id).timeline.refetch({
-          direction: "tail",
-          limit: OUTPUT_TAIL_LIMIT,
-          projection: "projected",
-        });
-        if (response.error) throw new Error(response.error);
+        const response = await tail({ taskId, agentId: session!.id, limit: OUTPUT_TAIL_LIMIT });
         return latestAgentOutput(response.entries);
       }, signal),
     enabled: !!session,
     staleTime: Infinity,
-    gcTime: 30_000,
+    gcTime: 5 * 60_000,
     retry: false,
     refetchOnWindowFocus: false,
     refetchOnReconnect: false,

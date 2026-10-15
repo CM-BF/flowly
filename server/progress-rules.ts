@@ -1,6 +1,6 @@
-import { laneEnabled } from "../shared/lanes";
+import { enabledStatuses, laneEnabled } from "../shared/lanes";
 import type { PluginTurnOutcome } from "@getpaseo/plugin/server";
-import type { Board, BoardEvent, Status } from "../shared/model";
+import { isWorkStatus, legacyStatus, workStatuses, type Board, type BoardEvent, type Status, type Task } from "../shared/model";
 import type { ToolIdentity } from "../shared/tools";
 
 type Store = { event(board: Board, input: Omit<BoardEvent, "id" | "at">): unknown };
@@ -33,12 +33,33 @@ export function recordLifecycle(
   });
 }
 
-/** Statuses a new turn moves to In progress: starting, or continuing after review/blocker. */
-const restartable: readonly Status[] = ["backlog", "todo", "in_review", "blocked"];
+/** Statuses a new turn resumes from: continuing after review/blocker. */
+const restartable: readonly Status[] = ["in_review", "blocked"];
 
 /**
- * Rule A1: a Kanban-managed session starting a turn means work is (re)starting.
- * Never touches finished/archived cards or projects that turned the rules off.
+ * The work stage a resumed card goes to. Feedback after review is rework, so a card
+ * in review resumes in Development. A blocked card returns to the latest stage it was
+ * in (the retired In progress counts as Development). Disabled lanes fall back to
+ * the first enabled stage; null when the workflow has no enabled work stage. The
+ * agent corrects the stage when the turn's work belongs elsewhere.
+ */
+export function resumeStage(board: Board, task: Task, project: Parameters<typeof laneEnabled>[0]): Status | null {
+  if (task.status === "in_review" && laneEnabled(project, "development")) return "development";
+  if (task.status !== "in_review") for (let i = board.events.length - 1; i >= 0; i--) {
+    const e = board.events[i];
+    if (e.taskId !== task.id || e.action !== "status_changed" || !e.to) continue;
+    const stage = e.to === legacyStatus ? "development" : e.to;
+    if (isWorkStatus(stage) && laneEnabled(project, stage)) return stage;
+  }
+  return enabledStatuses(project).find((s) => (workStatuses as readonly Status[]).includes(s)) ?? null;
+}
+
+/**
+ * Rule A1: a Kanban-managed session starting a turn on a card in review or blocked
+ * means work resumes (see resumeStage). Starting from Backlog/Todo leaves
+ * the card alone: the agent decides whether to begin with Design or Development
+ * (WORKFLOW-STAGES-SPEC). Never touches finished/archived cards or projects that
+ * turned the rules off.
  */
 export function applyTurnStarted(
   store: Store,
@@ -54,13 +75,14 @@ export function applyTurnStarted(
     task.archivedAt ||
     project.archivedAt ||
     project.autoStatus === false ||
-    !restartable.includes(task.status) ||
-    // The workflow has no In progress lane: leave the card where it is.
-    !laneEnabled(project, "in_progress")
+    !restartable.includes(task.status)
   )
     return false;
+  const stage = resumeStage(board, task, project);
+  // The workflow has no work stage lane: leave the card where it is.
+  if (!stage) return false;
   const from = task.status;
-  task.status = "in_progress";
+  task.status = stage;
   task.revision++;
   task.updatedAt = now.toISOString();
   store.event(board, {
@@ -70,11 +92,8 @@ export function applyTurnStarted(
     agentId: identity.agentId,
     rule: "A1",
     from,
-    to: "in_progress",
-    note:
-      from === "backlog" || from === "todo"
-        ? `${sessionTitle || "A session"} started working`
-        : `${sessionTitle || "A session"} resumed after a new message`,
+    to: stage,
+    note: `${sessionTitle || "A session"} resumed after a new message`,
   });
   return true;
 }
@@ -94,7 +113,7 @@ export function applyTurnEnded(
   const target = bound(board, identity);
   if (!target || outcome.kind === "failed") return false;
   const { task, project } = target;
-  if (task.archivedAt || project.archivedAt || project.autoStatus === false || task.status !== "in_progress")
+  if (task.archivedAt || project.archivedAt || project.autoStatus === false || !isWorkStatus(task.status))
     return false;
   const mine = board.events.filter((e) => e.taskId === task.id && e.agentId === identity.agentId);
   let started = -1;
@@ -109,11 +128,13 @@ export function applyTurnEnded(
     (e) => e.rule === "A1" && (e.from === "in_review" || e.from === "blocked"),
   );
   if (!resumed?.from || turn.some((e) => e.actor === "agent")) return false;
-  if (!laneEnabled(project, resumed.from as Status)) return false;
+  const restored = resumed.from as Status;
+  if (!laneEnabled(project, restored)) return false;
   // Someone else (a person or another session) may have moved it since.
   const lastChange = [...board.events].reverse().find((e) => e.taskId === task.id && e.action === "status_changed");
   if (lastChange?.id !== resumed.id) return false;
-  task.status = resumed.from;
+  const from = task.status;
+  task.status = restored;
   task.revision++;
   task.updatedAt = now.toISOString();
   store.event(board, {
@@ -122,8 +143,8 @@ export function applyTurnEnded(
     action: "status_changed",
     agentId: identity.agentId,
     rule: "A1r",
-    from: "in_progress",
-    to: resumed.from,
+    from,
+    to: restored,
     note: "No work was reported in that turn; restored",
   });
   return true;

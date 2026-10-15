@@ -72,16 +72,9 @@ export function SessionCard({
         <PulseDot color={tone} size={8} active={state.active} />
       </View>
       <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
-        <View style={{ flexDirection: "row", alignItems: "center", gap: space[2] }}>
-          <View style={{ flex: 1, minWidth: 0 }}>
-            <Label size={font.base} medium bold={unread} lines={1} selectable={false}>
-              {agent.title || "Untitled session"}
-            </Label>
-          </View>
-          <Label muted size={font.xs} selectable={false}>
-            {relativeTime(agent.updatedAt)}
-          </Label>
-        </View>
+        <Label size={font.base} medium bold={unread} lines={1} selectable={false}>
+          {agent.title || "Untitled session"}
+        </Label>
         <Label muted size={font.sm} lines={1} selectable={false}>
           <Label
             size={font.sm}
@@ -96,6 +89,10 @@ export function SessionCard({
           {agent.providerUnavailable ? " · Provider unavailable" : ""}
         </Label>
       </View>
+      {/* Last activity, centered on the whole row (beside the chevron). */}
+      <Label muted size={font.xs} selectable={false}>
+        {relativeTime(agent.updatedAt)}
+      </Label>
       <Icon name="ChevronRight" size={16} color={colors.foregroundMuted} />
     </Pressable>
   );

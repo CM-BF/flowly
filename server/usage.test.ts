@@ -1,0 +1,156 @@
+import { afterEach, expect, test } from "vitest";
+import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { LogLocator, UsageService, readClaudeLog, readCodexLog, summarize } from "./usage";
+import { BoardStore } from "./store";
+import { cacheHitRate, compactDuration, compactNumber, percent, totalTokens } from "../shared/usage";
+
+const roots: string[] = [];
+afterEach(async () => {
+  await Promise.all(roots.splice(0).map((p) => rm(p, { recursive: true, force: true })));
+});
+async function root() {
+  const r = await realpath(await mkdtemp(join(tmpdir(), "ultra-usage-")));
+  roots.push(r);
+  return r;
+}
+const jsonl = (rows: unknown[]) => rows.map((r) => JSON.stringify(r)).join("\n") + "\n";
+const SID = "11111111-2222-3333-4444-555555555555";
+
+const assistant = (id: string, at: string, usage: Record<string, unknown>, extra: Record<string, unknown> = {}) => ({
+  type: "assistant",
+  timestamp: at,
+  message: { id, usage },
+  ...extra,
+});
+
+test("Claude log: dedupes streamed messages, sums types, splits turns at real prompts", async () => {
+  const r = await root();
+  const path = join(r, "c.jsonl");
+  const u1 = { input_tokens: 2, cache_read_input_tokens: 100, cache_creation_input_tokens: 50, output_tokens: 30, output_tokens_details: { thinking_tokens: 10 } };
+  await writeFile(
+    path,
+    jsonl([
+      { type: "user", timestamp: "2026-10-15T00:00:00Z", message: { content: "do it" } },
+      assistant("m1", "2026-10-15T00:00:05Z", u1),
+      assistant("m1", "2026-10-15T00:00:06Z", u1), // same message, second content block
+      { type: "user", timestamp: "2026-10-15T00:00:07Z", message: { content: [{ type: "tool_result", content: "ok" }] } },
+      assistant("m2", "2026-10-15T00:00:10Z", { input_tokens: 1, output_tokens: 5 }),
+      { type: "user", timestamp: "2026-10-15T00:01:00Z", isMeta: true, message: { content: "meta" } },
+      { type: "user", timestamp: "2026-10-15T00:01:00Z", message: { content: "<task-notification>done</task-notification>" } },
+      { type: "user", timestamp: "2026-10-15T00:02:00Z", message: { content: [{ type: "text", text: "next" }] } },
+      assistant("m3", "2026-10-15T00:02:30Z", { input_tokens: 3, output_tokens: 7 }),
+    ]) + "{broken",
+  );
+  const usage = await readClaudeLog(path);
+  expect(usage.tokens).toEqual({ input: 6, cacheRead: 100, cacheWrite: 50, output: 42, reasoning: 10 });
+  expect(usage.turns).toBe(2);
+  expect(usage.activeMs).toBe(10_000 + 30_000);
+});
+
+test("Codex log: last cumulative count, cached split out of input, task turns", async () => {
+  const r = await root();
+  const path = join(r, `rollout-2026-10-15T15-19-28-${SID}.jsonl`);
+  const count = (input: number, cached: number, out: number, reasoning: number) => ({
+    type: "event_msg",
+    payload: { type: "token_count", info: { total_token_usage: { input_tokens: input, cached_input_tokens: cached, cache_write_input_tokens: 0, output_tokens: out, reasoning_output_tokens: reasoning } } },
+  });
+  await writeFile(
+    path,
+    jsonl([
+      { type: "event_msg", timestamp: "2026-10-15T00:00:00Z", payload: { type: "task_started" } },
+      count(100, 60, 10, 2),
+      { type: "event_msg", timestamp: "2026-10-15T00:00:20Z", payload: { type: "task_complete" } },
+      { type: "event_msg", timestamp: "2026-10-15T00:01:00Z", payload: { type: "task_started" } },
+      { type: "event_msg", payload: { type: "token_count", info: null } },
+      count(300, 200, 25, 6),
+      { type: "event_msg", timestamp: "2026-10-15T00:01:05Z", payload: { type: "task_complete" } },
+    ]),
+  );
+  const usage = await readCodexLog(path);
+  expect(usage.tokens).toEqual({ input: 100, cacheRead: 200, cacheWrite: 0, output: 25, reasoning: 6 });
+  expect(usage).toMatchObject({ turns: 2, activeMs: 25_000 });
+  expect(totalTokens(usage.tokens)).toBe(325);
+});
+
+test("locator finds Claude logs with subagents and Codex logs in sessions or archive", async () => {
+  const r = await root();
+  const claudeHome = join(r, "claude"),
+    codexHome = join(r, "codex");
+  await mkdir(join(claudeHome, "projects", "-x", SID, "subagents"), { recursive: true });
+  await writeFile(join(claudeHome, "projects", "-x", `${SID}.jsonl`), "");
+  await writeFile(join(claudeHome, "projects", "-x", SID, "subagents", "agent-a.jsonl"), "");
+  await mkdir(join(codexHome, "sessions", "2026", "10", "15"), { recursive: true });
+  await mkdir(join(codexHome, "archived_sessions"), { recursive: true });
+  const other = "99999999-2222-3333-4444-555555555555";
+  await writeFile(join(codexHome, "sessions", "2026", "10", "15", `rollout-2026-10-15T01-00-00-${SID}.jsonl`), "");
+  let now = 1_000_000;
+  const locator = new LogLocator(claudeHome, codexHome, () => now);
+  expect(await locator.claude(SID)).toEqual({
+    path: join(claudeHome, "projects", "-x", `${SID}.jsonl`),
+    subagents: [join(claudeHome, "projects", "-x", SID, "subagents", "agent-a.jsonl")],
+  });
+  expect(await locator.claude(other)).toBeNull();
+  expect(await locator.codex(SID)).toMatch(/sessions\/2026\/10\/15\/rollout-.*\.jsonl$/);
+  await writeFile(join(codexHome, "archived_sessions", `rollout-2026-10-15T02-00-00-${other}.jsonl`), "");
+  // Index rebuilds at most every 30 s.
+  expect(await locator.codex(other)).toBeNull();
+  now += 31_000;
+  expect(await locator.codex(other)).toMatch(/archived_sessions/);
+});
+
+test("task usage lists every workspace session; summarizers are a separate subtotal", async () => {
+  const r = await root();
+  const claudeHome = join(r, "claude");
+  await mkdir(join(claudeHome, "projects", "-x"), { recursive: true });
+  const work = "aaaaaaaa-2222-3333-4444-555555555555",
+    summary = "bbbbbbbb-2222-3333-4444-555555555555";
+  await writeFile(join(claudeHome, "projects", "-x", `${work}.jsonl`), jsonl([{ type: "user", timestamp: "2026-10-15T00:00:00Z", message: { content: "go" } }, assistant("w", "2026-10-15T00:00:30Z", { input_tokens: 10, output_tokens: 20 })]));
+  await writeFile(join(claudeHome, "projects", "-x", `${summary}.jsonl`), jsonl([assistant("s", "2026-10-15T00:00:30Z", { input_tokens: 1, output_tokens: 2 })]));
+  const store = new BoardStore(join(r, "data"));
+  const now = new Date().toISOString();
+  await store.mutate((b) => {
+    b.projects.push({ id: "p", paseoProjectId: "n", title: "P", description: "", primaryPath: r, repos: [r], revision: 1, createdAt: now, updatedAt: now, archivedAt: null });
+    b.tasks.push({ id: "t", projectId: "p", workspaceId: "w", sourcePath: r, repoPaths: [r], title: "T", description: "", status: "todo", priority: "normal", position: 0, revision: 1, operationId: "o", createdAt: now, updatedAt: now, archivedAt: null });
+  });
+  const agents = [
+    { id: "a1", title: "Worker", provider: "claude", workspaceId: "w", labels: {}, runtimeInfo: { sessionId: work, model: "opus" } },
+    { id: "a2", title: "Kanban summary", provider: "claude", workspaceId: "w", labels: { "ultra-kanban": "summarizer" }, runtimeInfo: { sessionId: summary } },
+    { id: "a3", title: "Hermes", provider: "hermes", workspaceId: "w", labels: {}, runtimeInfo: { sessionId: "zzz" } },
+    { id: "a4", title: "Fresh", provider: "codex", workspaceId: "w", labels: {}, runtimeInfo: null },
+    { id: "a5", title: "Elsewhere", provider: "claude", workspaceId: "other", labels: {}, runtimeInfo: { sessionId: work } },
+  ];
+  const paseo = { agents: { list: async () => ({ entries: agents.map((agent) => ({ agent })), pageInfo: { nextCursor: null } }) } };
+  const service = new UsageService(store, new LogLocator(claudeHome, join(r, "codex")));
+  const usage = await service.task("t", paseo as never);
+  // Sessions with tokens first, summarizers last.
+  expect(usage.sessions[0].agentId).toBe("a1");
+  expect(usage.sessions).toHaveLength(4);
+  expect(usage.work).toEqual({ input: 10, cacheRead: 0, cacheWrite: 0, output: 20, reasoning: 0 });
+  expect(usage.summarizer).toEqual({ input: 1, cacheRead: 0, cacheWrite: 0, output: 2, reasoning: 0 });
+  expect(totalTokens(usage.total)).toBe(33);
+  expect(usage).toMatchObject({ turns: 1, activeMs: 30_000 });
+  expect(usage.sessions.find((s) => s.agentId === "a3")?.note).toMatch(/No local/);
+  expect(usage.sessions.find((s) => s.agentId === "a4")?.note).toMatch(/Not started/);
+  expect(usage.sessions[usage.sessions.length - 1].summarizer).toBe(true);
+  await expect(service.task("missing", paseo as never)).rejects.toThrow(/not found/);
+});
+
+test("summary ordering and number formatting", () => {
+  expect(summarize([]).total).toEqual({ input: 0, cacheRead: 0, cacheWrite: 0, output: 0, reasoning: 0 });
+  expect(compactNumber(999)).toBe("999");
+  expect(compactNumber(1234)).toBe("1.2K");
+  expect(compactNumber(3085304)).toBe("3.1M");
+  expect(compactNumber(24_429_024)).toBe("24.4M");
+  expect(compactNumber(150_000)).toBe("150K");
+  expect(compactDuration(42_000)).toBe("42s");
+  expect(compactDuration(5_025_000)).toBe("1h 23m");
+});
+
+test("cache hit rate is cache reads over all input", () => {
+  expect(cacheHitRate({ input: 10, cacheRead: 180, cacheWrite: 10, output: 999, reasoning: 0 })).toBe(0.9);
+  expect(cacheHitRate({ input: 0, cacheRead: 0, cacheWrite: 0, output: 5, reasoning: 0 })).toBeNull();
+  expect(percent(0.9472)).toBe("94.7%");
+  expect(percent(1)).toBe("100%");
+});

@@ -1,0 +1,105 @@
+# 任务进展 summary：每轮自动 wrap up
+
+状态：用户 2026-10-15 确认设计（“开干”）。卡片任务 `8c22cc02`。
+
+## 1. 目的
+
+- 一眼看到卡片现在到哪一步：状态一句话、已做了什么、下一步。
+- 卡片 Done 之后仍能回查当时做到什么程度：保留每次更新的历史版本。
+
+summary 是系统写的描述文字，**不改**卡片业务状态（lane），也不改 task revision。
+
+## 2. 触发与运行（daemon）
+
+- 触发：看板管理的 session（AUTO-STATUS-SPEC §1 的范围）收到 `agent.turn_ended` 且 `outcome.kind === "completed"`。失败、取消的回合不触发。已归档卡片、已归档项目不处理；Done/Cancelled 的卡片仍可更新。
+- 开关：设置 `summaryEnabled=false` 时不触发（手动 Refresh 仍可用）。
+- 单飞与合并：每张卡同时最多一个 summarizer。运行中又有回合结束时，把该回合的文本加入待处理；当前运行结束后，把累积的所有回合合并为一次再运行。待处理文本保存在内存中，插件 reload 会丢失，下一轮自然补上。
+- 输入（无状态，每次完整传入）：卡片标题、描述（≤2000 字）、当前 lane 名、上一版 summary（若有）、本轮或合并轮次的文本。
+- 回合文本：取 hook 自带的 `timeline`。`user_message` → `User:`，`assistant_message` → `Assistant:`，`tool_call` 只记名字（连续调用合并为一行 `Tools: a, b ×3`），`error` 记一行，其余（reasoning、todo、compaction、plugin、notification）忽略。总长 ≤12000 字，超出时保留开头 3000 字与结尾，中间标注省略。
+- 调用：`paseo.workspaces.ref(<卡片 workspace>).agents.create`（2026-10-15 修订，用户选 B）
+  - 作为**刚结束回合的 session 的子 session**（`parent`）运行在卡片自己的 workspace 中，不新建原生 project 或 workspace；
+  - `config.provider`：设置中的 Summary model（§4）；
+  - `title`：`Kanban summary · <卡片标题>`；`labels`：`{"ultra-kanban": "summarizer", "ultra-kanban-task": <taskId>}`；
+  - `prompt` 与 `outputSchema`（§3）；
+  - `waitForFinish(120000)`；无论成功、失败、超时，都在 `finally` 中 `archive()` 该 session。
+  - 看板视图按标签隐藏 summarizer：卡片 session 列表、计数、最近输出、Attention、侧栏角标、`kanban_get_task` 的 sessions。项目 Remove 与 Wrap up 的“运行中 session”检查**不**隐藏它，运行中的 summarizer 仍会阻止这些破坏性操作。
+  - 初版把 cwd 放在插件数据目录，实测（[验证](verification/task-summary.md)）Paseo 为该目录注册了原生 project 并每次新建 workspace，因此改为本方案；遗留的 project 已删除（`paseo project delete`，不删目录）。
+- summarizer 自己的回合结束不会递归触发：它没有看板身份（无 context 文件；`session_open` 只给已有凭据的 session 注入看板上下文）。
+
+## 3. 输出
+
+`outputSchema`（JSON Schema）与服务端 zod 校验一致：
+
+```
+{ update: boolean, state: string, target: string, recap: string, next: string }
+```
+
+- `update=false`：本轮没有实质进展（寒暄、致谢、只读查询无新结论），不写入新版本。没有上一版时必须给出 summary。
+- `state`：一句短语说明现在到哪一步（≤15 词或 30 个汉字），例如“实现完成，等待测试”。
+- `target`（2026-10-15 用户追加）：任务的目标与功能点。一行 `Goal: ` 加最多 4 行 `- ` 功能点，依据卡片描述和用户提出或认可的范围；范围不变时原样保留，只有增删或重定义功能时才改。旧版本没有该字段，读作空串。
+- `recap`：截至目前对判断进度有用的结果（不只本轮），最多 4 行 `- ` 要点，每行 ≤15 词或 30 个汉字；超出时合并或丢弃旧要点；只写决策和结果，不写读文件、跑命令等过程。
+- `next`：唯一的下一步或在等谁，一句话（≤20 词或 40 个汉字）。
+- 语言与对话一致。
+- 解析 `lastMessage`：容忍 ```json 代码块包裹与前后多余文字（取第一个完整 JSON 对象）。不截断任何字段；仅当单个字段超过 4000 字符（存储安全上限）时视为错误，保留旧版本。Claude provider 不强制 `outputSchema`，实测会返回数组形式的 recap：字符串数组按 `- ` 行拼接；`update` 接受字符串 "true"/"false"；`update=false` 时允许缺字段。
+
+## 4. 设置
+
+新增 host 设置 `task-summary`（v1），daemon `registerSettings` 读取，客户端在看板左下角设置按钮的弹层中编辑（§7）：
+
+| 字段 | 默认 | 说明 |
+| --- | --- | --- |
+| `summaryEnabled` | `true` | 每轮自动更新 |
+| `summaryModel` | `""` | `provider/model`；空为 Auto |
+
+Auto：`claude/claude-haiku-5-5`；Claude provider 不可用或无此模型时用 `codex/gpt-6-luna`；都不可用时报错。设置页的模型选项来自 `providers.listAvailable` + `listModels`（可用 provider 的可选模型）。
+
+## 5. 数据
+
+独立文件 `summaries.json`（与 `board.json` 同目录），串行写、备份、原子替换；内容无效时保留文件并报错，不重置。
+
+```
+{ version: 1,
+  entries: [{ id, taskId, at, model, agentIds: string[], state, target, recap, next }],
+  errors:  [{ taskId, at, message }] }   // 每卡仅保留最近一条
+```
+
+- 每张卡最多保留 50 个版本，最新一版为当前 summary。
+- 成功写入新版本或 `update=false` 时清除该卡的错误。
+- 归档卡片保留 summaries。项目 Remove 时，其卡片的 summaries 与错误写入 `removed/<project>-summaries-<time>.json` 后从文件中删除。
+
+## 6. RPC
+
+| 方法 | 输入 | 输出 |
+| --- | --- | --- |
+| `summaries.read` | `{}` | 每卡最新一版、运行中的 taskId、每卡错误 |
+| `summaries.history` | `{ taskId }` | 该卡全部版本（新→旧） |
+| `summaries.refresh` | `{ taskId }` | `{ queued: true }`；取该卡最近活跃的看板管理 session 的 tail timeline（≤200 条）中最后一轮作为输入；无看板管理 session 时报错 |
+
+## 7. UI
+
+- 卡片：有 summary 时，标题下显示 `state`，最多一行（超出以省略号结尾）；全文在侧栏 Progress 查看（2026-10-15 用户反馈）。
+- 侧栏：描述之后、Sessions 之前的 **Progress** 区块：State（强调）、Recap、Next，脚注“Updated 5m ago · Haiku 5.5”。文字从不截断，简短由 prompt 约束。整块内容（State、Target、Recap、Next 一起）超过约 5 行（104 pt）时整体收起到该高度，底部渐隐，右下角（与左侧“Updated · 模型”脚注同一行）的 Show more / Show less 展开或收起；高度用动画过渡（展开 220 ms 减速、收起 160 ms 加速，可打断，遵循 Reduce Motion；首次测量直接定位不播放）。内容未超出时完整显示且不出现按钮。History 列表同样不截断（2026-10-15 用户反馈）。
+  - 运行中显示 “Updating…”；最近一次失败显示一行弱化错误，不弹窗。
+  - **Refresh** 按钮手动触发；**History** 展开为倒序版本列表，每条显示时间与 state，点开看 Recap/Next。
+  - 无 summary 时显示一行提示：“Updates after each agent turn.”（自动关闭时提示去设置开启）。
+- 设置：看板主页左下角悬浮设置按钮打开插件自绘的 “Ultra Kanban settings” 弹层（host 的 `addSettingsScreen` 页在当前 Paseo 中不显示，已弃用），Auto summary 开关；Provider（Auto 或可用 provider）→ Model（该 provider 的可选模型）两级选择，选定模型才保存，选 Auto 立即保存。
+
+## 8. 错误
+
+模型不可用、创建失败、超时、需要授权（`status=permission`）、输出不合 schema：记录到 `errors`，保留旧 summary，不自动重试。日志不打印 prompt 内容。
+
+## 9. 不做（扩展）
+
+- 结构化 todo list：以后可让 `next` 演变为清单。
+- summary 驱动状态变更。
+
+## 10. 已知风险
+
+- 插件 SDK 未开放 `internal`：summarizer 在卡片 workspace 中短暂可见（Paseo 原生 workspace 视图里是父 session 的子 session），完成后即归档。Paseo 可能为它发一次 finished 通知，尚未实测。
+- 手动 Refresh 若判断无新进展（`update=false`）不会新增版本。
+
+## 11. 验收
+
+- 单元：回合文本转换与截断、输出解析容错、模型 Auto 解析、单飞与合并、`update=false` 不写、50 版本上限、错误记录与清除、项目移除备份、不改 board/task revision。
+- 集成（fake SDK）：只有看板管理 session 触发；出错/超时也归档 summarizer session；失败回合不触发。
+- typecheck、全量测试；reload 本插件；Luna 6 全权限测试 session 用 fixture 卡片实测并清理。

@@ -1,3 +1,4 @@
+import { isSummarizer } from "../shared/summary";
 import { enabledStatuses, laneEnabled, laneName } from "../shared/lanes";
 import type { PaseoApi } from "@getpaseo/client";
 import {
@@ -14,7 +15,7 @@ import { BoardStore } from "./store";
 import { BoardService } from "./service";
 import { ToolSecrets, digest } from "./tool-context";
 import { ToolError } from "./tool-error";
-import type { Receipt } from "../shared/model";
+import { isWorkStatus, legacyStatus, type Receipt, type Status } from "../shared/model";
 import { isLegacyScope } from "../shared/scope";
 
 export class AgentService {
@@ -97,7 +98,7 @@ export class AgentService {
         entries.push(
           ...page.entries
             .map((e) => e.agent)
-            .filter((a) => a.workspaceId === identity.workspaceId)
+            .filter((a) => a.workspaceId === identity.workspaceId && !isSummarizer(a))
             .map((a) => ({
               id: a.id,
               title: a.title || a.id,
@@ -222,7 +223,7 @@ export class AgentService {
           true,
         );
       const previous = task.status,
-        next = action === "status" ? (input as StatusInput).status : previous;
+        next = action === "status" ? resolveAgentStatus((input as StatusInput).status, previous) : previous;
       if (next !== previous && !laneEnabled(project, next))
         throw new ToolError(
           "STATUS_UNAVAILABLE",
@@ -281,4 +282,10 @@ export class AgentService {
       };
     }
   }
+}
+
+/** Maps the retired in_progress alias onto a work stage (WORKFLOW-STAGES-SPEC §4). */
+export function resolveAgentStatus(requested: StatusInput["status"], current: Status): Status {
+  if (requested !== legacyStatus) return requested;
+  return isWorkStatus(current) ? current : "development";
 }

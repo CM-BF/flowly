@@ -1,11 +1,11 @@
 import { laneName, laneProblem } from "../shared/lanes";
 import { mkdir, readFile, writeFile, rename, copyFile } from "node:fs/promises";
 import { join } from "node:path";
+import { constants } from "node:fs";
 import { randomUUID } from "node:crypto";
+import { upgradeBoard } from "./migrate";
 import {
   boardSchema,
-  legacyBoardSchema,
-  previousBoardSchema,
   storageSchema,
   emptyBoard,
   type Board,
@@ -14,6 +14,8 @@ import {
   type TaskEdit,
   type TaskPlacement,
   type ProjectEdit,
+  type ProjectRemoval,
+  type TaskDeletion,
   projectOrder,
 } from "../shared/model";
 
@@ -44,24 +46,8 @@ export class BoardStore {
   private async load(): Promise<Board> {
     try {
       const raw = JSON.parse(await readFile(this.path, "utf8"));
-      const board =
-        raw.version === 1
-          ? (() => {
-              const old = legacyBoardSchema.parse(raw);
-              return storageSchema.parse({
-                ...old,
-                version: 3,
-                agentReceipts: [],
-                tasks: old.tasks.map((t) => ({ ...t, repoPaths: [] })),
-              });
-            })()
-          : raw.version === 2
-            ? storageSchema.parse({
-                ...previousBoardSchema.parse(raw),
-                version: 3,
-                agentReceipts: [],
-              })
-            : storageSchema.parse(raw);
+      if (raw?.version !== 4) await this.keepPreV4Copy();
+      const board = upgradeBoard(raw);
       this.assertInvariants(board);
       return board;
     } catch (error) {
@@ -70,6 +56,14 @@ export class BoardStore {
       throw new StoreInvalidError(
         `Board data is invalid; preserved at ${this.path}. Restore a valid backup before continuing. ${error instanceof Error ? error.message : String(error)}`,
       );
+    }
+  }
+  /** One-time copy of pre-v4 data before the status split is first persisted (WORKFLOW-STAGES-SPEC). */
+  private async keepPreV4Copy() {
+    try {
+      await copyFile(this.path, join(this.directory, "board.pre-v4.json"), constants.COPYFILE_EXCL);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
     }
   }
   async read() {
@@ -168,6 +162,8 @@ export class BoardStore {
       if (input.title !== undefined) task.title = input.title;
       if (input.description !== undefined) task.description = input.description;
       if (input.priority !== undefined) task.priority = input.priority;
+      if (input.type === null) delete task.type;
+      else if (input.type !== undefined) task.type = input.type;
       if (input.status !== undefined) task.status = input.status;
       if (input.archived !== undefined)
         task.archivedAt = input.archived ? new Date().toISOString() : null;
@@ -281,6 +277,63 @@ export class BoardStore {
       p.revision++;
       p.updatedAt = new Date().toISOString();
       return p;
+    });
+  }
+  /**
+   * Drops a project and its cards (with their events and agent receipts) from
+   * the board. Paseo resources are untouched. The removed records are first
+   * written to `removed/<project>-<time>.json` so a mistaken removal can be recovered.
+   */
+  removeProject(input: ProjectRemoval) {
+    return this.mutate(async (board) => {
+      const project = board.projects.find((p) => p.id === input.id);
+      if (!project) throw new Error("Project not found.");
+      if (project.revision !== input.revision)
+        throw new Error("Revision conflict: reload the project before removing it.");
+      const taskIds = new Set(board.tasks.filter((t) => t.projectId === project.id).map((t) => t.id));
+      const removed = {
+        removedAt: new Date().toISOString(),
+        project,
+        tasks: board.tasks.filter((t) => taskIds.has(t.id)),
+        events: board.events.filter((e) => taskIds.has(e.taskId)),
+        agentReceipts: board.agentReceipts.filter((r) => taskIds.has(r.taskId)),
+      };
+      const folder = join(this.directory, "removed");
+      await mkdir(folder, { recursive: true, mode: 0o700 });
+      const backup = join(folder, `${project.id}-${removed.removedAt.replace(/[:.]/g, "-")}.json`);
+      await writeFile(backup, JSON.stringify(removed, null, 2), { mode: 0o600, flag: "wx" });
+      board.projects = board.projects.filter((p) => p.id !== project.id);
+      board.tasks = board.tasks.filter((t) => !taskIds.has(t.id));
+      board.events = board.events.filter((e) => !taskIds.has(e.taskId));
+      board.agentReceipts = board.agentReceipts.filter((r) => !taskIds.has(r.taskId));
+      return { id: project.id, removedTasks: taskIds.size, backup };
+    });
+  }
+  /**
+   * Permanently drops one card with its events and agent receipts.
+   * Paseo resources are untouched. The removed records are first written to
+   * `removed/task-<id>-<time>.json`.
+   */
+  deleteTask(input: Pick<TaskDeletion, "id" | "revision">) {
+    return this.mutate(async (board) => {
+      const task = board.tasks.find((t) => t.id === input.id);
+      if (!task) throw new Error("Task not found.");
+      if (task.revision !== input.revision)
+        throw new Error("Revision conflict: reload the card before deleting it.");
+      const removed = {
+        removedAt: new Date().toISOString(),
+        tasks: [task],
+        events: board.events.filter((e) => e.taskId === task.id),
+        agentReceipts: board.agentReceipts.filter((r) => r.taskId === task.id),
+      };
+      const folder = join(this.directory, "removed");
+      await mkdir(folder, { recursive: true, mode: 0o700 });
+      const backup = join(folder, `task-${task.id}-${removed.removedAt.replace(/[:.]/g, "-")}.json`);
+      await writeFile(backup, JSON.stringify(removed, null, 2), { mode: 0o600, flag: "wx" });
+      board.tasks = board.tasks.filter((t) => t !== task);
+      board.events = board.events.filter((e) => e.taskId !== task.id);
+      board.agentReceipts = board.agentReceipts.filter((r) => r.taskId !== task.id);
+      return { id: task.id, backup };
     });
   }
   moveProject(input: { id: string; direction?: "up" | "down" | "top"; to?: number }) {

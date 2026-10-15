@@ -1,7 +1,7 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import type { PaseoAgent } from "@getpaseo/client";
 import { Pressable, View } from "react-native";
 import { Icon, ScrollView, useToast } from "@getpaseo/plugin/client/react-native";
-import { Modal } from "./modal";
 import {
   usePaseo,
   useRpc,
@@ -9,7 +9,7 @@ import {
 } from "@getpaseo/plugin/client";
 import { useQuery } from "@tanstack/react-query";
 import type { Task, Project, BoardEvent } from "../shared/model";
-import { type Status } from "../shared/model";
+import { historyStatusLabel, legacyStatus, priorities, taskTypeLabels, taskTypes, type Status } from "../shared/model";
 import { enabledStatuses, laneName } from "../shared/lanes";
 import * as rpc from "../shared/rpc";
 import {
@@ -19,9 +19,7 @@ import {
   IconButton,
   Label,
   Notice,
-  Row,
   SectionHeader,
-  Theme,
   font,
   radius,
   relativeTime,
@@ -32,8 +30,9 @@ import {
   message,
   verticalScroll,
   verticalContent, noFocusRing } from "./ui";
-import { PriorityIcon, StatusIcon, priorityLabels } from "./status";
-import { listAgents } from "./resources";
+import { PriorityIcon, StatusIcon, TypeIcon, priorityLabels } from "./status";
+import { useLiveAgents } from "./queries";
+import { shallowEqual } from "./stable";
 import { isLegacyScope } from "../shared/scope";
 import { SessionCard } from "./session-card";
 import { SessionCreate } from "./session-create";
@@ -41,16 +40,23 @@ import { SessionPreview } from "./session-preview";
 import { useSessionReads } from "./session-reads";
 import { sessionAttention } from "../shared/session-attention";
 import type { SessionEntry } from "./session-link";
-import { Enter, MotionReveal } from "./motion";
+import { Enter, MotionReveal, useSettled } from "./motion";
 import { TaskMetadata } from "./task-metadata";
 import { Disclosure } from "./disclosure";
 import { WrapupModal } from "./wrapup";
+import { currentWrapup } from "../shared/wrapup-state";
 import { useComposer } from "./composer";
-import { eventPoint, menuHandlers, useMenuOpener, type MenuEntry } from "./context-menu";
+import { eventPoint, menuHandlers, useMenuOpener, type MenuEntry, type Point } from "./context-menu";
 import { openNativeSession } from "./session-state";
 import { cardQuestions } from "../shared/progress";
+import { TaskProgress } from "./task-progress";
+import { TaskUsage } from "./task-usage";
 
-export function TaskDrawer({
+type TaskDrawerProps = Parameters<typeof TaskDrawerView>[0];
+
+export const TaskDrawer = memo(TaskDrawerView, (a, b) => sameDrawerProps(a, b));
+
+function TaskDrawerView({
   task,
   project,
   events,
@@ -60,6 +66,8 @@ export function TaskDrawer({
   navigation,
   onClose,
   onEdit,
+  onDelete,
+  onStatusChanged,
   refresh,
   sessionEntry,
   onSessionEntryConsumed,
@@ -77,6 +85,10 @@ export function TaskDrawer({
   navigation: PluginSurfaceProps["navigation"];
   onClose(): void;
   onEdit(): void;
+  /** Opens the permanent-delete confirmation (archived cards only). */
+  onDelete?(): void;
+  /** After this drawer changed the card's status (the board may ask to wrap up). */
+  onStatusChanged?(from: Status, to: Status): void;
   refresh(): void;
   sessionEntry?: SessionEntry;
   onSessionEntryConsumed?(requestId: string): void;
@@ -100,8 +112,9 @@ export function TaskDrawer({
     [showNew, setShowNew] = useState(false),
     [showWrapup, setShowWrapup] = useState(false),
     [showArchived, setShowArchived] = useState(false),
-    [statusMenuOpen, setStatusMenuOpen] = useState(false),
     [detailsOpen, setDetailsOpen] = useState(false),
+    // Activity is history, not status: collapsed until asked for (USAGE-STATS-SPEC §5).
+    [activityOpen, setActivityOpen] = useState(false),
     [sending, setSending] = useState(false),
     [error, setError] = useState(""),
     [drafts, setDrafts] = useState<Record<string, string>>({}),
@@ -109,8 +122,11 @@ export function TaskDrawer({
       {},
     );
   const lock = useRef(false);
+  // Heavy sections and their reads start once the open transition is over.
+  const settled = useSettled(task.id);
+  const ready = active && settled;
   // Restore unsent drafts saved on the daemon (once per session, local edits win).
-  const composer = useComposer(active);
+  const composer = useComposer(ready);
   const seeded = useRef(new Set<string>());
   useEffect(() => {
     const sessions = composer.state?.sessions;
@@ -130,9 +146,6 @@ export function TaskDrawer({
   }, [composer.state, task.id]);
   const detailActive = useRef(active && !selected);
   detailActive.current = active && !selected;
-  useEffect(() => {
-    if (!active || selected) setStatusMenuOpen(false);
-  }, [active, selected]);
   const sessionLocks = useRef(new Set<string>());
   const consumedEntry = useRef<string | undefined>(undefined);
   useEffect(() => {
@@ -172,24 +185,55 @@ export function TaskDrawer({
   const workspace = useQuery({
     queryKey: ["ultra", "workspace", task.workspaceId],
     queryFn: () => paseo.workspaces.ref(task.workspaceId).refresh(),
-    enabled: active,
-    refetchInterval: 3000,
+    enabled: ready,
+    // Availability rarely changes; sends re-check it fresh anyway.
+    refetchInterval: 10000,
   });
   const scope = useQuery({
     queryKey: ["ultra", "context", task.id, task.revision, project.revision],
     queryFn: () => contextRead({ id: task.id }),
-    enabled: active,
-    refetchInterval: 5000,
+    enabled: ready,
+    refetchInterval: 10000,
     // A revision bump (e.g. an automatic status move) must not blank the
     // context and briefly mark the workspace unavailable.
     placeholderData: (previous) => previous,
   });
-  const sessions = useQuery({
-    queryKey: ["ultra", "sessions", task.workspaceId],
-    queryFn: () => listAgents(paseo, task.workspaceId),
-    enabled: active,
-    refetchInterval: 3000,
+  // Live sessions come from the board's streamed agent list, so the cards show
+  // at once; archived ones (a full host scan) are read slowly (PERFORMANCE-SPEC §3).
+  const workspaceId = task.workspaceId;
+  const liveAgents = useLiveAgents({
+    poll: false,
+    select: useCallback((agents: PaseoAgent[]) => agents.filter((a) => a.workspaceId === workspaceId), [workspaceId]),
   });
+  // Archived ones come from the daemon (it pages every agent on the host).
+  const archivedRead = useRpc(rpc.archivedSessions);
+  const workspaceSessions = useQuery({
+    queryKey: ["ultra", "sessions", "archived", task.id],
+    queryFn: async () => (await archivedRead({ taskId: task.id })) as unknown as PaseoAgent[],
+    enabled: ready,
+    refetchInterval: 30000,
+  });
+  const liveHere = liveAgents.data;
+  const sessionsData = useMemo(() => {
+    if (!liveHere && !workspaceSessions.data) return undefined;
+    const live = liveHere ?? (workspaceSessions.data || []).filter((a) => !a.archivedAt);
+    const ids = new Set(live.map((a) => a.id));
+    return [...live, ...(workspaceSessions.data || []).filter((a) => a.archivedAt && !ids.has(a.id))];
+  }, [liveHere, workspaceSessions.data]);
+  // A session that left the live list was probably archived: show it there now.
+  const liveIds = (liveHere || []).map((a) => a.id).sort().join(",");
+  const previousLive = useRef(liveIds);
+  useEffect(() => {
+    const before = previousLive.current.split(",").filter(Boolean);
+    previousLive.current = liveIds;
+    if (active && before.some((id) => !liveIds.split(",").includes(id))) void workspaceSessions.refetch();
+  }, [liveIds]);
+  const sessions = {
+    data: sessionsData,
+    error: liveAgents.error ?? workspaceSessions.error,
+    isPending: sessionsData === undefined && (liveAgents.isPending || workspaceSessions.isPending),
+    refetch: () => Promise.all([liveAgents.refetch(), workspaceSessions.refetch()]),
+  };
   const unavailable =
     !workspace.data ||
     workspace.isError ||
@@ -214,6 +258,9 @@ export function TaskDrawer({
   const archivedSessions = ordered.filter((a) => !!a.archivedAt);
   const openMenu = useMenuOpener();
   const finished = task.status === "done" || task.status === "cancelled";
+  // Wrapped up while kept on the board: its workspace/sessions are archived on
+  // purpose, so neither offer Wrap up again nor warn that they are unavailable.
+  const wrapped = finished ? currentWrapup(events, task.id) : null;
   const taskActions = (): MenuEntry[] => [
     {
       id: "start",
@@ -222,7 +269,7 @@ export function TaskDrawer({
       disabled: unavailable || !!task.archivedAt,
       onPress: () => setShowNew(true),
     },
-    ...(finished && !task.archivedAt && !project.archivedAt
+    ...(finished && !wrapped && !task.archivedAt && !project.archivedAt
       ? [{ id: "wrap", label: "Wrap up…", icon: "PackageCheck", onPress: () => setShowWrapup(true) }]
       : []),
     { kind: "separator" as const, id: "s" },
@@ -238,6 +285,9 @@ export function TaskDrawer({
           task.archivedAt ? "Card restored" : "Card archived",
         ),
     },
+    ...(onDelete
+      ? [{ id: "delete", label: "Delete permanently…", icon: "Trash2", danger: true, disabled: sending || !!project.archivedAt, onPress: onDelete }]
+      : []),
   ];
   const sessionMenu = (a: (typeof ordered)[number]): MenuEntry[] => {
     const running = a.status === "running" || a.status === "initializing";
@@ -341,11 +391,52 @@ export function TaskDrawer({
   }
   function changeStatus(status: Status) {
     if (statusDisabled || !detailActive.current || status === task.status) return;
+    const from = task.status;
     void perform(
-      () => update({ id: task.id, revision: task.revision, status }),
+      async () => {
+        await update({ id: task.id, revision: task.revision, status });
+        onStatusChanged?.(from, status);
+      },
       `Moved to ${laneName(project, status)}`,
     );
   }
+  // Status, type and priority open a dropdown next to their button (a sheet on phones).
+  const statusEntries = (): MenuEntry[] =>
+    enabledStatuses(project).map((status) => ({
+      id: status,
+      label: laneName(project, status),
+      leading: <StatusIcon status={status} />,
+      checked: status === task.status,
+      onPress: () => changeStatus(status),
+    }));
+  const editField = (edit: { type: Task["type"] | null } | { priority: Task["priority"] }, success: string) => {
+    if (!active || sending || !detailActive.current) return;
+    void perform(() => update({ id: task.id, revision: task.revision, ...edit }), success);
+  };
+  const typeEntries = (): MenuEntry[] => [
+    {
+      id: "none",
+      label: "No type",
+      leading: <TypeIcon always />,
+      checked: !task.type,
+      onPress: () => task.type && editField({ type: null }, "Type cleared"),
+    },
+    ...taskTypes.map((type) => ({
+      id: type,
+      label: taskTypeLabels[type],
+      leading: <TypeIcon type={type} />,
+      checked: type === task.type,
+      onPress: () => type !== task.type && editField({ type }, `Type set to ${taskTypeLabels[type]}`),
+    })),
+  ];
+  const priorityEntries = (): MenuEntry[] =>
+    [...priorities].reverse().map((priority) => ({
+      id: priority,
+      label: priorityLabels[priority],
+      leading: <PriorityIcon priority={priority} always />,
+      checked: priority === task.priority,
+      onPress: () => priority !== task.priority && editField({ priority }, `Priority set to ${priorityLabels[priority]}`),
+    }));
   return (
     <View
       style={{
@@ -394,7 +485,12 @@ export function TaskDrawer({
             sessionLocks.current.delete(id);
             setPendingSessions((current) => ({ ...current, [id]: false }));
           }}
+          onComposerFocus={(id) => {
+            // A late daemon restore must not replace (remount) an input the user is in.
+            seeded.current.add(id);
+          }}
           onDraftChange={(id, text, expected) => {
+            seeded.current.add(id);
             setDrafts((current) =>
               expected !== undefined && current[id] !== expected
                 ? current
@@ -439,15 +535,22 @@ export function TaskDrawer({
                 icon={<StatusIcon status={task.status} />}
                 text={laneName(project, task.status)}
                 label={`Status: ${laneName(project, task.status)}`}
-                disabled={statusDisabled}
-                onPress={() => setStatusMenuOpen(true)}
+                disabled={statusDisabled || !openMenu}
+                onPress={(at) => openMenu?.(at, "Status", statusEntries())}
               />
               <Property
                 icon={<PriorityIcon priority={task.priority} always />}
                 text={priorityLabels[task.priority]}
-                label={`Priority: ${priorityLabels[task.priority]}. Edit task to change`}
-                disabled={!active || sending}
-                onPress={onEdit}
+                label={`Priority: ${priorityLabels[task.priority]}`}
+                disabled={!active || sending || !openMenu}
+                onPress={(at) => openMenu?.(at, "Priority", priorityEntries())}
+              />
+              <Property
+                icon={<TypeIcon type={task.type} always />}
+                text={task.type ? taskTypeLabels[task.type] : "No type"}
+                label={`Type: ${task.type ? taskTypeLabels[task.type] : "none"}`}
+                disabled={!active || sending || !openMenu}
+                onPress={(at) => openMenu?.(at, "Type", typeEntries())}
               />
             </View>
             {!!error && <Notice>{error}</Notice>}
@@ -460,7 +563,7 @@ export function TaskDrawer({
             keyboardShouldPersistTaps="handled"
             contentContainerStyle={{ ...verticalContent, padding: space[4], paddingBottom: space[6] + space[2], gap: space[5] }}
           >
-            {!!resourceIssue && (
+            {!!resourceIssue && !wrapped && (
               <View style={{ gap: space[2] }}>
                 <Notice tone="warning">{resourceIssue}</Notice>
                 <View style={{ flexDirection: "row" }}>
@@ -524,19 +627,32 @@ export function TaskDrawer({
                   backgroundColor: colors.surface1,
                 }}
               >
-                <Icon name="PackageCheck" size={16} color={colors.foregroundMuted} />
+                <Icon
+                  name={wrapped ? "CircleCheck" : "PackageCheck"}
+                  size={16}
+                  color={wrapped ? colors.statusSuccess : colors.foregroundMuted}
+                />
                 <View style={{ flex: 1, minWidth: 0 }}>
-                  <Label medium size={font.md}>{task.status === "done" ? "Finished" : "Cancelled"}</Label>
-                  <Label muted size={font.sm}>Wrap up to archive its sessions, worktree and the card.</Label>
+                  <Label medium size={font.md}>
+                    {wrapped ? "Wrapped up" : task.status === "done" ? "Finished" : "Cancelled"}
+                  </Label>
+                  <Label muted size={font.sm}>
+                    {wrapped
+                      ? `${/(^|; )workspace kept(;|$)/.test(wrapped.note || "") ? "Sessions" : "Workspace and sessions"} archived ${relativeTime(wrapped.at)}. Move the card out of ${task.status === "done" ? "Done" : "Cancelled"} to bring them back.`
+                      : "Wrap up to archive its sessions, worktree and the card."}
+                  </Label>
                 </View>
-                <Button icon="Archive" disabled={!active || sending} onPress={() => setShowWrapup(true)}>
-                  Wrap up
-                </Button>
+                {!wrapped && (
+                  <Button icon="Archive" disabled={!active || sending} onPress={() => setShowWrapup(true)}>
+                    Wrap up
+                  </Button>
+                )}
               </View>
             )}
             {!!task.description && (
               <Label size={font.base} selectable>{task.description}</Label>
             )}
+            <TaskProgress taskId={task.id} active={active} />
             <View style={{ gap: space[2] }}>
               <SectionHeader title="Sessions" count={liveSessions.length}>
                 <Button
@@ -607,6 +723,9 @@ export function TaskDrawer({
                 </Disclosure>
               )}
             </View>
+            {settled && (
+            // Below the sessions, so mounting them after the transition moves nothing above.
+            <Enter distance={4} style={{ gap: space[5] }}>
             <TaskMetadata
               task={task}
               project={project}
@@ -621,9 +740,14 @@ export function TaskDrawer({
               owner={scope.data?.owner}
               directories={scope.data?.directories || []}
             />
+            <TaskUsage taskId={task.id} active={ready} />
             {meaningful.length > 0 && (
-              <View style={{ gap: space[2] }}>
-                <SectionHeader title="Activity" />
+              <Disclosure
+                title="Activity"
+                summary={`${meaningful.length}`}
+                open={activityOpen}
+                onChange={setActivityOpen}
+              >
                 <View>
                   {meaningful
                     .slice(-12)
@@ -646,37 +770,14 @@ export function TaskDrawer({
                       />
                     ))}
                 </View>
-              </View>
+              </Disclosure>
+            )}
+            </Enter>
             )}
           </ScrollView>
         </>
       )}
       </MotionReveal>
-      <Modal
-        open={statusMenuOpen && active && !selected}
-        title="Status"
-        onOpenChange={(open) => {
-          if (!open) setStatusMenuOpen(false);
-        }}
-      >
-        <Modal.Content contentContainerStyle={{ padding: space[3], gap: space[1] }}>
-          <Theme.Provider value={theme}>
-            {enabledStatuses(project).map((status) => (
-              <Row
-                key={status}
-                title={laneName(project, status)}
-                leading={<StatusIcon status={status} size={16} />}
-                selected={status === task.status}
-                disabled={statusDisabled}
-                onPress={() => {
-                  setStatusMenuOpen(false);
-                  changeStatus(status);
-                }}
-              />
-            ))}
-          </Theme.Provider>
-        </Modal.Content>
-      </Modal>
       <SessionCreate
         task={task}
         open={active && showNew}
@@ -705,6 +806,18 @@ export function TaskDrawer({
   );
 }
 
+/**
+ * Re-render only for its own data: the board passes stable callbacks and
+ * re-renders often (live agents, polls); its session defaults are a fresh
+ * object each time (PERFORMANCE-SPEC §3).
+ */
+function sameDrawerProps(a: TaskDrawerProps, b: TaskDrawerProps) {
+  const keys = new Set([...Object.keys(a), ...Object.keys(b)]) as Set<keyof TaskDrawerProps>;
+  for (const key of keys)
+    if (!Object.is(a[key], b[key]) && !(key === "sessionDefaults" && shallowEqual(a[key], b[key]))) return false;
+  return true;
+}
+
 function Property({
   icon,
   text,
@@ -716,16 +829,26 @@ function Property({
   text: string;
   label: string;
   disabled?: boolean;
-  onPress(): void;
+  /** Receives the point just below the button's left edge, where its dropdown opens. */
+  onPress(at: Point): void;
 }) {
   const { colors } = useTheme();
+  const ref = useRef<View>(null);
   return (
     <Pressable
+      ref={ref}
       accessibilityRole="button"
       accessibilityLabel={label}
       accessibilityState={{ disabled: !!disabled }}
       disabled={disabled}
-      onPress={onPress}
+      onPress={(event) => {
+        const fallback = eventPoint(event);
+        const node = ref.current;
+        if (!node) return onPress(fallback);
+        node.measureInWindow((x, y, _width, height) =>
+          onPress(Number.isFinite(x) && height ? { x, y: y + height + 4 } : fallback),
+        );
+      }}
       style={(state) => {
         const { pressed, hovered: hover, focused } = state as typeof state & { hovered?: boolean; focused?: boolean };
         const hovered = hover || focused;
@@ -757,6 +880,11 @@ const activityText: Record<string, string> = {
   edited: "Edited the task",
   status_changed: "Changed status",
   archive_changed: "Changed archive state",
+  workspace_auto_archived: "Archived the workspace",
+  workspace_auto_archive_skipped: "Kept the workspace",
+  workspace_restored: "Restored the workspace",
+  workspace_restore_skipped: "Workspace not restored",
+  sessions_restored: "Restored the sessions",
   progress_reported: "Reported progress",
   "agent.turn_started": "Started a turn",
   "agent.turn_ended": "Finished a turn",
@@ -796,7 +924,7 @@ function ActivityItem({
         <Label size={font.md}>
           <Label medium size={font.md}>{actor}</Label>
           {` ${verb.charAt(0).toLowerCase()}${verb.slice(1)}`}
-          {event.to ? ` → ${nameOf(event.to)}` : ""}
+          {event.to ? ` → ${event.to === legacyStatus ? historyStatusLabel(event.to) : nameOf(event.to)}` : ""}
           {event.reportKind && !question && event.reportKind !== "progress" ? ` · ${event.reportKind}` : ""}
         </Label>
         {!!event.rule && (

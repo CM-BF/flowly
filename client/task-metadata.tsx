@@ -1,5 +1,5 @@
 import { View } from "react-native";
-import type { Task, Project } from "../shared/model";
+import { taskTypeLabels, type Task, type Project } from "../shared/model";
 import { Disclosure } from "./disclosure";
 import { Label, Notice, basename, font, space } from "./ui";
 import { priorityLabels } from "./status";
@@ -28,6 +28,7 @@ export function TaskMetadata({ task, project, open, onChange, disabled, summary,
   directories: { repo: string; directory: string }[];
 }) {
   return <Disclosure title="Details & workspace" summary={summary} open={open} disabled={disabled} onChange={onChange}>
+    <MetaRow label="Type" value={task.type ? taskTypeLabels[task.type] : "None"} />
     <MetaRow label="Priority" value={priorityLabels[task.priority]} />
     <MetaRow label="Project" value={project.title} />
     <MetaRow label="Project root" value={project.primaryPath} mono />

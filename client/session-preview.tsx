@@ -1,4 +1,5 @@
-import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import type { PaseoAgent } from "@getpaseo/client";
 import {
   ActivityIndicator,
   Animated,
@@ -27,7 +28,6 @@ import * as rpc from "../shared/rpc";
 import {
   Button,
   Label,
-  Choices,
   Notice,
   IconButton,
   Dot,
@@ -47,6 +47,7 @@ import {
 import { sessionTone } from "./status";
 import { resolveSend, sendBehaviorText, sendBehaviors, type SendBehavior } from "./send-queue";
 import { useComposer } from "./composer";
+import { useLiveAgents } from "./queries";
 import { extractImages } from "../shared/images";
 import { SessionImage } from "./session-image";
 import { imageInputSupported, listenForImages, pickImageFiles, readImages, type Attachment } from "./web-images";
@@ -68,8 +69,9 @@ import { SessionMarkdown } from "./session-content";
 import { coalescedRefresh, useSessionFollowTail } from "./session-follow";
 import { useSessionReads } from "./session-reads";
 import { sessionAttention } from "../shared/session-attention";
-import { Enter, MotionReveal, PulseDot, motionDuration, useMotionPresence, useMotionValue } from "./motion";
-import { composerEnterAction, createDraftBuffer, createDraftReporter, type ComposerKey } from "./session-input";
+import { Enter, MotionReveal, PulseDot, motionDuration, useMotionPresence, useMotionValue, useReducedMotion, useSettled } from "./motion";
+import { useKeyboardInset } from "./keyboard";
+import { composerEnterAction, createDraftBuffer, createDraftReporter, restoredDraft, type ComposerKey } from "./session-input";
 
 /** Composer text area: vertical padding and the one-line height (20 px line). */
 const inputPad = 4;
@@ -89,6 +91,7 @@ export function SessionPreview({
   beginOperation,
   endOperation,
   onDraftChange,
+  onComposerFocus,
   onBack,
   onClose,
   refresh,
@@ -107,6 +110,8 @@ export function SessionPreview({
   beginOperation(sessionId: string): boolean;
   endOperation(sessionId: string): void;
   onDraftChange(sessionId: string, text: string, expectedDraft?: string): void;
+  /** The composer got focus (the drawer stops restoring a saved draft into it). */
+  onComposerFocus?(sessionId: string): void;
   onBack(): void;
   /** Close the whole side bar (from any level). */
   onClose?(): void;
@@ -119,7 +124,8 @@ export function SessionPreview({
     contextRead = useRpc(rpc.taskContext),
     healthRead = useRpc(rpc.toolsHealth),
     prepareExisting = useRpc(rpc.prepareExisting),
-    accessRead = useRpc(rpc.accessState);
+    accessRead = useRpc(rpc.accessState),
+    tailRead = useRpc(rpc.sessionTail);
   const reads = useSessionReads();
   const toast = useToast();
   const [draftBuffer] = useState(() => createDraftBuffer(draft));
@@ -136,16 +142,30 @@ export function SessionPreview({
   // may lag behind what was typed.
   if (!ownInput) draftBuffer.sync(draft);
   const [inputKey, setInputKey] = useState(0);
+  // Native: the text a mount starts from. Never follow `draft` here — RN sends a
+  // changed defaultValue to the native input as new text, so a debounced (stale)
+  // report would overwrite what was typed meanwhile and drop characters.
+  const [inputSeed, setInputSeed] = useState(draft);
   const latestChange = useRef(onDraftChange);
   latestChange.current = onDraftChange;
   const [reporter] = useState(() => createDraftReporter(draft, (text) => latestChange.current(sessionId, text)));
   const flushReport = () => reporter.flush();
   const reportDraft = (text: string) => (ownInput ? reporter.change(text) : onDraftChange(sessionId, text));
   useEffect(() => () => reporter.flush(), []);
+  const inputRef = useRef<{ clear?(): void; focus?(): void } | null>(null);
+  const refocus = useRef(false);
   useEffect(() => {
     // An outside change (restore, clear after send, edit a queued message): show it in the input.
     if (!ownInput || !reporter.external(draft)) return;
     draftBuffer.set(draft);
+    // Clearing after a send keeps the keyboard up; other text remounts the input with it.
+    if (!draft && inputRef.current?.clear) {
+      inputRef.current.clear();
+      setInputSeed("");
+      return;
+    }
+    refocus.current = focusedRef.current;
+    setInputSeed(draft);
     setInputKey((k) => k + 1);
   }, [draft]);
   const [sending, setSending] = useState(false),
@@ -153,11 +173,13 @@ export function SessionPreview({
     [showTools, setShowTools] = useState(false),
     [inputHeight, setInputHeight] = useState(inputMin),
     [focused, setFocused] = useState(false),
-    [composerOpen, setComposerOpen] = useState(false),
     [confirmArchive, setConfirmArchive] = useState(false),
     [chipMenu, setChipMenu] = useState<ChipMenuId | null>(null),
     [modePicker, setModePicker] = useState(false);
   useShortcutBlock(focused);
+  const focusedRef = useRef(false);
+  focusedRef.current = focused;
+  const keyboard = useKeyboardInset(visible, useReducedMotion());
   const lock = useRef(false);
   const tail = useSessionFollowTail();
   const mounted = useRef(visible);
@@ -168,59 +190,68 @@ export function SessionPreview({
       mounted.current = false;
     };
   }, [visible]);
-  const previewId = useId();
   const agent = useMemo(() => paseo.agents.ref(sessionId), [paseo, sessionId]);
+  // The board's streamed agent list has this session already: show it at once
+  // and revalidate (PERFORMANCE-SPEC §3). Archived sessions are not in it.
+  const liveAgents = useLiveAgents({
+    poll: false,
+    select: useCallback((agents: PaseoAgent[]) => agents.find((a) => a.id === sessionId) ?? null, [sessionId]),
+  });
+  const streamed = liveAgents.data ?? undefined;
   const current = useQuery({
-    queryKey: ["ultra", "agent", sessionId, "preview", previewId],
-    gcTime: 0,
+    queryKey: ["ultra", "agent", sessionId],
     queryFn: () => agent.refresh(),
     enabled: visible,
-    refetchInterval: 2000,
+    refetchInterval: 10000,
+    placeholderData: () => (streamed ? { agent: streamed, project: null } : undefined),
   });
-  const actor = current.data?.agent;
+  // The stream is fresher than the last poll while it runs.
+  const polled = current.data?.agent;
+  const actor = streamed && (!polled || streamed.updatedAt >= polled.updatedAt) ? streamed : polled;
   const belongs = !!actor && actor.workspaceId === task.workspaceId;
   const active = belongs ? actor : undefined;
+  const [streamReady, setStreamReady] = useState(false);
+  // The transcript (markdown, images) and the slower reads wait for the open
+  // transition to finish (PERFORMANCE-SPEC §3).
+  const settled = useSettled(sessionId);
+  // Slim tail from the daemon (no tool payloads); it checks membership itself,
+  // so it loads in parallel with the agent.
   const timeline = useQuery({
-    queryKey: ["ultra", "timeline", sessionId],
-    queryFn: async () => {
-      const response = await agent.timeline.refetch({
-        direction: "tail",
-        limit: 35,
-        projection: "projected",
-      });
-      if (response.error) throw new Error(response.error);
-      return response;
-    },
-    enabled: visible && belongs && !current.isError,
-    refetchInterval: 3000,
+    queryKey: ["ultra", "timeline", task.id, sessionId],
+    queryFn: () => tailRead({ taskId: task.id, agentId: sessionId, limit: 35 }),
+    enabled: visible && settled && !current.isError,
+    refetchInterval: streamReady ? 15000 : 3000,
   });
+  // Only the Kanban tools section shows these.
   const tools = useQuery({
     queryKey: ["ultra", "tools"],
     queryFn: () => healthRead({}),
-    enabled: visible && belongs,
+    enabled: visible && belongs && showTools,
     refetchInterval: 5000,
   });
   const access = useQuery({
     queryKey: ["ultra", "access", task.id, sessionId],
     queryFn: () => accessRead({ id: task.id, agentId: sessionId }),
-    enabled: visible && belongs && !current.isError,
+    enabled: visible && belongs && !current.isError && showTools,
     refetchInterval: 3000,
   });
   useEffect(() => {
     if (!visible || !belongs || current.isError) return;
     let alive = true;
-    const updates = coalescedRefresh(() => {
-      void timeline.refetch();
-      void current.refetch();
-    });
+    // Status comes from the agent stream; stream events only refresh the transcript.
+    const updates = coalescedRefresh(() => void timeline.refetch(), 400);
     const subscription = agent.timeline.subscribe(() => {
       if (alive) updates.trigger();
     });
-    void subscription.ready.catch((e) => {
-      if (alive) setError(message(e));
-    });
+    void subscription.ready.then(
+      () => alive && setStreamReady(true),
+      (e) => {
+        if (alive) setError(message(e));
+      },
+    );
     return () => {
       alive = false;
+      setStreamReady(false);
       updates.dispose();
       subscription();
     };
@@ -256,12 +287,8 @@ export function SessionPreview({
     [timeline.data?.entries],
   );
   const blocks = useMemo(() => groupTranscript(output), [output]);
-  const outputSignature = JSON.stringify(
-    output.map((entry) => [entry.key, entry.text]),
-  );
-  useEffect(() => {
-    tail.scrollToTail();
-  }, [outputSignature, active?.status]);
+  // Following the tail happens on the transcript's own layout/size changes
+  // (after layout, so it lands on the new end in one step).
   const busy = sending || pending;
   const canWrite =
     visible &&
@@ -275,10 +302,10 @@ export function SessionPreview({
   const setPreferred = (next: SendBehavior) => {
     if (view.values && view.values.sendBehavior !== next) void view.update({ sendBehavior: next });
   };
-  const composer = useComposer(visible);
+  const composer = useComposer(visible && settled);
   const openMenu = useMenuOpener();
   const latest = useMotionPresence(!tail.following ? true : undefined, !tail.following ? "latest" : "");
-  const config = useSessionConfig(task.id, active, visible, () => void current.refetch());
+  const config = useSessionConfig(task.id, active, visible && settled, () => void current.refetch());
   const queueEntry = composer.entry(sessionId);
   const queued = queueEntry?.queue || [];
   const running = active?.status === "running" || active?.status === "initializing";
@@ -407,27 +434,36 @@ export function SessionPreview({
         rememberSentImages(item.id, attached.map((a) => a.uri)),
       ).catch((e) => {
         // Never lose the text or images: put them back in the composer.
-        onDraftChange(sessionId, instruction);
+        flushReport();
+        onDraftChange(sessionId, restoredDraft(instruction, draftBuffer.read()));
         if (mounted.current) setAttachments([...attached, ...attachmentsRef.current].slice(0, maxImages));
         setError(message(e));
       });
       draftBuffer.clear(instruction);
       onDraftChange(sessionId, "", instruction);
       setAttachments([]);
-      setComposerOpen(false);
       return;
     }
     await perform(async () => {
       const messageId = newMessageId();
       rememberSentImages(messageId, attached.map((a) => a.uri));
-      await sendCardInstruction(paseo, task, sessionId, contextRead, instruction, action.activeTurnBehavior, images, messageId);
+      // Clear at once, so text typed while the send is in flight is never
+      // erased by it; a failed send puts the text back (PERFORMANCE-SPEC §2).
       draftBuffer.clear(instruction);
       onDraftChange(sessionId, "", instruction);
-      if (mounted.current) setAttachments(attachmentsRef.current.filter((a) => !attached.includes(a)));
-      if (mounted.current) setComposerOpen(false);
+      setAttachments(attachmentsRef.current.filter((a) => !attached.includes(a)));
+      try {
+        await sendCardInstruction(paseo, task, sessionId, contextRead, instruction, action.activeTurnBehavior, images, messageId);
+      } catch (e) {
+        flushReport();
+        const typed = draftBuffer.read();
+        onDraftChange(sessionId, restoredDraft(instruction, typed));
+        if (mounted.current) setAttachments([...attached, ...attachmentsRef.current].slice(0, maxImages));
+        throw e;
+      }
       if (mounted.current) tail.jumpToLatest();
-      await current.refetch();
-      await timeline.refetch();
+      void current.refetch();
+      void timeline.refetch();
     });
   }
   const tone = state ? sessionTone(colors, state, !!attention?.unread) : colors.foregroundMuted;
@@ -435,14 +471,14 @@ export function SessionPreview({
   // Paseo parity: a running session with an empty composer shows Stop.
   const stopMode = running && !draft.trim() && !attachments.length && canWrite && !busy;
   const sendSize = touch ? 34 : 28;
-  // Native phones type in the host bottom sheet: it tracks the real IME height
-  // (candidate bars, keyboard switches) which plugin-side keyboard events cannot.
-  const sheetComposer = Platform.OS !== "web";
-  const fitInput = (contentHeight: number, inSheet: boolean) => {
-    const next = Math.max(inputMin, Math.min(compact && !inSheet ? 108 : 160, Math.ceil(contentHeight)));
+  const inputMax = compact ? 108 : 160;
+  // Touch has no Enter/Shift+Enter: the "When running" choice stays, the key hints go.
+  const keyHints = !compact && Platform.OS === "web";
+  const fitInput = (contentHeight: number) => {
+    const next = Math.max(inputMin, Math.min(inputMax, Math.ceil(contentHeight)));
     setInputHeight((current) => (current === next ? current : next));
   };
-  const renderComposer = (inSheet: boolean) => {
+  const renderComposer = () => {
     if (!active) return null;
     return (
       <>
@@ -518,16 +554,8 @@ export function SessionPreview({
               ))}
             </View>
           )}
-          {inSheet && (
-            <Choices
-              title="When the session is running"
-              value={preferred}
-              options={sendBehaviors.map((b) => ({ value: b, label: sendBehaviorText[b].label }))}
-              onChange={setPreferred}
-            />
-          )}
           <View
-            ref={inSheet ? undefined : setComposerNode}
+            ref={setComposerNode}
             // Text spans the full width; actions sit on their own row below (attach left, send right).
             style={{
               gap: space[1],
@@ -554,7 +582,7 @@ export function SessionPreview({
                 <NativeText
                   accessibilityElementsHidden
                   importantForAccessibility="no-hide-descendants"
-                  onLayout={(e) => fitInput(e.nativeEvent.layout.height, inSheet)}
+                  onLayout={(e) => fitInput(e.nativeEvent.layout.height)}
                   style={{ paddingVertical: inputPad, fontSize: font.base, lineHeight: 20 }}
                 >
                   {draft ? (draft.endsWith("\n") ? `${draft} ` : draft) : " "}
@@ -563,29 +591,30 @@ export function SessionPreview({
             )}
             <TextInput
               key={ownInput ? `input-${inputKey}` : "input"}
+              ref={inputRef as never}
               accessibilityLabel="Follow-up instruction"
               accessibilityHint={
                 Platform.OS === "web"
                   ? "Enter sends; Shift and Enter inserts a new line."
                   : "Use the keyboard Send action or the send button."
               }
-              {...(ownInput ? { defaultValue: draft } : { value: draft })}
+              {...(ownInput ? { defaultValue: inputSeed } : { value: draft })}
               onChangeText={(text) => {
                 draftBuffer.edit(text);
                 reportDraft(text);
               }}
               onFocus={() => {
+                onComposerFocus?.(sessionId);
                 setFocused(true);
+                keyboard.onInputFocus();
                 if (attention?.unread) noteInteraction();
               }}
-              onBlur={() => setFocused(false)}
-              onContentSizeChange={(event) => {
-                // Web: the mirror below measures instead (a textarea's scrollHeight never shrinks).
-                if (Platform.OS === "web") return;
-                fitInput(event.nativeEvent.contentSize.height + 2 * inputPad, inSheet);
+              onBlur={() => {
+                setFocused(false);
+                keyboard.onInputBlur();
               }}
               multiline
-              autoFocus={inSheet}
+              autoFocus={refocus.current}
               blurOnSubmit={false}
               submitBehavior={Platform.OS === "web" ? "newline" : "submit"}
               returnKeyType="send"
@@ -612,9 +641,13 @@ export function SessionPreview({
               }
               placeholderTextColor={colors.foregroundMuted}
               style={{
-                height: inputHeight,
+                // Native multiline inputs size themselves within min/max on the
+                // UI thread; a JS height round trip re-rendered the session on
+                // every wrapped line and lagged a frame (PERFORMANCE-SPEC §3).
+                // Web: the mirror above measures (a textarea never shrinks).
+                ...(Platform.OS === "web" ? { height: inputHeight } : {}),
                 minHeight: inputMin,
-                maxHeight: compact && !inSheet ? 108 : 160,
+                maxHeight: inputMax,
                 minWidth: 0,
                 paddingVertical: inputPad,
                 fontSize: font.base,
@@ -705,7 +738,7 @@ export function SessionPreview({
                 config={config}
                 menu={chipMenu}
                 setMenu={setChipMenu}
-                inline={inSheet}
+                inline={false}
                 disabled={!!active.archivedAt}
                 onOpenInPaseo={
                   typeof navigation?.openAgent === "function"
@@ -724,6 +757,8 @@ export function SessionPreview({
 
   return (
     <View
+      ref={keyboard.ref}
+      onLayout={keyboard.onLayout}
       style={{ flex: 1, minHeight: 0, minWidth: 0 }}
       // Any press inside the session counts as looking at it (does not claim the responder).
       onPointerDown={() => attention?.unread && !holdUnread.current && noteInteraction()}
@@ -817,7 +852,7 @@ export function SessionPreview({
               <Label muted size={font.sm}>{tools.data?.ready ? "Ready" : "Not ready"}</Label>
             </View>
             <Label muted size={font.sm}>
-              Lets this agent read its task, report progress and move it to In progress, Blocked or In review. You confirm Done or Cancelled.
+              Lets this agent read its task, report progress and move it between Design, Development and Test, to Blocked or to In review. You confirm Done or Cancelled.
             </Label>
             <Label muted size={font.sm}>
               {access.data?.methods.length
@@ -874,13 +909,14 @@ export function SessionPreview({
         style={{ flex: 1, minHeight: 0, minWidth: 0 }}
         nestedScrollEnabled
         keyboardShouldPersistTaps="handled"
+        keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
         scrollEventThrottle={16}
         onScroll={tail.onScroll}
         onScrollBeginDrag={tail.onScrollBeginDrag}
         onScrollEndDrag={tail.onScrollEndDrag}
         onContentSizeChange={tail.scrollToTail}
         onLayout={tail.scrollToTail}
-        contentContainerStyle={{ ...verticalContent, padding: space[4], paddingBottom: space[5], gap: space[4] }}
+        contentContainerStyle={{ ...verticalContent, padding: space[4], paddingBottom: space[5] + keyboard.inset, gap: space[4] }}
       >
         {current.isPending && <Label muted>Loading session…</Label>}
         {current.error && <Notice>{message(current.error)}</Notice>}
@@ -928,7 +964,7 @@ export function SessionPreview({
                 {output.length ? " Showing the last known output." : ""}
               </Notice>
             )}
-            {timeline.isPending ? (
+            {!settled ? null : timeline.isPending ? (
               <Label muted>Loading output…</Label>
             ) : !output.length ? (
               timeline.error ? null : (
@@ -937,13 +973,9 @@ export function SessionPreview({
                 </View>
               )
             ) : (
-              blocks.map((block, index) =>
-                block.kind === "activity" ? (
-                  <ActivityBlock key={block.key} block={block} live={!!state?.active && index === blocks.length - 1} />
-                ) : (
-                  <TranscriptEntry key={block.key} entry={block.entry} taskId={task.id} agentId={sessionId} />
-                ),
-              )
+              <Enter distance={0} style={{ gap: space[4] }}>
+                <TranscriptBlocks blocks={blocks} live={!!state?.active} taskId={task.id} agentId={sessionId} />
+              </Enter>
             )}
             {state?.active && blocks.at(-1)?.kind !== "activity" && (
               <View
@@ -967,7 +999,7 @@ export function SessionPreview({
         )}
         {!active && !!error && <Notice>{error}</Notice>}
       </ScrollView>
-      {!!chipMenu && !sheetComposer && (
+      {!!chipMenu && (
         <Pressable
           accessibilityLabel="Close menu"
           onPress={() => setChipMenu(null)}
@@ -975,11 +1007,14 @@ export function SessionPreview({
         />
       )}
       {active && (
-        <View
+        <Animated.View
           testID="session-composer"
           style={{
             flexShrink: 0,
             minWidth: 0,
+            // Rides above the keyboard on the native driver; opaque so the transcript does not show through.
+            backgroundColor: colors.surface0,
+            transform: [{ translateY: keyboard.translate }],
             // Above the dismiss layer so chip menus can open upward over the transcript.
             zIndex: 25,
             paddingHorizontal: space[3],
@@ -1029,70 +1064,17 @@ export function SessionPreview({
               </Pressable>
             </Animated.View>
           )}
-          {sheetComposer ? (
-            <>
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel="Write a follow-up instruction"
-                accessibilityState={{ disabled: !canWrite }}
-                disabled={!canWrite}
-                onPress={() => setComposerOpen(true)}
-                style={({ pressed }) => ({
-                  flexDirection: "row",
-                  alignItems: "center",
-                  gap: space[2],
-                  minHeight: 44,
-                  paddingLeft: space[3] + 2,
-                  paddingRight: space[1.5],
-                  borderWidth: 1,
-                  borderColor: colors.border,
-                  borderRadius: 22,
-                  backgroundColor: canWrite ? (pressed ? colors.surface1 : colors.surface0) : colors.surface1,
-                })}
-              >
-                <View style={{ flex: 1, minWidth: 0 }}>
-                  <Label size={font.base} lines={1} muted={!draft.trim()} selectable={false}>
-                    {draft.trim()
-                      ? draft.trim().replace(/\s+/g, " ")
-                      : active.archivedAt
-                        ? "Send a message to restore…"
-                        : "Message this session…"}
-                  </Label>
-                </View>
-                {(running || queued.length > 0) && (
-                  <Label muted size={font.xs} selectable={false}>
-                    {queued.length ? `${queued.length} queued · ` : ""}{sendBehaviorText[preferred].label}
-                  </Label>
-                )}
-                <View
-                  style={{
-                    width: sendSize,
-                    height: sendSize,
-                    borderRadius: sendSize / 2,
-                    alignItems: "center",
-                    justifyContent: "center",
-                    backgroundColor: draft.trim() && canWrite ? colors.accent : tint(colors.foregroundMuted, 0.14),
-                  }}
-                >
-                  {busy ? (
-                    <ActivityIndicator size="small" color={colors.accentForeground} />
-                  ) : (
-                    <Icon name="Pencil" size={15} color={draft.trim() && canWrite ? colors.accentForeground : colors.foregroundMuted} />
-                  )}
-                </View>
-              </Pressable>
-            </>
-          ) : (
-            renderComposer(false)
-          )}
-          {!compact && Platform.OS === "web" && (
+          {renderComposer()}
+          {(keyHints || running || queued.length > 0) && (
             <View style={{ flexDirection: "row", alignItems: "center", gap: space[2], minHeight: 20 }}>
               <View style={{ flex: 1, minWidth: 0 }}>
-                <Label muted size={font.xs} lines={1} selectable={false}>
-                  {running
-                    ? `Enter: ${sendBehaviorText[preferred].label} · ⌘/Ctrl+Enter: ${preferred === "queue" ? "Send now" : "Queue"} · Shift+Enter: new line`
-                    : "Enter to send · Shift+Enter for a new line"}
-                </Label>
+                {keyHints && (
+                  <Label muted size={font.xs} lines={1} selectable={false}>
+                    {running
+                      ? `Enter: ${sendBehaviorText[preferred].label} · ⌘/Ctrl+Enter: ${preferred === "queue" ? "Send now" : "Queue"} · Shift+Enter: new line`
+                      : "Enter to send · Shift+Enter for a new line"}
+                  </Label>
+                )}
               </View>
               <Pressable
                 accessibilityRole="button"
@@ -1108,7 +1090,7 @@ export function SessionPreview({
               </Pressable>
             </View>
           )}
-        </View>
+        </Animated.View>
       )}
       <Modal
         open={modePicker && visible}
@@ -1158,34 +1140,49 @@ export function SessionPreview({
           </Theme.Provider>
         </Modal.Content>
       </Modal>
-      {sheetComposer && active && (
-        <Modal
-          open={composerOpen && visible}
-          title={active.title ? `Message · ${active.title}` : "Message session"}
-          onOpenChange={(open) => {
-            if (!open) setComposerOpen(false);
-          }}
-        >
-          <Modal.Content scrollable={false} contentContainerStyle={{ padding: space[4], gap: space[3] }}>
-            <Theme.Provider value={theme}>
-              {!!error && (
-                <Notice>{error}</Notice>
-              )}
-              {renderComposer(true)}
-            </Theme.Provider>
-          </Modal.Content>
-        </Modal>
-      )}
     </View>
   );
 }
 
-function TranscriptEntry({
+type OutputEntry = ReturnType<typeof recentSessionOutput>[number];
+const sameEntry = (a: OutputEntry, b: OutputEntry) =>
+  a === b || (a.key === b.key && a.text === b.text && a.author === b.author && a.messageId === b.messageId);
+
+/**
+ * The transcript, memoized: composer state (focus, keyboard, drafts) and polls
+ * that return the same output do not re-render it, and each block re-renders
+ * only when its own content changes (PERFORMANCE-SPEC §3).
+ */
+const TranscriptBlocks = memo(function TranscriptBlocks({
+  blocks,
+  live,
+  taskId,
+  agentId,
+}: {
+  blocks: TranscriptBlock[];
+  live: boolean;
+  taskId: string;
+  agentId: string;
+}) {
+  return (
+    <>
+      {blocks.map((block, index) =>
+        block.kind === "activity" ? (
+          <ActivityBlock key={block.key} block={block} live={live && index === blocks.length - 1} />
+        ) : (
+          <TranscriptEntry key={block.key} entry={block.entry} taskId={taskId} agentId={agentId} />
+        ),
+      )}
+    </>
+  );
+});
+
+const TranscriptEntry = memo(function TranscriptEntry({
   entry,
   taskId,
   agentId,
 }: {
-  entry: ReturnType<typeof recentSessionOutput>[number];
+  entry: OutputEntry;
   taskId: string;
   agentId: string;
 }) {
@@ -1233,7 +1230,7 @@ function TranscriptEntry({
       <Label muted size={font.md}>{entry.text}</Label>
     </View>
   );
-}
+}, (a, b) => a.taskId === b.taskId && a.agentId === b.agentId && sameEntry(a.entry, b.entry));
 
 /** An image waiting to be sent: thumbnail with a remove button. */
 function AttachmentThumb({ attachment, onRemove }: { attachment: Attachment; onRemove(): void }) {
@@ -1279,7 +1276,7 @@ function AttachmentThumb({ attachment, onRemove }: { attachment: Attachment; onR
  * line. Expanded, each step shows a short preview (thinking is clipped; the
  * full transcript lives in Paseo).
  */
-function ActivityBlock({ block, live }: { block: Extract<TranscriptBlock, { kind: "activity" }>; live: boolean }) {
+const ActivityBlock = memo(function ActivityBlock({ block, live }: { block: Extract<TranscriptBlock, { kind: "activity" }>; live: boolean }) {
   const { colors } = useTheme();
   const [open, setOpen] = useState(false);
   const turn = useMotionValue(open ? 1 : 0, motionDuration.feedback);
@@ -1352,7 +1349,11 @@ function ActivityBlock({ block, live }: { block: Extract<TranscriptBlock, { kind
       )}
     </View>
   );
-}
+}, (a, b) =>
+  a.live === b.live &&
+  a.block.key === b.block.key &&
+  a.block.items.length === b.block.items.length &&
+  a.block.items.every((item, i) => sameEntry(item, b.block.items[i])));
 
 /** A queued message row: enters with a short rise, supports a context menu. */
 function QueuedRow({ menu, style, children }: { menu: object; style: object; children: ReactNode }) {

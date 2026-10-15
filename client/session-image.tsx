@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Animated, Image, Pressable, View } from "react-native";
+import { Animated, Image, Platform, Pressable, View } from "react-native";
 import { Icon } from "@getpaseo/plugin/client/react-native";
 import { useRpc } from "@getpaseo/plugin/client";
 import { useQuery } from "@tanstack/react-query";
@@ -45,8 +45,9 @@ export function SessionImage({
     [failed, setFailed] = useState(""),
     [open, setOpen] = useState(false);
   useEffect(() => {
-    // RN-web's onLoad carries no size; ask for it directly (both platforms).
-    if (!uri) return;
+    // RN-web's onLoad carries no size; ask for it directly. Native onLoad
+    // reports the source size, so a second decode of the image is skipped.
+    if (!uri || Platform.OS !== "web") return;
     let alive = true;
     Image.getSize(
       uri,

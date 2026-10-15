@@ -110,14 +110,14 @@ describe.skipIf(!rendererPath)("task drawer redesign", () => {
     expect(tree.root.findAll((n: any) => n.type === "Button" && /workspace/i.test(n.children.join("")))).toHaveLength(0);
     await act(async () => { selector.props.onValueChange("todo"); });
     expect(updateTask).not.toHaveBeenCalled();
-    await act(async () => { selector.props.onValueChange("in_progress"); await Promise.resolve(); });
+    await act(async () => { selector.props.onValueChange("development"); await Promise.resolve(); });
     expect(updateTask).toHaveBeenCalledTimes(1);
-    expect(updateTask).toHaveBeenCalledWith({ id: task.id, revision: task.revision, status: "in_progress" });
+    expect(updateTask).toHaveBeenCalledWith({ id: task.id, revision: task.revision, status: "development" });
     expect(toastShow).toHaveBeenCalledWith("Moved to In progress", { variant: "success" });
   });
 
   test("compact status action shows the full label and opens a guarded seven-choice host sheet", async () => {
-    const inProgress = { ...task, status: "in_progress" };
+    const inProgress = { ...task, status: "development" };
     await act(async () => { tree = mount({ task: inProgress, compact: true }); });
     const actions = tree.root.findByProps({ testID: "task-actions" });
     expect(actions.findAllByType("SettingsSelect")).toHaveLength(0);
@@ -152,7 +152,7 @@ describe.skipIf(!rendererPath)("task drawer redesign", () => {
     let selector = tree.root.findByType("SettingsSelect");
     await act(async () => { selector.props.onValueChange("done"); });
     expect(tree.root.findByProps({ testID: "task-actions" }).findByType("SettingsSelect").props.disabled).toBe(true);
-    await act(async () => { selector.props.onValueChange("in_progress"); });
+    await act(async () => { selector.props.onValueChange("development"); });
     expect(updateTask).toHaveBeenCalledTimes(1);
     tree.unmount(); tree = undefined;
 

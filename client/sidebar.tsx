@@ -1,10 +1,10 @@
 import { Pressable } from "react-native";
-import { usePaseo, useRpc, type PluginSidebarItemProps } from "@getpaseo/plugin/client";
+import { useRpc, type PluginSidebarItemProps } from "@getpaseo/plugin/client";
 import { SidebarRow } from "@getpaseo/plugin/client/ui";
 import { useQuery } from "@tanstack/react-query";
-import { readBoard, readSessionReceipts } from "../shared/rpc";
+import { readSessionReceipts } from "../shared/rpc";
 import { attentionBadgeText, attentionFromSources, attentionScreenParams } from "./attention";
-import { listAgents } from "./resources";
+import { useBoardQuery, useLiveAgents } from "./queries";
 import { CountPill, Theme } from "./ui";
 
 /**
@@ -15,20 +15,11 @@ const SIDEBAR_POLL_MS = 15_000;
 
 /** Same sources and rule as the board Attention button; null while unavailable or failed. */
 function useAttentionCount() {
-  const read = useRpc(readBoard),
-    reads = useRpc(readSessionReceipts),
-    paseo = usePaseo();
+  const reads = useRpc(readSessionReceipts);
   const poll = { refetchInterval: SIDEBAR_POLL_MS, retry: 1 } as const;
-  const board = useQuery({
-    queryKey: ["ultra", "board"],
-    queryFn: () => read({}),
-    ...poll,
-  });
-  const agents = useQuery({
-    queryKey: ["ultra", "activity"],
-    queryFn: () => listAgents(paseo),
-    ...poll,
-  });
+  // Unchanged boards cost an etag round trip; no live agent stream for a badge.
+  const board = useBoardQuery(poll);
+  const agents = useLiveAgents({ ...poll, stream: false });
   const receipts = useQuery({
     queryKey: ["ultra", "sessionReads"],
     queryFn: () => reads({}),

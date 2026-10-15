@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { createDraftBuffer, createDraftReporter } from "./session-input";
+import { createDraftBuffer, createDraftReporter, restoredDraft } from "./session-input";
 
 function fakeTimers() {
   let queued: (() => void) | null = null;
@@ -46,4 +46,10 @@ test("the draft buffer keeps typed text until an outside change replaces it", ()
   expect(b.read()).toBe("abc");
   b.set("");
   expect(b.read()).toBe("");
+});
+
+test("a failed send puts its text back before anything typed since", () => {
+  expect(restoredDraft("fix the build", "")).toBe("fix the build");
+  expect(restoredDraft("fix the build", "  ")).toBe("fix the build");
+  expect(restoredDraft("fix the build", "and the tests")).toBe("fix the build\nand the tests");
 });

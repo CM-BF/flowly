@@ -4,7 +4,11 @@ import {
   boardSchema,
   projectInput,
   projectEdit,
+  linkedProjectInput,
+  projectLinksEdit,
+  projectRemoval,
   taskInput,
+  taskDeletion,
   taskEdit,
   taskPlacement,
   projectSchema,
@@ -18,6 +22,12 @@ import {
   markSessionReadInput,
   markSessionUnreadInput,
 } from "./session-attention";
+import { summaryEntrySchema, summaryOverviewSchema } from "./summary";
+import { taskUsageSchema } from "./usage";
+import { tailEntrySchema } from "./session-tail";
+
+/** `{ etag }` in; the value is omitted when it still matches (PERFORMANCE-SPEC §3). */
+const etagInput = z.strictObject({ etag: z.string().max(200).optional() });
 
 export const readSessionReceipts = defineRpc({
   name: "sessions.read-state",
@@ -41,10 +51,66 @@ export const readBoard = defineRpc({
   input: z.object({}),
   output: boardSchema,
 });
+export const readBoardChanged = defineRpc({
+  name: "board.read-changed",
+  input: etagInput,
+  output: z.object({ etag: z.string(), value: boardSchema.optional() }),
+});
 export const createProject = defineRpc({
   name: "projects.create",
   input: projectInput,
   output: projectSchema,
+});
+export const createLinkedProject = defineRpc({
+  name: "projects.create-linked",
+  input: linkedProjectInput,
+  output: projectSchema,
+});
+export const setProjectLinks = defineRpc({
+  name: "projects.set-links",
+  input: projectLinksEdit,
+  output: projectSchema,
+});
+export const removeProject = defineRpc({
+  name: "projects.remove",
+  input: projectRemoval,
+  output: z.object({
+    id: z.string(),
+    removedTasks: z.number().int(),
+    backup: z.string(),
+    /** Set when alsoPaseo was requested. */
+    paseo: z.object({ removed: z.boolean(), workspaces: z.number().int(), error: z.string() }).optional(),
+  }),
+});
+export const removeProjectCheck = defineRpc({
+  name: "projects.remove-check",
+  input: z.object({ id: z.string().min(1) }),
+  output: z.object({
+    cards: z.number().int(),
+    paseoProjectId: z.string(),
+    /** False when the native project is already gone from Paseo. */
+    paseoExists: z.boolean(),
+    workspaces: z.number().int(),
+    runningSessions: z.number().int(),
+  }),
+});
+export const nativePickers = ["finder", "explorer", "zenity", "kdialog"] as const;
+export const listDirectories = defineRpc({
+  name: "fs.list-directories",
+  input: z.object({ path: z.string().max(4096).optional() }),
+  output: z.object({
+    path: z.string(),
+    parent: z.string().nullable(),
+    home: z.string(),
+    native: z.enum(nativePickers).nullable(),
+    truncated: z.boolean(),
+    entries: z.array(z.object({ name: z.string(), path: z.string(), git: z.boolean() })),
+  }),
+});
+export const pickNativeDirectory = defineRpc({
+  name: "fs.pick-native",
+  input: z.object({ multiple: z.boolean().default(false) }),
+  output: z.object({ paths: z.array(z.string()) }),
 });
 export const updateProject = defineRpc({
   name: "projects.update",
@@ -60,6 +126,16 @@ export const updateTask = defineRpc({
   name: "tasks.update",
   input: taskEdit,
   output: taskSchema,
+});
+export const deleteTask = defineRpc({
+  name: "tasks.delete",
+  input: taskDeletion,
+  output: z.object({
+    id: z.string(),
+    backup: z.string(),
+    /** Set when `archive` was requested. */
+    archived: z.object({ sessions: z.number().int(), workspace: z.boolean() }).optional(),
+  }),
 });
 export const moveTask = defineRpc({
   name: "tasks.move",
@@ -94,6 +170,11 @@ export const listResources = defineRpc({
       }),
     ),
   }),
+});
+export const readResourcesChanged = defineRpc({
+  name: "resources.read-changed",
+  input: etagInput,
+  output: z.object({ etag: z.string(), value: listResources.output.optional() }),
 });
 export const taskContext = defineRpc({
   name: "tasks.context",
@@ -167,8 +248,16 @@ export const wrapup = defineRpc({
     id: z.string().min(1),
     revision: z.number().int().positive(),
     acknowledgeWarnings: z.boolean(),
+    /** Archive the sessions/workspace but leave the card on the board (the prompt after a move to Done/Cancelled). */
+    keepCard: z.boolean().optional(),
   }),
   output: wrapupResultSchema,
+});
+/** Preflight for archiving Paseo resources before a permanent delete. */
+export const deleteCheck = defineRpc({
+  name: "tasks.delete-check",
+  input: z.strictObject({ id: z.string().min(1) }),
+  output: wrapupCheckSchema,
 });
 export const managedSessions = defineRpc({
   name: "sessions.managed",
@@ -238,4 +327,44 @@ export const moveProject = defineRpc({
     })
     .refine((v) => (v.direction === undefined) !== (v.to === undefined), "Give either direction or to."),
   output: z.array(z.string()),
+});
+export const readSummaries = defineRpc({
+  name: "summaries.read",
+  input: z.strictObject({}),
+  output: summaryOverviewSchema,
+});
+export const readSummariesChanged = defineRpc({
+  name: "summaries.read-changed",
+  input: etagInput,
+  output: z.object({ etag: z.string(), value: summaryOverviewSchema.optional() }),
+});
+export const sessionTail = defineRpc({
+  name: "sessions.tail",
+  input: z.strictObject({
+    taskId: z.string().min(1).max(200),
+    agentId: z.string().min(1).max(200),
+    limit: z.number().int().min(1).max(100),
+  }),
+  output: z.object({ entries: z.array(tailEntrySchema) }),
+});
+export const archivedSessions = defineRpc({
+  name: "sessions.archived",
+  input: z.strictObject({ taskId: z.string().min(1).max(200) }),
+  // Paseo agent snapshots, passed through as the daemon returns them.
+  output: z.array(z.looseObject({ id: z.string(), archivedAt: z.string().nullish() })),
+});
+export const summaryHistory = defineRpc({
+  name: "summaries.history",
+  input: z.strictObject({ taskId: z.string().min(1) }),
+  output: z.array(summaryEntrySchema),
+});
+export const refreshSummary = defineRpc({
+  name: "summaries.refresh",
+  input: z.strictObject({ taskId: z.string().min(1) }),
+  output: z.object({ queued: z.boolean() }),
+});
+export const taskUsage = defineRpc({
+  name: "usage.task",
+  input: z.strictObject({ taskId: z.string().min(1) }),
+  output: taskUsageSchema,
 });

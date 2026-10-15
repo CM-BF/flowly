@@ -71,7 +71,7 @@ vi.mock("../../../../client/columns", async () => {
     fixture.columnProps = props;
     return React.createElement("Columns", null,
       ...props.tasks.map((task: any) => props.renderCard(task)),
-      React.createElement("Drop", { onPress: () => props.onDrop({ id: "task-1", revision: 4, status: "in_progress" }) }, "drop"));
+      React.createElement("Drop", { onPress: () => props.onDrop({ id: "task-1", revision: 4, status: "development" }) }, "drop"));
   } };
 });
 vi.mock("../../../../client/geometry", () => ({ drawerWidth: (preferred: number) => preferred, isCompactLayout: () => false }));

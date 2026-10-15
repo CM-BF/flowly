@@ -1,7 +1,7 @@
 import { z } from "zod";
-import { taskSchema, projectSchema, eventSchema, receiptSchema, statusSchema } from "./model";
+import { taskSchema, projectSchema, eventSchema, receiptSchema, statusSchema, legacyStatus } from "./model";
 
-export const agentStatuses = ["in_progress", "blocked", "in_review"] as const;
+export const agentStatuses = ["design", "development", "test", "blocked", "in_review"] as const;
 export const revisionSchema = z.strictObject({
   task: z.number().int().positive(),
   project: z.number().int().positive(),
@@ -17,7 +17,11 @@ const base = {
 };
 export const statusInputSchema = z.strictObject({
   ...base,
-  status: z.enum(agentStatuses),
+  status: z
+    .enum([...agentStatuses, legacyStatus])
+    .describe(
+      "One of allowedStatuses. in_progress is a deprecated alias kept for older sessions: it keeps the current work stage, else Development.",
+    ),
 });
 export const progressInputSchema = z.strictObject({
   ...base,

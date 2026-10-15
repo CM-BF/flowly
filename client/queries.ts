@@ -1,0 +1,216 @@
+import { useEffect } from "react";
+import { usePaseo, useRpc } from "@getpaseo/plugin/client";
+import { useQuery, useQueryClient, type QueryClient, type QueryKey } from "@tanstack/react-query";
+import type { PaseoAgent, PaseoApi, PaseoAgentUpdate } from "@getpaseo/client";
+import * as rpc from "../shared/rpc";
+import { isSummarizer } from "../shared/summary";
+import { listAgents } from "./resources";
+
+/**
+ * Shared query definitions (PERFORMANCE-SPEC §3). Every reader of a key uses the
+ * same fetcher, so the etag and live-update logic apply wherever the key is read.
+ */
+
+type Etagged<T> = { etag: string; value?: T };
+type QueryState = ReturnType<QueryClient["getQueryState"]>;
+
+/**
+ * Remembers which value this reader stored under a key, so an unchanged daemon
+ * response can keep the cached object (no re-render, no parse). The etag is only
+ * sent while the cache still holds that value: any other write to the key
+ * (setQueryData, another fetcher) bumps `dataUpdateCount` and forces a full read.
+ */
+export function createChangedReader() {
+  const held = new Map<string, { etag: string; count: number }>();
+  return async function readChanged<T>(
+    client: Pick<QueryClient, "getQueryData" | "getQueryState">,
+    key: QueryKey,
+    fetch: (etag: string | undefined) => Promise<Etagged<T>>,
+  ): Promise<T> {
+    const id = JSON.stringify(key);
+    const state: QueryState = client.getQueryState(key);
+    const current = client.getQueryData<T>(key);
+    const mine = held.get(id);
+    const valid = current !== undefined && !!mine && !!state && state.dataUpdateCount === mine.count;
+    const response = await fetch(valid ? mine!.etag : undefined);
+    // This result becomes the next data update of the key.
+    const count = (client.getQueryState(key)?.dataUpdateCount ?? 0) + 1;
+    if (response.value !== undefined) {
+      held.set(id, { etag: response.etag, count });
+      return response.value;
+    }
+    const latest = client.getQueryData<T>(key);
+    if (latest === undefined || client.getQueryState(key)?.dataUpdateCount !== state?.dataUpdateCount) {
+      // The cache changed while the request was in flight: read it in full.
+      held.delete(id);
+      const full = await fetch(undefined);
+      held.set(id, { etag: full.etag, count: (client.getQueryState(key)?.dataUpdateCount ?? 0) + 1 });
+      if (full.value === undefined) throw new Error("Missing value in a full read.");
+      return full.value;
+    }
+    held.set(id, { etag: response.etag, count });
+    return latest;
+  };
+}
+
+const readChanged = createChangedReader();
+
+export const boardKey = ["ultra", "board"] as const;
+export const resourcesKey = ["ultra", "resources"] as const;
+export const summariesKey = ["ultra", "summaries"] as const;
+export const activityKey = ["ultra", "activity"] as const;
+
+export function useBoardQuery(options: { refetchInterval?: number; retry?: number; enabled?: boolean } = {}) {
+  const read = useRpc(rpc.readBoardChanged);
+  const client = useQueryClient();
+  return useQuery({
+    queryKey: boardKey,
+    queryFn: () => readChanged(client, boardKey, (etag) => read(etag ? { etag } : {})),
+    ...options,
+  });
+}
+
+export function useResourcesQuery(options: { refetchInterval?: number; enabled?: boolean } = {}) {
+  const read = useRpc(rpc.readResourcesChanged);
+  const client = useQueryClient();
+  return useQuery({
+    queryKey: resourcesKey,
+    queryFn: () => readChanged(client, resourcesKey, (etag) => read(etag ? { etag } : {})),
+    ...options,
+  });
+}
+
+export function useSummariesQuery(enabled = true) {
+  const read = useRpc(rpc.readSummariesChanged);
+  const client = useQueryClient();
+  return useQuery({
+    queryKey: summariesKey,
+    queryFn: () => readChanged(client, summariesKey, (etag) => read(etag ? { etag } : {})),
+    enabled,
+    refetchInterval: 5000,
+    placeholderData: (previous) => previous,
+  });
+}
+
+/** Applies live agent updates to a list of live (non-archived, non-summarizer) agents. */
+export function applyAgentUpdates(agents: readonly PaseoAgent[], updates: readonly PaseoAgentUpdate[]): PaseoAgent[] {
+  let next: PaseoAgent[] | null = null;
+  for (const update of updates) {
+    const list: PaseoAgent[] = next ?? agents.slice();
+    next = list;
+    const id = update.kind === "upsert" ? update.agent.id : update.agentId;
+    const index = list.findIndex((a) => a.id === id);
+    if (update.kind === "remove" || update.agent.archivedAt || isSummarizer(update.agent as PaseoAgent)) {
+      if (index >= 0) list.splice(index, 1);
+      continue;
+    }
+    const agent = update.agent as PaseoAgent;
+    // Updates can arrive out of order with a poll; never go back in time.
+    if (index >= 0 && list[index].updatedAt > agent.updatedAt) continue;
+    if (index >= 0) list[index] = agent;
+    else list.push(agent);
+  }
+  return next ?? (agents as PaseoAgent[]);
+}
+
+/** Poll intervals for the live agent list: reconcile slowly while the stream is up. */
+export const AGENTS_STREAM_POLL_MS = 20_000;
+export const AGENTS_FALLBACK_POLL_MS = 5_000;
+const AGENT_BATCH_MS = 500;
+
+type Stream = { refs: number; ready: boolean; stop(): void };
+const streams = new WeakMap<object, Stream>();
+
+/**
+ * One filter-scoped agent update stream per Paseo connection, shared by every
+ * mounted reader. A one-entry page keeps the bootstrap small; updates are not
+ * paged. Released when the last reader unmounts.
+ */
+function openAgentStream(paseo: PaseoApi, client: QueryClient, onReady: () => void): Stream {
+  let pending: PaseoAgentUpdate[] = [];
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  let alive = true;
+  let release: (() => Promise<void>) | null = null;
+  const flush = () => {
+    timer = null;
+    const updates = pending;
+    pending = [];
+    client.setQueryData<PaseoAgent[]>(activityKey, (current) => (current ? applyAgentUpdates(current, updates) : current));
+  };
+  const stopListening = paseo.agents.subscribe((update) => {
+    if (!alive) return;
+    pending.push(update);
+    if (!timer) timer = setTimeout(flush, AGENT_BATCH_MS);
+  });
+  const stream: Stream = {
+    refs: 0,
+    ready: false,
+    stop() {
+      alive = false;
+      stopListening();
+      if (timer) clearTimeout(timer);
+      void release?.().catch(() => undefined);
+    },
+  };
+  void paseo.agents
+    .list({ filter: { includeArchived: false }, page: { limit: 1 }, subscribe: {} })
+    .then((result) => {
+      release = () => result.subscription.release();
+      if (!alive) return void release().catch(() => undefined);
+      stream.ready = true;
+      onReady();
+    })
+    .catch(() => undefined);
+  return stream;
+}
+
+/**
+ * Live (non-archived) agents on this host, shared by board, drawer and sidebar.
+ * The stream patches the cache; the full list reconciles every 20 s (5 s until
+ * the stream is ready, or when it is unavailable).
+ */
+export function useLiveAgents<T = PaseoAgent[]>(
+  options: {
+    stream?: boolean;
+    refetchInterval?: number;
+    retry?: number;
+    /** Subscribe to part of the list: the component re-renders only when that part changes. */
+    select?: (agents: PaseoAgent[]) => T;
+    /**
+     * false: read the shared cache (kept fresh by the stream and the board's
+     * poll) without a timer of its own, and fetch only when nothing is cached.
+     */
+    poll?: boolean;
+  } = {},
+) {
+  const paseo = usePaseo();
+  const client = useQueryClient();
+  const query = useQuery<PaseoAgent[], Error, T>({
+    queryKey: activityKey,
+    queryFn: () => listAgents(paseo),
+    ...(options.select ? { select: options.select } : {}),
+    refetchInterval: () =>
+      options.poll === false
+        ? false
+        : (options.refetchInterval ??
+          (options.stream !== false && streams.get(paseo)?.ready ? AGENTS_STREAM_POLL_MS : AGENTS_FALLBACK_POLL_MS)),
+    ...(options.poll === false ? { staleTime: Infinity } : {}),
+    ...(options.retry !== undefined ? { retry: options.retry } : {}),
+  });
+  useEffect(() => {
+    if (options.stream === false) return;
+    let stream = streams.get(paseo);
+    if (!stream) {
+      stream = openAgentStream(paseo, client, () => void client.invalidateQueries({ queryKey: activityKey }));
+      streams.set(paseo, stream);
+    }
+    stream.refs++;
+    return () => {
+      stream!.refs--;
+      if (stream!.refs > 0) return;
+      stream!.stop();
+      if (streams.get(paseo) === stream) streams.delete(paseo);
+    };
+  }, [paseo, client, options.stream]);
+  return query;
+}

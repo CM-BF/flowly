@@ -9,12 +9,13 @@ import {
   placementUpdate,
   edgeScroll,
   isCompactLayout,
+  keyboardOverlap,
 } from "./geometry";
 
 const viewport = { x: 100, y: 80, width: 600, height: 500 };
 const columns = [
   { status: "todo" as const, x: 12, width: 280 },
-  { status: "in_progress" as const, x: 304, width: 280 },
+  { status: "development" as const, x: 304, width: 280 },
 ];
 
 describe("board interaction geometry", () => {
@@ -23,10 +24,10 @@ describe("board interaction geometry", () => {
       "todo",
     );
     expect(columnAtPoint({ x: 420, y: 100 }, viewport, 0, columns)).toBe(
-      "in_progress",
+      "development",
     );
     expect(columnAtPoint({ x: 130, y: 100 }, viewport, 292, columns)).toBe(
-      "in_progress",
+      "development",
     );
   });
   test("gaps, toolbar, drawer and outside pointers are not drop targets", () => {
@@ -54,8 +55,12 @@ describe("board interaction geometry", () => {
     expect(drawerWidth(440, 760)).toBe(440);
   });
   test("native and narrow surfaces use a vertical list even when host compact is false", () => {
-    expect(isCompactLayout(false, "ios", 1000)).toBe(true);
-    expect(isCompactLayout(false, "android", 1000)).toBe(true);
+    expect(isCompactLayout(false, "ios", 1000)).toBe(false);
+    expect(isCompactLayout(false, "android", 760)).toBe(false);
+    expect(isCompactLayout(false, "ios", 759)).toBe(true);
+    expect(isCompactLayout(false, "ios", 0)).toBe(true);
+    expect(isCompactLayout(true, "ios", 1200)).toBe(true);
+    expect(isCompactLayout(false, "web", 0)).toBe(false);
     expect(isCompactLayout(false, "web", 759)).toBe(true);
     expect(isCompactLayout(false, "web", 760)).toBe(false);
     expect(isCompactLayout(true, "web", 1600)).toBe(true);
@@ -125,4 +130,16 @@ test("list drag lands by row centres and shifts the rows it passes", () => {
   expect(listDropIndex(heights, 3, -500, 4)).toBe(0);
   expect([0, 1, 2, 3].map((i) => listShift(i, 0, 2, 44))).toEqual([0, -44, -44, 0]);
   expect([0, 1, 2, 3].map((i) => listShift(i, 3, 1, 44))).toEqual([0, 44, 44, 0]);
+});
+
+describe("keyboard overlap", () => {
+  test("lifts only by the part of the view the keyboard covers", () => {
+    expect(keyboardOverlap(800, null)).toBe(0);
+    expect(keyboardOverlap(800, 500)).toBe(300);
+    // The host already resized the window: nothing left to cover.
+    expect(keyboardOverlap(500, 500)).toBe(0);
+    expect(keyboardOverlap(480, 500)).toBe(0);
+    // A taller IME (candidate bar) raises the inset.
+    expect(keyboardOverlap(800, 456.4)).toBe(344);
+  });
 });

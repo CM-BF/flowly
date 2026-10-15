@@ -63,7 +63,8 @@ export function openNativeSession(
 
 export function recentSessionOutput(
   entries: readonly {
-    seq?: number;
+    /** Projected entries carry a sequence range; its start identifies the entry as the window slides. */
+    seqStart?: number;
     item: {
       type: string;
       text?: unknown;
@@ -100,7 +101,7 @@ export function recentSessionOutput(
             : tool
               ? "Tool"
               : "Session";
-      const identity = entry.seq ?? item.messageId ?? item.callId ?? index;
+      const identity = entry.seqStart ?? item.messageId ?? item.callId ?? index;
       return [
         {
           key: `${identity}-${item.type}`,

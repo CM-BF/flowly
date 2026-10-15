@@ -16,10 +16,12 @@ afterEach(async () => {
 
 async function setup(options: {
   kind?: string;
-  status?: "done" | "cancelled" | "in_progress";
+  status?: "done" | "cancelled" | "development";
   agents?: { id: string; status: string }[];
   directory?: string;
   git?: (cwd: string, args: string[]) => Promise<string>;
+  ownsWorkspace?: boolean;
+  workspaceTitle?: string;
 }) {
   const root = await realpath(await mkdtemp(join(tmpdir(), "ultra-wrapup-")));
   roots.push(root);
@@ -36,6 +38,7 @@ async function setup(options: {
       title: "Card", description: "", status: options.status || "done", priority: "normal",
       position: 0, revision: 3, operationId: "op",
       createdAt: now, updatedAt: now, archivedAt: null,
+      ...(options.ownsWorkspace === undefined ? {} : { ownsWorkspace: options.ownsWorkspace }),
     });
   });
   let agents = (options.agents || [{ id: "a1", status: "idle" }]).map((a) => ({
@@ -53,6 +56,7 @@ async function setup(options: {
           id: "w",
           workspaceKind: options.kind || "worktree",
           workspaceDirectory: options.directory || root,
+          name: options.workspaceTitle || "main",
         }),
       }),
       archive: workspaceArchive,
@@ -97,7 +101,7 @@ test("running sessions and unfinished cards block; nothing is archived", async (
   expect((await running.service.check("t", running.paseo)).blockers[0]).toMatch(/still running/);
   await expect(running.service.run({ id: "t", revision: 3, acknowledgeWarnings: true }, running.paseo)).rejects.toThrow(/Cannot wrap up/);
   expect(running.workspaceArchive).not.toHaveBeenCalled();
-  const open = await setup({ status: "in_progress" });
+  const open = await setup({ status: "development" });
   expect((await open.service.check("t", open.paseo)).blockers).toContain("Only Done or Cancelled cards can be wrapped up.");
 });
 
@@ -139,4 +143,72 @@ test("real git: uncommitted and local-only commits are detected", async () => {
   // Once another branch contains the commit (merged), it is no longer reported.
   await run("git", ["-C", x.root, "branch", "integration"]);
   expect((await service.check("t", x.paseo)).git).toMatchObject({ unpushed: 0 });
+});
+
+test("a directory workspace the plugin created for the card is archived; a linked one is kept", async () => {
+  const owned = await setup({ kind: "directory", ownsWorkspace: true });
+  expect(await owned.service.check("t", owned.paseo)).toMatchObject({ archiveWorkspace: true });
+  await owned.service.run({ id: "t", revision: 3, acknowledgeWarnings: false }, owned.paseo);
+  expect(owned.workspaceArchive).toHaveBeenCalledWith("w");
+  // Older cards have no flag: the workspace titled after the card was created for it.
+  const legacy = await setup({ kind: "directory", workspaceTitle: "Card" });
+  expect(await legacy.service.check("t", legacy.paseo)).toMatchObject({ archiveWorkspace: true });
+  const linked = await setup({ kind: "directory", ownsWorkspace: false, workspaceTitle: "Card" });
+  expect(await linked.service.check("t", linked.paseo)).toMatchObject({ archiveWorkspace: false });
+});
+
+test("auto-archive on Done archives a clean workspace and keeps the card on the board", async () => {
+  const x = await setup({ kind: "directory", ownsWorkspace: true });
+  await x.service.autoArchive("t", x.paseo);
+  expect(x.workspaceArchive).toHaveBeenCalledWith("w");
+  const board = await x.store.read();
+  expect(board.tasks[0]).toMatchObject({ archivedAt: null, revision: 3 });
+  expect(board.events.at(-1)).toMatchObject({ action: "workspace_auto_archived", actor: "system" });
+});
+
+test("auto-archive skips and records why: running session, git warnings, linked workspace, not Done", async () => {
+  const cases = [
+    await setup({ agents: [{ id: "a1", status: "running" }] }),
+    await setup({ git: async (_cwd, args) => (args[0] === "rev-parse" ? "x\n" : args[0] === "status" ? " M a.ts\n" : "0\n") }),
+    await setup({ kind: "directory", ownsWorkspace: false }),
+  ];
+  for (const x of cases) {
+    await x.service.autoArchive("t", x.paseo);
+    expect(x.workspaceArchive).not.toHaveBeenCalled();
+    expect(x.agentArchive).not.toHaveBeenCalled();
+    expect((await x.store.read()).events.at(-1)).toMatchObject({ action: "workspace_auto_archive_skipped" });
+  }
+  const open = await setup({ status: "development" });
+  await open.service.autoArchive("t", open.paseo);
+  expect(open.workspaceArchive).not.toHaveBeenCalled();
+});
+
+test("auto wrap-up also covers Cancelled", async () => {
+  const x = await setup({ status: "cancelled" });
+  await x.service.autoArchive("t", x.paseo);
+  expect(x.workspaceArchive).toHaveBeenCalledWith("w");
+});
+
+test("the prompt's wrap-up (keepCard) archives resources and leaves the card on the board", async () => {
+  const x = await setup({ kind: "directory", ownsWorkspace: true });
+  const result = await x.service.run({ id: "t", revision: 3, acknowledgeWarnings: false, keepCard: true }, x.paseo);
+  expect(result.archivedWorkspace).toBe(true);
+  const board = await x.store.read();
+  expect(board.tasks[0]).toMatchObject({ archivedAt: null, revision: 3 });
+  expect(board.events.at(-1)).toMatchObject({ action: "wrapped_up", actor: "human" });
+  expect(board.events.at(-1)?.note).toMatch(/card kept/);
+});
+
+test("delete preflight allows any lane but still blocks on running sessions", async () => {
+  const x = await setup({ status: "development" });
+  expect((await x.service.check("t", x.paseo)).blockers).toContain("Only Done or Cancelled cards can be wrapped up.");
+  expect(await x.service.check("t", x.paseo, "delete")).toMatchObject({ archiveWorkspace: true, blockers: [] });
+  await x.service.run({ id: "t", revision: 3, acknowledgeWarnings: false, keepCard: true, purpose: "delete" }, x.paseo);
+  expect(x.workspaceArchive).toHaveBeenCalledTimes(1);
+  expect((await x.store.read()).tasks[0]).toMatchObject({ archivedAt: null, revision: 3 });
+  const busy = await setup({ status: "development", agents: [{ id: "a1", status: "running" }] });
+  await expect(
+    busy.service.run({ id: "t", revision: 3, acknowledgeWarnings: true, keepCard: true, purpose: "delete" }, busy.paseo),
+  ).rejects.toThrow("Cannot archive");
+  expect(busy.workspaceArchive).not.toHaveBeenCalled();
 });

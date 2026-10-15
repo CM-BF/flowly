@@ -51,6 +51,17 @@ afterEach(async () => {
   );
 });
 describe("board durability and business invariants", () => {
+  test("task type is optional, set and cleared by edits, and kept by unrelated edits", async () => {
+    const s = await setup();
+    await writeFile(s.path, JSON.stringify({ ...fixture(), version: 4, agentReceipts: [] }));
+    expect((await s.read()).tasks[0].type).toBeUndefined();
+    await s.editTask({ id: "t1", revision: 1, type: "bugfix", actor: "human" });
+    await s.editTask({ id: "t1", revision: 2, title: "Renamed", actor: "human" });
+    expect((await s.read()).tasks[0]).toMatchObject({ type: "bugfix", title: "Renamed", revision: 3 });
+    await s.editTask({ id: "t1", revision: 3, type: null, actor: "human" });
+    const stored = JSON.parse(await readFile(s.path, "utf8")).tasks[0];
+    expect("type" in stored).toBe(false);
+  });
   test("v2 migration preserves selected scope/history, waits for a commit, and backs up the source", async () => {
     const s = await setup(),
       old = { ...fixture(), version: 2 };
@@ -70,9 +81,51 @@ describe("board durability and business invariants", () => {
       title: "Migrated",
       actor: "human",
     });
-    expect((await new BoardStore(s.directory).read()).version).toBe(3);
+    expect((await new BoardStore(s.directory).read()).version).toBe(4);
     expect(await readFile(s.path + ".bak", "utf8")).toBe(source);
     expect((await s.read()).agentReceipts).toEqual([]);
+  });
+  test("v3 → v4 splits In progress: cards to Development, lanes expanded in place, history kept, pre-v4 copy once", async () => {
+    const s = await setup(),
+      old = { ...fixture(), version: 3, agentReceipts: [] } as unknown as Board;
+    (old.tasks[0] as { status: string }).status = "in_progress";
+    (old.projects[0] as Record<string, unknown>).lanes = [
+      { status: "backlog", enabled: false },
+      { status: "todo", enabled: true },
+      { status: "in_progress", enabled: true, name: "Doing" },
+      { status: "in_review", enabled: true },
+      { status: "blocked", enabled: false },
+      { status: "done", enabled: true },
+      { status: "cancelled", enabled: true },
+    ];
+    old.events = [{ id: "e1", taskId: "t1", actor: "human", action: "status_changed", from: "todo", to: "in_progress", at: old.tasks[0].createdAt } as never];
+    const source = JSON.stringify(old);
+    await writeFile(s.path, source);
+    const read = await s.read();
+    expect(read.version).toBe(4);
+    expect(read.tasks[0]).toMatchObject({ status: "development", revision: 1 });
+    expect(read.projects[0].lanes).toEqual([
+      { status: "backlog", enabled: false },
+      { status: "todo", enabled: true },
+      { status: "design", enabled: true },
+      { status: "development", enabled: true, name: "Doing" },
+      { status: "test", enabled: true },
+      { status: "in_review", enabled: true },
+      { status: "blocked", enabled: false },
+      { status: "done", enabled: true },
+      { status: "cancelled", enabled: true },
+    ]);
+    expect(read.events[0]).toMatchObject({ from: "todo", to: "in_progress" });
+    expect(await readFile(s.path, "utf8")).toBe(source);
+    expect(await readFile(join(s.directory, "board.pre-v4.json"), "utf8")).toBe(source);
+    await s.editTask({ id: "t1", revision: 1, title: "Migrated", actor: "human" });
+    expect(JSON.parse(await readFile(s.path, "utf8"))).toMatchObject({ version: 4, tasks: [{ status: "development" }] });
+    expect(await readFile(join(s.directory, "board.pre-v4.json"), "utf8")).toBe(source);
+  });
+  test("a retired in_progress card status is rejected on v4 data", async () => {
+    const s = await setup();
+    await writeFile(s.path, JSON.stringify({ ...fixture(), version: 4, agentReceipts: [], tasks: fixture().tasks.map((t) => ({ ...t, status: "in_progress" })) }));
+    await expect(s.read()).rejects.toThrow("preserved");
   });
   test("unknown data version is preserved", async () => {
     const s = await setup(),
@@ -87,11 +140,11 @@ describe("board durability and business invariants", () => {
     await s.editTask({
       id: "t1",
       revision: 1,
-      status: "in_progress",
+      status: "development",
       actor: "human",
     });
     expect((await new BoardStore(s.directory).read()).tasks[0].status).toBe(
-      "in_progress",
+      "development",
     );
     expect(
       JSON.parse(await readFile(`${s.path}.bak`, "utf8")).tasks[0].status,
@@ -168,7 +221,7 @@ describe("board durability and business invariants", () => {
       actor: "human",
     });
     const saved = await new BoardStore(s.directory).read();
-    expect(saved.version).toBe(3);
+    expect(saved.version).toBe(4);
     expect(saved.tasks[0]).toMatchObject({
       repoPaths: [],
       workspaceId: "w1",

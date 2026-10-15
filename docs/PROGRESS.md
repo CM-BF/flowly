@@ -1,5 +1,78 @@
 # Implementation progress
 
+## App performance — 2026-10-15
+
+- [x] Card request "app端存在一些性能问题，例如动画卡顿、session卡片加载慢等，输入框不跟手、丢字、自动关闭输入法等情况". Audit, then [performance spec](PERFORMANCE-SPEC.md) before code. Cause: the phone's JS thread was busy decoding large polls (relay E2EE in JS) and re-rendering the whole tree on every poll.
+- [x] Daemon: `board.read-changed`, `summaries.read-changed`, `resources.read-changed` (etag; unchanged = 38 B), `sessions.tail` (slim projected tail, card-scoped).
+- [x] Client: shared queries (`client/queries.ts`), streamed live agent list, drawer sessions from the stream, preview loads agent/transcript in parallel from cache, tools/access only while shown, memoized cards/drawer/transcript with stable callbacks and a stable theme/menu context, phone board hidden instead of unmounted, native-looped pulse, no card mount fade, native composer self-sizing, keyboard padding after the animation, send clears at once (restores on failure), late draft restore never remounts a focused input.
+- [x] PASS: typecheck; `npm test` 266 passed / 63 skipped; plugin reloaded; live RPC sizes and agent stream checked. [Verification](verification/performance.md).
+- [x] Follow-up "session card右边的最后活跃时间垂直居中": the time moved out of the title row, beside the chevron, centered on the row.
+- [x] Follow-up "打开任务卡内容、打开session，动画都很卡": heavy sections and reads wait for the open transition (`useSettled`); archived sessions from the daemon (`sessions.archived`) instead of paging every agent on each open; phone card is an overlay above the still laid-out board. PASS: typecheck; `npm test` 267 passed / 63 skipped; reloaded; live RPC check.
+- [ ] UNRUN: real-device smoothness/IME on iOS/Android over LAN and relay; Luna UI acceptance; stale renderer fixtures (pre-existing).
+
+## Automatic status as a setting — 2026-10-15
+
+- [x] Card request "自动流转作为设置项提供，默认打开". New host setting `auto-status.autoStatus` (default on; unset/invalid stored values read as on), shown in Ultra Kanban settings → *Moving cards* → *Auto-update status from sessions*. Off: the daemon still records turn facts but skips rules A1/A1r. The per-project switch stays as an opt-out, renamed *Auto-update status in this project*. [AUTO-STATUS-SPEC](AUTO-STATUS-SPEC.md) amended.
+- [x] PASS: typecheck; `npm test` 254 passed / 63 skipped (new: setting defaults). Plugin reloaded.
+- [ ] UNRUN: Luna UI acceptance of the settings toggle; a live turn with the setting off.
+
+## Delete a card permanently — 2026-10-15
+
+- [x] Card request "增加彻底删除卡片的能力，并把现在当前project下无法unarchive的那些老的卡片删了". Wrote [task delete spec](TASK-DELETE-SPEC.md): archived cards get *Delete permanently…* in the board card menu and drawer task menu, with a confirm dialog; `tasks.delete` (CAS, archived only) drops the card, its events, receipts and summaries after a `removed/` backup; Paseo resources untouched. AGENTS.md exception added.
+- [x] PASS: typecheck; `npm test` 251 passed / 63 skipped (2 new store tests). Plugin reloaded.
+- [x] Deleted the 11 archived Ultra Kanban cards whose worktrees the old wrap-up removed, through the plugin RPC; kept the restorable “竞品调研”. [Verification](verification/task-delete.md).
+- [x] Follow-up "手机端lane列表的选中标记导致数字不在一列": `Row` puts the selected check before the trailing value (user preferred this over a reserved empty slot), so the phone lane picker counts stay flush right in one column. PASS: typecheck; `npm test` 251 passed / 63 skipped. Plugin reloaded.
+- [x] Follow-up "菜单没有删除任务的选项，允许任何lane里删除，删除时询问是否同时archive，增加选项自动archive": *Delete permanently…* on every card; the dialog runs `tasks.delete-check` (wrap-up preflight without the lane rule) and asks Keep / Archive for its sessions and own workspace (running sessions disable Archive, warnings shown); new setting *Auto archive on delete* (`wrap-up.archiveOnDelete`) skips the question when the preflight is clean. `tasks.delete` archives first (wrap-up run, keepCard) and deletes only if that succeeds. PASS: typecheck; `npm test` 253 passed / 63 skipped (new: live-card delete, delete preflight/run). Plugin reloaded; live `tasks.delete-check` on 竞品调研 (clean) and this card (running session → blocker).
+- [ ] UNRUN: Luna UI acceptance of the menu entries, dialog and setting; a live delete with Archive on a fixture card; phone lane picker alignment on a real phone.
+
+## Task type — 2026-10-15
+
+- [x] Card request "任务卡片增加任务类型，比如research、bugfix、feature等". Wrote [task type spec](TASK-TYPE-SPEC.md): optional `task.type` (Feature / Bug fix / Research / Refactor / Docs / Chore); absent on existing cards, so no board migration.
+- [x] Create/edit form Type choice (default None), card meta chip, drawer Type property, Details row, board Type filter (`filterType`, remembered, reset and cleared by session links); session context line `Task type: …` when set.
+- [x] PASS: typecheck; `npm test` 248 passed / 63 skipped (new: store set/clear/keep, context line, settings default).
+- [x] Follow-up "side bar里改状态和tag直接在按钮旁边出下拉菜单": drawer Status / Type / Priority open a dropdown anchored below the button (context menu gained `leading` icons; the button measures itself), values save directly with CAS + toast; the drawer Status modal is gone. PASS: typecheck; `npm test` 249 passed / 63 skipped. Plugin reloaded.
+- [ ] UNRUN: Luna (`codex/gpt-6-luna`) UI acceptance on desktop/compact, including dropdown placement near the right edge.
+
+## Restore the workspace and sessions when a wrapped-up card leaves Done/Cancelled — 2026-10-15
+
+- [x] User chose option A: a temporary direct daemon connection, because the plugin SDK has no workspace restore. Wrote [workspace restore spec](WORKSPACE-RESTORE-SPEC.md), which records the SDK migration path (`COMPAT(sdk-workspace-restore)` in `server/workspace-restore.ts`).
+- [x] Moving a card out of Done/Cancelled restores its workspace in the background, under the same workspace ID: unarchive in place, or recreate a removed worktree on its kept branch. This applies only when the plugin's wrap-up archived it or the card owns it. Records `workspace_restored` / `workspace_restore_skipped`. Sessions stay archived until messaged.
+- [x] PASS: typecheck; `npm test` 243 passed / 63 skipped (5 new). Reloaded the plugin. End-to-end through the real plugin RPC, worktree and directory cards: [verification](verification/workspace-restore.md); fixtures cleaned up.
+- [x] User follow-up "把session也复活": the sessions the wrap-up archived are revived too, by daemon agent refresh on the same connection. Selection: `archivedAt` within a wrap-up event, so user-archived sessions and summarizers are excluded. An already-active workspace still gets its sessions back (`sessions_restored`). PASS: `npm test` 246 passed / 63 skipped; e2e with sessions that ran a turn, both restored.
+- [ ] UNRUN: Luna UI acceptance; end-to-end with Auto wrap up off; real unavailable-path cases (covered by focused tests).
+- [ ] Follow-up: switch to the SDK once `PaseoApi.workspaces` exposes restore.
+
+## Workflow stages: In progress → Design / Development / Test — 2026-10-15
+
+- [x] User decisions: split In progress into Design → Development → Test for every project (option B); the agent decides whether to start with Design or Development. Wrote [workflow stages spec](WORKFLOW-STAGES-SPEC.md) and the user approved it ("可以 试试看吧，不行再改回去").
+- [x] Board v4 (`server/migrate.ts`): In progress cards → Development; a configured In progress lane expands in place (on/off kept, custom name → Development); events/receipts keep the retired status (`historyStatusSchema`), shown as "In progress"; one-time `board.pre-v4.json` copy.
+- [x] Rules: A1 no longer moves Backlog/Todo; resuming from In review/Blocked returns to the latest enabled work stage (else the first enabled one, else no move). A1r and the silent-turn marker cover all three stages.
+- [x] Agents: `allowedStatuses` uses design/development/test/blocked/in_review; `in_progress` is accepted as a deprecated alias (keeps the current stage, else Development) so sessions with the old tool schema still work. Skill, tool description, CLI usage and UI copy updated; status icons CircleEllipsis / CircleDot / CircleGauge (same Circle family as the other statuses; Pencil/ShieldCheck looked a different size).
+- [x] PASS: typecheck; `npm test` 231 passed / 63 skipped (new: v3→v4 migration, rejected v4 in_progress, A1 resume/skip/disabled lanes, silent turn per stage, alias). Reloaded the plugin. Live board migrated to v4: 2 In progress cards → Development, Ultra Kanban lanes expanded, 37 history events still read `in_progress`, `board.pre-v4.json` holds the v3 data. A live `kanban_update_status(in_progress)` call from this session (old schema) kept the card in Development.
+- [x] Fix (user report): dragging a card to another lane under a non-Manual sort showed "Sorted by priority…" instead of moving it. Cause: web `onLayout` uses ResizeObserver and only reports size changes, so lanes shifted by a sibling collapsing/expanding (or lanes added/hidden) kept a stale x and the drop resolved to the card's own lane. Lanes are now re-measured with `measureInWindow` at drag start; the toast now says lane moves still work. Cross-lane drops under priority/other sorts land by the sort rule.
+- [x] Fix (user report, session `fdfe6286`): a rework-of-implementation follow-up resumed the card in Design. The agent had set Design, implemented, and delivered without ever setting Development, so A1 returned to that stale stage. Skill and tool description now require keeping the stage current (Development as soon as code changes; never deliver implementation from Design) and checking the auto-resumed stage at the start of every turn. A1 itself unchanged.
+- [x] Follow-up (user: the same card went back to Design again; its session still had the old guidance): A1 now resumes a card **in review in Development** (review feedback is rework; falls back like Blocked when Development is off); Blocked still returns to the previous stage. Skill, settings copy and specs updated; tests cover both paths and the fallback.
+- [ ] UNRUN: Luna (`codex/gpt-6-luna`) UI acceptance of the new lanes on desktop/compact, lane editor and activity rendering; drag between the three stages in the real app.
+
+## Card token usage from local logs; Activity collapsible — 2026-10-15
+
+- [x] Wrote [usage stats spec](USAGE-STATS-SPEC.md) before code. Tokens only, no money. Source: Claude Code (`~/.claude/projects/*/<id>.jsonl` + `subagents/`) and Codex (`~/.codex/sessions/**`, `archived_sessions/`) logs, located by Paseo `runtimeInfo.sessionId`. Read-only, cached by size/mtime.
+- [x] Unified types: input (uncached), cache read, cache write, output (incl. reasoning), reasoning; turns and running time from the logs. Drawer **Usage** section (collapsed, header shows total and turns; per-session lines; progress summarizers as one subtotal). **Activity** is now collapsible and collapsed by default.
+- [x] PASS: typecheck; `npm test` 225 passed / 63 skipped (5 new in `server/usage.test.ts`). Live `usage.task` on card `8c22cc02` (226 ms cold, 28 ms cached): Codex session `dddf746d` matches its rollout exactly (input 130,862 = 3,068,206 − 2,937,344 cached; output 17,098; reasoning 6,393); Claude session `17975bba` matches an independent recount within the turn that ran in between; 12/12 summarizer runs found.
+- [ ] UNRUN: real-app rendering of Usage/Activity; Claude variants whose wrapper sets a different `CLAUDE_CONFIG_DIR` (the daemon's own environment is used).
+
+## Task progress summary — 2026-10-15
+
+- [x] Wrote [task summary spec](TASK-SUMMARY-SPEC.md) after the user approved the design (cheap model via a Paseo session; Summary model setting, default Haiku 5.5 → GPT-6-Luna; one short-lived session per run).
+- [x] Daemon: after a completed turn of a Kanban-managed session, a summarizer child session in the card's workspace returns `{update, state, recap, next}`. It runs one at a time per card and merges turns that end meanwhile. It is archived in `finally`. Results go to `summaries.json` (50 versions per card, last error per card), never changing board or task revisions. Project Remove backs the summaries up to `removed/`. RPCs: `summaries.read/history/refresh`.
+- [x] UI: one-line state on cards; drawer Progress section (State/Recap/Next, Refresh, History); Settings → Ultra Kanban (Auto summary, Summary model). Summarizer sessions are hidden from board session views by label.
+- [x] PASS: typecheck; `npm test` 220 passed / 63 skipped (20 new). Luna live acceptance `dddf746d` plus a follow-up live re-check: [verification](verification/task-summary.md).
+- [x] Fixed from live testing: summarizer directory registered a native project (moved to the card workspace as a child session, user choice B; leftover project deleted); Haiku's array-valued recap failed the schema (lenient parsing).
+- [x] User feedback: host settings page never appeared → floating settings button at the board's bottom-left opens a plugin-drawn modal (Auto summary; Provider → Model). Progress collapsed by default (state, 3 recap lines, 1 next line; Show more). Output tightened (state ≤15 words/30 汉字, recap ≤4 short lines, next one sentence; hard caps 80/400/160). Live refresh after the change: 15 s, state 33 chars, 4 recap lines.
+- [x] Added `target` (goal + up to 4 feature points; kept stable unless scope changes; old versions read as ""). Progress shows it between State and Recap (1 line collapsed). Live refresh on card `8c22cc02`: 12 s, target "Goal: 为每个任务提供快速确认进度的摘要" + 4 feature lines. Tests 235 passed.
+- [x] Usage: cache hit rate = cache read ÷ all input (header, totals, per session).
+- [ ] UNRUN: real-app rendering of the card line, Progress section, settings button and modal; finished-notification behavior for child summarizers.
+
 ## Sidebar attention badge (F2) — 2026-10-15
 
 - [x] Wrote [sidebar badge spec](SIDEBAR-BADGE-SPEC.md) before code. Confirmed from the 0.11.2 public types and installed app bundle that `SidebarRow.trailing` renders nothing when null and otherwise sits in a non-accessible host Pressable sharing the row press; nested pressables press on their own.
@@ -170,6 +243,35 @@ Testing session: `c8bfb6b3-40c8-40ec-8a0c-82a1909abe04`, `codex/gpt-6-luna`, cre
 - [x] Android chip toast `Cannot read property 'id' of undefined`: chip action now only navigates; board validates (SESSION-CHIP-SPEC 2026-10-14 amendment). Step-prefixed errors. Chip fixture test updated to the new contract; 87 passed. Web compact chip flow re-run OK. Root cause on Android not confirmed (no device)
 - [ ] Luna UI acceptance: deferred by the user's choice; user reviews in the real app first
 - [ ] Not exercised live: drag/drop, resize grip drag, create/edit forms submission, session send/steer/interrupt, mark read, native iOS/Android
+
+## Card write scope — research only, deferred — 2026-10-15
+
+- [x] Research/design: [TASK-SCOPE-DESIGN.md](TASK-SCOPE-DESIGN.md) (Codex/Claude only; other providers unresearched)
+- [ ] Implementation: deferred by the user; linked projects stay unrestricted for now
+
+## Wrap up on Done/Cancelled — 2026-10-15
+
+- [x] Spec: [MULTITASK-SPEC.md](MULTITASK-SPEC.md) supplement: moving a card into Done/Cancelled prompts "Wrap up this card?" (archives sessions/own workspace, keeps the card); setting *Auto wrap up* (default off) makes the daemon do it when the preflight is clean, recording skips
+- [x] Typecheck, 238 tests (auto/keepCard/ownership cases in `server/wrapup.test.ts`), plugin reload
+- [ ] Live move with a fixture card, prompt and settings UI check: unrun
+
+## Remove project (board, optionally Paseo) — 2026-10-15
+
+- [x] Spec: [PROJECT-REMOVE-SPEC.md](PROJECT-REMOVE-SPEC.md): one Remove entry (replaces Archive); the dialog chooses Keep in Paseo or Also remove from Paseo (native removal keeps all files; blocked while sessions run); board records backed up
+- [x] Typecheck, 197 tests, reload, live UI removal of both kinds with fixture cleanup. [Verification](verification/project-remove.md)
+
+## Desktop project tabs — 2026-10-15
+
+- [x] Spec: [PROJECT-TABS-SPEC.md](PROJECT-TABS-SPEC.md): desktop header tabs for one-click project switching; returning to the board reopens the project last viewed in this app run, a cold start opens the first
+- [x] Typecheck, tests, reload, headless web-client check of switch/leave/return/reload. [Verification](verification/project-tabs.md)
+
+## Project directory picker and linked multi-repo projects — 2026-10-15
+
+- [x] Spec: [PROJECT-PICKER-SPEC.md](PROJECT-PICKER-SPEC.md)
+- [x] In-app folder browser (daemon-side listing) and system folder dialog (Finder/Explorer/zenity/kdialog on the Paseo computer)
+- [x] "Multiple repositories" project source: new root under `plugin-data/.../projects/<name>` with one symlink per directory, registered as the native project; links editable on the project form
+- [x] Typecheck, 187 tests, plugin reload, live RPC 12/12 with full fixture cleanup. [Verification](verification/project-picker.md)
+- [ ] UI acceptance in the Paseo window and native-dialog end-to-end selection: unrun
 
 ## Single-root amendment — latest user decision
 

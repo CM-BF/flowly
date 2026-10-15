@@ -51,7 +51,7 @@ test("two concurrent state changes have one winner; stale report cannot overwrit
   const results = await Promise.allSettled([
     x.service.write(x.identity, "status", {
       ...input(a),
-      status: "in_progress",
+      status: "development",
     }),
     x.service.write(other, "status", { ...input(b), status: "blocked" }),
   ]);
@@ -96,14 +96,14 @@ test("concurrent progress and same-state reports preserve every task field", asy
   await x.store.editTask({
     id: "t",
     revision: 1,
-    status: "in_progress",
+    status: "development",
     actor: "human",
   });
   const d = await x.service.get(x.identity),
     sameBefore = (await x.store.read()).tasks[0];
   await x.service.write(x.identity, "status", {
     ...input(d),
-    status: "in_progress",
+    status: "development",
   });
   expect((await x.store.read()).tasks[0]).toEqual(sameBefore);
   expect(
@@ -322,14 +322,14 @@ test("agents only see and use the project's enabled lanes", async () => {
   await x.store.updateProject({
     id: project.id,
     revision: project.revision,
-    lanes: (["backlog", "todo", "in_progress", "in_review", "blocked", "done", "cancelled"] as const).map((status) => ({
+    lanes: (["backlog", "todo", "design", "development", "test", "in_review", "blocked", "done", "cancelled"] as const).map((status) => ({
       status,
       enabled: status !== "blocked",
       ...(status === "in_review" ? { name: "QA" } : {}),
     })),
   });
   const ctx = await x.service.get(x.identity);
-  expect(ctx.allowedStatuses).toEqual(["in_progress", "in_review"]);
+  expect(ctx.allowedStatuses).toEqual(["design", "development", "test", "in_review"]);
   expect(ctx.lanes.find((l) => l.status === "in_review")?.name).toBe("QA");
   expect(ctx.lanes.some((l) => l.status === "blocked")).toBe(false);
   await expect(
@@ -337,4 +337,16 @@ test("agents only see and use the project's enabled lanes", async () => {
   ).rejects.toMatchObject({ code: "STATUS_UNAVAILABLE" });
   await x.service.write(x.identity, "status", { ...input(ctx), status: "in_review" });
   expect((await x.store.read()).tasks[0].status).toBe("in_review");
+});
+test("the retired in_progress status is an alias: keeps the work stage, else Development", async () => {
+  const x = await setup();
+  let ctx = await x.service.get(x.identity);
+  await x.service.write(x.identity, "status", { ...input(ctx), status: "in_progress" });
+  expect((await x.store.read()).tasks[0].status).toBe("development");
+  ctx = await x.service.get(x.identity);
+  await x.service.write(x.identity, "status", { ...input(ctx), status: "test" });
+  ctx = await x.service.get(x.identity);
+  const result = await x.service.write(x.identity, "status", { ...input(ctx), status: "in_progress" });
+  expect(result.receipt.status).toBe("test");
+  expect((await x.store.read()).tasks[0].status).toBe("test");
 });

@@ -1,8 +1,8 @@
 import { useState, type ReactNode } from "react";
 import { Animated, Pressable, View } from "react-native";
 import { useMotionPresence } from "./motion";
-import { Icon, ScrollView, TextInput } from "@getpaseo/plugin/client/react-native";
-import { Label, font, radius, space, touch, useTheme, noFocusRing } from "./ui";
+import { Icon, ScrollView } from "@getpaseo/plugin/client/react-native";
+import { Label, TextBox, font, radius, space, touch, useTheme, noFocusRing } from "./ui";
 import { filterOptions, type PickerOption } from "./options";
 import { useShortcutBlock } from "./shortcuts";
 export type { PickerOption } from "./options";
@@ -124,7 +124,7 @@ export function PickerRow({
               }}
             >
               <Icon name="Search" size={14} color={colors.foregroundMuted} />
-              <TextInput
+              <TextBox
                 accessibilityLabel={`Search ${title.toLowerCase()}`}
                 value={query}
                 onChangeText={setQuery}

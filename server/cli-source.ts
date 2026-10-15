@@ -10,7 +10,7 @@ try {
     if(arg.startsWith('--')) {const key=arg.slice(2);if(!allowed.has(key)||Object.hasOwn(opts,key))fail('Unknown or duplicate flag: '+arg); const value=args[++i];if(value===undefined||value.startsWith('--'))fail('Missing value for '+arg);opts[key]=value;}
     else positional.push(arg);
   }
-  const command=positional[0];if(!['current','get','status','note'].includes(command))fail('Usage: current [--save-request path] | status <in_progress|blocked|in_review> | note, with --context-file and --request-file.');
+  const command=positional[0];if(!['current','get','status','note'].includes(command))fail('Usage: current [--save-request path] | status <design|development|test|blocked|in_review> | note, with --context-file and --request-file.');
   if(positional.length!==(command==='status'?2:1))fail('Unexpected positional arguments.');
   const path=opts['context-file']||process.env.ULTRA_KANBAN_CONTEXT_FILE;if(!path)fail('No session context. Use the command supplied by the card drawer.');
   const context=JSON.parse(await readFile(path,'utf8'));

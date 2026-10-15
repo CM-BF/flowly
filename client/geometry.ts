@@ -55,7 +55,9 @@ export function isCompactLayout(
   platform: string,
   width: number,
 ): boolean {
-  return hostCompact || platform !== "web" || (width > 0 && width < 760);
+  // Native surfaces start unmeasured; stay compact until a tablet-sized width is known.
+  if (width <= 0) return hostCompact || platform !== "web";
+  return hostCompact || width < 760;
 }
 
 export type CardBounds = { id: string; y: number; height: number };
@@ -131,4 +133,14 @@ export function listShift(index: number, from: number, to: number, size: number)
   if (from < to && index > from && index <= to) return -size;
   if (to < from && index >= to && index < from) return size;
   return 0;
+}
+
+/**
+ * How much of a view the on-screen keyboard covers: its bottom edge minus the
+ * keyboard's top edge (both in window coordinates). Zero when the host already
+ * resized the window (Android adjustResize) or moved the view out of the way.
+ */
+export function keyboardOverlap(viewBottom: number, keyboardTop: number | null): number {
+  if (keyboardTop === null) return 0;
+  return Math.max(0, Math.round(viewBottom - keyboardTop));
 }
