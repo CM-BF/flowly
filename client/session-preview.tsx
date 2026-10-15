@@ -5,6 +5,7 @@ import {
   Image,
   Platform,
   Pressable,
+  Text as NativeText,
   View,
 } from "react-native";
 import {
@@ -399,6 +400,10 @@ export function SessionPreview({
   // Native phones type in the host bottom sheet: it tracks the real IME height
   // (candidate bars, keyboard switches) which plugin-side keyboard events cannot.
   const sheetComposer = Platform.OS !== "web";
+  const fitInput = (contentHeight: number, inSheet: boolean) => {
+    const next = Math.max(36, Math.min(compact && !inSheet ? 108 : 160, Math.ceil(contentHeight)));
+    setInputHeight((current) => (current === next ? current : next));
+  };
   const renderComposer = (inSheet: boolean) => {
     if (!active) return null;
     return (
@@ -515,6 +520,20 @@ export function SessionPreview({
                 />
               </View>
             )}
+            <View style={{ flex: 1, minWidth: 0 }}>
+            {Platform.OS === "web" && (
+              // Invisible copy of the draft at the input's width and font: its height is the input's height.
+              <View pointerEvents="none" style={{ position: "absolute", left: 0, right: 0, top: 0, opacity: 0 }}>
+                <NativeText
+                  accessibilityElementsHidden
+                  importantForAccessibility="no-hide-descendants"
+                  onLayout={(e) => fitInput(e.nativeEvent.layout.height, inSheet)}
+                  style={{ paddingVertical: space[2], fontSize: font.base, lineHeight: 20 }}
+                >
+                  {draft ? (draft.endsWith("\n") ? `${draft} ` : draft) : " "}
+                </NativeText>
+              </View>
+            )}
             <TextInput
               accessibilityLabel="Follow-up instruction"
               accessibilityHint={
@@ -530,15 +549,9 @@ export function SessionPreview({
               onFocus={() => setFocused(true)}
               onBlur={() => setFocused(false)}
               onContentSizeChange={(event) => {
-                const next = Math.max(
-                  36,
-                  Math.min(
-                    compact && !inSheet ? 108 : 160,
-                    // Web reports scrollHeight (padding included); native reports text height only.
-                    Math.ceil(event.nativeEvent.contentSize.height + (Platform.OS === "web" ? 0 : 2 * space[2])),
-                  ),
-                );
-                setInputHeight((current) => current === next ? current : next);
+                // Web: the mirror below measures instead (a textarea's scrollHeight never shrinks).
+                if (Platform.OS === "web") return;
+                fitInput(event.nativeEvent.contentSize.height + 2 * space[2], inSheet);
               }}
               multiline
               autoFocus={inSheet}
@@ -568,7 +581,6 @@ export function SessionPreview({
               }
               placeholderTextColor={colors.foregroundMuted}
               style={{
-                flex: 1,
                 height: inputHeight,
                 minHeight: 36,
                 maxHeight: compact && !inSheet ? 108 : 160,
@@ -581,6 +593,7 @@ export function SessionPreview({
                 outlineStyle: "none",
               } as never}
             />
+            </View>
             {stopMode ? (
               <Pressable
                 accessibilityRole="button"

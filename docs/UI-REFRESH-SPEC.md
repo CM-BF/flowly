@@ -231,6 +231,12 @@ Verified live: collapse widths 280→141→89→48→44 and expand 44→111→18
 - Counting is `client/overview.ts` (`boardOverview`), unit-tested, including hiding lanes that are off.
 - Verified on desktop (`docs/verification/board-overview.png`).
 
+## 7v. Composer height shrinks again (2026-10-15, user report)
+
+- Bug: on web the session input grew with long text but never shrank, because a textarea's `scrollHeight` never drops below its current height. Short text then sat at the top of a tall box while the attach and send icons stayed at the bottom.
+- Fix: on web the height comes from an invisible, non-accessible copy of the draft laid out at the input's width, font and padding (pure React Native layout, no DOM). Native keeps `onContentSizeChange`. Both clamp to 36 px up to 108/160 px.
+- Verified: empty 36 px → 4 lines 96 px → one line 36 px; the text and the attach icon share the same vertical centre.
+
 ## 8. Acceptance
 
 | Check | Expected |
