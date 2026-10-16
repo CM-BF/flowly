@@ -62,7 +62,7 @@ publish: ## Publish the current version to npm, then wait until it is live
 	$(call confirm,Publish $(PKG)@$(REL) to npm?)
 	@set -e; t=$$(mktemp); trap 'rm -f "$$t"' EXIT; \
 	if [ -n "$$NPM_TOKEN" ]; then printf '//registry.npmjs.org/:_authToken=%s\n' "$$NPM_TOKEN" > "$$t"; export NPM_CONFIG_USERCONFIG="$$t"; fi; \
-	$(Q)$(RUN) npm publish --ignore-scripts $${NPM_OTP:+--otp=$$NPM_OTP}
+	$(RUN) npm publish --ignore-scripts $${NPM_OTP:+--otp=$$NPM_OTP}
 	@if [ -z "$(DRY_RUN)" ]; then $(MAKE) --no-print-directory wait-npm; fi
 
 wait-npm: ## Wait until npm shows the current version (new versions can take a few minutes)
