@@ -20,10 +20,10 @@
 ## Install
 
 ```sh
-paseo plugin add git:JasprW/flowly
+paseo plugin add jasprw/flowly
 ```
 
-Once the registry listing is approved, `paseo plugin add JasprW/flowly` works too.
+This installs the version reviewed in the [Paseo plugin registry](https://paseo.sh/plugins). To install the latest `main` straight from Git instead, use `paseo plugin add git:JasprW/flowly`.
 
 Open **Flowly** from Paseo's sidebar. The daemon needs the `paseo` CLI on its path to register a new native project.
 
