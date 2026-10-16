@@ -15,6 +15,9 @@ CUR    := $(shell node -p "require('./package.json').version")
 BRANCH := main
 # With DRY_RUN=1 outward commands are printed, not run.
 RUN    := $(if $(DRY_RUN),echo [dry-run],)
+Q      := $(if $(DRY_RUN),@,)
+# The version being released; a dry run shows the requested VERSION even though nothing is bumped.
+REL    := $(if $(DRY_RUN),$(or $(VERSION),$(CUR)),$(CUR))
 
 # $(call confirm,question)
 define confirm
@@ -52,14 +55,14 @@ tag: ## Commit the version bump and create the annotated tag for the current ver
 	git tag -a "v$(CUR)" -m "Flowly v$(CUR): the agent-native workflow for Paseo"
 
 push: ## Push main and the tag for the current version to origin
-	$(call confirm,Push $(BRANCH) and v$(CUR) to origin?)
-	$(RUN) git push origin $(BRANCH) "v$(CUR)"
+	$(call confirm,Push $(BRANCH) and v$(REL) to origin?)
+	$(Q)$(RUN) git push origin $(BRANCH) "v$(REL)"
 
 publish: ## Publish the current version to npm, then wait until it is live
-	$(call confirm,Publish $(PKG)@$(CUR) to npm?)
+	$(call confirm,Publish $(PKG)@$(REL) to npm?)
 	@set -e; t=$$(mktemp); trap 'rm -f "$$t"' EXIT; \
 	if [ -n "$$NPM_TOKEN" ]; then printf '//registry.npmjs.org/:_authToken=%s\n' "$$NPM_TOKEN" > "$$t"; export NPM_CONFIG_USERCONFIG="$$t"; fi; \
-	$(RUN) npm publish --ignore-scripts $${NPM_OTP:+--otp=$$NPM_OTP}
+	$(Q)$(RUN) npm publish --ignore-scripts $${NPM_OTP:+--otp=$$NPM_OTP}
 	@if [ -z "$(DRY_RUN)" ]; then $(MAKE) --no-print-directory wait-npm; fi
 
 wait-npm: ## Wait until npm shows the current version (new versions can take a few minutes)
@@ -70,15 +73,15 @@ wait-npm: ## Wait until npm shows the current version (new versions can take a f
 	done; echo "not visible on npm yet: check https://www.npmjs.com/package/$(PKG)"; exit 1
 
 github-release: ## Create the GitHub release for the current tag (generated notes)
-	$(call confirm,Create GitHub release v$(CUR)?)
-	$(RUN) gh release create "v$(CUR)" --verify-tag --title "Flowly v$(CUR)" --generate-notes
+	$(call confirm,Create GitHub release v$(REL)?)
+	$(Q)$(RUN) gh release create "v$(REL)" --verify-tag --title "Flowly v$(REL)" --generate-notes
 
 release: ## Full release: make release VERSION=x.y.z [DRY_RUN=1] [YES=1] [NO_GH_RELEASE=1]
 	@test -n "$(VERSION)" || { echo "usage: make release VERSION=x.y.z"; exit 1; }
 	@$(MAKE) --no-print-directory verify-clean
 	@$(MAKE) --no-print-directory check
-	@$(RUN) $(MAKE) --no-print-directory bump VERSION=$(VERSION)
-	@$(RUN) $(MAKE) --no-print-directory tag
+	@$(RUN) make bump VERSION=$(VERSION)
+	@$(RUN) make tag
 	@$(MAKE) --no-print-directory push
 	@$(MAKE) --no-print-directory publish
 	@if [ -z "$(NO_GH_RELEASE)" ]; then $(MAKE) --no-print-directory github-release; fi
