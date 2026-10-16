@@ -1,10 +1,11 @@
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { Animated, Pressable, View } from "react-native";
 import { useMotionPresence, lerp } from "./motion";
 import { Icon, ScrollView } from "@getpaseo/plugin/client/react-native";
 import { Label, TextBox, font, radius, space, touch, useTheme, noFocusRing } from "./ui";
 import { filterOptions, type PickerOption } from "./options";
 import { useShortcutBlock } from "./shortcuts";
+import { t } from "../shared/i18n";
 export type { PickerOption } from "./options";
 
 /** Grouped settings rows; each row shows its value and expands an inline option list. */
@@ -50,13 +51,7 @@ export function PickerRow({
   onChange(value: string): void;
 }) {
   const { colors } = useTheme();
-  const [query, setQuery] = useState(""),
-    [searching, setSearching] = useState(false);
-  useShortcutBlock(searching);
   const selected = options.find((o) => o.value === value);
-  const shown = filterOptions(options, query);
-  const searchable = options.length > 8;
-  const list = useMotionPresence(open ? true : undefined, open ? "list" : "");
   return (
     <View style={{ borderTopWidth: first ? 0 : 1, borderColor: colors.border }}>
       <Pressable
@@ -64,10 +59,7 @@ export function PickerRow({
         accessibilityLabel={`${title}: ${selected?.label || placeholder}`}
         accessibilityState={{ expanded: open, disabled }}
         disabled={disabled}
-        onPress={() => {
-          setQuery("");
-          onToggle();
-        }}
+        onPress={onToggle}
         style={(state) => {
           const { pressed, hovered: hover, focused } = state as typeof state & { hovered?: boolean; focused?: boolean };
         const hovered = hover || focused;
@@ -91,13 +83,43 @@ export function PickerRow({
         </View>
         <View style={{ flex: 1, minWidth: 0 }}>
           <Label medium size={font.base} lines={1} selectable={false} muted={!selected}>
-            {loading ? "Loading…" : selected?.label || placeholder}
+            {loading ? t("Loading…") : selected?.label || placeholder}
           </Label>
         </View>
         <Icon name={open ? "ChevronUp" : "ChevronDown"} size={15} color={colors.foregroundMuted} />
       </Pressable>
-      {list.item && (
-        <Animated.View
+      <OptionList open={open} title={title} options={options} value={value} onChange={onChange} />
+    </View>
+  );
+}
+
+/** Inline option list that opens under a row: animated in and out, searchable once it is long. */
+export function OptionList({
+  open,
+  title,
+  options,
+  value,
+  onChange,
+}: {
+  open: boolean;
+  title: string;
+  options: readonly PickerOption[];
+  value: string;
+  onChange(value: string): void;
+}) {
+  const { colors } = useTheme();
+  const [query, setQuery] = useState(""),
+    [searching, setSearching] = useState(false);
+  useShortcutBlock(searching);
+  useEffect(() => {
+    if (!open) setQuery("");
+  }, [open]);
+  const shown = filterOptions(options, query);
+  const searchable = options.length > 8;
+  const list = useMotionPresence(open ? true : undefined, open ? "list" : "");
+  if (!list.item) return null;
+  return (
+    <Animated.View
           pointerEvents={list.active ? "auto" : "none"}
           style={{
             opacity: list.progress,
@@ -125,12 +147,12 @@ export function PickerRow({
             >
               <Icon name="Search" size={14} color={colors.foregroundMuted} />
               <TextBox
-                accessibilityLabel={`Search ${title.toLowerCase()}`}
+                accessibilityLabel={t("Search {title}", { title })}
                 value={query}
                 onChangeText={setQuery}
                 onFocus={() => setSearching(true)}
                 onBlur={() => setSearching(false)}
-                placeholder={`Search ${title.toLowerCase()}`}
+                placeholder={t("Search {title}", { title })}
                 placeholderTextColor={colors.foregroundMuted}
                 autoCorrect={false}
                 autoCapitalize="none"
@@ -208,13 +230,11 @@ export function PickerRow({
             {!shown.length && (
               <View style={{ padding: space[3] }}>
                 <Label muted size={font.md}>
-                  {options.length ? "No matches." : "Nothing available."}
+                  {options.length ? t("No matches.") : t("Nothing available.")}
                 </Label>
               </View>
             )}
           </ScrollView>
         </Animated.View>
-      )}
-    </View>
   );
 }

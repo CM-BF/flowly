@@ -1,0 +1,21 @@
+{
+  "startedAt": "2026-10-16T01:49:40.162Z",
+  "viewport": {
+    "width": 1440,
+    "height": 900
+  },
+  "checks": {
+    "relatedReplacedByBlocks": true,
+    "secondBlockCreated": true,
+    "waitingGroup": true,
+    "cycleError": true,
+    "waitingSignalResolved": false
+  },
+  "errors": [],
+  "screenshots": [
+    "card-links-run2-waiting-on-before-desktop-light.png",
+    "card-links-run2-cycle-error-desktop-light.png",
+    "card-links-run2-was-waiting-desktop-light.png"
+  ],
+  "finishedAt": "2026-10-16T01:49:47.294Z"
+}

@@ -6,7 +6,8 @@ import { useQueryClient } from "@tanstack/react-query";
 import * as rpc from "../shared/rpc";
 import { enabledStatuses } from "../shared/lanes";
 import { isWorkStatus, type Project, type Status, type Task } from "../shared/model";
-import { addDays, waited, type Insight, type ProjectInsights, type TokenInsights } from "../shared/insights";
+import { priorityLabels } from "./status";
+import { addDays, type Insight, type ProjectInsights, type TokenInsights } from "../shared/insights";
 import type { DigestItem, DigestView } from "../shared/digest";
 import { cacheHitRate, compactDuration, compactNumber, percent, totalTokens } from "../shared/usage";
 import { modelLabel } from "../shared/summary";
@@ -16,6 +17,45 @@ import { Enter } from "./motion";
 import { localZone, useDigestQuery, useInsightsQuery, useTokensQuery } from "./queries";
 import { StatusIcon } from "./status";
 import { Button, Dot, IconButton, Label, Notice, font, message, noFocusRing, radius, relativeTime, space, touch, useTheme, verticalContent, verticalScroll } from "./ui";
+import { formatLocale, t, tn } from "../shared/i18n";
+
+const HOUR_MS = 3_600_000;
+/** "7m" / "3h" / "2d": how long something has waited. */
+function waitedLabel(ms: number) {
+  const h = ms / HOUR_MS;
+  if (h < 1) return t("{n}m", { n: Math.max(1, Math.round(ms / 60_000)) });
+  if (h < 48) return t("{n}h", { n: Math.round(h) });
+  return t("{n}d", { n: Math.round(h / 24) });
+}
+
+/** A suggestion in the user's language, from the rule and the values the daemon sent. */
+function suggestionText(item: Insight): string {
+  const a = item.args;
+  if (!a) return item.text;
+  const wait = typeof a.waitMs === "number" ? waitedLabel(a.waitMs) : "";
+  const n = Number(a.n ?? 0);
+  switch (item.rule) {
+    case "R1":
+      return tn(n, "{n} card waiting for your review (oldest {wait}). Last 7 days: {into} in, {out} out.", "{n} cards waiting for your review (oldest {wait}). Last 7 days: {into} in, {out} out.", { wait, into: Number(a.into ?? 0), out: Number(a.out ?? 0) });
+    case "R2":
+      return a.title !== undefined
+        ? t("“{title}” has had no activity for {wait}. Resume it or move it back.", { title: String(a.title), wait })
+        : t("{n} cards in work lanes have had no activity for 2+ days. Resume them or move them back.", { n });
+    case "R3":
+      return t("“{title}” went back from review {n} times. The request may need clarifying.", { title: String(a.title), n });
+    case "R4":
+      return t("“{title}” ({priority}) has waited {wait} while lower-priority cards started.", { title: String(a.title), priority: priorityLabels[a.priority as keyof typeof priorityLabels] ?? String(a.priority), wait });
+    case "R5":
+      return t("{n} cards in progress, but about {rate} finish per day. Finish some before starting more.", { n, rate: String(a.rate) });
+    case "R6":
+      return t("“{title}” had {n} failed turns in the last 24h.", { title: String(a.title), n });
+    case "R7":
+      return t("Nothing is running. Next up: {titles}.", { titles: String(a.titles) });
+    default:
+      return item.text;
+  }
+}
+
 
 /** Project Insights page (PROJECT-INSIGHTS-SPEC §9): replaces the board area while open. */
 export const InsightsPage = memo(function InsightsPage({
@@ -49,7 +89,7 @@ export const InsightsPage = memo(function InsightsPage({
   const tokens = useTokensQuery(project.id, day, active);
   // Only show tokens for the day on screen (the placeholder may hold the previous day).
   const dayTokens = tokens.data && data && tokens.data.day === data.day ? tokens.data : undefined;
-  const titleOf = (id: string) => tasks.find((t) => t.id === id)?.title || "Removed card";
+  const titleOf = (id: string) => tasks.find((t) => t.id === id)?.title || t("Removed card");
   const lanes = enabledStatuses(project);
   return (
     <View style={{ flex: 1, minHeight: 0 }}>
@@ -64,11 +104,10 @@ export const InsightsPage = memo(function InsightsPage({
           borderColor: colors.border,
         }}
       >
-        <Button quiet icon="ChevronLeft" label="Back to board (Esc)" onPress={onBack}>
-          Board
-        </Button>
+        <Button quiet icon="ChevronLeft" label={t("Back to board (Esc)")} onPress={onBack}>
+          {t("Board")}</Button>
         <View style={{ flex: 1 }} />
-        <IconButton icon="ChevronLeft" label="Previous day" onPress={() => data && setDay(addDays(data.day, -1))} disabled={!data} />
+        <IconButton icon="ChevronLeft" label={t("Previous day")} onPress={() => data && setDay(addDays(data.day, -1))} disabled={!data} />
         <View style={{ minWidth: compact ? 88 : 120, alignItems: "center" }}>
           <Label bold size={font.md} selectable={false}>
             {data ? dayLabel(data.day, data.today) : "…"}
@@ -76,14 +115,13 @@ export const InsightsPage = memo(function InsightsPage({
         </View>
         <IconButton
           icon="ChevronRight"
-          label="Next day"
+          label={t("Next day")}
           onPress={() => data && setDay(addDays(data.day, 1) >= data.today ? null : addDays(data.day, 1))}
           disabled={!data || isToday}
         />
         {!isToday && !!data && (
           <Button quiet small onPress={() => setDay(null)}>
-            Today
-          </Button>
+            {t("Today")}</Button>
         )}
       </View>
       <ScrollView
@@ -95,7 +133,7 @@ export const InsightsPage = memo(function InsightsPage({
           {insights.error && !data ? (
             <Notice>{message(insights.error)}</Notice>
           ) : !data ? (
-            <Label muted>Loading insights…</Label>
+            <Label muted>{t("Loading insights…")}</Label>
           ) : (
             <>
               <Numbers data={data} tokens={dayTokens} tokensError={tokens.error ? message(tokens.error) : ""} compact={compact} />
@@ -106,7 +144,7 @@ export const InsightsPage = memo(function InsightsPage({
               <Trend data={data} tokens={dayTokens} lanes={lanes} nameOf={nameOf} compact={compact} />
               {data.incomplete > 0 && (
                 <Label muted size={font.xs}>
-                  {data.incomplete} card{data.incomplete === 1 ? "" : "s"} started before the full history was kept, so older numbers may be low.
+                  {tn(data.incomplete, "{n} card started before the full history was kept, so older numbers may be low.", "{n} cards started before the full history was kept, so older numbers may be low.")}
                 </Label>
               )}
             </>
@@ -118,10 +156,10 @@ export const InsightsPage = memo(function InsightsPage({
 });
 
 export function dayLabel(day: string, today: string) {
-  if (day === today) return "Today";
-  if (day === addDays(today, -1)) return "Yesterday";
+  if (day === today) return t("Today");
+  if (day === addDays(today, -1)) return t("Yesterday");
   const d = new Date(`${day}T12:00:00Z`);
-  return d.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric", timeZone: "UTC" });
+  return d.toLocaleDateString(formatLocale(), { weekday: "short", month: "short", day: "numeric", timeZone: "UTC" });
 }
 
 function Section({ title, detail, trailing, children }: { title: string; detail?: string; trailing?: ReactNode; children: ReactNode }) {
@@ -161,27 +199,27 @@ function Numbers({ data, tokens, tokensError, compact }: { data: ProjectInsights
     a = data.average;
   const turns = s.turns.completed + s.turns.failed + s.turns.canceled;
   const tiles: { label: string; value: string; avg: string; hint?: string }[] = [
-    { label: "Done", value: String(s.done), avg: fmt(a.done) },
-    { label: "New", value: String(s.created), avg: fmt(a.created) },
-    { label: "Rework", value: String(s.rework), avg: fmt(a.rework) },
-    { label: "Turns", value: String(turns), avg: fmt(a.turns), hint: s.turns.failed ? `${s.turns.failed} failed` : undefined },
-    { label: "Agent time", value: s.agentMs ? compactDuration(s.agentMs) : "0", avg: a.agentMs ? compactDuration(a.agentMs) : "0", hint: s.peakSessions > 1 ? `up to ${s.peakSessions} at once` : undefined },
-    { label: "Commits", value: data.git.repos ? String(s.commits) : "—", avg: data.git.repos ? fmt(a.commits) : "", hint: s.commits ? `+${s.added} −${s.deleted}` : undefined },
+    { label: t("Done"), value: String(s.done), avg: fmt(a.done) },
+    { label: t("New"), value: String(s.created), avg: fmt(a.created) },
+    { label: t("Rework"), value: String(s.rework), avg: fmt(a.rework) },
+    { label: t("Turns"), value: String(turns), avg: fmt(a.turns), hint: s.turns.failed ? t("{n} failed", { n: s.turns.failed }) : undefined },
+    { label: t("Agent time"), value: s.agentMs ? compactDuration(s.agentMs) : "0", avg: a.agentMs ? compactDuration(a.agentMs) : "0", hint: s.peakSessions > 1 ? t("up to {peakSessions} at once", { peakSessions: s.peakSessions }) : undefined },
+    { label: t("Commits"), value: data.git.repos ? String(s.commits) : "—", avg: data.git.repos ? fmt(a.commits) : "", hint: s.commits ? `+${s.added} −${s.deleted}` : undefined },
     tokens
       ? {
-          label: "Tokens",
+          label: t("Tokens"),
           value: compactNumber(totalTokens(tokens.tokens)),
           avg: compactNumber(tokens.average),
-          hint: cacheHitRate(tokens.tokens) !== null ? `${percent(cacheHitRate(tokens.tokens)!)} cached` : undefined,
+          hint: cacheHitRate(tokens.tokens) !== null ? t("{rate} cached", { rate: percent(cacheHitRate(tokens.tokens)!) }) : undefined,
         }
-      : { label: "Tokens", value: tokensError ? "—" : "…", avg: "", hint: tokensError ? "Unavailable" : "Reading logs" },
+      : { label: t("Tokens"), value: tokensError ? "—" : "…", avg: "", hint: tokensError ? t("Unavailable") : t("Reading logs") },
   ];
   return (
     <View style={{ flexDirection: "row", flexWrap: "wrap", gap: space[2] }}>
-      {tiles.map((t) => (
+      {tiles.map((tile) => (
         <View
-          key={t.label}
-          accessibilityLabel={`${t.label}: ${t.value}${t.avg ? `, 7-day average ${t.avg}` : ""}`}
+          key={tile.label}
+          accessibilityLabel={tile.avg ? t("{label}: {value}, 7-day average {avg}", { label: tile.label, value: tile.value, avg: tile.avg }) : `${tile.label}: ${tile.value}`}
           style={{
             flexGrow: 1,
             flexBasis: compact ? "30%" : "13%",
@@ -195,13 +233,13 @@ function Numbers({ data, tokens, tokensError, compact }: { data: ProjectInsights
           }}
         >
           <Label muted size={font.xs} selectable={false}>
-            {t.label}
+            {tile.label}
           </Label>
           <Label bold size={font.xl} selectable={false}>
-            {t.value}
+            {tile.value}
           </Label>
           <Label muted size={font.xs} lines={1} selectable={false}>
-            {[t.hint, t.avg ? `avg ${t.avg}/day` : ""].filter(Boolean).join(" · ") || " "}
+            {[tile.hint, tile.avg ? t("avg {avg}/day", { avg: tile.avg }) : ""].filter(Boolean).join(" · ") || " "}
           </Label>
         </View>
       ))}
@@ -225,14 +263,14 @@ function Waiting({
   onOpenTask(id: string): void;
 }) {
   const rows: WaitingRowData[] = [
-    ...attention.filter((i) => i.permissions).map((i) => ({ key: `p${i.task.id}`, taskId: i.task.id, kind: "Permission", tone: "warning" as const, since: i.updatedAt })),
-    ...attention.filter((i) => i.questions).map((i) => ({ key: `q${i.task.id}`, taskId: i.task.id, kind: "Question", tone: "warning" as const, since: i.updatedAt })),
-    ...attention.filter((i) => i.errors).map((i) => ({ key: `e${i.task.id}`, taskId: i.task.id, kind: "Error", tone: "danger" as const, since: i.updatedAt })),
+    ...attention.filter((i) => i.permissions).map((i) => ({ key: `p${i.task.id}`, taskId: i.task.id, kind: t("Permission"), tone: "warning" as const, since: i.updatedAt })),
+    ...attention.filter((i) => i.questions).map((i) => ({ key: `q${i.task.id}`, taskId: i.task.id, kind: t("Question"), tone: "warning" as const, since: i.updatedAt })),
+    ...attention.filter((i) => i.errors).map((i) => ({ key: `e${i.task.id}`, taskId: i.task.id, kind: t("Error"), tone: "danger" as const, since: i.updatedAt })),
     ...data.review.map((r) => ({ key: `r${r.taskId}`, taskId: r.taskId, kind: nameOf("in_review"), tone: "info" as const, status: "in_review" as Status, since: r.since })),
     ...data.blocked.map((r) => ({ key: `b${r.taskId}`, taskId: r.taskId, kind: nameOf("blocked"), tone: "muted" as const, status: "blocked" as Status, since: r.since })),
   ];
   return (
-    <Section title="Waiting on you" detail={rows.length ? String(rows.length) : undefined}>
+    <Section title={t("Waiting on you")} detail={rows.length ? String(rows.length) : undefined}>
       {rows.length ? (
         <Panel>
           {rows.map((row, i) => (
@@ -241,8 +279,7 @@ function Waiting({
         </Panel>
       ) : (
         <Label muted size={font.sm}>
-          Nothing is waiting on you.
-        </Label>
+          {t("Nothing is waiting on you.")}</Label>
       )}
     </Section>
   );
@@ -252,11 +289,11 @@ function WaitingRow({ row, first, title, onOpenTask }: { row: WaitingRowData; fi
   const { colors } = useTheme();
   const color =
     row.tone === "warning" ? colors.statusWarning : row.tone === "danger" ? colors.statusDanger : row.tone === "info" ? colors.accent : colors.foregroundMuted;
-  const age = waited(Math.max(0, Date.now() - Date.parse(row.since)));
+  const age = waitedLabel(Math.max(0, Date.now() - Date.parse(row.since)));
   return (
     <Pressable
       accessibilityRole="button"
-      accessibilityLabel={`${row.kind}: ${title}, waiting ${age}. Open card`}
+      accessibilityLabel={t("{kind}: {title}, waiting {age}. Open card", { kind: row.kind, title, age })}
       onPress={() => onOpenTask(row.taskId)}
       style={(state) => {
         const { hovered, pressed } = state as typeof state & { hovered?: boolean };
@@ -295,14 +332,13 @@ function Suggestions({ insights, titleOf, onOpenTask }: { insights: readonly Ins
   const { colors } = useTheme();
   if (!insights.length)
     return (
-      <Section title="Suggestions">
+      <Section title={t("Suggestions")}>
         <Label muted size={font.sm}>
-          No suggestions right now.
-        </Label>
+          {t("No suggestions right now.")}</Label>
       </Section>
     );
   return (
-    <Section title="Suggestions">
+    <Section title={t("Suggestions")}>
       <View style={{ gap: space[2] }}>
         {insights.map((item, index) => (
           <View
@@ -321,7 +357,7 @@ function Suggestions({ insights, titleOf, onOpenTask }: { insights: readonly Ins
               <Icon name={item.severity === "warning" ? "TriangleAlert" : "Lightbulb"} size={15} color={item.severity === "warning" ? colors.statusWarning : colors.foregroundMuted} />
             </View>
             <View style={{ flex: 1, minWidth: 0, gap: space[1.5] }}>
-              <Label size={font.md}>{item.text}</Label>
+              <Label size={font.md}>{suggestionText(item)}</Label>
               {item.taskIds.length > 1 && (
                 <View style={{ flexDirection: "row", flexWrap: "wrap", gap: space[1] }}>
                   {item.taskIds.slice(0, 6).map((id) => (
@@ -335,7 +371,7 @@ function Suggestions({ insights, titleOf, onOpenTask }: { insights: readonly Ins
                 </View>
               )}
             </View>
-            {item.taskIds.length === 1 && <Button quiet small icon="ArrowUpRight" label={`Open ${titleOf(item.taskIds[0])}`} onPress={() => onOpenTask(item.taskIds[0])}>Open</Button>}
+            {item.taskIds.length === 1 && <Button quiet small icon="ArrowUpRight" label={t("Open {title}", { title: titleOf(item.taskIds[0]) })} onPress={() => onOpenTask(item.taskIds[0])}>{t("Open")}</Button>}
           </View>
         ))}
       </View>
@@ -348,7 +384,7 @@ function TaskChip({ title, onPress }: { title: string; onPress(): void }) {
   return (
     <Pressable
       accessibilityRole="button"
-      accessibilityLabel={`Open ${title}`}
+      accessibilityLabel={t("Open {title}", { title })}
       onPress={onPress}
       hitSlop={touch ? 6 : 0}
       style={(state) => {
@@ -406,31 +442,30 @@ function Digest({
   const entry = view?.entry;
   const groups: { title: string; items: DigestItem[] }[] = entry
     ? [
-        { title: "Done", items: entry.done },
-        { title: "Progressed", items: entry.progressed },
-        { title: "Issues", items: entry.issues },
-        { title: "Next", items: entry.next },
+        { title: t("Done"), items: entry.done },
+        { title: t("Progressed"), items: entry.progressed },
+        { title: t("Issues"), items: entry.issues },
+        { title: t("Next"), items: entry.next },
       ].filter((g) => g.items.length)
     : [];
   return (
     <Section
-      title="Summary"
+      title={t("Summary")}
       trailing={
         view && !view.empty ? (
-          <Button quiet small icon="RefreshCw" disabled={running} label="Regenerate the summary" onPress={() => void run()}>
-            {running ? "Generating…" : entry ? "Refresh" : "Generate"}
+          <Button quiet small icon="RefreshCw" disabled={running} label={t("Regenerate the summary")} onPress={() => void run()}>
+            {running ? t("Generating…") : entry ? t("Refresh") : t("Generate")}
           </Button>
         ) : null
       }
     >
       {!view ? (
         <Label muted size={font.sm}>
-          {error ? message(error) : "Loading…"}
+          {error ? message(error) : t("Loading…")}
         </Label>
       ) : view.empty ? (
         <Label muted size={font.sm}>
-          No activity on this day.
-        </Label>
+          {t("No activity on this day.")}</Label>
       ) : entry ? (
         <Panel>
           <View style={{ padding: space[3], gap: space[3] }}>
@@ -448,26 +483,25 @@ function Digest({
               </View>
             ))}
             <Label muted size={font.xs} selectable={false}>
-              Updated {relativeTime(entry.at)} · {modelLabel(entry.model)}
+              {t("Updated {time}", { time: relativeTime(entry.at) })} · {modelLabel(entry.model)}
             </Label>
           </View>
         </Panel>
       ) : running ? (
         <Label muted size={font.sm}>
-          Writing the summary…
-        </Label>
+          {t("Writing the summary…")}</Label>
       ) : (
         <Label muted size={font.sm}>
           {isToday
-            ? "Generate a summary of today so far."
+            ? t("Generate a summary of today so far.")
             : view.enabled
-              ? "No summary for this day yet."
-              : "Daily digest is off in settings. Generate one here."}
+              ? t("No summary for this day yet.")
+              : t("Daily digest is off in settings. Generate one here.")}
         </Label>
       )}
       {!!(failed || (view?.error && !running)) && (
         <Label muted size={font.sm}>
-          {failed || `Last attempt failed: ${view?.error?.message}`}
+          {failed || t("Last attempt failed: {message}", { message: view?.error?.message ?? "" })}
         </Label>
       )}
     </Section>
@@ -484,7 +518,7 @@ function DigestLine({ item, title, onOpenTask }: { item: DigestItem; title: stri
       <View style={{ flex: 1, minWidth: 0, flexDirection: "row", flexWrap: "wrap", alignItems: "center", columnGap: space[1.5] }}>
         <Label size={font.md}>{item.text}</Label>
         {!!item.taskId && (
-          <Pressable accessibilityRole="link" accessibilityLabel={`Open ${title}`} onPress={() => onOpenTask(item.taskId!)} hitSlop={touch ? 6 : 0} style={noFocusRing}>
+          <Pressable accessibilityRole="link" accessibilityLabel={t("Open {title}", { title })} onPress={() => onOpenTask(item.taskId!)} hitSlop={touch ? 6 : 0} style={noFocusRing}>
             <Label size={font.sm} color={colors.accent} lines={1} selectable={false}>
               {title.length > 40 ? title.slice(0, 39) + "…" : title}
             </Label>
@@ -498,25 +532,25 @@ function DigestLine({ item, title, onOpenTask }: { item: DigestItem; title: stri
 function TokenUse({ tokens, titleOf, onOpenTask }: { tokens: TokenInsights | undefined; titleOf(id: string): string; onOpenTask(id: string): void }) {
   const { colors } = useTheme();
   if (!tokens) return null;
-  const t = tokens.tokens;
+  const usage = tokens.tokens;
   return (
-    <Section title="Token use" detail={compactNumber(totalTokens(t))}>
+    <Section title={t("Token use")} detail={compactNumber(totalTokens(usage))}>
       <Panel>
         <View style={{ padding: space[3], gap: space[2] }}>
           <View style={{ flexDirection: "row", flexWrap: "wrap", columnGap: space[4], rowGap: space[1] }}>
             {[
-              ["Input", t.input],
-              ["Cache read", t.cacheRead],
-              ["Cache write", t.cacheWrite],
-              ["Output", t.output],
+              [t("Input"), usage.input],
+              [t("Cache read"), usage.cacheRead],
+              [t("Cache write"), usage.cacheWrite],
+              [t("Output"), usage.output],
             ].map(([label, value]) => (
               <Label key={label} muted size={font.sm} selectable={false}>
                 {label} <Label size={font.sm}>{compactNumber(value as number)}</Label>
               </Label>
             ))}
-            {cacheHitRate(t) !== null && (
+            {cacheHitRate(usage) !== null && (
               <Label muted size={font.sm} selectable={false}>
-                Cached <Label size={font.sm}>{percent(cacheHitRate(t)!)}</Label>
+                {t("Cached")}{" "}<Label size={font.sm}>{percent(cacheHitRate(usage)!)}</Label>
               </Label>
             )}
           </View>
@@ -524,7 +558,7 @@ function TokenUse({ tokens, titleOf, onOpenTask }: { tokens: TokenInsights | und
             <Pressable
               key={row.taskId}
               accessibilityRole="button"
-              accessibilityLabel={`${titleOf(row.taskId)}: ${compactNumber(totalTokens(row.tokens))} tokens. Open card`}
+              accessibilityLabel={t("{title}: {n} tokens. Open card", { title: titleOf(row.taskId), n: compactNumber(totalTokens(row.tokens)) })}
               onPress={() => onOpenTask(row.taskId)}
               style={(state) => {
                 const { hovered, pressed } = state as typeof state & { hovered?: boolean };
@@ -547,7 +581,7 @@ function TokenUse({ tokens, titleOf, onOpenTask }: { tokens: TokenInsights | und
               </View>
               {cacheHitRate(row.tokens) !== null && (
                 <Label muted size={font.sm} selectable={false}>
-                  {percent(cacheHitRate(row.tokens)!)} cached
+                  {t("{rate} cached", { rate: percent(cacheHitRate(row.tokens)!) })}
                 </Label>
               )}
               <View style={{ minWidth: 52, alignItems: "flex-end" }}>
@@ -559,12 +593,11 @@ function TokenUse({ tokens, titleOf, onOpenTask }: { tokens: TokenInsights | und
           ))}
           {!tokens.tasks.length && (
             <Label muted size={font.sm}>
-              No tokens recorded on this day.
-            </Label>
+              {t("No tokens recorded on this day.")}</Label>
           )}
           <Label muted size={font.xs} selectable={false}>
-            From local Claude Code / Codex logs; tokens only, progress summaries included.
-            {tokens.missing ? ` ${tokens.missing} of ${tokens.sessions} sessions have no local log.` : ""}
+            {t("From local Claude Code / Codex logs; tokens only, progress summaries included.")}
+            {tokens.missing ? ` ${t("{missing} of {sessions} sessions have no local log.", { missing: tokens.missing, sessions: tokens.sessions })}` : ""}
           </Label>
         </View>
       </Panel>
@@ -580,25 +613,24 @@ function Trend({ data, tokens, lanes, nameOf, compact }: { data: ProjectInsights
   const dwell = lanes.filter((s) => data.dwell[s] !== undefined && s !== "done" && s !== "cancelled");
   const barHeight = 72;
   return (
-    <Disclosure title="Last 7 days" summary={`${total} done`} open={open} onChange={setOpen}>
+    <Disclosure title={t("Last 7 days")} summary={t("{n} done", { n: total })} open={open} onChange={setOpen}>
       <View style={{ gap: space[4], paddingTop: space[1] }}>
         <View style={{ gap: space[2] }}>
           <View style={{ flexDirection: "row", gap: space[3] }}>
-            <Legend color={colors.foregroundMuted} label="New" />
-            <Legend color={colors.accent} label="Done" />
+            <Legend color={colors.foregroundMuted} label={t("New")} />
+            <Legend color={colors.accent} label={t("Done")} />
             <Label muted size={font.xs} selectable={false}>
-              In progress at end of day below
-            </Label>
+              {t("In progress at end of day below")}</Label>
           </View>
           <View style={{ flexDirection: "row", alignItems: "flex-end", gap: space[2] }}>
             {data.trend.map((d) => (
-              <View key={d.day} accessibilityLabel={`${d.day}: ${d.created} new, ${d.done} done, ${d.work} in progress`} style={{ flex: 1, alignItems: "center", gap: space[1] }}>
+              <View key={d.day} accessibilityLabel={t("{day}: {created} new, {done} done, {work} in progress", { day: d.day, created: d.created, done: d.done, work: d.work })} style={{ flex: 1, alignItems: "center", gap: space[1] }}>
                 <View style={{ height: barHeight, flexDirection: "row", alignItems: "flex-end", gap: 3 }}>
                   <Bar value={d.created} max={max} height={barHeight} color={colors.foregroundMuted} />
                   <Bar value={d.done} max={max} height={barHeight} color={colors.accent} />
                 </View>
                 <Label muted size={font.xs} selectable={false}>
-                  {d.day === data.today ? "Today" : new Date(`${d.day}T12:00:00Z`).toLocaleDateString(undefined, { weekday: "short", timeZone: "UTC" })}
+                  {d.day === data.today ? t("Today") : new Date(`${d.day}T12:00:00Z`).toLocaleDateString(formatLocale(), { weekday: "short", timeZone: "UTC" })}
                 </Label>
                 <Label size={font.xs} selectable={false}>
                   {d.work}
@@ -610,11 +642,10 @@ function Trend({ data, tokens, lanes, nameOf, compact }: { data: ProjectInsights
         {!!tokens && (
           <View style={{ gap: space[2] }}>
             <Label muted size={font.xs} selectable={false}>
-              Tokens per day
-            </Label>
+              {t("Tokens per day")}</Label>
             <View style={{ flexDirection: "row", alignItems: "flex-end", gap: space[2] }}>
               {tokens.trend.map((d) => (
-                <View key={d.day} accessibilityLabel={`${d.day}: ${compactNumber(d.total)} tokens`} style={{ flex: 1, alignItems: "center", gap: space[1] }}>
+                <View key={d.day} accessibilityLabel={t("{day}: {n} tokens", { day: d.day, n: compactNumber(d.total) })} style={{ flex: 1, alignItems: "center", gap: space[1] }}>
                   <View style={{ height: 48, justifyContent: "flex-end" }}>
                     <Bar value={d.total} max={Math.max(1, ...tokens.trend.map((x) => x.total))} height={48} color={colors.statusSuccess} />
                   </View>
@@ -629,8 +660,7 @@ function Trend({ data, tokens, lanes, nameOf, compact }: { data: ProjectInsights
         {dwell.length > 0 && (
           <View style={{ gap: space[1] }}>
             <Label muted size={font.xs} selectable={false}>
-              Median time in each lane (cards that left it in these 7 days)
-            </Label>
+              {t("Median time in each lane (cards that left it in these 7 days)")}</Label>
             {dwell.map((s) => (
               <View key={s} style={{ flexDirection: "row", alignItems: "center", gap: space[2], minHeight: 22 }}>
                 <StatusIcon status={s} size={13} />
@@ -640,7 +670,7 @@ function Trend({ data, tokens, lanes, nameOf, compact }: { data: ProjectInsights
                   </Label>
                 </View>
                 <Label size={font.sm} color={isWorkStatus(s) || s === "in_review" ? undefined : colors.foregroundMuted} selectable={false}>
-                  {waited(data.dwell[s])}
+                  {waitedLabel(data.dwell[s])}
                 </Label>
               </View>
             ))}
@@ -649,8 +679,7 @@ function Trend({ data, tokens, lanes, nameOf, compact }: { data: ProjectInsights
         {(data.git.topFiles.length > 0 || data.git.error) && (
           <View style={{ gap: space[1] }}>
             <Label muted size={font.xs} selectable={false}>
-              Most changed files
-            </Label>
+              {t("Most changed files")}</Label>
             {data.git.topFiles.map((f) => (
               <View key={f.path} style={{ flexDirection: "row", gap: space[2], minHeight: 20 }}>
                 <View style={{ flex: 1, minWidth: 0 }}>
@@ -659,13 +688,13 @@ function Trend({ data, tokens, lanes, nameOf, compact }: { data: ProjectInsights
                   </Label>
                 </View>
                 <Label muted size={font.sm} selectable={false}>
-                  {f.commits} commit{f.commits === 1 ? "" : "s"}
+                  {tn(f.commits, "{n} commit", "{n} commits")}
                 </Label>
               </View>
             ))}
             {!!data.git.error && (
               <Label muted size={font.xs}>
-                Git: {data.git.error}
+                {t("Git: {error}", { error: data.git.error })}
               </Label>
             )}
           </View>

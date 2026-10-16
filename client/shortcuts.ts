@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import type { PluginScreenParams } from "@getpaseo/plugin/client";
 import type { Status, Task } from "../shared/model";
+import { t, msg } from "../shared/i18n";
 
 /** Board-scoped desktop shortcuts. See docs/SHORTCUTS-SPEC.md. */
 export type ShortcutAction =
@@ -9,6 +10,7 @@ export type ShortcutAction =
   | "filters"
   | "attention"
   | "shortcuts"
+  | "welcome"
   | "escape"
   | "next"
   | "previous"
@@ -17,11 +19,12 @@ export type ShortcutAction =
   | "move-left"
   | "move-right"
   | "edit"
-  | "insights";
+  | "insights"
+  | "ideas";
 
 export type BoardIntent = Extract<
   ShortcutAction,
-  "new-task" | "projects" | "filters" | "attention" | "shortcuts"
+  "new-task" | "projects" | "filters" | "attention" | "shortcuts" | "welcome"
 >;
 
 export const shortcutHelp: readonly { keys: string[]; title: string }[] = [
@@ -30,11 +33,12 @@ export const shortcutHelp: readonly { keys: string[]; title: string }[] = [
   { keys: ["/", "F"], title: "Search and filter" },
   { keys: ["A"], title: "Needs attention" },
   { keys: ["I"], title: "Project insights" },
+  { keys: ["B"], title: "Project ideas" },
   { keys: ["J", "K"], title: "Next / previous card in column" },
   { keys: ["H", "L"], title: "Card in left / right column" },
   { keys: ["⇧H", "⇧L"], title: "Move the open card to the left / right column" },
   { keys: ["E"], title: "Edit the open card" },
-  { keys: ["Esc"], title: "Back from session, then close sidebar, then leave Insights" },
+  { keys: ["Esc"], title: "Back from session, then close sidebar, then leave Insights or Ideas" },
   { keys: ["?"], title: "Show keyboard shortcuts" },
 ];
 
@@ -49,6 +53,7 @@ const letters: Record<string, ShortcutAction> = {
   l: "right",
   e: "edit",
   i: "insights",
+  b: "ideas",
 };
 
 export interface ShortcutKey {
@@ -121,6 +126,7 @@ const intents: readonly BoardIntent[] = [
   "filters",
   "attention",
   "shortcuts",
+  "welcome",
 ];
 export const intentMaxAgeMs = 5_000;
 

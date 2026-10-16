@@ -1,0 +1,29 @@
+{
+  "startedAt": "2026-10-16T02:11:14.724Z",
+  "checks": {
+    "allThreeOpen": true,
+    "fromLines": true,
+    "segments": true,
+    "searchIdea": false,
+    "searchCardTitle": true,
+    "emptyState": false,
+    "filterHere": true,
+    "filterNew": true,
+    "finishedFilter": {
+      "empty": true,
+      "clear": true
+    },
+    "groupByCard": true,
+    "sortPriority": true,
+    "sortCard": true,
+    "notNowHides": true
+  },
+  "consoleErrors": [],
+  "pageErrors": [],
+  "screenshots": [
+    "ideas-page-ideas-desktop-light.png",
+    "ideas-page-ideas-priority-sort-desktop-light.png"
+  ],
+  "fatal": "TimeoutError: locator.click: Timeout 12000ms exceeded.\nCall log:\n\u001b[2m  - waiting for getByRole('button', { name: 'Dismissed 1', exact: true })\u001b[22m\n",
+  "tail": "able to check it on a real phone, so please try it on yours. Cause: on the phone, each group of characters the keyboard committed was sent up to the card's side p…\n21h ago\nHigh\n1\ntask增加多种类型\n顺序已调整，测试通过，In review 待界面验收\nHigh\nFeature\nWorkspace unavailable\n工作流拆分\n返工进 Development 的规则已改，待实测验证\nHigh\nFeature\nWorkspace unavailable\n项目管理能力\nToken 统计已提交，待 reload 后页面验收\nHigh\nFeature\nWorkspace unavailable\n增加彻底删除卡片\n删除功能与 lane 勾选布局已完成，待 UI 验收\nFeature\nWorkspace unavailable\n自动流转作为设置项提供，默认打开\n已完成并进入评审，待用户验收；界面开关未实测，尚未提交\nFeature\nWorkspace unavailable\n优化project系统\n好，写入限制这块就先到这，公共目录只读也没做，设计文档留着备查。卡片已移到 In review，要不要移到 Done 由你决定。 这张卡上交付的三个功能都已重新加载，可以直接用，但都还没提交： 新建 project 时选目录（应用内浏览 / Finder），以及多 repo project（软链接方式）； PC 端的 project tab，回到看板时打开上次看的 project，冷启动打开第一个； 统一的移除 project：只从看板移除，或同时从 Paseo 移除（磁盘…\n19h ago\n1\n任务进展summary\n卡片单行摘要与右下角Show more已完成，等你在app确认\nWorkspace unavailable\n修复lane收起展开按钮\n修复已完成并通过检查，等待用户在桌面窗口确认悬停效果\nWorkspace unavailable\nunarchive体验优化\n方案A已实现workspace与session恢复，待你验收\nWorkspace unavailable\n1\nCancelled"
+}

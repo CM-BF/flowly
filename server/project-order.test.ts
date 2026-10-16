@@ -64,3 +64,17 @@ test("project lanes: turning a lane off needs it empty; disabled lanes reject ca
   await expect(store.editTask({ id: "t1", revision: 2, status: "blocked", actor: "human" })).rejects.toThrow(/Blocked is not a lane/);
   await expect(store.placeTask({ id: "t1", revision: 2, status: "backlog", beforeId: null, afterId: null })).rejects.toThrow(/Backlog is not a lane/);
 });
+
+test("a project's default model is set, replaced and cleared with the revision check", async () => {
+  const store = await setup();
+  const rev = async () => (await store.read()).projects.find((p) => p.id === "a")!.revision;
+  const saved = await store.updateProject({ id: "a", revision: await rev(), agentModel: { provider: "claude", model: "claude-sonnet-5-5", thinking: "high" } });
+  expect(saved.agentModel).toEqual({ provider: "claude", model: "claude-sonnet-5-5", thinking: "high" });
+  const replaced = await store.updateProject({ id: "a", revision: saved.revision, agentModel: { provider: "codex", model: "gpt-6-luna" } });
+  expect(replaced.agentModel).toEqual({ provider: "codex", model: "gpt-6-luna" });
+  await expect(store.updateProject({ id: "a", revision: saved.revision, agentModel: null })).rejects.toThrow(/Revision conflict/);
+  const cleared = await store.updateProject({ id: "a", revision: replaced.revision, agentModel: null });
+  expect("agentModel" in cleared).toBe(false);
+  const untouched = await store.updateProject({ id: "a", revision: cleared.revision, title: "renamed" });
+  expect(untouched.agentModel).toBeUndefined();
+});

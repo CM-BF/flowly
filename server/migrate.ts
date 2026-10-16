@@ -6,6 +6,7 @@ import {
   v3BoardSchema,
   type Board,
 } from "../shared/model";
+import { originLinks } from "../shared/links";
 
 type Loose = Record<string, unknown>;
 const isObject = (v: unknown): v is Loose => typeof v === "object" && v !== null && !Array.isArray(v);
@@ -40,6 +41,13 @@ export function splitInProgress(raw: Loose): Loose {
 
 /** Parses stored board data of any known version into the current (v4) shape. */
 export function upgradeBoard(raw: unknown): Board {
+  const board = parseBoard(raw);
+  // Files written before card links: the idea origins become derived links, once (CARD-LINKS-SPEC §2.2).
+  if (!isObject(raw) || !Array.isArray(raw.links)) board.links = originLinks(board.tasks);
+  return board;
+}
+
+function parseBoard(raw: unknown): Board {
   if (!isObject(raw) || raw.version === 4) return storageSchema.parse(raw);
   const split = splitInProgress(raw);
   if (raw.version === 1) {

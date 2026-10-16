@@ -1,0 +1,14 @@
+{
+  "startedAt": "2026-10-16T02:20:44.104Z",
+  "checks": {
+    "finishedCardMenu": true,
+    "startAgentOff": true,
+    "formPrefill": true,
+    "formCreated": true,
+    "accepted": true
+  },
+  "screenshots": [
+    "ideas-page-create-from-finished-card-desktop-light.png",
+    "ideas-page-accepted-desktop-light.png"
+  ]
+}

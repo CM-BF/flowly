@@ -3,6 +3,7 @@ import type {
   PaseoApi,
   PaseoWorkspaceAgentCreateOptions,
 } from "@getpaseo/client";
+import { t } from "../shared/i18n";
 
 // A failed transport response can hide a successfully created session.
 export async function createPreparedSession(
@@ -15,7 +16,7 @@ export async function createPreparedSession(
     if (!found?.agent) return null;
     if (found.agent.workspaceId !== workspaceId || found.agent.archivedAt)
       throw new Error(
-        "Prepared session belongs to another workspace or is archived.",
+        t("Prepared session belongs to another workspace or is archived."),
       );
     return found.agent;
   };
@@ -27,7 +28,7 @@ export async function createPreparedSession(
       .agents.create(options);
     if (created.id !== options.agentId)
       throw new Error(
-        "Paseo returned a different session ID; inspect the workspace before retrying.",
+        t("Paseo returned a different session ID; inspect the workspace before retrying."),
       );
     return { id: created.id, recovered: false };
   } catch (error) {
@@ -48,12 +49,12 @@ export async function workspaceSession(
   const agent = result?.agent;
   if (!agent || agent.workspaceId !== workspaceId)
     throw new Error(
-      "Session is unavailable or belongs to a different workspace.",
+      t("Session is unavailable or belongs to a different workspace."),
     );
   if (writable === true && agent.archivedAt)
-    throw new Error("This session is archived.");
+    throw new Error(t("This session is archived."));
   if (writable && agent.providerUnavailable)
-    throw new Error("This session's provider is unavailable.");
+    throw new Error(t("This session's provider is unavailable."));
   return agent;
 }
 

@@ -56,6 +56,7 @@ import { newMessageId, rememberSentImages, sentImages } from "./sent-images";
 import { eventPoint, menuHandlers, useMenuOpener, type MenuEntry } from "./context-menu";
 import { useBoardView } from "./board-view";
 import { ComposerChips, useSessionConfig, type ChipMenuId } from "./session-settings";
+import { RenameSession } from "./session-rename";
 import {
   activitySummary,
   groupTranscript,
@@ -72,6 +73,7 @@ import { sessionAttention } from "../shared/session-attention";
 import { Enter, MotionReveal, PulseDot, motionDuration, useMotionPresence, useMotionValue, useReducedMotion, useSettled, lerp } from "./motion";
 import { useKeyboardInset } from "./keyboard";
 import { composerEnterAction, createDraftBuffer, createDraftReporter, restoredDraft, type ComposerKey } from "./session-input";
+import { t, tn } from "../shared/i18n";
 
 /** Composer text area: vertical padding and the one-line height (20 px line). */
 const inputPad = 4;
@@ -174,6 +176,7 @@ export function SessionPreview({
     [inputHeight, setInputHeight] = useState(inputMin),
     [focused, setFocused] = useState(false),
     [confirmArchive, setConfirmArchive] = useState(false),
+    [renaming, setRenaming] = useState(false),
     [chipMenu, setChipMenu] = useState<ChipMenuId | null>(null),
     [modePicker, setModePicker] = useState(false);
   useShortcutBlock(focused);
@@ -362,20 +365,20 @@ export function SessionPreview({
       attention?.unread
         ? {
             id: "read",
-            label: "Mark as read",
+            label: t("Mark as read"),
             icon: "MailCheck",
             disabled: !canWrite || reads.query.isPending || reads.query.isError,
             onPress: () =>
               void perform(async () => {
                 holdUnread.current = false;
                 await reads.markRead({ taskId: task.id, agentId: sessionId, ...(attention.token ? { token: attention.token } : {}) });
-                toast.show("Marked as read", { variant: "success" });
+                toast.show(t("Marked as read"), { variant: "success" });
                 await current.refetch();
               }),
           }
         : {
             id: "unread",
-            label: "Mark as unread",
+            label: t("Mark as unread"),
             icon: "Mail",
             disabled: !canWrite || reads.query.isPending || reads.query.isError || !!active.archivedAt,
             onPress: () =>
@@ -383,19 +386,22 @@ export function SessionPreview({
                 // Stay unread while this view is open; opening it again reads it.
                 holdUnread.current = true;
                 await reads.markUnread({ taskId: task.id, agentId: sessionId });
-                toast.show("Marked as unread", { variant: "success" });
+                toast.show(t("Marked as unread"), { variant: "success" });
               }),
           },
-      { id: "tools", label: showTools ? "Hide Kanban tools" : "Kanban tools", icon: "Wrench", onPress: () => setShowTools(!showTools) },
+      ...(!active.archivedAt
+        ? [{ id: "rename", label: t("Rename session"), icon: "Pencil", disabled: !canWrite || busy, onPress: () => setRenaming(true) }]
+        : []),
+      { id: "tools", label: showTools ? t("Hide Kanban tools") : t("Kanban tools"), icon: "Wrench", onPress: () => setShowTools(!showTools) },
       ...(runningNow
-        ? [{ id: "stop", label: "Stop", icon: "Square", onPress: () => void config.apply({ stop: true }, "Session stopped") }]
+        ? [{ id: "stop", label: t("Stop"), icon: "Square", onPress: () => void config.apply({ stop: true }, t("Session stopped")) }]
         : []),
       ...(!active.archivedAt
         ? [
             { kind: "separator" as const, id: "s" },
             {
               id: "archive",
-              label: "Archive session",
+              label: t("Archive session"),
               icon: "Archive",
               danger: true,
               disabled: !visible || busy,
@@ -414,7 +420,7 @@ export function SessionPreview({
       archived = true;
     });
     if (archived && mounted.current) {
-      toast.show("Session archived. Send it a message later to restore it.", { variant: "success" });
+      toast.show(t("Session archived. Send it a message later to restore it."), { variant: "success" });
       onBack();
     }
   }
@@ -483,25 +489,25 @@ export function SessionPreview({
     return (
       <>
           {!!queueEntry?.lastError && (
-            <Notice>Queued message not sent: {queueEntry.lastError}</Notice>
+            <Notice>{t("Queued message not sent: {error}", { error: queueEntry.lastError })}</Notice>
           )}
           {queued.length > 0 && (
             <View style={{ gap: 4 }}>
               {queued.map((m) => (
                 <QueuedRow
                   key={m.id}
-                  menu={menuHandlers(openMenu, "Queued message", () => [
+                  menu={menuHandlers(openMenu, t("Queued message"), () => [
                     ...(running && !m.id.startsWith("pending-")
-                      ? [{ id: "steer", label: "Send now (steer)", icon: "CornerDownRight", onPress: () =>
+                      ? [{ id: "steer", label: t("Send now (steer)"), icon: "CornerDownRight", onPress: () =>
                           void composer.sendNow(task.id, sessionId, m.id)
-                            .then(() => toast.show("Sent to the running turn", { variant: "success" }))
+                            .then(() => toast.show(t("Sent to the running turn"), { variant: "success" }))
                             .catch((e) => setError(message(e))) }]
                       : []),
-                    { id: "edit", label: "Edit", icon: "Pencil", disabled: m.id.startsWith("pending-") || !!m.images?.length, onPress: () =>
+                    { id: "edit", label: t("Edit"), icon: "Pencil", disabled: m.id.startsWith("pending-") || !!m.images?.length, onPress: () =>
                         void composer.remove(sessionId, m.id).then(() =>
                           onDraftChange(sessionId, draftBuffer.read().trim() ? `${draftBuffer.read()}\n${m.text}` : m.text)) },
                     { kind: "separator", id: "s" },
-                    { id: "remove", label: "Remove", icon: "Trash2", danger: true, disabled: m.id.startsWith("pending-"), onPress: () =>
+                    { id: "remove", label: t("Remove"), icon: "Trash2", danger: true, disabled: m.id.startsWith("pending-"), onPress: () =>
                         void composer.remove(sessionId, m.id).catch((e) => setError(message(e))) },
                   ])}
                   style={{
@@ -518,7 +524,7 @@ export function SessionPreview({
                   <Icon name="Clock" size={13} color={colors.foregroundMuted} />
                   <View style={{ flex: 1, minWidth: 0 }}>
                     <Label size={font.sm} lines={1} selectable={false}>
-                      {m.text.replace(/\s+/g, " ") || (m.images?.length === 1 ? "Image" : `${m.images?.length || 0} images`)}
+                      {m.text.replace(/\s+/g, " ") || (m.images?.length === 1 ? t("Image") : tn(m.images?.length || 0, "{n} image", "{n} images"))}
                     </Label>
                   </View>
                   {!!m.images?.length && !!m.text.trim() && (
@@ -527,26 +533,25 @@ export function SessionPreview({
                       <Label muted size={font.xs} selectable={false}>{m.images.length}</Label>
                     </View>
                   )}
-                  <Label muted size={font.xs} selectable={false}>Queued</Label>
+                  <Label muted size={font.xs} selectable={false}>{t("Queued")}</Label>
                   {running && !m.id.startsWith("pending-") && (
                     <Button
                       quiet
                       icon="CornerDownRight"
-                      label="Send now and steer the running turn"
+                      label={t("Send now and steer the running turn")}
                       onPress={() =>
                         void composer
                           .sendNow(task.id, sessionId, m.id)
-                          .then(() => toast.show("Sent to the running turn", { variant: "success" }))
+                          .then(() => toast.show(t("Sent to the running turn"), { variant: "success" }))
                           .catch((e) => setError(message(e)))
                       }
                     >
-                      Steer
-                    </Button>
+                      {t("Steer")}</Button>
                   )}
                   <IconButton
                     icon="X"
                     size={26}
-                    label="Remove queued message"
+                    label={t("Remove queued message")}
                     disabled={m.id.startsWith("pending-")}
                     onPress={() => void composer.remove(sessionId, m.id).catch((e) => setError(message(e)))}
                   />
@@ -592,11 +597,11 @@ export function SessionPreview({
             <TextInput
               key={ownInput ? `input-${inputKey}` : "input"}
               ref={inputRef as never}
-              accessibilityLabel="Follow-up instruction"
+              accessibilityLabel={t("Follow-up instruction")}
               accessibilityHint={
                 Platform.OS === "web"
-                  ? "Enter sends; Shift and Enter inserts a new line."
-                  : "Use the keyboard Send action or the send button."
+                  ? t("Enter sends; Shift and Enter inserts a new line.")
+                  : t("Use the keyboard Send action or the send button.")
               }
               {...(ownInput ? { defaultValue: inputSeed } : { value: draft })}
               onChangeText={(text) => {
@@ -634,10 +639,10 @@ export function SessionPreview({
               editable={!!active}
               placeholder={
                 active.archivedAt
-                  ? "Send a message to restore this session…"
+                  ? t("Send a message to restore this session…")
                   : compact
-                    ? "Message this session…"
-                    : "Tell this session what to do next…"
+                    ? t("Message this session…")
+                    : t("Tell this session what to do next…")
               }
               placeholderTextColor={colors.foregroundMuted}
               style={{
@@ -663,7 +668,7 @@ export function SessionPreview({
               <IconButton
                 icon="ImagePlus"
                 size={sendSize}
-                label="Attach images"
+                label={t("Attach images")}
                 disabled={!canWrite || attachments.length >= maxImages}
                 onPress={() => void pickImageFiles().then((files) => addImages.current(files))}
               />
@@ -673,8 +678,8 @@ export function SessionPreview({
             {stopMode ? (
               <Pressable
                 accessibilityRole="button"
-                accessibilityLabel="Stop session"
-                onPress={() => void config.apply({ stop: true }, "Session stopped")}
+                accessibilityLabel={t("Stop session")}
+                onPress={() => void config.apply({ stop: true }, t("Session stopped"))}
                 hitSlop={6}
                 style={(state) => {
                   const { pressed } = state;
@@ -695,8 +700,8 @@ export function SessionPreview({
             ) : (
             <Pressable
               accessibilityRole="button"
-              accessibilityLabel={busy ? "Sending instruction" : "Send instruction"}
-              accessibilityHint={running ? sendBehaviorText[preferred].detail : undefined}
+              accessibilityLabel={busy ? t("Sending instruction") : t("Send instruction")}
+              accessibilityHint={running ? t(sendBehaviorText[preferred].detail) : undefined}
               accessibilityState={{ disabled: !canSend, busy }}
               disabled={!canSend}
               onPress={() => void submitInstruction()}
@@ -777,10 +782,10 @@ export function SessionPreview({
           minWidth: 0,
         }}
       >
-        <IconButton icon="ArrowLeft" label="Back to task" onPress={onBack} />
+        <IconButton icon="ArrowLeft" label={t("Back to task")} onPress={onBack} />
         <View style={{ flex: 1, minWidth: 0, paddingHorizontal: space[1] }}>
           <Label medium size={font.base} lines={1}>
-            {active?.title || "Session preview"}
+            {active?.title || t("Session preview")}
           </Label>
           {state ? (
             <View style={{ flexDirection: "row", alignItems: "center", gap: space[1.5], minWidth: 0 }}>
@@ -788,16 +793,16 @@ export function SessionPreview({
               <View style={{ flexShrink: 1, minWidth: 0 }}>
                 <Label muted size={font.sm} lines={1} selectable={false}>
                   <Label size={font.sm} medium color={state.active || state.label === "Error" || state.label === "Waiting for approval" ? tone : colors.foregroundMuted} selectable={false}>
-                    {state.label}
+                    {t(state.label)}
                   </Label>
                   {reads.query.isPending
-                    ? " · Loading read state…"
+                    ? ` · ${t("Loading read state…")}`
                     : reads.query.isError
-                      ? " · Read state unavailable"
+                      ? ` · ${t("Read state unavailable")}`
                       : !attention?.readKnown
-                        ? " · Read state unknown"
+                        ? ` · ${t("Read state unknown")}`
                         : attention.unread
-                          ? " · Unread"
+                          ? ` · ${t("Unread")}`
                           : ""}
                   {active?.provider ? ` · ${active.provider}${active.model ? `/${active.model}` : ""}` : ""}
                 </Label>
@@ -810,7 +815,7 @@ export function SessionPreview({
         {typeof navigation?.openAgent === "function" && (
           <IconButton
             icon="ArrowUpRight"
-            label="Open in Paseo"
+            label={t("Open in Paseo")}
             disabled={!visible || !active || current.isError || busy}
             onPress={() =>
               void perform(async () => {
@@ -824,11 +829,11 @@ export function SessionPreview({
         {active && (
           <IconButton
             icon="Ellipsis"
-            label="More session actions"
-            onPress={(event) => openMenu?.(eventPoint(event), active.title || "Session", sessionActions())}
+            label={t("More session actions")}
+            onPress={(event) => openMenu?.(eventPoint(event), active.title || t("Session"), sessionActions())}
           />
         )}
-        {onClose && <IconButton icon="X" label="Close side bar" onPress={onClose} />}
+        {onClose && <IconButton icon="X" label={t("Close side bar")} onPress={onClose} />}
       </View>
       {active && showTools && (
         <MotionReveal transitionKey="session-tools" distance={8} style={{ flexShrink: 0 }}>
@@ -846,22 +851,21 @@ export function SessionPreview({
           >
             <View style={{ flexDirection: "row", alignItems: "center", gap: space[2] }}>
               <Icon name="Wrench" size={14} color={colors.foregroundMuted} />
-              <Label medium size={font.md}>Kanban tools</Label>
+              <Label medium size={font.md}>{t("Kanban tools")}</Label>
               <View style={{ flex: 1 }} />
               <Dot color={tools.data?.ready ? colors.statusSuccess : colors.statusWarning} size={7} />
-              <Label muted size={font.sm}>{tools.data?.ready ? "Ready" : "Not ready"}</Label>
+              <Label muted size={font.sm}>{tools.data?.ready ? t("Ready") : t("Not ready")}</Label>
             </View>
             <Label muted size={font.sm}>
-              Lets this agent read its task, report progress and move it between Design, Development and Test, to Blocked or to In review. You confirm Done or Cancelled.
-            </Label>
+              {t("Lets this agent read its task, report progress and move it between Design, Development and Test, to Blocked or to In review. You confirm Done or Cancelled.")}</Label>
             <Label muted size={font.sm}>
               {access.data?.methods.length
-                ? `Configuration provided: ${access.data.methods.join(" + ").toUpperCase()}`
-                : "No Kanban configuration recorded."}
+                ? t("Configuration provided: {methods}", { methods: access.data.methods.join(" + ").toUpperCase() })
+                : t("No Kanban configuration recorded.")}
               {" · "}
               {access.data?.lastSuccessAt
-                ? `Last call: ${access.data.lastAction} ${relativeTime(access.data.lastSuccessAt)}`
-                : "No successful tool call yet."}
+                ? t("Last call: {lastAction} {time}", { lastAction: access.data.lastAction ?? "", time: relativeTime(access.data.lastSuccessAt) })
+                : t("No successful tool call yet.")}
             </Label>
             {access.error && <Notice>{message(access.error)}</Notice>}
             {tools.error && <Notice>{message(tools.error)}</Notice>}
@@ -890,14 +894,13 @@ export function SessionPreview({
                         ? { activeTurnBehavior: "steer" }
                         : {},
                     );
-                    toast.show("Kanban instructions sent", { variant: "success" });
+                    toast.show(t("Kanban instructions sent"), { variant: "success" });
                     await access.refetch();
                     await current.refetch();
                   })
                 }
               >
-                Send Kanban work instructions
-              </Button>
+                {t("Send Kanban work instructions")}</Button>
             </View>
           </View>
         </MotionReveal>
@@ -909,7 +912,10 @@ export function SessionPreview({
         style={{ flex: 1, minHeight: 0, minWidth: 0 }}
         nestedScrollEnabled
         keyboardShouldPersistTaps="handled"
-        keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
+        // Web: react-native-web's "on-drag" blurs the focused input on every
+        // scroll event, including the follow-tail scroll when output arrives,
+        // which kicked the user out of the composer while a session ran.
+        keyboardDismissMode={Platform.OS === "ios" ? "interactive" : Platform.OS === "web" ? "none" : "on-drag"}
         scrollEventThrottle={16}
         onScroll={tail.onScroll}
         onScrollBeginDrag={tail.onScrollBeginDrag}
@@ -918,58 +924,50 @@ export function SessionPreview({
         onLayout={tail.scrollToTail}
         contentContainerStyle={{ ...verticalContent, padding: space[4], paddingBottom: space[5] + keyboard.inset, gap: space[4] }}
       >
-        {current.isPending && <Label muted>Loading session…</Label>}
+        {current.isPending && <Label muted>{t("Loading session…")}</Label>}
         {current.error && <Notice>{message(current.error)}</Notice>}
         {!current.isPending && !current.error && !belongs && (
           <Notice tone="warning">
-            Session is unavailable or belongs to a different workspace. Return
-            to the task to choose another session.
-          </Notice>
+            {t("Session is unavailable or belongs to a different workspace. Return to the task to choose another session.")}</Notice>
         )}
         {active && (
           <>
             {unavailable && (
               <Notice tone="warning">
                 {unavailableReason ||
-                  "Task or workspace is unavailable. Return to task details for more information."}
+                  t("Task or workspace is unavailable. Return to task details for more information.")}
               </Notice>
             )}
             {!!active.lastError && <Notice>{active.lastError}</Notice>}
             {active.providerUnavailable && (
               <Notice tone="warning">
-                This session's provider is unavailable. Open in Paseo to inspect
-                its configuration.
-              </Notice>
+                {t("This session's provider is unavailable. Open in Paseo to inspect its configuration.")}</Notice>
             )}
             {!!active.archivedAt && (
               <Notice tone="info">
-                This session is archived. Sending a message restores it and continues the conversation.
-              </Notice>
+                {t("This session is archived. Sending a message restores it and continues the conversation.")}</Notice>
             )}
             {reads.query.error && <Notice>{message(reads.query.error)}</Notice>}
             {attention?.unread && !attention.token && (
               <Notice tone="info">
-                This host did not provide a readable attention timestamp. Open
-                in Paseo to acknowledge this session.
-              </Notice>
+                {t("This host did not provide a readable attention timestamp. Open in Paseo to acknowledge this session.")}</Notice>
             )}
             <View style={{ alignItems: "center" }}>
               <Label muted size={font.xs} selectable={false}>
-                Recent output · open in Paseo for the full conversation
-              </Label>
+                {t("Recent output · open in Paseo for the full conversation")}</Label>
             </View>
             {timeline.error && (
               <Notice>
                 {message(timeline.error)}
-                {output.length ? " Showing the last known output." : ""}
+                {output.length ? ` ${t("Showing the last known output.")}` : ""}
               </Notice>
             )}
             {!settled ? null : timeline.isPending ? (
-              <Label muted>Loading output…</Label>
+              <Label muted>{t("Loading output…")}</Label>
             ) : !output.length ? (
               timeline.error ? null : (
                 <View style={{ alignItems: "center", paddingVertical: space[6] }}>
-                  <Label muted>No output yet.</Label>
+                  <Label muted>{t("No output yet.")}</Label>
                 </View>
               )
             ) : (
@@ -990,8 +988,8 @@ export function SessionPreview({
                 <ActivityIndicator size="small" color={colors.accent} />
                 <Label muted size={font.md}>
                   {active.status === "initializing"
-                    ? "Starting session…"
-                    : "Agent is working…"}
+                    ? t("Starting session…")
+                    : t("Agent is working…")}
                 </Label>
               </View>
             )}
@@ -1001,7 +999,7 @@ export function SessionPreview({
       </ScrollView>
       {!!chipMenu && (
         <Pressable
-          accessibilityLabel="Close menu"
+          accessibilityLabel={t("Close menu")}
           onPress={() => setChipMenu(null)}
           style={{ ...noFocusRing, position: "absolute", top: 0, left: 0, right: 0, bottom: 0, zIndex: 20 }}
         />
@@ -1041,7 +1039,7 @@ export function SessionPreview({
             >
               <Pressable
                 accessibilityRole="button"
-                accessibilityLabel="Jump to latest"
+                accessibilityLabel={t("Jump to latest")}
                 onPress={tail.jumpToLatest}
                 style={{
                   flexDirection: "row",
@@ -1060,7 +1058,7 @@ export function SessionPreview({
                 }}
               >
                 <Icon name="ArrowDown" size={13} color={colors.foreground} />
-                <Label size={font.sm} medium selectable={false}>Latest</Label>
+                <Label size={font.sm} medium selectable={false}>{t("Latest")}</Label>
               </Pressable>
             </Animated.View>
           )}
@@ -1071,20 +1069,20 @@ export function SessionPreview({
                 {keyHints && (
                   <Label muted size={font.xs} lines={1} selectable={false}>
                     {running
-                      ? `Enter: ${sendBehaviorText[preferred].label} · ⌘/Ctrl+Enter: ${preferred === "queue" ? "Send now" : "Queue"} · Shift+Enter: new line`
-                      : "Enter to send · Shift+Enter for a new line"}
+                      ? t("Enter: {action} · ⌘/Ctrl+Enter: {other} · Shift+Enter: new line", { action: t(sendBehaviorText[preferred].label), other: preferred === "queue" ? t("Send now") : t("Queue") })
+                      : t("Enter to send · Shift+Enter for a new line")}
                   </Label>
                 )}
               </View>
               <Pressable
                 accessibilityRole="button"
-                accessibilityLabel={`When running: ${sendBehaviorText[preferred].label}. Change`}
+                accessibilityLabel={t("When running: {label}. Change", { label: t(sendBehaviorText[preferred].label) })}
                 onPress={() => setModePicker(true)}
                 hitSlop={6}
                 style={{ flexDirection: "row", alignItems: "center", gap: 2 }}
               >
                 <Label muted size={font.xs} selectable={false}>
-                  When running: <Label size={font.xs} medium selectable={false}>{sendBehaviorText[preferred].label}</Label>
+                  {t("When running:")}{" "}<Label size={font.xs} medium selectable={false}>{t(sendBehaviorText[preferred].label)}</Label>
                 </Label>
                 <Icon name="ChevronDown" size={12} color={colors.foregroundMuted} />
               </Pressable>
@@ -1094,7 +1092,7 @@ export function SessionPreview({
       )}
       <Modal
         open={modePicker && visible}
-        title="When the session is running"
+        title={t("When the session is running")}
         onOpenChange={(open) => {
           if (!open) setModePicker(false);
         }}
@@ -1104,8 +1102,8 @@ export function SessionPreview({
             {sendBehaviors.map((b) => (
               <Row
                 key={b}
-                title={sendBehaviorText[b].label}
-                detail={sendBehaviorText[b].detail}
+                title={t(sendBehaviorText[b].label)}
+                detail={t(sendBehaviorText[b].detail)}
                 selected={preferred === b}
                 onPress={() => {
                   setPreferred(b);
@@ -1115,15 +1113,21 @@ export function SessionPreview({
             ))}
             <View style={{ paddingHorizontal: space[3], paddingTop: space[1] }}>
               <Label muted size={font.xs}>
-                Same options as Paseo's “Default send” setting. Plugins cannot read that setting, so choose it here.
-              </Label>
+                {t("Same options as Paseo's “Default send” setting. Plugins cannot read that setting, so choose it here.")}</Label>
             </View>
           </Theme.Provider>
         </Modal.Content>
       </Modal>
+      {renaming && visible && active && (
+        <RenameSession
+          title={active.title || ""}
+          onSave={(title) => config.apply({ title }, t("Session renamed"))}
+          onClose={() => setRenaming(false)}
+        />
+      )}
       <Modal
         open={confirmArchive && visible}
-        title="Archive running session?"
+        title={t("Archive running session?")}
         onOpenChange={(open) => {
           if (!open) setConfirmArchive(false);
         }}
@@ -1131,11 +1135,10 @@ export function SessionPreview({
         <Modal.Content>
           <Theme.Provider value={theme}>
             <Label size={font.base}>
-              Archiving interrupts the current turn. The conversation is kept; send it a message later to restore it.
-            </Label>
+              {t("Archiving interrupts the current turn. The conversation is kept; send it a message later to restore it.")}</Label>
             <Actions>
-              <Button quiet onPress={() => setConfirmArchive(false)}>Cancel</Button>
-              <Button danger icon="Archive" onPress={() => void archiveSession()}>Archive</Button>
+              <Button quiet onPress={() => setConfirmArchive(false)}>{t("Cancel")}</Button>
+              <Button danger icon="Archive" onPress={() => void archiveSession()}>{t("Archive")}</Button>
             </Actions>
           </Theme.Provider>
         </Modal.Content>
@@ -1192,7 +1195,7 @@ const TranscriptEntry = memo(function TranscriptEntry({
     [entry.author, entry.text],
   );
   const sent = entry.author === "You" ? sentImages(entry.messageId) : [];
-  const pictures = [...images, ...sent.map((src, i) => ({ src, alt: `Image ${i + 1}` }))].map((image) => (
+  const pictures = [...images, ...sent.map((src, i) => ({ src, alt: t("Image {n}", { n: i + 1 }) }))].map((image) => (
     // Your own images stay compact beside your message.
     <SessionImage key={image.src} taskId={taskId} agentId={agentId} image={image} maxWidth={entry.author === "You" ? 200 : 360} />
   ));
@@ -1202,7 +1205,7 @@ const TranscriptEntry = memo(function TranscriptEntry({
       <View style={{ alignItems: "flex-end", paddingLeft: space[6] + space[2], gap: space[1.5] }}>
         {!!text && (
           <View
-            accessibilityLabel="You"
+            accessibilityLabel={t("You")}
             style={{
               maxWidth: "100%",
               paddingHorizontal: space[3],
@@ -1219,14 +1222,14 @@ const TranscriptEntry = memo(function TranscriptEntry({
     );
   if (entry.author === "Agent")
     return (
-      <View accessibilityLabel="Agent" style={{ minWidth: 0, gap: space[2] }}>
+      <View accessibilityLabel={t("Agent")} style={{ minWidth: 0, gap: space[2] }}>
         {!!text && <SessionMarkdown text={text} />}
         {pictures}
       </View>
     );
   return (
     <View style={{ gap: 2, minWidth: 0 }}>
-      <Label muted size={font.xs}>{entry.author}</Label>
+      <Label muted size={font.xs}>{t(entry.author)}</Label>
       <Label muted size={font.md}>{entry.text}</Label>
     </View>
   );
@@ -1246,7 +1249,7 @@ function AttachmentThumb({ attachment, onRemove }: { attachment: Attachment; onR
         />
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel={`Remove ${attachment.name}`}
+          accessibilityLabel={t("Remove {name}", { name: attachment.name })}
           onPress={onRemove}
           hitSlop={6}
           style={{
@@ -1282,10 +1285,10 @@ const ActivityBlock = memo(function ActivityBlock({ block, live }: { block: Extr
   const turn = useMotionValue(open ? 1 : 0, motionDuration.feedback);
   const latest = block.items.at(-1);
   return (
-    <View accessibilityLabel="Agent activity" style={{ minWidth: 0, marginVertical: -space[1] }}>
+    <View accessibilityLabel={t("Agent activity")} style={{ minWidth: 0, marginVertical: -space[1] }}>
       <Pressable
         accessibilityRole="button"
-        accessibilityLabel={`${activitySummary(block)}. ${open ? "Collapse" : "Expand"}`}
+        accessibilityLabel={`${activitySummary(block)}. ${open ? t("Collapse") : t("Expand")}`}
         accessibilityState={{ expanded: open }}
         onPress={() => setOpen(!open)}
         style={(state) => {
@@ -1311,12 +1314,12 @@ const ActivityBlock = memo(function ActivityBlock({ block, live }: { block: Extr
           <Icon name={block.tools ? "Wrench" : "Brain"} size={12} color={colors.foregroundMuted} />
         )}
         <Label muted size={font.sm} medium selectable={false}>
-          {live ? "Working" : activitySummary(block)}
+          {live ? t("Working") : activitySummary(block)}
         </Label>
         {live && latest && (
           <View style={{ flexShrink: 1, minWidth: 0 }}>
             <Label muted size={font.sm} lines={1} mono={latest.author === "Tool"} selectable={false}>
-              {latest.author === "Tool" ? latest.text : "Thinking…"}
+              {latest.author === "Tool" ? latest.text : t("Thinking…")}
             </Label>
           </View>
         )}
@@ -1328,14 +1331,14 @@ const ActivityBlock = memo(function ActivityBlock({ block, live }: { block: Extr
         <Enter distance={4} style={{ marginTop: space[1], marginLeft: 5, paddingLeft: space[3], borderLeftWidth: 1, borderColor: colors.border, gap: space[1.5] }}>
           {block.items.map((item) =>
             item.author === "Tool" ? (
-              <View key={item.key} accessibilityLabel="Tool" style={{ flexDirection: "row", alignItems: "center", gap: space[2], minWidth: 0 }}>
+              <View key={item.key} accessibilityLabel={t("Tool")} style={{ flexDirection: "row", alignItems: "center", gap: space[2], minWidth: 0 }}>
                 <Icon name="Wrench" size={12} color={colors.foregroundMuted} />
                 <View style={{ flex: 1, minWidth: 0 }}>
                   <Label muted mono size={font.sm} lines={1}>{item.text}</Label>
                 </View>
               </View>
             ) : (
-              <View key={item.key} accessibilityLabel="Thinking" style={{ flexDirection: "row", gap: space[2], minWidth: 0 }}>
+              <View key={item.key} accessibilityLabel={t("Thinking")} style={{ flexDirection: "row", gap: space[2], minWidth: 0 }}>
                 <View style={{ paddingTop: 2 }}>
                   <Icon name="Brain" size={12} color={colors.foregroundMuted} />
                 </View>

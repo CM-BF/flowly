@@ -1,6 +1,7 @@
 import { useRef, useState } from "react";
 import { PanResponder, View } from "react-native";
 import { touch, useTheme } from "./ui";
+import { t } from "../shared/i18n";
 
 export function ResizeGrip({
   width,
@@ -30,12 +31,12 @@ export function ResizeGrip({
   return (
     <View
       {...pan.panHandlers}
-      accessibilityLabel="Drag to resize task details"
+      accessibilityLabel={t("Drag to resize task details")}
       accessibilityRole="adjustable"
       accessibilityValue={{ min: 340, max: maxWidth, now: width }}
       accessibilityActions={[
-        { name: "increment", label: "Widen task details" },
-        { name: "decrement", label: "Narrow task details" },
+        { name: "increment", label: t("Widen task details") },
+        { name: "decrement", label: t("Narrow task details") },
       ]}
       onAccessibilityAction={(event) => {
         const name = event.nativeEvent.actionName;

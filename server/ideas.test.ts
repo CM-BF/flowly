@@ -170,7 +170,12 @@ test("creating a card from an idea links both ways in one write", async () => {
   // A repeated submission returns the first card and leaves the idea alone.
   expect((await service.createTask(createInput(ideaId), paseo)).id).toBe(card.id);
   expect(create).toHaveBeenCalledTimes(1);
-  expect((await service.context(card.id, paseo)).context).toContain("Derived from card: Card (t)");
+  expect((await service.context(card.id, paseo)).context).toContain("Follow-up of: Card (t) [Todo]\n");
+  // The derived link is written with the card, without separate link events.
+  expect((await x.store.read()).links).toEqual([
+    expect.objectContaining({ kind: "derived", from: card.id, to: "t", ideaId, createdBy: "system" }),
+  ]);
+  expect(board.events.some((e) => e.action === "linked")).toBe(false);
 });
 
 test("an idea that is no longer open creates neither a workspace nor a card", async () => {
@@ -229,13 +234,13 @@ test("the prefilled description carries the idea, why, context, source card and 
   expect(long.endsWith("…")).toBe(true);
 });
 
-test("session context names the source card only for derived cards", async () => {
+test("session context lists the card's links only when it has some", async () => {
   const x = await setup();
   const board = await x.store.read();
   const [task] = board.tasks, [project] = board.projects;
   const dirs = [{ repo: x.a, directory: x.a }];
-  expect(sessionContext(task, project, dirs, x.a)).not.toContain("Derived from card");
-  expect(sessionContext(task, project, dirs, x.a, { id: "s", title: "Source" })).toContain("Derived from card: Source (s)\n");
+  expect(sessionContext(task, project, dirs, x.a)).not.toContain("Follow-up of");
+  expect(sessionContext(task, project, dirs, x.a, ["Follow-up of: Source (s) [Todo]"])).toContain("Follow-up of: Source (s) [Todo]\n");
 });
 
 test("Do it in this task marks the idea for the chosen session and queues the instruction", async () => {
@@ -296,4 +301,53 @@ test("a session started with the idea as its first instruction is only recorded,
   expect(idea).toMatchObject({ status: "accepted", acceptedAgentId: "second" });
   expect(push).not.toHaveBeenCalled();
   expect((await x.store.read()).events.at(-1)).toMatchObject({ action: "idea_adopted", agentId: "second" });
+});
+
+test("ideas outlive the card's lifecycle: finished or archived cards keep them open (IDEAS-INBOX-SPEC §2)", async () => {
+  const x = await setup();
+  const { ideaId } = await propose(x, "Extend the filter", { scope: "here" });
+  await x.store.editTask({ id: "t", revision: 1, status: "done", actor: "human" });
+  await x.store.editTask({ id: "t", revision: 2, archived: true, actor: "human" });
+  expect((await x.store.read()).ideas[0]).toMatchObject({ status: "open" });
+  // Not now and Restore still work on an archived card.
+  expect((await x.store.updateIdea({ id: ideaId!, status: "dismissed" })).status).toBe("dismissed");
+  expect((await x.store.updateIdea({ id: ideaId!, status: "open" })).status).toBe("open");
+  // Its sessions must not resume work: only a new card.
+  const push = vi.fn(async () => ({}));
+  await expect(adoptIdea(x.store, push, { id: ideaId!, agentId: "second" }, x.paseo)).rejects.toThrow("This card is finished");
+  await expect(adoptIdea(x.store, push, { id: ideaId!, agentId: "second", send: false }, x.paseo)).rejects.toThrow("This card is finished");
+  expect(push).not.toHaveBeenCalled();
+  expect((await x.store.read()).ideas[0]).toMatchObject({ status: "open" });
+  const { paseo } = creator(x);
+  const card = await new BoardService(x.store).createTask(createInput(ideaId), paseo);
+  expect((await x.store.read()).ideas[0]).toMatchObject({ status: "accepted", acceptedTaskId: card.id });
+});
+
+test("a Done card that is not archived also refuses Do it in this task", async () => {
+  const x = await setup();
+  const { ideaId } = await propose(x, "Extend the filter", { scope: "here" });
+  await x.store.editTask({ id: "t", revision: 1, status: "cancelled", actor: "human" });
+  await expect(adoptIdea(x.store, vi.fn(async () => ({})), { id: ideaId!, agentId: "second" }, x.paseo)).rejects.toThrow("This card is finished");
+});
+
+test("an archived project makes its ideas read-only", async () => {
+  const x = await setup();
+  const { ideaId } = await propose(x);
+  const project = (await x.store.read()).projects[0];
+  await x.store.updateProject({ id: "p", revision: project.revision, archived: true });
+  await expect(x.store.updateIdea({ id: ideaId!, status: "dismissed" })).rejects.toThrow("The project is archived.");
+});
+
+test("with Ideas off, new proposals are refused without writing; an earlier proposal still replays (IDEAS-INBOX-SPEC §10)", async () => {
+  const x = await setup();
+  const ctx = await x.service.get(x.identity);
+  const first = await x.service.write(x.identity, "idea", idea(ctx));
+  x.service.ideasOn = async () => false;
+  expect((await x.service.write(x.identity, "idea", idea(ctx))).replayed).toBe(true);
+  const before = await x.store.read();
+  await expect(propose(x, "Another")).rejects.toMatchObject({ code: "IDEAS_DISABLED" });
+  const after = await x.store.read();
+  expect(after.ideas).toEqual(before.ideas);
+  expect(after.revision).toBe(before.revision);
+  expect(first.ideaId).toBeTruthy();
 });

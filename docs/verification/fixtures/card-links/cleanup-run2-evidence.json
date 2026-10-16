@@ -1,0 +1,24 @@
+{
+  "run": "ed86d3bc-4574-4196-8e60-654a8dcaa042",
+  "sessionId": "1d94a008-4d15-4590-ae37-df81f82582d7",
+  "sessionArchived": true,
+  "fixtureProject": "974a1963-7c02-4a80-ae6a-71643e774085",
+  "nativeProject": "prj_6ab72ff3edbd357d",
+  "tempDirectory": "/tmp/paseo-kanban-card-links-run2-ed86d3bc",
+  "projectRemoval": {
+    "id": "974a1963-7c02-4a80-ae6a-71643e774085",
+    "removedTasks": 3,
+    "backup": "/Users/bofan.wang/.paseo/plugin-data/paseo-ultra-kanban/removed/974a1963-7c02-4a80-ae6a-71643e774085-2026-10-16T01-56-56-332Z.json",
+    "paseo": {
+      "removed": true,
+      "workspaces": 3,
+      "error": ""
+    }
+  },
+  "pluginProjectAbsent": true,
+  "pluginCardsAbsent": true,
+  "pluginLinksAbsent": true,
+  "tempDirectoryRemoved": true,
+  "nativeProjectAbsent": true,
+  "finishedAt": "2026-10-16T01:56:57.226Z"
+}

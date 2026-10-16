@@ -1,0 +1,22 @@
+{
+  "viewport": {
+    "width": 390,
+    "height": 844
+  },
+  "checks": {
+    "compactLight": true,
+    "metrics": {
+      "innerWidth": 390,
+      "docWidth": 390,
+      "bodyWidth": 390
+    },
+    "noHorizontalOverflow": true,
+    "darkTitle": true
+  },
+  "screenshots": [
+    "ideas-page-compact-light.png",
+    "ideas-page-dark.png"
+  ],
+  "consoleErrors": [],
+  "pageErrors": []
+}

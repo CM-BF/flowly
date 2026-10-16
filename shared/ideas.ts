@@ -44,3 +44,13 @@ export function ideaDescription(
   const text = parts.join("\n\n");
   return text.length > DESCRIPTION_MAX ? `${text.slice(0, DESCRIPTION_MAX - 1)}…` : text;
 }
+
+/**
+ * A finished (Done/Cancelled) or archived card keeps its ideas, but they can
+ * only become new cards: its sessions must not resume work (IDEAS-INBOX-SPEC §2.3).
+ */
+export const continuesInCard = (task: Pick<Task, "status" | "archivedAt">) =>
+  !task.archivedAt && task.status !== "done" && task.status !== "cancelled";
+
+export const FINISHED_CARD_IDEA =
+  "This card is finished. Start a new task, or move the card back to continue in it.";

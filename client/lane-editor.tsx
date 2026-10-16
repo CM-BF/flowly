@@ -4,6 +4,7 @@ import { statusLabels, type Lane, type Status } from "../shared/model";
 import { IconButton, Label, Switch, TextBox, font, radius, space, touch, useTheme } from "./ui";
 import { StatusIcon } from "./status";
 import { SortableList } from "./sortable-list";
+import { t } from "../shared/i18n";
 
 /**
  * A project's lanes: order (drag the grip on desktop, arrows on touch), on/off
@@ -35,8 +36,7 @@ export function LaneEditor({
   return (
     <View style={{ gap: space[1.5] }}>
       <Label medium size={font.sm} muted>
-        Lanes
-      </Label>
+        {t("Lanes")}</Label>
       <View style={{ borderWidth: 1, borderColor: colors.border, borderRadius: radius.lg, padding: 4 }}>
         <SortableList
           items={items}
@@ -60,13 +60,13 @@ export function LaneEditor({
               >
                 {touch ? (
                   <View style={{ flexDirection: "row" }}>
-                    <IconButton icon="ChevronUp" size={32} label={`Move ${statusLabels[lane.status]} up`} disabled={disabled || index === 0} onPress={() => move(lane.status, index - 1)} />
-                    <IconButton icon="ChevronDown" size={32} label={`Move ${statusLabels[lane.status]} down`} disabled={disabled || index === lanes.length - 1} onPress={() => move(lane.status, index + 1)} />
+                    <IconButton icon="ChevronUp" size={32} label={t("Move {lane} up", { lane: statusLabels[lane.status] })} disabled={disabled || index === 0} onPress={() => move(lane.status, index - 1)} />
+                    <IconButton icon="ChevronDown" size={32} label={t("Move {lane} down", { lane: statusLabels[lane.status] })} disabled={disabled || index === lanes.length - 1} onPress={() => move(lane.status, index + 1)} />
                   </View>
                 ) : (
                   <View
                     {...handleProps}
-                    accessibilityLabel={`Drag to reorder ${statusLabels[lane.status]}`}
+                    accessibilityLabel={t("Drag to reorder {lane}", { lane: statusLabels[lane.status] })}
                     style={{ width: 16, alignItems: "center", ...({ cursor: "grab" } as object) }}
                   >
                     <Icon name="GripVertical" size={14} color={colors.foregroundMuted} />
@@ -75,7 +75,7 @@ export function LaneEditor({
                 <StatusIcon status={lane.status} size={15} />
                 <View style={{ flex: 1, minWidth: 0 }}>
                   <TextBox
-                    accessibilityLabel={`${statusLabels[lane.status]} lane name`}
+                    accessibilityLabel={t("{lane} lane name", { lane: statusLabels[lane.status] })}
                     value={lane.name ?? ""}
                     onChangeText={(name) => update(lane.status, { name })}
                     placeholder={statusLabels[lane.status]}
@@ -99,7 +99,7 @@ export function LaneEditor({
                 )}
                 <Switch
                   value={lane.enabled}
-                  label={`${lane.name?.trim() || statusLabels[lane.status]} lane ${lane.enabled ? "on" : "off"}`}
+                  label={t(lane.enabled ? "{name} lane on" : "{name} lane off", { name: lane.name?.trim() || statusLabels[lane.status] })}
                   disabled={disabled || locked}
                   onChange={(enabled) => update(lane.status, { enabled })}
                 />
@@ -109,8 +109,7 @@ export function LaneEditor({
         />
       </View>
       <Label muted size={font.xs}>
-        Lanes are this project's workflow: cards, automatic status and agents only use lanes that are on. Rename a lane by typing over its name. A lane with cards can't be turned off until they move.
-      </Label>
+        {t("Lanes are this project's workflow: cards, automatic status and agents only use lanes that are on. Rename a lane by typing over its name. A lane with cards can't be turned off until they move.")}</Label>
     </View>
   );
 }

@@ -1,0 +1,18 @@
+{
+  "before": "expected on",
+  "checks": {
+    "beforeOn": true,
+    "startedOn": true,
+    "openPageReturnedToBoard": true,
+    "chipHidden": true,
+    "bDoesNothing": true,
+    "cardStillVisible": true,
+    "drawerIdeasHidden": true
+  },
+  "screenshots": [
+    "ideas-page-settings-off.png"
+  ],
+  "consoleErrors": [],
+  "pageErrors": [],
+  "initialSwitchColor": "rgb(32, 116, 74)"
+}

@@ -3,6 +3,7 @@ import { enabledStatuses, laneEnabled, laneName } from "../shared/lanes";
 import type { PaseoApi } from "@getpaseo/client";
 import { randomUUID } from "node:crypto";
 import { ideaTitleKey } from "../shared/ideas";
+import { isResolved, linksOf } from "../shared/links";
 import {
   agentStatuses,
   ideaInputSchema,
@@ -25,6 +26,8 @@ import { isLegacyScope } from "../shared/scope";
 export class AgentService {
   private paseo?: PaseoApi;
   readonly accesses = new Map<string, { at: string; action: string }>();
+  /** The Ideas setting; off refuses new proposals (IDEAS-INBOX-SPEC §10). Set by the plugin entry. */
+  ideasOn: () => Promise<boolean> = async () => true;
   constructor(
     readonly store: BoardStore,
     readonly secrets: ToolSecrets,
@@ -157,6 +160,17 @@ export class AgentService {
             ...(i.acceptedTaskId ? { acceptedTaskId: i.acceptedTaskId } : {}),
             ...(i.acceptedAgentId ? { acceptedAgentId: i.acceptedAgentId } : {}),
           })),
+        links: linksOf(board, r.task.id)
+          .filter((v) => v.other)
+          .map(({ relation, other }) => ({
+            relation,
+            taskId: other!.id,
+            title: other!.title,
+            status: other!.status,
+            laneName: laneName(r.project, other!.status),
+            archived: !!other!.archivedAt,
+            ...(relation === "blocked_by" ? { resolved: isResolved(other) } : {}),
+          })),
       }))),
     };
     if (recordAccess)
@@ -183,6 +197,7 @@ export class AgentService {
       input.expectedRevision,
     );
     const resources = await this.resources(identity);
+    const ideasOn = action === "idea" ? await this.ideasOn() : true;
     const key = `${identity.agentId}:${digest(input.request.id)}`,
       payloadHash = digest(JSON.stringify({ action, input }));
     const result = await this.store.transaction((board) => {
@@ -239,6 +254,8 @@ export class AgentService {
           "Agent receipt capacity is full; no unexpired receipt was removed. Try after expiry or use the human board UI.",
           true,
         );
+      if (action === "idea" && !ideasOn)
+        throw new ToolError("IDEAS_DISABLED", "Ideas are turned off in Flowly settings. Mention follow-up suggestions in your reply instead.");
       if (action === "idea") checkIdea(board, task.id, (input as IdeaInput).title);
       const previous = task.status,
         next = action === "status" ? resolveAgentStatus((input as StatusInput).status, previous) : previous;

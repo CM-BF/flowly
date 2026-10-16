@@ -1,0 +1,77 @@
+{
+  "startedAt": "2026-10-16T02:33:20.091Z",
+  "fixture": {
+    "runId": "3a097844-33dd-42bf-887e-af120fcb9edc",
+    "projectId": "04e323bd-52cd-41a2-bbc9-1a04439913e8",
+    "nativeProjectId": "prj_933e4be1d1a6f1cc",
+    "directory": "/var/folders/0b/f1crzdg95g5fwbq49s_3pw9c0000gq/T/paseo-kanban-ideas-page-svca1I",
+    "cardIds": [
+      "8d01ea4c-0c4d-433a-99cf-44825ab116c2",
+      "fee7c9bd-9d4a-4f5a-ba0f-e2d56cf5a252"
+    ],
+    "derivedCardId": "0c27cc60-cec2-48e6-81f5-bf8e6f17f83f",
+    "workspaceIds": [
+      "wks_4fb84a3df891b22a",
+      "wks_8b7df81bc6624dd7",
+      "wks_77606cfea4cfda1c"
+    ],
+    "sessionIds": [
+      "cb44462f-63a0-421f-a7fc-ca419c47e4f8",
+      "f116624d-43b4-4395-858a-59f8398e65c4",
+      "b5a2d9d2-c946-4030-bf30-a25668831850"
+    ]
+  },
+  "checks": {
+    "ownedProjectPathMatches": true,
+    "fixtureTaskSetMatches": true,
+    "ownedSessionsArchivedOrRemoved": true,
+    "nativeProjectAbsentAfterRemoval": true,
+    "tempDirectoryRemoved": true,
+    "pluginProjectAbsent": true,
+    "fixtureCardsAbsent": true,
+    "fixtureIdeasAbsent": true,
+    "fixtureWorkspacesAbsent": true,
+    "nativeProjectAbsent": true
+  },
+  "sessions": [
+    {
+      "id": "cb44462f-63a0-421f-a7fc-ca419c47e4f8",
+      "result": "archived",
+      "archivedAt": "2026-10-16T02:33:20.207Z",
+      "status": "closed"
+    },
+    {
+      "id": "f116624d-43b4-4395-858a-59f8398e65c4",
+      "result": "archived",
+      "archivedAt": "2026-10-16T02:21:46.788Z",
+      "status": "closed"
+    },
+    {
+      "id": "b5a2d9d2-c946-4030-bf30-a25668831850",
+      "result": "archived",
+      "archivedAt": "2026-10-16T02:33:21.169Z",
+      "status": "closed"
+    }
+  ],
+  "retainedBackups": [
+    "/Users/bofan.wang/.paseo/plugin-data/paseo-ultra-kanban/removed/04e323bd-52cd-41a2-bbc9-1a04439913e8-2026-10-16T02-33-21-986Z.json",
+    "/Users/bofan.wang/.paseo/plugin-data/paseo-ultra-kanban/removed/04e323bd-52cd-41a2-bbc9-1a04439913e8-flow-2026-10-16T02-33-22-401Z.jsonl",
+    "/Users/bofan.wang/.paseo/plugin-data/paseo-ultra-kanban/removed/04e323bd-52cd-41a2-bbc9-1a04439913e8-summaries-2026-10-16T02-33-22-397Z.json",
+    "/Users/bofan.wang/.paseo/plugin-data/paseo-ultra-kanban/removed/task-fee7c9bd-9d4a-4f5a-ba0f-e2d56cf5a252-flow-2026-10-16T02-21-48-111Z.jsonl",
+    "/Users/bofan.wang/.paseo/plugin-data/paseo-ultra-kanban/removed/task-fee7c9bd-9d4a-4f5a-ba0f-e2d56cf5a252-summaries-2026-10-16T02-21-48-113Z.json",
+    "/Users/bofan.wang/.paseo/plugin-data/paseo-ultra-kanban/removed/task-fee7c9bd-9d4a-4f5a-ba0f-e2d56cf5a252-2026-10-16T02-21-48-107Z.json"
+  ],
+  "errors": [],
+  "projectRemoval": {
+    "id": "04e323bd-52cd-41a2-bbc9-1a04439913e8",
+    "removedTasks": 2,
+    "backup": "/Users/bofan.wang/.paseo/plugin-data/paseo-ultra-kanban/removed/04e323bd-52cd-41a2-bbc9-1a04439913e8-2026-10-16T02-33-21-986Z.json",
+    "paseo": {
+      "removed": true,
+      "workspaces": 2,
+      "error": ""
+    }
+  },
+  "backupPolicy": "Plugin-created removed/ backups are retained as audit history; no plugin data files were edited.",
+  "finishedAt": "2026-10-16T02:33:22.521Z"
+}

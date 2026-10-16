@@ -6,6 +6,7 @@ import { Dot, Label, font, noFocusRing, radius, space, touch, useTheme } from ".
 import { StatusIcon } from "./status";
 import { Enter, PulseDot } from "./motion";
 import type { BoardOverview } from "./overview";
+import { t, tn } from "../shared/i18n";
 
 /**
  * Board header summary: how many cards, how many have agents working, and
@@ -18,6 +19,9 @@ export function OverviewBar({
   onLane,
   onInsights,
   insightsShortcut,
+  openIdeas,
+  onIdeas,
+  ideasShortcut,
 }: {
   overview: BoardOverview;
   nameOf(status: Status): string;
@@ -25,12 +29,15 @@ export function OverviewBar({
   /** Open project Insights (PROJECT-INSIGHTS-SPEC §9). */
   onInsights(): void;
   insightsShortcut: string;
+  /** Open ideas across the project's cards, finished and archived ones included (IDEAS-INBOX-SPEC §3.1); null when Ideas are off. */
+  openIdeas: number | null;
+  onIdeas(): void;
+  ideasShortcut: string;
   /** Jump to a lane (compact: switch tabs; desktop: expand it if collapsed). */
   onLane(status: Status): void;
 }) {
   const { colors } = useTheme();
   const o = overview;
-  const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
   return (
     <View style={{ borderBottomWidth: 1, borderColor: colors.border }}>
       <ScrollView
@@ -44,34 +51,34 @@ export function OverviewBar({
           height: touch ? 40 : 34,
         }}
       >
-        <View accessibilityLabel={`${plural(o.total, "task")}${o.done !== null ? `, ${o.done} done` : ""}`} style={{ flexDirection: "row", alignItems: "baseline", gap: 4, paddingRight: space[1.5] }}>
+        <View accessibilityLabel={[tn(o.total, "{n} task", "{n} tasks"), o.done !== null ? t("{n} done", { n: o.done }) : ""].filter(Boolean).join(", ")} style={{ flexDirection: "row", alignItems: "baseline", gap: 4, paddingRight: space[1.5] }}>
           <Label bold size={font.md} selectable={false}>{String(o.total)}</Label>
-          <Label muted size={font.sm} selectable={false}>{o.total === 1 ? "task" : "tasks"}</Label>
+          <Label muted size={font.sm} selectable={false}>{o.total === 1 ? t("task") : t("tasks")}</Label>
           {o.done !== null && o.total > 0 && (
-            <Label muted size={font.sm} selectable={false}>· {o.done} {nameOf("done").toLowerCase()}</Label>
+            <Label muted size={font.sm} selectable={false}>{t("· {n} done", { n: o.done })}</Label>
           )}
         </View>
         <Divider />
         <Chip
-          label={o.runningTasks ? `${plural(o.runningTasks, "task")} running${o.runningSessions > o.runningTasks ? ` (${plural(o.runningSessions, "session")})` : ""}` : "Nothing running"}
+          label={o.runningTasks ? (o.runningSessions > o.runningTasks ? t("{tasks} running ({sessions})", { tasks: tn(o.runningTasks, "{n} task", "{n} tasks"), sessions: tn(o.runningSessions, "{n} session", "{n} sessions") }) : t("{tasks} running", { tasks: tn(o.runningTasks, "{n} task", "{n} tasks") })) : t("Nothing running")}
           icon={o.runningTasks ? <PulseDot color={colors.statusSuccess} size={7} /> : <Dot size={7} color={colors.border} />}
           muted={!o.runningTasks}
         >
-          {o.runningTasks ? `${o.runningTasks} running` : "Idle"}
+          {o.runningTasks ? t("{n} running", { n: o.runningTasks }) : t("Idle")}
         </Chip>
         {o.needsYou > 0 && (
-          <Chip label={`${plural(o.needsYou, "task")} waiting on you. Open Attention`} icon={<Dot size={7} color={colors.statusWarning} />} onPress={onAttention} strong>
-            {o.needsYou} need{o.needsYou === 1 ? "s" : ""} you
+          <Chip label={tn(o.needsYou, "{n} task waiting on you. Open Attention", "{n} tasks waiting on you. Open Attention")} icon={<Dot size={7} color={colors.statusWarning} />} onPress={onAttention} strong>
+            {tn(o.needsYou, "{n} needs you", "{n} need you")}
           </Chip>
         )}
         {o.unread > 0 && (
-          <Chip label={`${plural(o.unread, "task")} with unread results. Open Attention`} icon={<Dot size={7} color={colors.accent} />} onPress={onAttention}>
-            {o.unread} unread
+          <Chip label={tn(o.unread, "{n} task with unread results. Open Attention", "{n} tasks with unread results. Open Attention")} icon={<Dot size={7} color={colors.accent} />} onPress={onAttention}>
+            {t("{n} unread", { n: o.unread })}
           </Chip>
         )}
         {o.errors > 0 && (
-          <Chip label={`${plural(o.errors, "task")} with session errors. Open Attention`} icon={<Dot size={7} color={colors.statusDanger} />} onPress={onAttention}>
-            {plural(o.errors, "error")}
+          <Chip label={tn(o.errors, "{n} task with session errors. Open Attention", "{n} tasks with session errors. Open Attention")} icon={<Dot size={7} color={colors.statusDanger} />} onPress={onAttention}>
+            {tn(o.errors, "{n} error", "{n} errors")}
           </Chip>
         )}
         {(o.inReview || o.blocked) ? <Divider /> : null}
@@ -86,9 +93,17 @@ export function OverviewBar({
           </Chip>
         )}
         <Divider />
-        <Chip label={`Project insights${insightsShortcut ? ` (${insightsShortcut})` : ""}`} icon={<Icon name="Activity" size={13} color={colors.foregroundMuted} />} onPress={onInsights}>
-          Insights
+        {openIdeas !== null && (
+        <Chip
+          label={`${t("Project ideas: {openIdeas} open", { openIdeas })}${ideasShortcut ? ` (${ideasShortcut})` : ""}`}
+          icon={<Icon name="Lightbulb" size={13} color={openIdeas ? colors.statusWarning : colors.foregroundMuted} />}
+          onPress={onIdeas}
+        >
+          {openIdeas ? t("Ideas {openIdeas}", { openIdeas }) : t("Ideas")}
         </Chip>
+        )}
+        <Chip label={`${t("Project insights")}${insightsShortcut ? ` (${insightsShortcut})` : ""}`} icon={<Icon name="Activity" size={13} color={colors.foregroundMuted} />} onPress={onInsights}>
+          {t("Insights")}</Chip>
       </ScrollView>
     </View>
   );

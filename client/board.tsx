@@ -33,7 +33,6 @@ import {
   Choices,
   Notice,
   Row,
-  Toggle,
   Dot,
   Badge,
   Divider,
@@ -58,6 +57,8 @@ import {
 import { relativeTime } from "./ui";
 import { ProjectForm, TaskForm, type TaskSeed } from "./forms";
 import { ideaDescription } from "../shared/ideas";
+import { waitingOn } from "../shared/links";
+import { LinkPicker } from "./task-links";
 import { TaskDrawer } from "./drawer";
 import { DeleteTaskDialog } from "./task-delete";
 import { useBoardQuery, useLiveAgents, useResourcesQuery } from "./queries";
@@ -65,9 +66,11 @@ import { useStableCallback, useStableTheme } from "./stable";
 import { isLegacyScope } from "../shared/scope";
 import { LiveTaskCard, type CardDrag } from "./card";
 import { cardProgress, useSummaries } from "./task-progress";
+import { LocaleRoot } from "./i18n";
+import { agentModelFromValues, effectiveAgentModel, startingAgent } from "../shared/agent-defaults";
 import { SettingsFab, SettingsModal } from "./summary-settings";
 import { WrapupModal } from "./wrapup";
-import { wrapupSettings, wrapupSettingsValues } from "../shared/settings";
+import { ideasSettings, ideasSettingsValues, modelSettings, modelSettingsValues, wrapupSettings, wrapupSettingsValues } from "../shared/settings";
 import { pickOutputSession } from "./card-output";
 import { cardQuestions } from "../shared/progress";
 import { statusChanges } from "./changes";
@@ -82,6 +85,7 @@ import { SortableList } from "./sortable-list";
 import { useBoardView } from "./board-view";
 import { OverviewBar } from "./overview-bar";
 import { InsightsPage } from "./insights";
+import { IdeasPage } from "./ideas-page";
 import { lastViewedProject, pickProject, rememberViewedProject } from "./project-memory";
 import { ProjectTabs } from "./project-tabs";
 import { RemoveProjectDialog } from "./project-remove";
@@ -105,6 +109,17 @@ import {
   type ShortcutAction,
   type BoardIntent,
 } from "./shortcuts";
+import { ConceptStrip, GuideBanner, WelcomeTour, useOnboarding } from "./onboarding";
+import { nextTip, welcomeDecision, type TipId } from "./onboarding-logic";
+import { t, tn } from "../shared/i18n";
+
+/** One-time tip texts (ONBOARDING-SPEC §5). */
+const tipText: Record<TipId, () => string> = {
+  "first-card": () => t("Your card moves by itself as the agent works. Open it any time to see its sessions, output and summary."),
+  "needs-you": () => t("A card is waiting for you. Reply goes straight to the session."),
+  "first-idea": () => t("An agent suggested follow-up work. Good idea starts a card or continues here; Not now dismisses it."),
+  "first-done": () => t("Done cards can be wrapped up: their sessions and workspace are archived. Auto wrap up is in settings."),
+};
 
 /** RN-Web forwards React keyboard events on View; React Native's types omit them. */
 type WebKeyEvent = {
@@ -126,9 +141,15 @@ const noAgents: PaseoAgent[] = [];
 const appliedAttentionTokens = new Set<string>();
 const consumedIntents = new Set<string>();
 
-export function BoardScreen(
-  props: PluginSurfaceProps & { workspaceId?: string; params?: PluginScreenParams },
-) {
+export function BoardScreen(props: PluginSurfaceProps & { workspaceId?: string; params?: PluginScreenParams }) {
+  return (
+    <LocaleRoot>
+      <BoardSurface {...props} />
+    </LocaleRoot>
+  );
+}
+
+function BoardSurface(props: PluginSurfaceProps & { workspaceId?: string; params?: PluginScreenParams }) {
   // Tablets get anchored menus with the desktop board; phones keep the bottom sheet.
   const windowWidth = useWindowDimensions().width;
   // The host may hand over a new theme object on unrelated renders; a new
@@ -198,10 +219,14 @@ function BoardContent(
   // Moving a card into Done/Cancelled asks whether to wrap it up, unless the
   // daemon does it automatically (Auto wrap up setting).
   const wrapupPrefs = useSettings(wrapupSettings);
+  // The Ideas switch (IDEAS-INBOX-SPEC §10); on until the setting has loaded.
+  const ideasPrefs = useSettings(ideasSettings);
+  const ideasOn = ideasPrefs.status !== "ready" || ideasSettingsValues(ideasPrefs.values).ideas;
   const [wrapPrompt, setWrapPrompt] = useState("");
   const finished = (status?: Status) => status === "done" || status === "cancelled";
   const askWrapup = (id: string, from: Status | undefined, to: Status) => {
     if (!finished(to) || finished(from)) return;
+    setMovedToFinished(true);
     if (wrapupPrefs.status !== "ready" || wrapupSettingsValues(wrapupPrefs.values).autoWrapup) return;
     setWrapPrompt(id);
   };
@@ -212,14 +237,23 @@ function BoardContent(
     [taskType, setTaskTypeState] = useState("all"),
     [archived, setArchivedState] = useState(false),
     [menu, setMenu] = useState<"projects" | "filters" | "status" | "attention" | "shortcuts" | "settings" | null>(null),
+    // First-run welcome tour (ONBOARDING-SPEC): opened once automatically, or by hand.
+    [welcomeOpen, setWelcomeOpen] = useState(false),
+    // The user just moved a card into Done/Cancelled (drives the wrap-up tip).
+    [movedToFinished, setMovedToFinished] = useState(false),
     [escapeRequest, setEscapeRequest] = useState<{ taskId: string; key: string } | null>(null),
-    [insightsOpen, setInsightsOpen] = useState(false),
-    [startRequest, setStartRequest] = useState<{ taskId: string; key: string } | null>(null),
+    // Project-level page over the board area: Insights or Ideas (IDEAS-INBOX-SPEC §3.3).
+    [page, setPage] = useState<"insights" | "ideas" | null>(null),
+    // Ideas page: only this card's ideas ("All ideas" from a card).
+    [ideaCard, setIdeaCard] = useState(""),
+    // `idea`: Start session prefilled from an idea on the Ideas page (IDEAS-SPEC §6.3).
+    [startRequest, setStartRequest] = useState<{ taskId: string; key: string; idea?: Idea } | null>(null),
     [mobileStatus, setMobileStatus] = useState<Status>("todo"),
     [actionTask, setActionTask] = useState<Task | null>(null),
     [projectForm, setProjectForm] = useState<"new" | "edit" | null>(null),
     [removing, setRemoving] = useState<Project | null>(null),
     [deleting, setDeleting] = useState<Task | null>(null),
+    [linking, setLinking] = useState<Task | null>(null),
     [taskForm, setTaskForm] = useState<{ task?: Task; status: Status; seed?: TaskSeed } | null>(
       null,
     ),
@@ -468,13 +502,21 @@ function BoardContent(
       attentionFromSources({ board, agents: agents.data, receipts, readUnavailable }) || [],
     [board, agents.data, receipts, readUnavailable],
   );
+  // The project's default model wins over the global one; with neither, the latest session's settings (MODEL-DEFAULTS-SPEC).
+  const modelPrefs = useSettings(modelSettings);
+  const globalModel = agentModelFromValues(modelPrefs.status === "ready" ? modelSettingsValues(modelPrefs.values) : null);
+  const defaultModel = effectiveAgentModel(project, globalModel)?.model ?? null;
+  const defaultModelKey = JSON.stringify(defaultModel);
   const sessionDefaults = useMemo(
     () =>
-      lastSessionSettings(
-        agents.data || [],
-        new Set((board?.tasks || []).map((t) => t.workspaceId)),
+      startingAgent(
+        lastSessionSettings(
+          agents.data || [],
+          new Set((board?.tasks || []).map((t) => t.workspaceId)),
+        ),
+        defaultModel,
       ),
-    [agents.data, board?.tasks],
+    [agents.data, board?.tasks, defaultModelKey],
   );
   const openAttention = (item: AttentionItem) => {
     setMenu(null);
@@ -491,8 +533,7 @@ function BoardContent(
   const filterCount =
     Number(!!search) +
     Number(priority !== "all") +
-    Number(taskType !== "all") +
-    Number(archived);
+    Number(taskType !== "all");
   const refresh = () => {
     void data.refetch();
     void resources.refetch();
@@ -520,7 +561,7 @@ function BoardContent(
     const from = data.data?.tasks.find((t) => t.id === input.id)?.status;
     void doAction(
       () => updateTask(input),
-      `Moved to ${nameOf(input.status)}`,
+      t("Moved to {name}", { name: nameOf(input.status) }),
       () => askWrapup(input.id, from, input.status),
     );
   };
@@ -528,71 +569,73 @@ function BoardContent(
     const from = data.data?.tasks.find((t) => t.id === input.id)?.status;
     void doAction(
       () => placeTask(input),
-      from === input.status ? "" : `Moved to ${nameOf(input.status)}`,
+      from === input.status ? "" : t("Moved to {name}", { name: nameOf(input.status) }),
       () => askWrapup(input.id, from, input.status),
     );
   };
   const openMenu = useMenuOpener();
-  const cardMenu = (t: Task): MenuEntry[] => {
-    const locked = pending || !!project?.archivedAt || !!t.archivedAt;
+  const cardMenu = (card: Task): MenuEntry[] => {
+    const locked = pending || !!project?.archivedAt || !!card.archivedAt;
     return [
-      { id: "open", label: "Open details", icon: "PanelRightOpen", onPress: () => setTask(t.id) },
+      { id: "open", label: t("Open details"), icon: "PanelRightOpen", onPress: () => setTask(card.id) },
       {
         id: "start",
-        label: "Start session",
+        label: t("Start session"),
         icon: "Play",
         disabled: locked,
         onPress: () => {
-          setTask(t.id);
-          setStartRequest({ taskId: t.id, key: `start-${Date.now()}` });
+          setTask(card.id);
+          setStartRequest({ taskId: card.id, key: `start-${Date.now()}` });
         },
       },
+      { id: "link", label: t("Link to a card…"), icon: "Link", disabled: locked, onPress: () => setLinking(card) },
+      { id: "follow-up", label: t("New follow-up task"), icon: "CornerDownRight", disabled: locked, onPress: () => followUp(card) },
       { kind: "separator", id: "s1" },
-      { kind: "label", id: "move", label: "Move to" },
+      { kind: "label", id: "move", label: t("Move to") },
       ...shownStatuses.map((status) => ({
         id: `status-${status}`,
         label: nameOf(status),
-        checked: status === t.status,
+        checked: status === card.status,
         disabled: locked,
         onPress: () => {
-          if (status !== t.status) move({ id: t.id, revision: t.revision, status });
+          if (status !== card.status) move({ id: card.id, revision: card.revision, status });
         },
       })),
       { kind: "separator", id: "s2" },
       {
         id: "up",
-        label: "Move up",
+        label: t("Move up"),
         icon: "ArrowUp",
         disabled: locked,
-        onPress: () => void doAction(() => reorder({ id: t.id, revision: t.revision, direction: "up" })),
+        onPress: () => void doAction(() => reorder({ id: card.id, revision: card.revision, direction: "up" })),
       },
       {
         id: "down",
-        label: "Move down",
+        label: t("Move down"),
         icon: "ArrowDown",
         disabled: locked,
-        onPress: () => void doAction(() => reorder({ id: t.id, revision: t.revision, direction: "down" })),
+        onPress: () => void doAction(() => reorder({ id: card.id, revision: card.revision, direction: "down" })),
       },
       { kind: "separator", id: "s3" },
       {
         id: "archive",
-        label: t.archivedAt ? "Restore card" : "Archive card",
-        icon: t.archivedAt ? "ArchiveRestore" : "Archive",
-        danger: !t.archivedAt,
+        label: card.archivedAt ? t("Restore card") : t("Archive card"),
+        icon: card.archivedAt ? "ArchiveRestore" : "Archive",
+        danger: !card.archivedAt,
         disabled: pending || !!project?.archivedAt,
         onPress: () =>
           void doAction(
-            () => updateTask({ id: t.id, revision: t.revision, archived: !t.archivedAt }),
-            t.archivedAt ? "Card restored" : "Card archived",
+            () => updateTask({ id: card.id, revision: card.revision, archived: !card.archivedAt }),
+            card.archivedAt ? t("Card restored") : t("Card archived"),
           ),
       },
       {
         id: "delete",
-        label: "Delete permanently…",
+        label: t("Delete permanently…"),
         icon: "Trash2",
         danger: true,
         disabled: pending || !!project?.archivedAt,
-        onPress: () => setDeleting(t),
+        onPress: () => setDeleting(card),
       },
     ];
   };
@@ -617,9 +660,19 @@ function BoardContent(
   }, [board?.events, agents.data, resources.data]);
   const openIdeaCount = useMemo(() => {
     const counts = new Map<string, number>();
-    for (const i of board?.ideas || []) if (i.status === "open") counts.set(i.taskId, (counts.get(i.taskId) || 0) + 1);
+    if (ideasOn) for (const i of board?.ideas || []) if (i.status === "open") counts.set(i.taskId, (counts.get(i.taskId) || 0) + 1);
     return counts;
-  }, [board?.ideas]);
+  }, [board?.ideas, ideasOn]);
+  // Unresolved blockers per card, for the "Waiting on" signal (CARD-LINKS-SPEC §5.1).
+  const waitingIndex = useMemo(() => {
+    const index = new Map<string, { count: number; titles: string }>();
+    if (!board?.links.length) return index;
+    for (const t of board.tasks) {
+      const blockers = waitingOn(board, t.id);
+      if (blockers.length) index.set(t.id, { count: blockers.length, titles: blockers.map((b) => b.title).join(", ") });
+    }
+    return index;
+  }, [board?.links, board?.tasks]);
   // Stable for every card (memoized cards; PERFORMANCE-SPEC §3).
   const openCard = useStableCallback((t: Task) => setTask(t.id));
   const openCardActions = useStableCallback((t: Task) => setActionTask(t));
@@ -644,10 +697,86 @@ function BoardContent(
       },
     }),
   );
+  // CARD-LINKS-SPEC §5.5: the new-task form, linked as a follow-up of `source`.
+  const followUp = useStableCallback((source: Task) =>
+    setTaskForm({
+      status: "todo",
+      seed: { followUpOf: source.id, followUpTitle: source.title, title: "", description: "", type: source.type, priority: source.priority },
+    }),
+  );
+  const linkFrom = useStableCallback((source: Task) => setLinking(source));
   const openTaskById = useStableCallback((id: string) => setTask(id));
-  const closeInsights = useStableCallback(() => setInsightsOpen(false));
+  const togglePage = (next: "insights" | "ideas") => setPage((current) => (current === next ? null : next));
+  const closePage = useStableCallback(() => setPage(null));
+  // Turning Ideas off closes its page.
+  useEffect(() => {
+    if (!ideasOn) setPage((current) => (current === "ideas" ? null : current));
+  }, [ideasOn]);
+  const showCardIdeas = useStableCallback((id: string) => {
+    setIdeaCard(id);
+    setPage("ideas");
+    setTask("");
+  });
+  // "Do it in a new session" from the Ideas page: the card's drawer opens its Start session form.
+  const ideaInNewSession = useStableCallback((idea: Idea) => {
+    setTask(idea.taskId);
+    setStartRequest({ taskId: idea.taskId, key: `start-${Date.now()}`, idea });
+  });
+  const ideaSessionsOf = useStableCallback((id: string) => {
+    const t = board?.tasks.find((x) => x.id === id);
+    const list = (t && cardIndex.agentsByWorkspace.get(t.workspaceId)) || noAgents;
+    return [...list].sort((a, b) => b.createdAt.localeCompare(a.createdAt) || a.id.localeCompare(b.id));
+  });
+  const projectIdeaList = useMemo(() => (board?.ideas || []).filter((i) => i.projectId === project?.id), [board?.ideas, project?.id]);
+  const projectOpenIdeas = useMemo(() => projectIdeaList.filter((i) => i.status === "open").length, [projectIdeaList]);
   const projectTasks = useMemo(() => (board?.tasks || []).filter((t) => t.projectId === project?.id), [board?.tasks, project?.id]);
   const projectAttention = useMemo(() => attention.filter((i) => i.project.id === project?.id), [attention, project?.id]);
+  // First-run guidance (ONBOARDING-SPEC): the welcome tour, empty-board hint and one-time tips.
+  const onboarding = useOnboarding();
+  const inPanel = !!props.workspaceId;
+  const dialogOpen = !!menu || !!projectForm || !!taskForm || !!removing || !!deleting || !!wrapPrompt || !!linking;
+  const welcome = welcomeDecision({
+    settingsStatus: onboarding.status,
+    welcomeSeen: onboarding.values?.welcomeSeen ?? false,
+    boardLoaded: !!board,
+    projectCount: board?.projects.length ?? 0,
+    blocked: dialogOpen || !!taskId,
+  });
+  const welcomeHandled = useRef("");
+  const tourTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => { if (tourTimer.current) clearTimeout(tourTimer.current); }, []);
+  useEffect(() => {
+    if (inPanel || welcomeHandled.current === welcome) return;
+    if (welcome === "show") {
+      welcomeHandled.current = welcome;
+      setWelcomeOpen(true);
+    } else if (welcome === "mark-seen") {
+      // Someone who already uses the board is never interrupted, and gets no first-time tips either.
+      welcomeHandled.current = welcome;
+      void onboarding.markExistingUserSeen();
+    }
+  }, [welcome, inPanel]);
+  const closeWelcome = () => {
+    setWelcomeOpen(false);
+    if (!onboarding.values?.welcomeSeen) void onboarding.markWelcomeSeen();
+  };
+  const tip = inPanel || !board || !project || !!project.archivedAt || page
+    ? null
+    : nextTip({
+        tipsSeen: onboarding.values?.tipsSeen ?? [],
+        facts: {
+          hasCard: !task && projectTasks.some((x) => !x.archivedAt),
+          needsYou: projectAttention.length > 0,
+          openIdea: ideasOn && projectOpenIdeas > 0,
+          movedToFinished,
+        },
+        blocked: !onboarding.values || welcomeOpen || welcome === "show" || dialogOpen,
+      });
+  const dismissTip = (id: TipId) => {
+    if (id === "first-done") setMovedToFinished(false);
+    void onboarding.markTipSeen(id);
+  };
+  const emptyProjectHint = !!board && !!project && !project.archivedAt && !page && !welcomeOpen && projectTasks.length === 0;
   const deleteDrawerTask = useStableCallback(() => drawer.item && setDeleting(drawer.item.task));
   const drawerStatusChanged = useStableCallback((from: Status | undefined, to: Status) =>
     drawer.item && askWrapup(drawer.item.task.id, from, to),
@@ -688,6 +817,8 @@ function BoardContent(
         progress={cardProgress(summaries.data, t.id)}
         questions={board ? cardQuestions(t, events).length : 0}
         ideas={openIdeaCount.get(t.id) || 0}
+        waiting={waitingIndex.get(t.id)?.count || 0}
+        waitingTitles={waitingIndex.get(t.id)?.titles || ""}
         flash={flashing.has(t.id)}
         drag={drag}
         dragging={dragging}
@@ -716,7 +847,7 @@ function BoardContent(
     switch (intent) {
       case "new-task":
         if (!project || project.archivedAt) return false;
-        setTaskForm({ status: compact ? mobileStatus : "todo" });
+        setTaskForm({ status: "todo" });
         return true;
       case "filters":
         if (!project) return false;
@@ -727,13 +858,21 @@ function BoardContent(
       case "shortcuts":
         setMenu(intent);
         return true;
+      case "welcome":
+        setWelcomeOpen(true);
+        return true;
       case "insights":
         if (!project) return false;
-        setInsightsOpen((open) => !open);
+        togglePage("insights");
+        return true;
+      case "ideas":
+        if (!project || !ideasOn) return false;
+        setIdeaCard("");
+        togglePage("ideas");
         return true;
       case "escape":
-        if (!task && insightsOpen) {
-          setInsightsOpen(false);
+        if (!task && page) {
+          setPage(null);
           return true;
         }
         if (!task) return false;
@@ -752,7 +891,7 @@ function BoardContent(
         return true;
       }
       default: {
-        if (compact || insightsOpen) return false;
+        if (compact || page) return false;
         const expanded = shownStatuses.filter((s) => !collapsedColumns.includes(s));
         const next = navigateGrid(taskGrid(expanded, visible, sortColumn), task?.id || "", intent);
         if (!next) return false;
@@ -819,7 +958,9 @@ function BoardContent(
         onClose={closeDrawer}
         onEdit={editDrawerTask}
         onDelete={deleteDrawerTask}
-        onCreateFromIdea={createFromIdea}
+        onCreateFromIdea={ideasOn ? createFromIdea : undefined}
+        onLink={linkFrom}
+        onFollowUp={followUp}
         onOpenTask={openTaskById}
         onStatusChanged={drawerStatusChanged}
         refresh={stableRefresh}
@@ -830,6 +971,8 @@ function BoardContent(
         startRequest={
           startRequest?.taskId === drawer.item.task.id ? startRequest.key : undefined
         }
+        startIdea={startRequest?.taskId === drawer.item.task.id ? startRequest.idea : undefined}
+        onAllIdeas={showCardIdeas}
         sessionEntry={
           sessionEntry?.taskId === drawer.item.task.id && drawer.active ? sessionEntry : undefined
         }
@@ -861,7 +1004,7 @@ function BoardContent(
           >
             {compact || projects.length === 0 ? (
               <ProjectSwitcher
-                title={project?.title || "Projects"}
+                title={project?.title || t("Projects")}
                 archived={!!project?.archivedAt}
                 shortcut={shortcutsOn ? "P" : ""}
                 onPress={() => setMenu("projects")}
@@ -879,14 +1022,25 @@ function BoardContent(
             {!compact && !!project && filterCount > 0 && (
               // The overview counts the whole project; with filters on, say how many are shown.
               <Label muted size={font.sm} selectable={false}>
-                {visible.length} shown
+                {t("{n} shown", { n: visible.length })}
               </Label>
             )}
+            {!!project && (
+              // Opens the project's own settings (name, lanes, auto status) at once, not through the chooser.
+              <IconButton
+                icon="SlidersHorizontal"
+                label={t("Project settings")}
+                onPress={() => setProjectForm("edit")}
+              />
+            )}
             {(compact || projects.length === 0) && <View style={{ flex: 1 }} />}
+            {!compact && (
+              <IconButton icon="CircleHelp" label={t("Welcome tour")} onPress={() => setWelcomeOpen(true)} />
+            )}
             {shortcutsOn && (
               <IconButton
                 icon="Keyboard"
-                label={withKey("Keyboard shortcuts", "?")}
+                label={withKey(t("Keyboard shortcuts"), "?")}
                 onPress={() => setMenu("shortcuts")}
               />
             )}
@@ -900,11 +1054,11 @@ function BoardContent(
               mode={boardSort}
               compact={compact}
               onPress={(event) =>
-                openMenu?.(eventPoint(event), "Sort cards", [
-                  { kind: "label", id: "label", label: "Sort cards in each column" },
+                openMenu?.(eventPoint(event), t("Sort cards"), [
+                  { kind: "label", id: "label", label: t("Sort cards in each column") },
                   ...boardSorts.map((mode) => ({
                     id: mode,
-                    label: boardSortText[mode].label,
+                    label: t(boardSortText[mode].label),
                     icon: sortIcons[mode],
                     checked: mode === boardSort,
                     onPress: () => chooseSort(mode),
@@ -922,13 +1076,13 @@ function BoardContent(
               <Button
                 primary
                 icon="Plus"
-                label={withKey("New task", "N")}
+                label={withKey(t("New task"), "N")}
                 disabled={!!project.archivedAt}
                 onPress={() =>
-                  setTaskForm({ status: compact ? mobileStatus : "todo" })
+                  setTaskForm({ status: "todo" })
                 }
               >
-                {compact ? "" : "New task"}
+                {compact ? "" : t("New task")}
               </Button>
             )}
           </View>
@@ -939,15 +1093,35 @@ function BoardContent(
             overview={boardOverview(project, board.tasks, agents.data || [], attention)}
             nameOf={nameOf}
             onAttention={() => setMenu("attention")}
-            onInsights={() => setInsightsOpen((open) => !open)}
+            onInsights={() => togglePage("insights")}
             insightsShortcut={shortcutsOn ? "I" : ""}
+            openIdeas={ideasOn ? projectOpenIdeas : null}
+            onIdeas={() => {
+              setIdeaCard("");
+              togglePage("ideas");
+            }}
+            ideasShortcut={shortcutsOn ? "B" : ""}
             onLane={(status) => {
-              setInsightsOpen(false);
+              setPage(null);
               if (compact) setMobileStatus(status);
               else if (collapsedColumns.includes(status)) toggleCollapse(status);
             }}
           />
           </View>
+        )}
+        {emptyProjectHint && (
+          <GuideBanner
+            text={t("Add your first task. It gets its own workspace and sessions.")}
+            actionLabel={t("New task")}
+            onAction={() => setTaskForm({ status: "todo" })}
+          />
+        )}
+        {!emptyProjectHint && !!tip && (
+          <GuideBanner
+            text={tipText[tip]()}
+            dismissLabel={t("Got it")}
+            onDismiss={() => dismissTip(tip)}
+          />
         )}
         {(data.error || error) && (
           <View style={{ paddingHorizontal: space[3], paddingTop: space[3], gap: space[2] }}>
@@ -961,14 +1135,13 @@ function BoardContent(
                   refresh();
                 }}
               >
-                Retry
-              </Button>
+                {t("Retry")}</Button>
             </View>
           </View>
         )}
         {!!input.link && resolvedLink.isPending && (
           <View style={{ paddingHorizontal: space[4], paddingTop: space[3] }}>
-            <Label muted>Opening linked session…</Label>
+            <Label muted>{t("Opening linked session…")}</Label>
           </View>
         )}
         {!!(input.error || resolvedLink.error) && (
@@ -977,15 +1150,14 @@ function BoardContent(
             {!input.error && (
               <View style={{ flexDirection: "row" }}>
                 <Button quiet icon="RefreshCw" onPress={() => void resolvedLink.refetch()}>
-                  Retry linked session
-                </Button>
+                  {t("Retry linked session")}</Button>
               </View>
             )}
           </View>
         )}
         {data.isPending ? (
           <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
-            <Label muted>Loading board…</Label>
+            <Label muted>{t("Loading board…")}</Label>
           </View>
         ) : !project ? (
           <View
@@ -994,24 +1166,23 @@ function BoardContent(
             <View style={{ maxWidth: 360, gap: space[3], alignItems: "center" }}>
               <Icon name="PanelsTopLeft" size={28} color={colors.foregroundMuted} />
               <Label bold size={font.lg}>
-                No projects yet
-              </Label>
+                {t("No projects yet")}</Label>
               <View style={{ paddingBottom: space[2] }}>
                 <Label muted size={font.md}>
-                  A project maps to one Paseo project root. Add tasks to it and
-                  each task gets its own workspace and sessions.
-                </Label>
+                  {t("A project maps to one Paseo project root. Add tasks to it and each task gets its own workspace and sessions.")}</Label>
               </View>
               <Button primary icon="Plus" onPress={() => setProjectForm("new")}>
-                Create project
-              </Button>
+                {t("Create project")}</Button>
+              <View style={{ paddingTop: space[3] }}>
+                <ConceptStrip onTour={() => setWelcomeOpen(true)} />
+              </View>
             </View>
           </View>
         ) : (
           <View style={{ flex: 1, minHeight: 0, flexDirection: "row" }}>
             {(
-              <MotionReveal transitionKey={`${project.id}|${insightsOpen ? "insights" : compact ? mobileStatus : "columns"}`} direction={-1} distance={compact ? 0 : 18} {...covered} style={{ flex: 1, minWidth: 0, minHeight: 0 }}>
-                {insightsOpen && board ? (
+              <MotionReveal transitionKey={`${project.id}|${page || (compact ? mobileStatus : "columns")}`} direction={-1} distance={compact ? 0 : 18} {...covered} style={{ flex: 1, minWidth: 0, minHeight: 0 }}>
+                {page === "insights" && board ? (
                   <InsightsPage
                     project={project}
                     tasks={projectTasks}
@@ -1021,14 +1192,29 @@ function BoardContent(
                     active={!(compact && drawer.active)}
                     nameOf={nameOf}
                     onOpenTask={openTaskById}
-                    onBack={closeInsights}
+                    onBack={closePage}
+                  />
+                ) : page === "ideas" && ideasOn && board ? (
+                  <IdeasPage
+                    project={project}
+                    tasks={projectTasks}
+                    ideas={projectIdeaList}
+                    compact={compact}
+                    cardFilter={ideaCard}
+                    nameOf={nameOf}
+                    sessionsOf={ideaSessionsOf}
+                    onCardFilter={setIdeaCard}
+                    onOpenTask={openTaskById}
+                    onCreate={createFromIdea}
+                    onNewSession={ideaInNewSession}
+                    onBack={closePage}
                   />
                 ) : compact ? (
                   <>
                     <View style={{ paddingHorizontal: space[2], paddingTop: space[2] }}>
                       <Row
                         title={nameOf(mobileStatus)}
-                        label="Choose task status"
+                        label={t("Choose task status")}
                         leading={<StatusIcon status={mobileStatus} size={16} />}
                         trailing={
                           <View style={{ flexDirection: "row", alignItems: "center", gap: space[2] }}>
@@ -1058,8 +1244,8 @@ function BoardContent(
                         <View style={{ paddingVertical: space[6], gap: space[3], alignItems: "center" }}>
                           <Label muted selectable={false}>
                             {filterCount
-                              ? "No tasks match these filters."
-                              : `No ${nameOf(mobileStatus).toLowerCase()} tasks.`}
+                              ? t("No tasks match these filters.")
+                              : t("No tasks in {lane}.", { lane: nameOf(mobileStatus) })}
                           </Label>
                           <Button
                             icon="Plus"
@@ -1068,8 +1254,7 @@ function BoardContent(
                               setTaskForm({ status: mobileStatus })
                             }
                           >
-                            Add task
-                          </Button>
+                            {t("Add task")}</Button>
                         </View>
                       )}
                     </ScrollView>
@@ -1086,7 +1271,7 @@ function BoardContent(
                     nameOf={nameOf}
                     onToggleCollapse={toggleCollapse}
                     onReorderBlocked={() =>
-                      toast.show(`Sorted by ${boardSortText[boardSort].label.toLowerCase()}. Drop on another lane to change status; switch to Manual to reorder within a column.`, { variant: "info" })
+                      toast.show(t("Sorted by {sort}. Drop on another lane to change status; switch to Manual to reorder within a column.", { sort: t(boardSortText[boardSort].label) }), { variant: "info" })
                     }
                     renderCard={renderCard}
                     onAdd={(status) => setTaskForm({ status })}
@@ -1101,7 +1286,7 @@ function BoardContent(
 
         <Modal
           open={menu === "projects"}
-          title="Projects"
+          title={t("Projects")}
           onOpenChange={(open) => {
             if (!open) projectMenuClose();
           }}
@@ -1131,7 +1316,7 @@ function BoardContent(
                       !touch && projects.length > 1 ? (
                         // Grip on the left, tucked against the folder icon.
                         <View
-                          accessibilityLabel="Drag to reorder"
+                          accessibilityLabel={t("Drag to reorder")}
                           style={{ width: 14, marginLeft: -space[1.5], marginRight: -space[1.5], alignItems: "center", ...({ cursor: "grab" } as object) }}
                         >
                           <Icon name="GripVertical" size={14} color={colors.foregroundMuted} />
@@ -1140,11 +1325,11 @@ function BoardContent(
                     }
                     trailing={
                       <View style={{ flexDirection: "row", alignItems: "center", gap: 2 }}>
-                        {p.archivedAt && <Badge>Archived</Badge>}
+                        {p.archivedAt && <Badge>{t("Archived")}</Badge>}
                         {touch && projects.length > 1 && (
                           <>
-                            <IconButton icon="ChevronUp" size={36} label={`Move ${p.title} up`} disabled={index === 0 || pending} onPress={() => reorderProject(p.id, { direction: "up" })} />
-                            <IconButton icon="ChevronDown" size={36} label={`Move ${p.title} down`} disabled={index === projects.length - 1 || pending} onPress={() => reorderProject(p.id, { direction: "down" })} />
+                            <IconButton icon="ChevronUp" size={36} label={t("Move {title} up", { title: p.title })} disabled={index === 0 || pending} onPress={() => reorderProject(p.id, { direction: "up" })} />
+                            <IconButton icon="ChevronDown" size={36} label={t("Move {title} down", { title: p.title })} disabled={index === projects.length - 1 || pending} onPress={() => reorderProject(p.id, { direction: "down" })} />
                           </>
                         )}
                       </View>
@@ -1162,7 +1347,7 @@ function BoardContent(
               {project && (
                 <>
                   <Row
-                    title={`Edit ${project.title}`}
+                    title={t("Edit {title}", { title: project.title })}
                     icon="Pencil"
                     onPress={() => {
                       projectMenuClose();
@@ -1172,7 +1357,7 @@ function BoardContent(
                   {project.archivedAt && (
                     // Archiving was folded into Remove; older archived projects can still come back.
                     <Row
-                      title={`Restore ${project.title}`}
+                      title={t("Restore {title}", { title: project.title })}
                       icon="ArchiveRestore"
                       disabled={pending}
                       onPress={() => {
@@ -1182,7 +1367,7 @@ function BoardContent(
                     />
                   )}
                   <Row
-                    title={`Remove “${project.title}”…`}
+                    title={t("Remove “{title}”…", { title: project.title })}
                     icon="Trash2"
                     iconColor={colors.statusDanger}
                     disabled={pending}
@@ -1194,7 +1379,7 @@ function BoardContent(
                 </>
               )}
               <Row
-                title="New project"
+                title={t("New project")}
                 icon="Plus"
                 onPress={() => {
                   projectMenuClose();
@@ -1206,7 +1391,7 @@ function BoardContent(
         </Modal>
         <Modal
           open={menu === "filters"}
-          title="Filters"
+          title={t("Filters")}
           onOpenChange={(open) => {
             if (!open) setMenu(null);
           }}
@@ -1214,39 +1399,31 @@ function BoardContent(
           <Modal.Content>
             <Theme.Provider value={props.theme}>
               <Field
-                title="Search"
+                title={t("Search")}
                 value={search}
                 onChange={setSearch}
                 // Filtering re-renders the whole board: keep it out of the keystroke path.
                 commitDelay={150}
-                placeholder="Title or description"
+                placeholder={t("Title or description")}
               />
               <Choices
-                title="Type"
+                title={t("Type")}
                 value={taskType}
                 options={[
-                  { value: "all", label: "All" },
+                  { value: "all", label: t("All") },
                   ...taskTypes.map((t) => ({ value: t, label: taskTypeLabels[t] })),
                 ]}
                 onChange={setTaskType}
               />
               <Choices
-                title="Priority"
+                title={t("Priority")}
                 value={priority}
                 options={[
-                  { value: "all", label: "All" },
+                  { value: "all", label: t("All") },
                   ...priorities.map((p) => ({ value: p, label: priorityLabels[p] })),
                 ]}
                 onChange={setPriority}
               />
-              <View style={{ gap: space[1] }}>
-                <Toggle
-                  title="Show archived"
-                  detail="Archived projects and tasks"
-                  value={archived}
-                  onChange={setArchived}
-                />
-              </View>
               <Actions>
                 <Button
                   quiet
@@ -1255,24 +1432,20 @@ function BoardContent(
                     setSearch("");
                     setPriority("all");
                     setTaskType("all");
-                    setArchived(false);
                   }}
                 >
-                  Reset filters
-                </Button>
+                  {t("Reset filters")}</Button>
                 <Button icon="RefreshCw" onPress={refresh}>
-                  Refresh
-                </Button>
+                  {t("Refresh")}</Button>
                 <Button primary onPress={() => setMenu(null)}>
-                  Done
-                </Button>
+                  {t("Done")}</Button>
               </Actions>
             </Theme.Provider>
           </Modal.Content>
         </Modal>
         <Modal
           open={menu === "attention"}
-          title="Needs attention"
+          title={t("Needs attention")}
           onOpenChange={(open) => {
             if (!open) setMenu(null);
           }}
@@ -1282,14 +1455,13 @@ function BoardContent(
               {readUnavailable && (
                 <View style={{ paddingBottom: space[2] }}>
                   <Notice tone="warning">
-                    Read state is unavailable, so finished-but-unread sessions are not listed. Approvals and errors still are.
-                  </Notice>
+                    {t("Read state is unavailable, so finished-but-unread sessions are not listed. Approvals and errors still are.")}</Notice>
                 </View>
               )}
               {!attention.length ? (
                 <View style={{ paddingVertical: space[6], alignItems: "center", gap: space[2] }}>
                   <Icon name="BellOff" size={20} color={colors.foregroundMuted} />
-                  <Label muted>Nothing needs your attention.</Label>
+                  <Label muted>{t("Nothing needs your attention.")}</Label>
                 </View>
               ) : (
                 attention.map((item) => (
@@ -1297,15 +1469,19 @@ function BoardContent(
                     key={item.task.id}
                     title={item.task.title}
                     detail={`${item.project.title} · ${laneName(item.project, item.task.status)} · ${[
-                      item.questions && `${item.questions} question${item.questions === 1 ? "" : "s"}`,
-                      item.permissions && `${item.permissions} approval`,
-                      item.errors && `${item.errors} error`,
+                      item.questions && tn(item.questions, "{n} question", "{n} questions"),
+                      item.permissions && tn(item.permissions, "{n} approval", "{n} approvals"),
+                      item.errors && tn(item.errors, "{n} error", "{n} errors"),
                       item.unread &&
-                        `${item.unread} unread${item.silent ? ` (${item.silent === item.unread ? "" : `${item.silent} `}no report)` : ""}`,
+                        (item.silent
+                          ? item.silent === item.unread
+                            ? t("{unread} unread (no report)", { unread: item.unread })
+                            : t("{unread} unread ({silent} no report)", { unread: item.unread, silent: item.silent })
+                          : t("{unread} unread", { unread: item.unread })),
                     ]
                       .filter(Boolean)
                       .join(" · ")}`}
-                    label={`Open ${item.task.title}`}
+                    label={t("Open {title}", { title: item.task.title })}
                     leading={
                       <Dot
                         size={8}
@@ -1332,7 +1508,7 @@ function BoardContent(
         </Modal>
         <Modal
           open={menu === "shortcuts"}
-          title="Keyboard shortcuts"
+          title={t("Keyboard shortcuts")}
           onOpenChange={(open) => {
             if (!open) setMenu(null);
           }}
@@ -1340,11 +1516,7 @@ function BoardContent(
           <Modal.Content contentContainerStyle={{ padding: space[4], gap: space[3] }}>
             <Theme.Provider value={props.theme}>
               <Label muted size={font.md}>
-                Board shortcuts work on desktop while focus is inside the board: click an
-                empty part of the board or a card first. They pause while typing or while a
-                dialog is open. From anywhere in Paseo, open the Command Center and search
-                “Ultra Kanban”.
-              </Label>
+                {t("Board shortcuts work on desktop while focus is inside the board: click an empty part of the board or a card first. They pause while typing or while a dialog is open. From anywhere in Paseo, open the Command Center and search “Flowly”.")}</Label>
               <View style={{ gap: space[1] }}>
                 {shortcutHelp.map((item) => (
                   <View
@@ -1352,7 +1524,7 @@ function BoardContent(
                     style={{ flexDirection: "row", alignItems: "center", gap: space[3], minHeight: 32 }}
                   >
                     <View style={{ flex: 1, minWidth: 0 }}>
-                      <Label size={font.base} selectable={false}>{item.title}</Label>
+                      <Label size={font.base} selectable={false}>{t(item.title)}</Label>
                     </View>
                     <View style={{ flexDirection: "row", gap: space[1] }}>
                       {item.keys.map((key) => (
@@ -1367,7 +1539,7 @@ function BoardContent(
         </Modal>
         <Modal
           open={menu === "status"}
-          title="Status"
+          title={t("Status")}
           onOpenChange={(open) => {
             if (!open) setMenu(null);
           }}
@@ -1396,7 +1568,7 @@ function BoardContent(
         </Modal>
         <Modal
           open={!!actionTask}
-          title={actionTask?.title || "Task actions"}
+          title={actionTask?.title || t("Task actions")}
           onOpenChange={(open) => {
             if (!open) setActionTask(null);
           }}
@@ -1406,7 +1578,7 @@ function BoardContent(
               {actionTask && (
                 <>
                   <Row
-                    title="Open details"
+                    title={t("Open details")}
                     icon="PanelRightOpen"
                     onPress={() => {
                       setTask(actionTask.id);
@@ -1414,7 +1586,7 @@ function BoardContent(
                     }}
                   />
                   <Row
-                    title="Start session"
+                    title={t("Start session")}
                     icon="Play"
                     disabled={!!project?.archivedAt || !!actionTask.archivedAt}
                     onPress={() => {
@@ -1423,10 +1595,28 @@ function BoardContent(
                       setActionTask(null);
                     }}
                   />
+                  <Row
+                    title={t("Link to a card…")}
+                    icon="Link"
+                    disabled={!!project?.archivedAt || !!actionTask.archivedAt}
+                    onPress={() => {
+                      setLinking(actionTask);
+                      setActionTask(null);
+                    }}
+                  />
+                  <Row
+                    title={t("New follow-up task")}
+                    icon="CornerDownRight"
+                    disabled={!!project?.archivedAt || !!actionTask.archivedAt}
+                    onPress={() => {
+                      followUp(actionTask);
+                      setActionTask(null);
+                    }}
+                  />
                   {(["up", "down"] as const).map((direction) => (
                     <Row
                       key={direction}
-                      title={direction === "up" ? "Move up" : "Move down"}
+                      title={direction === "up" ? t("Move up") : t("Move down")}
                       icon={direction === "up" ? "ArrowUp" : "ArrowDown"}
                       disabled={
                         pending ||
@@ -1449,14 +1639,13 @@ function BoardContent(
                   <Divider style={{ marginVertical: space[2] }} />
                   <View style={{ paddingHorizontal: space[3], paddingBottom: space[1] }}>
                     <Label medium muted size={font.sm} selectable={false}>
-                      Move to
-                    </Label>
+                      {t("Move to")}</Label>
                   </View>
                   {shownStatuses.map((s) => (
                     <Row
                       key={s}
                       title={nameOf(s)}
-                      label={`Move to: ${nameOf(s)}`}
+                      label={t("Move to: {name}", { name: nameOf(s) })}
                       leading={<StatusIcon status={s} size={16} />}
                       selected={s === actionTask.status}
                       disabled={
@@ -1489,12 +1678,18 @@ function BoardContent(
               setRemoving(null);
               setTask("");
               if (projectId === removing.id) setProject("");
-              const cards = removedTasks ? ` with ${removedTasks} card${removedTasks === 1 ? "" : "s"}` : "";
+              const cards = removedTasks ? tn(removedTasks, "{n} card", "{n} cards") : "";
               if (paseo?.error)
-                toast.error(`${removing.title} removed from the board${cards}, but Paseo kept the project: ${paseo.error}`);
+                toast.error(cards ? t("{title} removed from the board with {cards}, but Paseo kept the project: {error}", { title: removing.title, cards, error: paseo.error }) : t("{title} removed from the board, but Paseo kept the project: {error}", { title: removing.title, error: paseo.error }));
               else
                 toast.show(
-                  `${removing.title} removed from the board${cards}${paseo?.removed ? " and from Paseo; files stay on disk" : "; it stays in Paseo"}`,
+                  paseo?.removed
+                    ? cards
+                      ? t("{title} removed from the board with {cards} and from Paseo; files stay on disk", { title: removing.title, cards })
+                      : t("{title} removed from the board and from Paseo; files stay on disk", { title: removing.title })
+                    : cards
+                      ? t("{title} removed from the board with {cards}; it stays in Paseo", { title: removing.title, cards })
+                      : t("{title} removed from the board; it stays in Paseo", { title: removing.title }),
                   { variant: "success" },
                 );
               refresh();
@@ -1510,7 +1705,11 @@ function BoardContent(
               setDeleting(null);
               if (taskId === deleting.id) setTask("");
               toast.show(
-                `${deleting.title} deleted${archived ? `; ${archived.workspace ? "workspace and " : ""}${archived.sessions} session${archived.sessions === 1 ? "" : "s"} archived` : ""}`,
+                !archived
+                  ? t("{title} deleted", { title: deleting.title })
+                  : archived.workspace
+                    ? tn(archived.sessions, "{title} deleted; workspace and {n} session archived", "{title} deleted; workspace and {n} sessions archived", { title: deleting.title })
+                    : tn(archived.sessions, "{title} deleted; {n} session archived", "{title} deleted; {n} sessions archived", { title: deleting.title }),
                 { variant: "success" },
               );
               refresh();
@@ -1524,6 +1723,8 @@ function BoardContent(
             laneCounts={Object.fromEntries(
               shownStatuses.map((s) => [s, tasks.filter((t) => t.status === s && !t.archivedAt).length]),
             )}
+            showArchived={archived}
+            onShowArchived={setArchived}
             onClose={() => setProjectForm(null)}
             onSaved={(id) => {
               chooseProject(id);
@@ -1534,7 +1735,7 @@ function BoardContent(
         )}
         {taskForm && project && (
           <TaskForm
-            key={taskForm.task?.id || taskForm.seed?.ideaId || taskForm.status}
+            key={taskForm.task?.id || taskForm.seed?.ideaId || taskForm.seed?.followUpOf || taskForm.status}
             project={project}
             task={taskForm.task}
             seed={taskForm.seed}
@@ -1545,15 +1746,43 @@ function BoardContent(
               if (taskForm.task && status) askWrapup(id, taskForm.task.status, status);
               setTask(id);
               setTaskForm(null);
-              if (launch?.sessionId) toast.show("Task created and its agent started", { variant: "success" });
-              else if (launch?.error) toast.error(`Task created, but the agent did not start: ${launch.error}. Start it from the task.`);
+              if (launch?.sessionId) toast.show(t("Task created and its agent started"), { variant: "success" });
+              else if (launch?.error) toast.error(t("Task created, but the agent did not start: {error}. Start it from the task.", { error: launch.error }));
               refresh();
             }}
           />
         )}
+        {linking && project && (
+          <LinkPicker
+            key={linking.id}
+            task={linking}
+            project={project}
+            onClose={() => setLinking(null)}
+          />
+        )}
         {compact && drawerView}
         {!(compact && task) && <SettingsFab open={menu === "settings"} onPress={() => setMenu("settings")} />}
-        <SettingsModal open={menu === "settings"} theme={props.theme} onClose={() => setMenu(null)} />
+        <SettingsModal
+          open={menu === "settings"}
+          theme={props.theme}
+          onClose={() => setMenu(null)}
+          onTour={() => {
+            // One dialog at a time: Settings is its own modal, so let it close before the tour opens.
+            setMenu(null);
+            if (tourTimer.current) clearTimeout(tourTimer.current);
+            tourTimer.current = setTimeout(() => setWelcomeOpen(true), 450);
+          }}
+        />
+        <WelcomeTour
+          open={welcomeOpen}
+          theme={props.theme}
+          canCreate={(board?.projects.length ?? 0) === 0}
+          onClose={closeWelcome}
+          onCreate={() => {
+            closeWelcome();
+            setProjectForm("new");
+          }}
+        />
         {wrapPromptTask && (
           <WrapupModal
             key={wrapPromptTask.id}
@@ -1588,7 +1817,7 @@ function ProjectSwitcher({
   return (
     <Pressable
       accessibilityRole="button"
-      accessibilityLabel={`Project: ${title}. Choose or manage project${shortcut ? ` (${shortcut})` : ""}`}
+      accessibilityLabel={t(shortcut ? "Project: {title}. Choose or manage projects ({shortcut})" : "Project: {title}. Choose or manage projects", { title, shortcut: shortcut ?? "" })}
       onPress={onPress}
       style={(state) => {
         const { pressed, hovered: hover, focused } = state as typeof state & { hovered?: boolean; focused?: boolean };
@@ -1634,7 +1863,7 @@ function AttentionButton({
   return (
     <Pressable
       accessibilityRole="button"
-      accessibilityLabel={`${count ? `Needs attention, ${count} cards` : "Needs attention"}${shortcut ? ` (${shortcut})` : ""}`}
+      accessibilityLabel={`${count ? tn(count, "Needs attention, {n} card", "Needs attention, {n} cards") : t("Needs attention")}${shortcut ? ` (${shortcut})` : ""}`}
       onPress={onPress}
       style={(state) => {
         const { pressed, hovered: hover, focused } = state as typeof state & { hovered?: boolean; focused?: boolean };
@@ -1656,8 +1885,7 @@ function AttentionButton({
       <Icon name="Bell" size={15} color={count ? colors.foreground : colors.foregroundMuted} />
       {!compact && (
         <Label size={font.md} medium muted={!count} selectable={false}>
-          Attention
-        </Label>
+          {t("Attention")}</Label>
       )}
       {!!count && <CountPill text={attentionBadgeText(count) || ""} />}
     </Pressable>
@@ -1678,7 +1906,7 @@ function SortButton({ mode, compact, onPress }: { mode: BoardSort; compact: bool
   return (
     <Pressable
       accessibilityRole="button"
-      accessibilityLabel={`Sort cards: ${boardSortText[mode].label}`}
+      accessibilityLabel={t("Sort cards: {label}", { label: t(boardSortText[mode].label) })}
       onPress={onPress}
       style={(state) => {
         const { pressed, hovered: hover, focused } = state as typeof state & { hovered?: boolean; focused?: boolean };
@@ -1699,7 +1927,7 @@ function SortButton({ mode, compact, onPress }: { mode: BoardSort; compact: bool
       <Icon name="ArrowUpDown" size={15} color={custom ? colors.foreground : colors.foregroundMuted} />
       {!compact && (
         <Label size={font.md} medium muted={!custom} selectable={false}>
-          {custom ? boardSortText[mode].label : "Sort"}
+          {custom ? t(boardSortText[mode].label) : t("Sort")}
         </Label>
       )}
     </Pressable>
@@ -1721,7 +1949,7 @@ function FilterButton({
   return (
     <Pressable
       accessibilityRole="button"
-      accessibilityLabel={`${count ? `Task filters, ${count} active` : "Task filters"}${shortcut ? ` (${shortcut})` : ""}`}
+      accessibilityLabel={`${count ? t("Task filters, {count} active", { count }) : t("Task filters")}${shortcut ? ` (${shortcut})` : ""}`}
       onPress={onPress}
       style={(state) => {
         const { pressed, hovered: hover, focused } = state as typeof state & { hovered?: boolean; focused?: boolean };
@@ -1743,8 +1971,7 @@ function FilterButton({
       <Icon name="ListFilter" size={15} color={count ? colors.foreground : colors.foregroundMuted} />
       {!compact && (
         <Label size={font.md} medium muted={!count} selectable={false}>
-          Filter
-        </Label>
+          {t("Filter")}</Label>
       )}
       {!!count && (
         <View

@@ -1,4 +1,6 @@
-import { laneProblem } from "../shared/lanes";
+import { laneName, laneProblem } from "../shared/lanes";
+import { linkContextLines, linksOf } from "../shared/links";
+import { addLink } from "./links";
 import type { PaseoApi } from "@getpaseo/client";
 import { lstat, mkdir, readlink, realpath, rmdir, stat, symlink, unlink } from "node:fs/promises";
 import { basename, join, relative, resolve, isAbsolute } from "node:path";
@@ -7,6 +9,7 @@ import { randomUUID, createHash } from "node:crypto";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { BoardStore } from "./store";
+import { linkLimits } from "../shared/model";
 import type { ProjectInput, TaskInput, Board, LinkedProjectInput, ProjectLinksEdit, Project, ProjectRemoval } from "../shared/model";
 import { effectiveRepos, sessionContext } from "../shared/scope";
 import { repoMatcher } from "./repos";
@@ -378,6 +381,8 @@ export class BoardService {
       if (laneError) throw new Error(laneError);
       // Checked before any workspace exists, and again when the card is written (IDEAS-SPEC §6).
       if (input.ideaId) openIdea(board, input.ideaId, project.id);
+      if (input.ideaId && input.followUpOf) throw new Error("A card comes from an idea or follows up a card, not both.");
+      if (input.followUpOf) followUpSource(board, input.followUpOf, project.id);
       const repoPaths = [project.primaryPath];
       const sourcePath = project.primaryPath;
       let workspaceId = input.workspaceId;
@@ -449,6 +454,7 @@ export class BoardService {
           if (!p || p.archivedAt || p.primaryPath !== sourcePath)
             throw new Error("Project changed during workspace creation.");
           const idea = input.ideaId ? openIdea(current, input.ideaId, project.id) : undefined;
+          if (input.followUpOf) followUpSource(current, input.followUpOf, project.id);
           const now = new Date().toISOString();
           const task = {
             id: randomUUID(),
@@ -483,6 +489,11 @@ export class BoardService {
             actor: "human",
             action: "created",
           });
+          // The new card follows up its source (CARD-LINKS-SPEC §3).
+          if (idea)
+            addLink(this.store, current, { kind: "derived", from: task.id, to: idea.taskId, ideaId: idea.id, createdBy: "system" }, { events: false, limit: false, archived: true });
+          if (input.followUpOf)
+            addLink(this.store, current, { kind: "derived", from: task.id, to: input.followUpOf });
           if (idea) {
             idea.status = "accepted";
             idea.acceptedTaskId = task.id;
@@ -539,7 +550,7 @@ export class BoardService {
         project,
         directories,
         workspace?.workspaceDirectory || task.sourcePath,
-        task.origin ? board.tasks.find((t) => t.id === task.origin!.taskId) : undefined,
+        linkContextLines(linksOf(board, task.id), (t) => laneName(project, t.status)),
       ),
       directories,
       workspaceRepoPaths: matches,
@@ -547,6 +558,16 @@ export class BoardService {
         workspace?.projectDisplayName || workspace?.projectId || "Unavailable",
     };
   }
+}
+
+/** The live card a new follow-up card links to, or an error (CARD-LINKS-SPEC §3). */
+export function followUpSource(board: Board, id: string, projectId: string) {
+  const source = board.tasks.find((t) => t.id === id);
+  if (!source || source.projectId !== projectId) throw new Error("The card to follow up is no longer in this project.");
+  if (source.archivedAt) throw new Error("Archived cards can't get new links.");
+  if (board.links.filter((l) => l.from === id || l.to === id).length >= linkLimits.perTask)
+    throw new Error(`A card can have at most ${linkLimits.perTask} links.`);
+  return source;
 }
 
 /** The open idea `id` of this project, or an error (IDEAS-SPEC §6). */

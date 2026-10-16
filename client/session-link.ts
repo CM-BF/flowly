@@ -8,6 +8,7 @@ import type {
 import type { RpcOutput } from "@getpaseo/plugin";
 import { readBoard } from "../shared/rpc";
 import { listAgents } from "./resources";
+import { t } from "../shared/i18n";
 
 const id = z.string().min(1).max(200);
 const linkSchema = z.object({
@@ -33,7 +34,7 @@ export function parseSessionLink(
   const result = linkSchema.safeParse(params);
   if (!result.success)
     throw new Error(
-      "Invalid Kanban session link. Open it again from the session chip.",
+      t("Invalid Kanban session link. Open it again from the session chip."),
     );
   return result.data;
 }
@@ -62,8 +63,8 @@ export async function resolveSessionLink(
   link: CardSessionLink,
 ) {
   const [board, snapshot] = await Promise.all([
-    step("Kanban board read failed", read),
-    step("Session lookup failed", () => paseo.agents.ref(link.sessionId).refresh()),
+    step(t("Kanban board read failed"), read),
+    step(t("Session lookup failed"), () => paseo.agents.ref(link.sessionId).refresh()),
   ]);
   const task = board?.tasks?.find(
     (t) => t.id === link.taskId && t.workspaceId === link.workspaceId,
@@ -74,7 +75,7 @@ export async function resolveSessionLink(
   const actor = snapshot?.agent;
   if (!task || !project)
     throw new Error(
-      "This session's linked card is unavailable. Refresh the session chip or open Ultra Kanban.",
+      t("This session's linked card is unavailable. Refresh the session chip or open Flowly."),
     );
   if (
     !actor ||
@@ -82,7 +83,7 @@ export async function resolveSessionLink(
     actor.workspaceId !== task.workspaceId
   )
     throw new Error(
-      "This session is unavailable or its workspace changed. Refresh the session chip.",
+      t("This session is unavailable or its workspace changed. Refresh the session chip."),
     );
   return { board, task, project, actor, link };
 }
@@ -111,7 +112,7 @@ export function registerSessionChips(
   // the press handler avoids host-specific failures in the action context.
   async function open(link: CardSessionLink) {
     if (disposed) return;
-    await step("Couldn't open Ultra Kanban", () =>
+    await step(t("Couldn't open Flowly"), () =>
       client.openScreen({
         screenId: "board",
         params: { ...link, requestId: newRequestId() },
@@ -156,8 +157,8 @@ export function registerSessionChips(
         }
         const titleCharacters = Array.from(task.title);
         const button = {
-          title: `Open Kanban task: ${task.title}`,
-          label: `Task · ${titleCharacters.length > 28 ? titleCharacters.slice(0, 28).join("") + "…" : task.title}`,
+          title: t("Open Kanban task: {title}", { title: task.title }),
+          label: t("Task · {title}", { title: titleCharacters.length > 28 ? titleCharacters.slice(0, 28).join("") + "…" : task.title }),
           icon: "PanelsTopLeft",
           behavior: {
             kind: "action" as const,

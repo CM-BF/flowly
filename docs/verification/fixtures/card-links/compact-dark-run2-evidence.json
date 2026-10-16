@@ -1,0 +1,10 @@
+{
+  "viewport": {"width":390,"height":844},
+  "context": {"isMobile":true,"hasTouch":true,"colorScheme":"dark"},
+  "attempts": [
+    {"attempt":1,"result":"UNRUN","blocker":"Playwright timed out after 15s clicking the visible-text Ultra Kanban target; target remained unstable and the compact app did not navigate."},
+    {"attempt":2,"result":"UNRUN","blocker":"Forced click failed because the resolved Ultra Kanban element was not visible in the mobile layout."}
+  ],
+  "screenshots": [],
+  "consoleOrPageErrors": []
+}

@@ -4,7 +4,7 @@ import { useBoardView } from "./board-view";
 import { useState } from "react";
 import { View } from "react-native";
 import { Modal } from "./modal";
-import { usePaseo, useRpc } from "@getpaseo/plugin/client";
+import { usePaseo, useRpc, useSettings } from "@getpaseo/plugin/client";
 import { useBoardQuery, useResourcesQuery } from "./queries";
 import * as rpc from "../shared/rpc";
 import {
@@ -21,18 +21,27 @@ import { Theme, useTheme, Button, IconButton, Field, Choices, Notice, Label, Row
 import { priorityLabels } from "./status";
 import { isLegacyScope } from "../shared/scope";
 import { AgentPicker, useAgentChoice, type AgentDefaults } from "./agent-choice";
+import { ModelDefaultGroup } from "./model-default";
+import { agentModelFromValues, type AgentModel } from "../shared/agent-defaults";
+import { modelSettings, modelSettingsValues } from "../shared/settings";
 import { launchKanbanSession } from "./session";
 import { DirectoryChooser } from "./directory-picker";
+import { t } from "../shared/i18n";
 
 export function ProjectForm({
   project: initialProject,
   laneCounts = {},
+  showArchived,
+  onShowArchived,
   onClose,
   onSaved,
 }: {
   project?: Project;
   /** Live cards per lane, so lanes in use can't be turned off. */
   laneCounts?: Partial<Record<Status, number>>;
+  /** The board's Show archived view setting; edited here, stored with Save. */
+  showArchived?: boolean;
+  onShowArchived?: (next: boolean) => void;
   onClose: () => void;
   onSaved: (id: string) => void;
 }) {
@@ -43,6 +52,8 @@ export function ProjectForm({
     setLinks = useRpc(rpc.setProjectLinks),
     update = useRpc(rpc.updateProject);
   const resources = useResourcesQuery();
+  const modelPrefs = useSettings(modelSettings);
+  const globalModel = agentModelFromValues(modelPrefs.status === "ready" ? modelSettingsValues(modelPrefs.values) : null);
   const [title, setTitle] = useState(project?.title || ""),
     [description, setDescription] = useState(project?.description || ""),
     [primaryPath, setPrimary] = useState(project?.primaryPath || ""),
@@ -50,6 +61,8 @@ export function ProjectForm({
     [source, setSource] = useState<"directory" | "linked" | "native">("directory"),
     [links, setLinkList] = useState<string[]>(() => project?.links?.map((l) => l.target) ?? []),
     [autoStatus, setAutoStatus] = useState(project?.autoStatus !== false),
+    [agentModel, setAgentModel] = useState<AgentModel | null>(project?.agentModel ?? null),
+    [archivedShown, setArchivedShown] = useState(!!showArchived),
     [lanes, setLanes] = useState<Lane[]>(() => projectLanes(project)),
     [pending, setPending] = useState(false),
     [error, setError] = useState("");
@@ -65,9 +78,11 @@ export function ProjectForm({
           description,
           ...(autoStatus !== (project.autoStatus !== false) ? { autoStatus } : {}),
           ...(JSON.stringify(lanes) !== JSON.stringify(projectLanes(project)) ? { lanes } : {}),
+          ...(JSON.stringify(agentModel) !== JSON.stringify(project.agentModel ?? null) ? { agentModel } : {}),
         });
         if (project.links && JSON.stringify(links) !== JSON.stringify(project.links.map((l) => l.target)))
           saved = await setLinks({ id: project.id, revision: saved.revision, links });
+        if (onShowArchived && archivedShown !== !!showArchived) onShowArchived(archivedShown);
         onSaved(saved.id);
         return;
       }
@@ -90,7 +105,7 @@ export function ProjectForm({
   return (
     <Modal
       open
-      title={project ? "Edit project" : "Create project"}
+      title={project ? t("Edit project") : t("Create project")}
       onOpenChange={(open) => {
         if (!open && !pending) onClose();
       }}
@@ -98,21 +113,21 @@ export function ProjectForm({
       <Modal.Content>
         <Theme.Provider value={theme}>
         <View style={{ gap: 16 }}>
-          <Field title="Name" value={title} onChange={setTitle} placeholder="Project name" />
+          <Field title={t("Name")} value={title} onChange={setTitle} placeholder={t("Project name")} />
           <Field
-            title="Description"
+            title={t("Description")}
             value={description}
             onChange={setDescription}
             multiline
           />
           {!project && (
             <Choices
-              title="Project root"
+              title={t("Project root")}
               value={source}
               options={[
-                { value: "directory", label: "Directory" },
-                { value: "linked", label: "Multiple repositories" },
-                { value: "native", label: "Existing Paseo project" },
+                { value: "directory", label: t("Directory") },
+                { value: "linked", label: t("Multiple repositories") },
+                { value: "native", label: t("Existing Paseo project") },
               ]}
               onChange={(next) => {
                 setSource(next);
@@ -122,7 +137,7 @@ export function ProjectForm({
           )}
           {!project && source === "native" && (
             <Choices
-              title="Paseo project"
+              title={t("Paseo project")}
               hideTitle
               value={nativeId}
               options={(resources.data?.projects || []).map((p) => ({
@@ -138,11 +153,11 @@ export function ProjectForm({
           )}
           {(project ? !project.links : source !== "linked") && (
             <Field
-              title="Paseo project root"
+              title={t("Paseo project root")}
               value={primaryPath}
               onChange={setPrimary}
               editable={!project && source === "directory"}
-              placeholder="/absolute/path/to/directory"
+              placeholder={t("/absolute/path/to/directory")}
             />
           )}
           {!project && source === "directory" && (
@@ -158,25 +173,41 @@ export function ProjectForm({
           )}
           {project && <LaneEditor lanes={lanes} counts={laneCounts} disabled={pending} onChange={setLanes} />}
           {project && (
+            <ModelDefaultGroup
+              title={t("Default model")}
+              description={t("New sessions in this project start with this model instead of the global default.")}
+              value={agentModel}
+              disabled={pending}
+              noneLabel={globalModel ? t("Global default ({model})", { model: `${globalModel.provider} · ${globalModel.model}` }) : t("Global default (Automatic)")}
+              noneDetail={t("No override: the global default applies")}
+              onChange={setAgentModel}
+            />
+          )}
+          {project && (
             <Toggle
-              title="Auto-update status in this project"
-              detail="A Kanban session resuming after review moves the card to Development, after a blocker back to its previous stage. Applies only while Auto-update status is on in Ultra Kanban settings."
+              title={t("Auto-update status in this project")}
+              detail={t("A Kanban session resuming after review moves the card to Development, after a blocker back to its previous stage. Applies only while Auto-update status is on in Flowly settings.")}
               value={autoStatus}
               onChange={setAutoStatus}
             />
           )}
+          {project && onShowArchived && (
+            <Toggle
+              title={t("Show archived")}
+              detail={t("Archived projects and tasks")}
+              value={archivedShown}
+              onChange={setArchivedShown}
+            />
+          )}
           {!project && source !== "linked" && (
             <Label muted size={font.sm}>
-              To work across several repositories, choose Multiple repositories,
-              or use a common parent directory as the project root.
-            </Label>
+              {t("To work across several repositories, choose Multiple repositories, or use a common parent directory as the project root.")}</Label>
           )}
           {resources.error && <Notice>{message(resources.error)}</Notice>}
           {error && <Notice>{error}</Notice>}
           <Actions>
             <Button quiet disabled={pending} onPress={onClose}>
-              Cancel
-            </Button>
+              {t("Cancel")}</Button>
             <Button
               primary
               disabled={
@@ -187,7 +218,7 @@ export function ProjectForm({
               }
               onPress={() => void save()}
             >
-              {pending ? "Saving…" : project ? "Save project" : "Create project"}
+              {pending ? t("Saving…") : project ? t("Save project") : t("Create project")}
             </Button>
           </Actions>
         </View>
@@ -218,12 +249,10 @@ function LinkList({
   return (
     <View style={{ gap: space[2] }}>
       <Label medium size={font.sm} muted>
-        Repositories
-      </Label>
+        {t("Repositories")}</Label>
       {links.length === 0 && (
         <Label muted size={font.sm}>
-          Add the repositories or folders this project works across.
-        </Label>
+          {t("Add the repositories or folders this project works across.")}</Label>
       )}
       {links.map((path) => (
         <View key={path} style={{ flexDirection: "row", alignItems: "center", gap: space[2] }}>
@@ -235,7 +264,7 @@ function LinkList({
           </View>
           <IconButton
             icon="X"
-            label={`Remove ${basename(path)}`}
+            label={t("Remove {basename}", { basename: basename(path) })}
             disabled={disabled || links.length <= (root ? 1 : 0)}
             onPress={() => onChange(links.filter((l) => l !== path))}
           />
@@ -244,7 +273,7 @@ function LinkList({
       <DirectoryChooser multiple disabled={disabled} onPick={add} />
       <View style={{ flexDirection: "row", alignItems: "flex-end", gap: space[2] }}>
         <View style={{ flex: 1, minWidth: 0 }}>
-          <Field title="Or type a path" value={typed} onChange={setTyped} placeholder="/absolute/path/to/repo" />
+          <Field title={t("Or type a path")} value={typed} onChange={setTyped} placeholder={t("/absolute/path/to/repo")} />
         </View>
         <Button
           disabled={disabled || !typed.trim()}
@@ -253,13 +282,12 @@ function LinkList({
             setTyped("");
           }}
         >
-          Add
-        </Button>
+          {t("Add")}</Button>
       </View>
       <Label muted size={font.sm}>
         {root
-          ? `Links live in ${root}. Removing one deletes only the link, never the repository.`
-          : "Kanban creates a new folder with a link to each of these and registers it as the Paseo project. Cards use directory workspaces."}
+          ? t("Links live in {root}. Removing one deletes only the link, never the repository.", { root })
+          : t("Kanban creates a new folder with a link to each of these and registers it as the Paseo project. Cards use directory workspaces.")}
       </Label>
     </View>
   );
@@ -272,9 +300,11 @@ function startStatus(project: Project, requested: Status): Status {
   return lanes.find((s) => s !== "done" && s !== "cancelled") ?? lanes[0];
 }
 
-/** A new task prefilled from an idea (IDEAS-SPEC §6). */
+/** A new task prefilled from an idea (IDEAS-SPEC §6) or following up a card (CARD-LINKS-SPEC §5.5). */
 export type TaskSeed = {
-  ideaId: string;
+  ideaId?: string;
+  followUpOf?: string;
+  followUpTitle?: string;
   title: string;
   description: string;
   type?: TaskType;
@@ -370,7 +400,8 @@ export function TaskForm({
             workspaceId: mode === "existing" ? workspaceId : undefined,
             baseRef,
             branchName,
-            ...(seed ? { ideaId: seed.ideaId } : {}),
+            ...(seed?.ideaId ? { ideaId: seed.ideaId } : {}),
+            ...(seed?.followUpOf ? { followUpOf: seed.followUpOf } : {}),
           });
       if (task) return onSaved(result.id, undefined, result.status);
       if (!startChosen) return onSaved(result.id);
@@ -394,10 +425,17 @@ export function TaskForm({
       setPending(false);
     }
   }
+  const canSave =
+    !pending &&
+    !!title.trim() &&
+    !(!task && mode === "existing" && !workspaceId) &&
+    !(startChosen && (!choice.ready || !prompt.trim()));
+  // Enter submits, Shift+Enter is a new line.
+  const submit = canSave ? () => void save() : undefined;
   return (
     <Modal
       open
-      title={task ? "Edit task" : seed ? "Create task from idea" : "Create task"}
+      title={task ? t("Edit task") : seed?.ideaId ? t("Create task from idea") : seed?.followUpOf ? t("Create follow-up task") : t("Create task")}
       onOpenChange={(open) => {
         if (!open && !pending) onClose();
       }}
@@ -405,73 +443,69 @@ export function TaskForm({
       <Modal.Content>
         <Theme.Provider value={theme}>
         <View style={{ gap: 16 }}>
-          <Field title="Title" value={title} onChange={setTitle} placeholder="What needs doing?" />
+          {!!seed?.followUpTitle && (
+            <Label muted size={font.sm} lines={1}>{t("Follow-up of {title}", { title: seed.followUpTitle })}</Label>
+          )}
+          <Field title={t("Title")} value={title} onChange={setTitle} placeholder={t("What needs doing?")} onSubmit={submit} />
           <Field
-            title="Description"
+            title={t("Description")}
             value={description}
             onChange={setDescription}
             multiline
+            onSubmit={submit}
           />
           <Choices
-            title="Status"
+            title={t("Status")}
             value={status}
             // New tasks start in an active column (finished ones only when added from that column).
             options={statusChoices.map((s) => ({ value: s, label: laneName(project, s) }))}
             onChange={setStatus}
           />
           <Choices
-            title="Priority"
+            title={t("Priority")}
             value={priority}
             options={priorities.map((p) => ({ value: p, label: priorityLabels[p] }))}
             onChange={setPriority}
           />
           <Choices
-            title="Type"
+            title={t("Type")}
             value={type}
             options={[
-              { value: "" as const, label: "None" },
+              { value: "" as const, label: t("None") },
               ...taskTypes.map((t) => ({ value: t, label: taskTypeLabels[t] })),
             ]}
             onChange={setType}
           />
           <Label muted size={font.sm}>
-            Project root · {project.primaryPath}
-            {project.links ? ` · links ${project.links.map((l) => l.name).join(", ")}` : ""}
+            {t("Project root · {path}", { path: project.primaryPath })}
+            {project.links ? ` · ${t("links {names}", { names: project.links.map((l) => l.name).join(", ") })}` : ""}
           </Label>
           {task && isLegacyScope(task, project) && (
             <Notice tone="info">
-              Legacy card scope is preserved:{" "}
-              {(task.repoPaths.length ? task.repoPaths : project.repos).join(
-                ", ",
-              )}
-              . Its directories and workspace stay linked.
+              {t("Legacy card scope is preserved: {paths}. Its directories and workspace stay linked.", { paths: (task.repoPaths.length ? task.repoPaths : project.repos).join(", ") })}
             </Notice>
           )}
           {!task && (
             <>
               <Choices
-                title="Workspace"
+                title={t("Workspace")}
                 value={mode}
                 options={[
-                  { value: "directory", label: "New in directory" },
-                  { value: "worktree", label: "New isolated worktree", disabled: !!project.links },
-                  { value: "existing", label: "Link existing" },
+                  { value: "directory", label: t("New in directory") },
+                  { value: "worktree", label: t("New isolated worktree"), disabled: !!project.links },
+                  { value: "existing", label: t("Link existing") },
                 ]}
                 onChange={setMode}
               />
               {mode === "worktree" && (
                 <Label muted size={font.sm}>
-                  The project root itself must be a Git repository. For two
-                  child repositories under a common directory, choose a
-                  directory workspace.
-                </Label>
+                  {t("The project root itself must be a Git repository. For two child repositories under a common directory, choose a directory workspace.")}</Label>
               )}
               {mode === "existing" && (
                 <>
                   <View style={{ gap: 6 }}>
                     <Label medium size={font.sm} muted>
-                      Existing workspace
-                    </Label>
+                      {t("Existing workspace")}</Label>
                     {eligible.length > 0 && (
                       <View
                         style={{
@@ -490,8 +524,8 @@ export function TaskForm({
                             <Row
                               key={w.id}
                               title={w.name}
-                              detail={`${basename(project.primaryPath)} · ${w.owner}${bound ? " · already bound" : ""}`}
-                              label={`Existing workspace: ${w.name}`}
+                              detail={`${basename(project.primaryPath)} · ${w.owner}${bound ? ` · ${t("already bound")}` : ""}`}
+                              label={t("Existing workspace: {name}", { name: w.name })}
                               icon="FolderGit2"
                               selected={workspaceId === w.id}
                               disabled={bound}
@@ -504,32 +538,28 @@ export function TaskForm({
                   </View>
                   {!!workspaceId && (
                     <Label muted size={font.sm}>
-                      {eligible.find((w) => w.id === workspaceId)?.path} ·
-                      native owner is preserved
+                      {`${eligible.find((w) => w.id === workspaceId)?.path} · ${t("native owner is preserved")}`}
                     </Label>
                   )}
                   {eligible.length === 0 && (
                     <Notice tone="info">
-                      No available workspace under this Paseo project root.
-                      Create one or register a matching directory/worktree in
-                      Paseo.
-                    </Notice>
+                      {t("No available workspace under this Paseo project root. Create one or register a matching directory/worktree in Paseo.")}</Notice>
                   )}
                 </>
               )}
               {mode === "worktree" && (
                 <>
                   <Field
-                    title="Base ref (optional)"
+                    title={t("Base ref (optional)")}
                     value={baseRef}
                     onChange={setBase}
-                    placeholder="Current branch of the project root"
+                    placeholder={t("Current branch of the project root")}
                   />
                   <Field
-                    title="New branch (optional)"
+                    title={t("New branch (optional)")}
                     value={branchName}
                     onChange={setBranch}
-                    placeholder="Leave empty to generate kanban/<title>-xxxxxx"
+                    placeholder={t("Leave empty to generate kanban/<title>-xxxxxx")}
                   />
                 </>
               )}
@@ -538,8 +568,8 @@ export function TaskForm({
           {!task && (
             <View style={{ gap: 12 }}>
               <Toggle
-                title="Start an agent now"
-                detail="Create the task, then start its first session with Kanban tools. Turn off to add the task only and start later."
+                title={t("Start an agent now")}
+                detail={t("Create the task, then start its first session with Kanban tools. Turn off to add the task only and start later.")}
                 value={startChosen}
                 onChange={setStartAgent}
               />
@@ -547,12 +577,13 @@ export function TaskForm({
                 <>
                   <AgentPicker choice={choice} disabled={pending} />
                   <Field
-                    title="Instruction"
+                    title={t("Instruction")}
                     value={prompt}
                     onChange={setPrompt}
                     multiline
-                    placeholder="What should the agent do first?"
-                    hint="The title and description are included automatically."
+                    placeholder={t("What should the agent do first?")}
+                    onSubmit={submit}
+                    hint={t("The title and description are included automatically.")}
                   />
                 </>
               )}
@@ -562,20 +593,14 @@ export function TaskForm({
           {error && <Notice>{error}</Notice>}
           <Actions>
             <Button quiet disabled={pending} onPress={onClose}>
-              Cancel
-            </Button>
+              {t("Cancel")}</Button>
             <Button
               primary
               icon={startChosen ? "Play" : undefined}
-              disabled={
-                pending ||
-                !title.trim() ||
-                (!task && mode === "existing" && !workspaceId) ||
-                (startChosen && (!choice.ready || !prompt.trim()))
-              }
+              disabled={!canSave}
               onPress={() => void save()}
             >
-              {pending ? (startChosen ? "Starting…" : "Saving…") : task ? "Save task" : startChosen ? "Create and start" : "Create task"}
+              {pending ? (startChosen ? t("Starting…") : t("Saving…")) : task ? t("Save task") : startChosen ? t("Create and start") : t("Create task")}
             </Button>
           </Actions>
         </View>

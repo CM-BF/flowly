@@ -1,0 +1,60 @@
+{
+  "startedAt": "2026-10-16T01:50:41.919Z",
+  "viewport": {
+    "width": 1440,
+    "height": 900
+  },
+  "checks": {
+    "relatedCandidateRowDetails": [
+      {
+        "label": "Card Links Run2 B ed86d3bc",
+        "text": "Card Links Run2 B ed86d3bc\n2m",
+        "disabled": false,
+        "ariaDisabled": null
+      },
+      {
+        "label": "Open task Card Links Run2 B ed86d3bc. Normal priority. 0 running, 0 finished turns, 0 unread sessions, 0 need attention.",
+        "text": "Card Links Run2 B ed86d3bc",
+        "disabled": false,
+        "ariaDisabled": null
+      },
+      {
+        "label": "Actions for Card Links Run2 B ed86d3bc",
+        "text": "",
+        "disabled": false,
+        "ariaDisabled": null
+      },
+      {
+        "label": "Open task Card Links Run2 C ed86d3bc. Waiting on 1 card: Card Links Run2 B ed86d3bc. Normal priority. 0 running, 0 finished turns, 0 unread sessions, 0 need attention.",
+        "text": "Card Links Run2 C ed86d3bc\nWaiting on 1",
+        "disabled": false,
+        "ariaDisabled": null
+      },
+      {
+        "label": "Remove link: Waiting on Card Links Run2 B ed86d3bc",
+        "text": "",
+        "disabled": false,
+        "ariaDisabled": null
+      },
+      {
+        "label": "Related Card Links Run2 B ed86d3bc",
+        "text": "Card Links Run2 B ed86d3bc\nTodo",
+        "disabled": false,
+        "ariaDisabled": null
+      }
+    ],
+    "serverRefusesRelated": true,
+    "modalRemainsAfterRefusal": true,
+    "removeRow": true,
+    "activityUnlinked": false,
+    "otherCardNoLongerShowsLink": false
+  },
+  "errors": [],
+  "screenshots": [
+    "card-links-run2-related-existing-blocks-candidate.png",
+    "card-links-run2-related-refusal.png",
+    "card-links-run2-link-removed.png",
+    "card-links-run2-reciprocal-after-remove.png"
+  ],
+  "finishedAt": "2026-10-16T01:51:00.398Z"
+}

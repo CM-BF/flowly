@@ -1,0 +1,16 @@
+{
+  "startedAt": "2026-10-16T01:55:59.049Z",
+  "viewport": {
+    "width": 1440,
+    "height": 900
+  },
+  "checks": {
+    "darkThemeLoaded": true
+  },
+  "errors": [],
+  "screenshots": [
+    "card-links-run2-board-desktop-dark.png",
+    "card-links-run2-drawer-desktop-dark.png"
+  ],
+  "finishedAt": "2026-10-16T01:56:01.632Z"
+}

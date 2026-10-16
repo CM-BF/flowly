@@ -1,0 +1,37 @@
+{
+  "run": "ed86d3bc-4574-4196-8e60-654a8dcaa042",
+  "directory": "/tmp/paseo-kanban-card-links-run2-ed86d3bc",
+  "projectOperationId": "card-links-run2-project-ed86d3bc-4574-4196-8e60-654a8dcaa042",
+  "cardOperationIds": [
+    "card-links-run2-A-ed86d3bc-4574-4196-8e60-654a8dcaa042",
+    "card-links-run2-B-ed86d3bc-4574-4196-8e60-654a8dcaa042",
+    "card-links-run2-C-ed86d3bc-4574-4196-8e60-654a8dcaa042"
+  ],
+  "project": "974a1963-7c02-4a80-ae6a-71643e774085",
+  "nativeProject": "prj_6ab72ff3edbd357d",
+  "cards": [
+    {
+      "id": "9651229b-afec-4beb-b412-adebdf5e4dfd",
+      "workspaceId": "wks_a00484a672961406",
+      "title": "Card Links Run2 A ed86d3bc"
+    },
+    {
+      "id": "ff845efb-27e7-4711-a770-df9bbb04dfc3",
+      "workspaceId": "wks_d867ddf85b6f3626",
+      "title": "Card Links Run2 B ed86d3bc"
+    },
+    {
+      "id": "4aa5e3a3-a80d-40a9-a9c5-e389467e6c29",
+      "workspaceId": "wks_f428e9f5e1d5fdc4",
+      "title": "Card Links Run2 C ed86d3bc"
+    }
+  ],
+  "sessions": [],
+  "startedAt": "2026-10-16T01:48:18.256Z",
+  "followup": {
+    "id": "353a0c17-8868-4ccf-81bd-51daf77a8916",
+    "workspaceId": "wks_f4ef446af653d0ed",
+    "title": "Run2 followup ed86d3bc",
+    "revision": 1
+  }
+}

@@ -10,6 +10,7 @@ import { createPreparedSession } from "./session";
 import { Theme, useTheme, Button, Label, Field, Choices, Notice, Actions, message, font, radius, space } from "./ui";
 import { AgentPicker, useAgentChoice } from "./agent-choice";
 import { Pressable } from "react-native";
+import { t } from "../shared/i18n";
 
 export function SessionCreate({
   task,
@@ -92,7 +93,7 @@ export function SessionCreate({
   async function createSession(ordinary = false) {
     await perform(async () => {
       const chosen = chosenModel;
-      if (!chosen) throw new Error("Choose an available model.");
+      if (!chosen) throw new Error(t("Choose an available model."));
       const latestScope = await contextRead({ id: task.id });
       if (!latestScope.available) throw new Error(latestScope.reason);
       const fingerprint = JSON.stringify([
@@ -114,11 +115,11 @@ export function SessionCreate({
             existing.agent.archivedAt
           )
             throw new Error(
-              "Prepared session is unavailable or belongs to a different workspace.",
+              t("Prepared session is unavailable or belongs to a different workspace."),
             );
           onCreated(
             existing.agent.id,
-            "Recovered the existing session. Its initial instruction was not sent again; check its output before continuing.",
+            t("Recovered the existing session. Its initial instruction was not sent again; check its output before continuing."),
           );
           onClose();
           attempt.current = undefined;
@@ -176,10 +177,10 @@ export function SessionCreate({
       onCreated(
         created.id,
         "recovered" in created && created.recovered
-          ? "Session exists after a partial creation response. Check its output before sending more instructions."
+          ? t("Session exists after a partial creation response. Check its output before sending more instructions.")
           : ordinary
-            ? "Ordinary session created. Select it to send Kanban instructions later."
-            : "Kanban configuration provided. Successful tool calls will be shown separately.",
+            ? t("Ordinary session created. Select it to send Kanban instructions later.")
+            : t("Kanban configuration provided. Successful tool calls will be shown separately."),
       );
       attempt.current = undefined;
       setCreationPending(false);
@@ -189,10 +190,12 @@ export function SessionCreate({
       refresh();
     });
   }
+  // Enter submits, Shift+Enter is a new line.
+  const submit = canCreate && tools.data?.ready ? () => void createSession() : undefined;
   return (
     <Modal
       open={open}
-      title="New session"
+      title={t("New session")}
       onOpenChange={(next) => {
         if (!next && !lock.current) onClose();
       }}
@@ -200,45 +203,43 @@ export function SessionCreate({
       <Modal.Content>
         <Theme.Provider value={theme}>
         <Field
-          title="Session title (optional)"
+          title={t("Session title (optional)")}
           value={newTitle}
           onChange={setTitle}
           placeholder={task.title}
           editable={!sending}
+          onSubmit={submit}
         />
         <Field
-          title="Instruction"
+          title={t("Instruction")}
           value={newPrompt}
           onChange={setPrompt}
           multiline
-          placeholder="What should this session do first?"
+          placeholder={t("What should this session do first?")}
           editable={!sending}
+          onSubmit={submit}
         />
         <AgentPicker choice={choice} disabled={sending} />
         <Label muted size={font.sm}>
-          The task's title and description are included automatically, along with Kanban tools.
-        </Label>
+          {t("The task's title and description are included automatically, along with Kanban tools.")}</Label>
         {providers.isSuccess &&
           !providers.data?.providers.some((p) => p.available) && (
             <Notice>
-              No providers are available. Configure a provider in Paseo to
-              create a session.
-            </Notice>
+              {t("No providers are available. Configure a provider in Paseo to create a session.")}</Notice>
           )}
         {providers.isSuccess &&
           providers.data?.providers.some((p) => p.available) &&
           !providers.data?.providers.some(
             (p) => p.available && p.provider === provider,
           ) && (
-            <Notice>Choose an available provider.</Notice>
+            <Notice>{t("Choose an available provider.")}</Notice>
           )}
         {models.isSuccess &&
           !(models.data?.models || []).some(
             (m) => m.isSelectable !== false,
           ) && (
             <Notice>
-              No selectable models are available for this provider.
-            </Notice>
+              {t("No selectable models are available for this provider.")}</Notice>
           )}
         {(models.error || modes.error || providers.error) && (
           <Notice>
@@ -249,14 +250,12 @@ export function SessionCreate({
           <Notice tone={tools.error ? "danger" : "warning"}>
             {tools.error
               ? message(tools.error)
-              : tools.data?.reason || "Checking Kanban tools…"}
+              : tools.data?.reason || t("Checking Kanban tools…")}
           </Notice>
         )}
         {creationPending && (
           <Notice tone="info">
-            A session ID is prepared. Retry checks for an existing session
-            before creating it.
-          </Notice>
+            {t("A session ID is prepared. Retry checks for an existing session before creating it.")}</Notice>
         )}
         {error && <Notice>{error}</Notice>}
         <Actions>
@@ -265,18 +264,16 @@ export function SessionCreate({
               disabled={!canCreate}
               onPress={() => void createSession(true)}
             >
-              Create ordinary session
-            </Button>
+              {t("Create ordinary session")}</Button>
           )}
           <Button quiet disabled={sending} onPress={onClose}>
-            Cancel
-          </Button>
+            {t("Cancel")}</Button>
           <Button
             primary
-            disabled={!canCreate || !tools.data?.ready}
+            disabled={!submit}
             onPress={() => void createSession()}
           >
-            {sending ? "Creating…" : "Create session"}
+            {sending ? t("Creating…") : t("Create session")}
           </Button>
         </Actions>
         </Theme.Provider>

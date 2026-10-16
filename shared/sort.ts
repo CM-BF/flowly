@@ -1,3 +1,4 @@
+import { msg } from "./i18n";
 import type { Task } from "./model";
 
 /** How cards are ordered inside each column. Manual is the drag order. */
@@ -5,11 +6,11 @@ export const boardSorts = ["manual", "activity", "priority", "created", "title"]
 export type BoardSort = (typeof boardSorts)[number];
 
 export const boardSortText: Record<BoardSort, { label: string; detail: string }> = {
-  manual: { label: "Manual", detail: "Your drag order" },
-  activity: { label: "Recent activity", detail: "Latest task or session change first" },
-  priority: { label: "Priority", detail: "Urgent first, then manual order" },
-  created: { label: "Newest", detail: "Most recently created first" },
-  title: { label: "Title", detail: "A to Z" },
+  manual: { label: msg("Manual"), detail: msg("Your drag order") },
+  activity: { label: msg("Recent activity"), detail: msg("Latest task or session change first") },
+  priority: { label: msg("Priority"), detail: msg("Urgent first, then manual order") },
+  created: { label: msg("Newest"), detail: msg("Most recently created first") },
+  title: { label: msg("Title"), detail: msg("A to Z") },
 };
 
 const rank = { urgent: 0, high: 1, normal: 2, low: 3 } as const;

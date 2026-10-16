@@ -1,7 +1,7 @@
 {
   "id": "paseo-ultra-kanban",
-  "name": "Ultra Kanban",
-  "description": "Projects, task workspaces and agent sessions in one board",
+  "name": "Flowly",
+  "description": "The agent-native workflow for Paseo: cards that move by themselves, with reminders, summaries, ideas and insights",
   "requirements": {
     "paseo": ">=0.11.2 <0.12.0"
   }

@@ -1,0 +1,15 @@
+{
+  "checks": {
+    "settingOn": true,
+    "cardLightbulbReturned": true,
+    "drawerIdeasReturned": true,
+    "bOpensIdeas": true
+  },
+  "screenshots": [
+    "ideas-page-settings-on.png"
+  ],
+  "consoleErrors": [],
+  "pageErrors": [],
+  "initialColor": "rgb(244, 244, 245)",
+  "finalSetting": "ON"
+}

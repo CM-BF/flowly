@@ -1,0 +1,18 @@
+{
+  "at": "2026-10-16T01:46:42.474Z",
+  "sessionsArchived": [],
+  "projectRemoval": {
+    "id": "abc3a335-97ba-420c-a34d-d26ae40b83c6",
+    "removedTasks": 3,
+    "backup": "/Users/bofan.wang/.paseo/plugin-data/paseo-ultra-kanban/removed/abc3a335-97ba-420c-a34d-d26ae40b83c6-2026-10-16T01-46-42-505Z.json",
+    "paseo": {
+      "removed": true,
+      "workspaces": 3,
+      "error": ""
+    }
+  },
+  "nativeProjectAbsent": true,
+  "pluginProjectAbsent": true,
+  "tempDirRemoved": true,
+  "finishedAt": "2026-10-16T01:46:43.278Z"
+}

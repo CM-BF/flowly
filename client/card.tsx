@@ -10,6 +10,7 @@ import { PulseDot, motionDuration, useMotionValue } from "./motion";
 import { useCardOutput, type CardOutput, type OutputSession } from "./card-output";
 import { menuHandlers, useMenuOpener, type MenuEntry } from "./context-menu";
 import { shallowEqual } from "./stable";
+import { t, tn } from "../shared/i18n";
 
 export type CardDrag = {
   start(task: Task, point: Point): void;
@@ -77,6 +78,8 @@ export function TaskCard({
   progress,
   questions = 0,
   ideas = 0,
+  waiting = 0,
+  waitingTitles = "",
   flash = false,
   dragging,
   disabled,
@@ -100,6 +103,9 @@ export function TaskCard({
   questions?: number;
   /** Open ideas proposed on this card (IDEAS-SPEC §5.1). */
   ideas?: number;
+  /** Unresolved cards this one is blocked by, and their titles (CARD-LINKS-SPEC §5.1). */
+  waiting?: number;
+  waitingTitles?: string;
   /** Briefly emphasize a card whose status just changed (often an automatic move). */
   flash?: boolean;
   dragging?: boolean;
@@ -226,23 +232,24 @@ export function TaskCard({
       <Pressable
         accessibilityRole="button"
         accessibilityLabel={[
-          `Open task ${task.title}`,
-          questions ? `Needs you: ${questions} open question${questions === 1 ? "" : "s"}` : "",
-          ideas ? `${ideas} idea${ideas === 1 ? "" : "s"}` : "",
-          progress ? `Progress: ${progress.state}` : "",
-          `${priorityLabels[task.priority]} priority${task.type ? `, ${taskTypeLabels[task.type]}` : ""}${task.archivedAt ? ", archived" : ""}${legacy ? ", legacy scope" : ""}`,
+          t("Open task {title}", { title: task.title }),
+          questions ? tn(questions, "Needs you: {n} open question", "Needs you: {n} open questions") : "",
+          ideas ? tn(ideas, "{n} idea", "{n} ideas") : "",
+          waiting ? tn(waiting, "Waiting on {n} card: {waitingTitles}", "Waiting on {n} cards: {waitingTitles}", { waitingTitles }) : "",
+          progress ? t("Progress: {state}", { state: progress.state }) : "",
+          [t("{priority} priority", { priority: priorityLabels[task.priority] }), task.type ? taskTypeLabels[task.type] : "", task.archivedAt ? t("archived") : "", legacy ? t("legacy scope") : ""].filter(Boolean).join(", "),
           summaryState === "ready" && summary
-            ? `${summary.running} running, ${summary.finished} finished turns, ${summary.unread} unread sessions, ${summary.attention} need attention`
+            ? t("{running} running, {finished} finished turns, {unread} unread sessions, {attention} need attention", { running: summary.running, finished: summary.finished, unread: summary.unread, attention: summary.attention })
             : "",
-          output ? `Latest agent output${outputTime ? ` ${outputTime}` : ""}: ${output.text.length > 80 ? output.text.slice(0, 80) + "…" : output.text}` : "",
+          output ? t(outputTime ? "Latest agent output {time}: {text}" : "Latest agent output: {text}", { time: outputTime ?? "", text: output.text.length > 80 ? output.text.slice(0, 80) + "…" : output.text }) : "",
         ]
           .filter(Boolean)
           .join(". ") + "."}
         {...(menu || {})}
         accessibilityHint={
           drag
-            ? "Drag this card with the mouse or open task actions to change status."
-            : "Open details and agent sessions."
+            ? t("Drag this card with the mouse or open task actions to change status.")
+            : t("Open details and agent sessions.")
         }
         onPress={() => {
           if (Date.now() >= suppressUntil.current) onOpen();
@@ -275,6 +282,7 @@ export function TaskCard({
           sessions={sessions}
           questions={questions}
           ideas={ideas}
+          waiting={waiting}
         />
       </Pressable>
       {accent && (
@@ -324,7 +332,7 @@ export function TaskCard({
         <IconButton
           icon="Ellipsis"
           size={touch ? 40 : 26}
-          label={`Actions for ${task.title}`}
+          label={t("Actions for {title}", { title: task.title })}
           onPress={onActions}
         />
       </View>
@@ -392,6 +400,7 @@ function CardSignals({
   sessions,
   questions,
   ideas,
+  waiting,
 }: {
   task: Task;
   legacy: boolean;
@@ -402,41 +411,43 @@ function CardSignals({
   sessions: number;
   questions: number;
   ideas: number;
+  waiting: number;
 }) {
   const { colors } = useTheme();
   const items: ReactNode[] = [];
   if (questions)
-    items.push(<Signal key="question" icon="MessageCircleQuestion" color={colors.statusWarning} text="Needs you" />);
+    items.push(<Signal key="question" icon="MessageCircleQuestion" color={colors.statusWarning} text={t("Needs you")} />);
+  if (waiting) items.push(<Signal key="waiting" icon="Hourglass" text={t("Waiting on {waiting}", { waiting })} />);
   if (!available)
-    items.push(<Signal key="ws" icon="TriangleAlert" color={colors.statusWarning} text="Workspace unavailable" />);
+    items.push(<Signal key="ws" icon="TriangleAlert" color={colors.statusWarning} text={t("Workspace unavailable")} />);
   else if (summaryState === "loading")
-    items.push(<Signal key="load" icon="Loader" text="Loading…" />);
+    items.push(<Signal key="load" icon="Loader" text={t("Loading…")} />);
   else if (summaryState === "unavailable")
-    items.push(<Signal key="na" icon="CircleHelp" text="Session state unavailable" />);
+    items.push(<Signal key="na" icon="CircleHelp" text={t("Session state unavailable")} />);
   else if (summary) {
     if (summary.permissions)
-      items.push(<Signal key="perm" color={colors.statusWarning} text={`${summary.permissions} approval`} />);
+      items.push(<Signal key="perm" color={colors.statusWarning} text={tn(summary.permissions, "{n} approval", "{n} approvals")} />);
     if (summary.errors)
-      items.push(<Signal key="err" color={colors.statusDanger} text={`${summary.errors} error`} />);
+      items.push(<Signal key="err" color={colors.statusDanger} text={tn(summary.errors, "{n} error", "{n} errors")} />);
     if (summary.running || summary.starting)
       items.push(
         <Signal
           key="run"
           pulse
           color={colors.accent}
-          text={summary.starting && !summary.running ? `${summary.starting} starting` : `${summary.running + summary.starting} running`}
+          text={summary.starting && !summary.running ? t("{n} starting", { n: summary.starting }) : t("{n} running", { n: summary.running + summary.starting })}
         />,
       );
     // A session with an open question is already shown as "Needs you".
     const unread = Math.max(0, summary.unread - questions);
     if (unread)
-      items.push(<Signal key="unread" color={colors.statusSuccess} text={`${unread} unread`} />);
+      items.push(<Signal key="unread" color={colors.statusSuccess} text={t("{n} unread", { n: unread })} />);
     if (!items.length && summary.total)
       items.push(<Signal key="total" icon="MessageSquare" text={`${summary.total}`} />);
     if (summaryState === "stale")
-      items.push(<Signal key="stale" icon="Clock" text="Last known" />);
+      items.push(<Signal key="stale" icon="Clock" text={t("Last known")} />);
   } else if (sessions)
-    items.push(<Signal key="fallback" icon="MessageSquare" text={running ? `${running}/${sessions} running` : `${sessions}`} />);
+    items.push(<Signal key="fallback" icon="MessageSquare" text={running ? t("{running}/{sessions} running", { running, sessions }) : `${sessions}`} />);
   const priority = task.priority !== "normal";
   const accent = priorityAccent(colors, task.priority);
   if (!task.type && !priority && !items.length && !ideas && !legacy && !task.archivedAt) return null;
@@ -447,21 +458,21 @@ function CardSignals({
         <View style={{ flexDirection: "row", alignItems: "center", gap: space[1.5] }}>
           {priority && (
             <Tag
-              label={`${priorityLabels[task.priority]} priority`}
+              label={t("{priority} priority", { priority: priorityLabels[task.priority] })}
               icon={<PriorityIcon priority={task.priority} size={12} />}
               text={priorityLabels[task.priority]}
               accent={accent}
             />
           )}
           {!!task.type && (
-            <Tag label={`Type: ${taskTypeLabels[task.type]}`} icon={<TypeIcon type={task.type} size={12} />} text={taskTypeLabels[task.type]} />
+            <Tag label={t("Type: {type}", { type: taskTypeLabels[task.type] })} icon={<TypeIcon type={task.type} size={12} />} text={taskTypeLabels[task.type]} />
           )}
         </View>
       )}
       {items}
       {!!ideas && <Signal icon="Lightbulb" color={colors.statusWarning} text={`${ideas}`} />}
-      {!!task.archivedAt && <Badge>Archived</Badge>}
-      {legacy && <Badge>Legacy</Badge>}
+      {!!task.archivedAt && <Badge>{t("Archived")}</Badge>}
+      {legacy && <Badge>{t("Legacy")}</Badge>}
     </View>
   );
 }

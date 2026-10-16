@@ -1,6 +1,7 @@
 import type { PaseoAgent } from "@getpaseo/client";
 import type { PluginSurfaceProps } from "@getpaseo/plugin/client";
 import type { BoardEvent } from "../shared/model";
+import { msg, t, tn } from "../shared/i18n";
 
 export function sessionState(
   agent: Pick<
@@ -15,22 +16,22 @@ export function sessionState(
   events: readonly BoardEvent[] = [],
 ) {
   if (agent.archivedAt)
-    return { label: "Archived", icon: "Archive", active: false };
+    return { label: msg("Archived"), icon: "Archive", active: false };
   if (
     agent.pendingPermissions?.length ||
     agent.attentionReason === "permission"
   )
-    return { label: "Waiting for approval", icon: "CircleHelp", active: false };
+    return { label: msg("Waiting for approval"), icon: "CircleHelp", active: false };
   if (agent.status === "error" || agent.attentionReason === "error")
-    return { label: "Error", icon: "CircleAlert", active: false };
+    return { label: msg("Error"), icon: "CircleAlert", active: false };
   if (agent.status === "initializing")
-    return { label: "Starting", icon: "Loader", active: true };
+    return { label: msg("Starting"), icon: "Loader", active: true };
   if (agent.status === "running")
-    return { label: "Running", icon: "Loader", active: true };
+    return { label: msg("Running"), icon: "Loader", active: true };
   if (agent.status === "closed")
-    return { label: "Closed", icon: "CircleStop", active: false };
+    return { label: msg("Closed"), icon: "CircleStop", active: false };
   if (agent.attentionReason === "finished")
-    return { label: "Finished turn", icon: "CircleCheck", active: false };
+    return { label: msg("Finished turn"), icon: "CircleCheck", active: false };
   const last = events
     .filter(
       (e) =>
@@ -43,9 +44,9 @@ export function sessionState(
     (!agent.lastUserMessageAt ||
       Date.parse(last.at) >= Date.parse(agent.lastUserMessageAt))
   )
-    return { label: "Turn ended", icon: "CircleCheck", active: false };
+    return { label: msg("Turn ended"), icon: "CircleCheck", active: false };
   return {
-    label: agent.lastUserMessageAt ? "Idle" : "Ready",
+    label: agent.lastUserMessageAt ? msg("Idle") : msg("Ready"),
     icon: "CirclePause",
     active: false,
   };
@@ -93,14 +94,14 @@ export function recentSessionOutput(
       const imageOnly = item.type.includes("user") && !!messageId && typeof text === "string";
       if (typeof text !== "string" || (!text.trim() && !imageOnly)) return [];
       const author = item.type.includes("user")
-        ? "You"
+        ? msg("You")
         : item.type.includes("assistant")
-          ? "Agent"
+          ? msg("Agent")
           : item.type === "reasoning"
-            ? "Thinking"
+            ? msg("Thinking")
             : tool
-              ? "Tool"
-              : "Session";
+              ? msg("Tool")
+              : msg("Session");
       const identity = entry.seqStart ?? item.messageId ?? item.callId ?? index;
       return [
         {
@@ -149,7 +150,7 @@ export function groupTranscript(entries: readonly OutputEntry[]): TranscriptBloc
 
 export function activitySummary(block: { thoughts: number; tools: number }) {
   const parts = [];
-  if (block.thoughts) parts.push("Thought");
-  if (block.tools) parts.push(`${block.tools} tool call${block.tools === 1 ? "" : "s"}`);
+  if (block.thoughts) parts.push(t("Thought"));
+  if (block.tools) parts.push(tn(block.tools, "{n} tool call", "{n} tool calls"));
   return parts.join(" · ");
 }

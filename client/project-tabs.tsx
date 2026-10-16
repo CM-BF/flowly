@@ -3,6 +3,7 @@ import { Pressable, View, type ScrollView as RNScrollView } from "react-native";
 import { Icon, ScrollView } from "@getpaseo/plugin/client/react-native";
 import type { Project } from "../shared/model";
 import { IconButton, Label, font, noFocusRing, radius, space, useTheme } from "./ui";
+import { t } from "../shared/i18n";
 
 /**
  * Desktop project tabs (PROJECT-TABS-SPEC): one click switches project; the
@@ -61,10 +62,10 @@ export function ProjectTabs({
           />
         ))}
       </ScrollView>
-      <IconButton icon="Plus" label="New project" onPress={onCreate} />
+      <IconButton icon="Plus" label={t("New project")} onPress={onCreate} />
       <IconButton
         icon="ChevronsUpDown"
-        label={`All projects${shortcut ? ` (${shortcut})` : ""}`}
+        label={`${t("All projects")}${shortcut ? ` (${shortcut})` : ""}`}
         onPress={onManage}
       />
     </View>
@@ -86,7 +87,7 @@ function Tab({
   return (
     <Pressable
       accessibilityRole="tab"
-      accessibilityLabel={`Project ${project.title}`}
+      accessibilityLabel={t("Project {title}", { title: project.title })}
       accessibilityState={{ selected: active }}
       {...({ "aria-selected": active } as object)}
       onPress={onPress}

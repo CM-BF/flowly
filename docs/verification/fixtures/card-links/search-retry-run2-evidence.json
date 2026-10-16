@@ -1,0 +1,18 @@
+{
+  "startedAt": "2026-10-16T01:56:13.904Z",
+  "viewport": {
+    "width": 1440,
+    "height": 900
+  },
+  "checks": {
+    "filteredCandidateLabels": [
+      "Related Card Links Run2 C ed86d3bc"
+    ],
+    "onlyMatchingCandidate": true
+  },
+  "errors": [],
+  "screenshots": [
+    "card-links-run2-search-exact-retry.png"
+  ],
+  "finishedAt": "2026-10-16T01:56:18.432Z"
+}

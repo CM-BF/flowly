@@ -1,18 +1,15 @@
-import { useEffect, useState } from "react";
-import { Animated, Pressable, View } from "react-native";
-import { Icon } from "@getpaseo/plugin/client/react-native";
-import { motionDuration, useMotionValue, lerp } from "./motion";
+import { useState } from "react";
+import { Animated, Modal as RNModal, Pressable, StyleSheet, View, useWindowDimensions } from "react-native";
+import { Icon, ScrollView } from "@getpaseo/plugin/client/react-native";
+import { Enter, motionDuration, useMotionValue, lerp } from "./motion";
 import type { PluginTheme } from "@getpaseo/plugin";
-import { usePaseo, useSettings } from "@getpaseo/plugin/client";
-import { useQuery } from "@tanstack/react-query";
-import { AUTO_MODELS, modelLabel, summarySettings, summarySettingsValues, type SummarySettings } from "../shared/summary";
-import { Modal } from "./modal";
-import { statusSettings, statusSettingsValues, wrapupSettings, wrapupSettingsValues } from "../shared/settings";
-import { PickerGroup, PickerRow } from "./picker";
-import { modelOptions, providerOptions } from "./options";
-import { Label, Notice, Theme, Toggle, font, noFocusRing, radius, space, tint, touch, useTheme } from "./ui";
+import { useShortcutBlock } from "./shortcuts";
+import { AiPage, GeneralPage, ModelsPage, WorkflowPage } from "./settings-pages";
+import { IconButton, Label, Theme, font, noFocusRing, radius, space, tint, touch, useTheme } from "./ui";
+import { msg, t } from "../shared/i18n";
 
-const AUTO = "";
+/** The settings window is wider than the host modal (about 520 px) so the two columns have room. */
+const modalMaxWidth = 900;
 
 /**
  * Floating bottom-left settings button: a rounded square that rises in on mount,
@@ -43,7 +40,7 @@ export function SettingsFab({ open = false, onPress }: { open?: boolean; onPress
     >
       <Pressable
         accessibilityRole="button"
-        accessibilityLabel="Ultra Kanban settings"
+        accessibilityLabel={t("Flowly settings")}
         accessibilityState={{ expanded: open }}
         onPress={onPress}
         onPressIn={() => setPressed(true)}
@@ -77,207 +74,135 @@ export function SettingsFab({ open = false, onPress }: { open?: boolean; onPress
   );
 }
 
-/** Ultra Kanban settings: per-turn progress summary (TASK-SUMMARY-SPEC §4), automatic status rules and wrap-up on finish. */
-export function SettingsModal({ open, theme, onClose }: { open: boolean; theme: PluginTheme; onClose(): void }) {
+type SettingsSection = "general" | "models" | "workflow" | "ai";
+/** Settings grouped by what they are for; each group is one page of the two-column layout. */
+const settingsSections: { id: SettingsSection; icon: string; label: string }[] = [
+  { id: "general", icon: "SlidersHorizontal", label: msg("General") },
+  { id: "models", icon: "Cpu", label: msg("Models") },
+  { id: "workflow", icon: "Workflow", label: msg("Workflow") },
+  { id: "ai", icon: "Sparkles", label: msg("AI features") },
+];
+
+/** One entry of the section list: a row in the left column, a compact chip when the modal is narrow. */
+function SettingsNavRow({ icon, label, selected, stacked, onPress }: { icon: string; label: string; selected: boolean; stacked: boolean; onPress(): void }) {
+  const { colors } = useTheme();
+  const [hovered, setHovered] = useState(false);
   return (
-    <Modal
-      open={open}
-      title="Ultra Kanban settings"
-      onOpenChange={(next) => {
-        if (!next) onClose();
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      accessibilityState={{ selected }}
+      onPress={onPress}
+      onHoverIn={() => setHovered(true)}
+      onHoverOut={() => setHovered(false)}
+      style={{
+        ...noFocusRing,
+        flexDirection: "row",
+        alignItems: "center",
+        gap: space[2],
+        minHeight: touch ? 44 : 34,
+        paddingVertical: space[1.5],
+        paddingHorizontal: space[3],
+        borderRadius: radius.lg,
+        backgroundColor: selected ? colors.surface2 : hovered ? colors.surface1 : "transparent",
+        ...(stacked ? { borderWidth: 1, borderColor: selected ? colors.accent : colors.border } : {}),
       }}
     >
-      <Modal.Content contentContainerStyle={{ padding: space[4], gap: space[3] }}>
-        <Theme.Provider value={theme}>
-          <SummarySettingsBody active={open} />
-          <StatusSettingsBody />
-          <WrapupSettingsBody />
-        </Theme.Provider>
-      </Modal.Content>
-    </Modal>
+      <Icon name={icon} size={16} color={selected ? colors.foreground : colors.foregroundMuted} />
+      <Label medium={selected} size={font.md} color={selected ? colors.foreground : colors.foregroundMuted} selectable={false}>
+        {label}
+      </Label>
+    </Pressable>
   );
 }
 
-function SummarySettingsBody({ active }: { active: boolean }) {
-  const settings = useSettings(summarySettings);
-  const paseo = usePaseo();
-  const values = settings.status === "ready" ? summarySettingsValues(settings.values) : null;
-  const stored = values?.summaryModel || AUTO;
-  const storedProvider = stored ? stored.slice(0, stored.indexOf("/")) : AUTO;
-  // The provider shown can run ahead of the stored model until a model is picked.
-  const [provider, setProvider] = useState(storedProvider);
-  const [picker, setPicker] = useState<"provider" | "model" | null>(null);
-  useEffect(() => setProvider(storedProvider), [storedProvider]);
-  const providers = useQuery({
-    queryKey: ["ultra", "providers"],
-    queryFn: () => paseo.providers.listAvailable(),
-    enabled: active,
-  });
-  const providerInfo = useQuery({
-    queryKey: ["ultra", "providerSnapshot"],
-    queryFn: () => paseo.providers.snapshot(),
-    enabled: active,
-    staleTime: 60000,
-  });
-  const models = useQuery({
-    queryKey: ["ultra", "summary-models", provider],
-    queryFn: async () => {
-      const result = await paseo.providers.listModels(provider);
-      if (result.error) throw new Error(result.error);
-      return result;
-    },
-    enabled: active && provider !== AUTO,
-  });
-  const save = (patch: Partial<SummarySettings>) => {
-    if (settings.status !== "ready" || !values) return;
-    void settings.save({ ...values, ...patch }, settings.revision).then((saved) => {
-      if (!saved) void settings.reload();
-    });
-  };
-  const autoLabel = `Auto (${AUTO_MODELS.map(modelLabel).join(", then ")})`;
-  const storedModel = stored && provider === storedProvider ? stored.slice(stored.indexOf("/") + 1) : "";
-  const modelChoices = modelOptions(models.data?.models || []);
-  const busy = !values || settings.saving;
-  return (
-    <View style={{ gap: space[3] }}>
-      <View style={{ gap: space[1] }}>
-        <Label bold size={font.md} selectable={false}>
-          Task progress summary
-        </Label>
-        <Label muted size={font.sm}>
-          After each agent turn on a card, a cheap model updates the card's state, recap and next step. It runs as a short child session that is archived right after.
-        </Label>
+/** Left column of sections, right column with the selected section's settings; the sections become a strip on top in narrow windows. */
+function SettingsPanes({ open, onTour }: { open: boolean; onTour(): void }) {
+  const { colors } = useTheme();
+  const { width, height } = useWindowDimensions();
+  const stacked = Math.min(modalMaxWidth, width - 32) < 560;
+  const [section, setSection] = useState<SettingsSection>("general");
+  const bodyHeight = Math.min(560, Math.max(340, height - 200));
+  const pane =
+    section === "general" ? <GeneralPage onTour={onTour} /> : section === "models" ? <ModelsPage active={open} /> : section === "workflow" ? <WorkflowPage /> : <AiPage />;
+  const rows = settingsSections.map((entry) => (
+    <SettingsNavRow key={entry.id} icon={entry.icon} label={t(entry.label)} selected={entry.id === section} stacked={stacked} onPress={() => setSection(entry.id)} />
+  ));
+  const content = (
+    <ScrollView style={{ flex: 1, minWidth: 0 }} contentContainerStyle={{ padding: space[5], paddingBottom: space[6] }}>
+      <Enter key={section} distance={4}>
+        <View style={{ maxWidth: 680, width: "100%" }}>{pane}</View>
+      </Enter>
+    </ScrollView>
+  );
+  return stacked ? (
+    <View style={{ height: bodyHeight }}>
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        style={{ flexGrow: 0, borderBottomWidth: 1, borderBottomColor: colors.border }}
+        contentContainerStyle={{ padding: space[2], gap: space[2] }}
+        accessibilityLabel={t("Settings sections")}
+      >
+        {rows}
+      </ScrollView>
+      {content}
+    </View>
+  ) : (
+    <View style={{ height: bodyHeight, flexDirection: "row" }}>
+      <View accessibilityLabel={t("Settings sections")} style={{ width: 156, padding: space[2], gap: 2, borderRightWidth: 1, borderRightColor: colors.border }}>
+        {rows}
       </View>
-      {(settings.status === "error" || settings.status === "invalid") && <Notice>{settings.error}</Notice>}
-      {!!settings.saveError && <Notice>{settings.saveError}</Notice>}
-      <Toggle
-        title="Auto summary"
-        detail="Update after every completed turn. Refresh on a card always works."
-        value={values?.summaryEnabled ?? true}
-        onChange={(summaryEnabled) => !busy && save({ summaryEnabled })}
-      />
-      <Toggle
-        title="Daily digest"
-        detail="Write a past day's project summary when Insights opens it. Refresh in Insights always works."
-        value={values?.digestEnabled ?? true}
-        onChange={(digestEnabled) => !busy && save({ digestEnabled })}
-      />
-      <PickerGroup>
-        <PickerRow
-          first
-          title="Provider"
-          icon="Bot"
-          open={picker === "provider"}
-          disabled={busy}
-          loading={providers.isPending}
-          value={provider}
-          placeholder={autoLabel}
-          options={[
-            { value: AUTO, label: autoLabel, detail: "Uses Claude when available, otherwise Codex" },
-            ...providerOptions(providers.data?.providers || [], providerInfo.data?.entries || []),
-          ]}
-          onToggle={() => setPicker(picker === "provider" ? null : "provider")}
-          onChange={(next) => {
-            setPicker(next === AUTO ? null : "model");
-            setProvider(next);
-            if (next === AUTO) save({ summaryModel: "" });
-          }}
-        />
-        {provider !== AUTO && (
-          <PickerRow
-            title="Model"
-            icon="Cpu"
-            open={picker === "model"}
-            disabled={busy}
-            loading={models.isPending}
-            value={storedModel}
-            placeholder="Choose a model"
-            options={modelChoices}
-            onToggle={() => setPicker(picker === "model" ? null : "model")}
-            onChange={(model) => {
-              setPicker(null);
-              save({ summaryModel: `${provider}/${model}` });
-            }}
-          />
-        )}
-      </PickerGroup>
-      {provider !== AUTO && !storedModel && (
-        <Label muted size={font.sm}>
-          Pick a model to use this provider. Until then the stored choice stays: {stored ? stored : autoLabel}.
-        </Label>
-      )}
-      {models.error && <Notice tone="warning">Could not list models: {String((models.error as Error).message || models.error)}</Notice>}
+      {content}
     </View>
   );
 }
 
-function StatusSettingsBody() {
-  const settings = useSettings(statusSettings);
-  const values = settings.status === "ready" ? statusSettingsValues(settings.values) : null;
+/** Flowly settings, in two columns: sections on the left (language and guide, card workflow, AI summaries, ideas), their settings on the right. */
+export function SettingsModal({ open, theme, onClose, onTour }: { open: boolean; theme: PluginTheme; onClose(): void; onTour(): void }) {
+  useShortcutBlock(open);
   return (
-    <View style={{ gap: space[3], paddingTop: space[2] }}>
-      <View style={{ gap: space[1] }}>
-        <Label bold size={font.md} selectable={false}>
-          Moving cards
-        </Label>
-        <Label muted size={font.sm}>
-          Agents always set their own work stage and deliver to review. These rules react to session activity on top of that.
-        </Label>
-      </View>
-      {(settings.status === "error" || settings.status === "invalid") && <Notice>{settings.error}</Notice>}
-      {!!settings.saveError && <Notice>{settings.saveError}</Notice>}
-      <Toggle
-        title="Auto-update status from sessions"
-        detail="A Kanban session resuming after review moves the card to Development, after a blocker back to its previous stage; a turn that ends without a report puts a reviewed card back. A project can still turn this off in its settings."
-        value={values?.autoStatus ?? true}
-        onChange={(autoStatus) => {
-          if (settings.status !== "ready" || !values || settings.saving) return;
-          void settings.save({ ...values, autoStatus }, settings.revision).then((saved) => {
-            if (!saved) void settings.reload();
-          });
+    <RNModal visible={open} transparent animationType="fade" onRequestClose={onClose} statusBarTranslucent>
+      <Theme.Provider value={theme}>
+        <SettingsWindow open={open} onClose={onClose} onTour={onTour} />
+      </Theme.Provider>
+    </RNModal>
+  );
+}
+
+/** Own window instead of the host Modal, whose width is fixed: backdrop, title bar and the two-column body. */
+function SettingsWindow({ open, onClose, onTour }: { open: boolean; onClose(): void; onTour(): void }) {
+  const { colors } = useTheme();
+  const { width } = useWindowDimensions();
+  return (
+    <View style={{ flex: 1, alignItems: "center", justifyContent: "center", padding: space[4] }}>
+      <Pressable accessible={false} importantForAccessibility="no" onPress={onClose} style={{ ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(0,0,0,0.45)" }} />
+      <View
+        accessibilityViewIsModal
+        style={{
+          width: Math.min(modalMaxWidth, width - 32),
+          maxWidth: "100%",
+          borderRadius: radius.xl,
+          borderWidth: 1,
+          borderColor: colors.border,
+          backgroundColor: colors.surface0,
+          overflow: "hidden",
+          shadowColor: "#000",
+          shadowOpacity: 0.25,
+          shadowRadius: 24,
+          shadowOffset: { width: 0, height: 8 },
+          elevation: 12,
         }}
-      />
+      >
+        <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingLeft: space[5], paddingRight: space[3], minHeight: 56, borderBottomWidth: 1, borderBottomColor: colors.border }}>
+          <Label bold size={font.lg} selectable={false}>
+            {t("Flowly settings")}
+          </Label>
+          <IconButton icon="X" label={t("Close")} onPress={onClose} />
+        </View>
+        <SettingsPanes open={open} onTour={onTour} />
+      </View>
     </View>
   );
 }
 
-function WrapupSettingsBody() {
-  const settings = useSettings(wrapupSettings);
-  const values = settings.status === "ready" ? wrapupSettingsValues(settings.values) : null;
-  return (
-    <View style={{ gap: space[3], paddingTop: space[2] }}>
-      <View style={{ gap: space[1] }}>
-        <Label bold size={font.md} selectable={false}>
-          Finishing cards
-        </Label>
-        <Label muted size={font.sm}>
-          When a card moves to Done or Cancelled, you are asked whether to wrap it up: archive its workspace and sessions. The card stays on the board.
-        </Label>
-      </View>
-      {(settings.status === "error" || settings.status === "invalid") && <Notice>{settings.error}</Notice>}
-      {!!settings.saveError && <Notice>{settings.saveError}</Notice>}
-      <Toggle
-        title="Auto wrap up"
-        detail="Archive without asking when nothing blocks it: no running session, no uncommitted or unpushed work. Otherwise the card is left for manual Wrap up."
-        value={values?.autoWrapup ?? false}
-        onChange={(autoWrapup) => {
-          if (settings.status !== "ready" || !values || settings.saving) return;
-          void settings.save({ ...values, autoWrapup }, settings.revision).then((saved) => {
-            if (!saved) void settings.reload();
-          });
-        }}
-      />
-      <Toggle
-        title="Auto archive on delete"
-        detail="When you delete a card, also archive its sessions (and its own workspace) without asking, when nothing blocks it. Otherwise the delete dialog asks."
-        value={values?.archiveOnDelete ?? false}
-        onChange={(archiveOnDelete) => {
-          if (settings.status !== "ready" || !values || settings.saving) return;
-          void settings.save({ ...values, archiveOnDelete }, settings.revision).then((saved) => {
-            if (!saved) void settings.reload();
-          });
-        }}
-      />
-    </View>
-  );
-}

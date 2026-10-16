@@ -208,6 +208,8 @@ export const insightSchema = z.object({
   rule: z.string(),
   severity: z.enum(["warning", "info"]),
   text: z.string(),
+  /** Values behind `text`, so the client can show it in the user's language. */
+  args: z.record(z.string(), z.union([z.string(), z.number()])).optional(),
   taskIds: z.array(z.string()),
 });
 export type Insight = z.infer<typeof insightSchema>;
@@ -458,6 +460,7 @@ export function suggest(
       rule: "R1",
       severity: "warning",
       text: `${review.length} card${review.length === 1 ? "" : "s"} waiting for your review (oldest ${waited(now - since(review[0]))}). Last 7 days: ${into} in, ${out_} out.`,
+      args: { n: review.length, waitMs: now - since(review[0]), into, out: out_ },
       taskIds: review.map((h) => h.task.id),
     });
   }
@@ -475,6 +478,10 @@ export function suggest(
         stalled.length === 1
           ? `${quote(stalled[0].task.title)} has had no activity for ${waited(now - Math.max(since(stalled[0]), ...stalled[0].entries.map((e) => ms(e.at))))}. Resume it or move it back.`
           : `${stalled.length} cards in work lanes have had no activity for 2+ days. Resume them or move them back.`,
+      args:
+        stalled.length === 1
+          ? { title: stalled[0].task.title, waitMs: now - Math.max(since(stalled[0]), ...stalled[0].entries.map((e) => ms(e.at))) }
+          : { n: stalled.length },
       taskIds: stalled.map((h) => h.task.id),
     });
   // R3 repeated rework
@@ -486,6 +493,7 @@ export function suggest(
         rule: "R3",
         severity: "info",
         text: `${quote(h.task.title)} went back from review ${n} times. The request may need clarifying.`,
+        args: { title: h.task.title, n },
         taskIds: [h.task.id],
       });
   }
@@ -504,6 +512,7 @@ export function suggest(
         rule: "R4",
         severity: "warning",
         text: `${quote(h.task.title)} (${h.task.priority}) has waited ${waited(now - from)} while lower-priority cards started.`,
+        args: { title: h.task.title, priority: h.task.priority, waitMs: now - from },
         taskIds: [h.task.id],
       });
   }
@@ -514,6 +523,7 @@ export function suggest(
       rule: "R5",
       severity: "warning",
       text: `${work.length} cards in progress, but about ${averageDone.toFixed(1)} finish per day. Finish some before starting more.`,
+      args: { n: work.length, rate: averageDone.toFixed(1) },
       taskIds: work.map((h) => h.task.id),
     });
   // R6 repeated failures
@@ -524,6 +534,7 @@ export function suggest(
         rule: "R6",
         severity: "warning",
         text: `${quote(h.task.title)} had ${failed} failed turns in the last 24h.`,
+        args: { title: h.task.title, n: failed },
         taskIds: [h.task.id],
       });
   }
@@ -537,6 +548,7 @@ export function suggest(
       rule: "R7",
       severity: "info",
       text: `Nothing is running. Next up: ${next.map((h) => quote(h.task.title)).join(", ")}.`,
+      args: { titles: next.map((h) => quote(h.task.title)).join(", ") },
       taskIds: next.map((h) => h.task.id),
     });
   }

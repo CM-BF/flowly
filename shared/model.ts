@@ -1,3 +1,5 @@
+import { localizedLabels, msg, t } from "./i18n";
+import { agentModelSchema } from "./agent-defaults";
 import { z } from "zod";
 
 export const statuses = [
@@ -11,17 +13,17 @@ export const statuses = [
   "done",
   "cancelled",
 ] as const;
-export const statusLabels: Record<Status, string> = {
-  backlog: "Backlog",
-  todo: "Todo",
-  design: "Design",
-  development: "Development",
-  test: "Test",
-  in_review: "In review",
-  blocked: "Blocked",
-  done: "Done",
-  cancelled: "Cancelled",
-};
+export const statusLabels: Record<Status, string> = localizedLabels({
+  backlog: msg("Backlog"),
+  todo: msg("Todo"),
+  design: msg("Design"),
+  development: msg("Development"),
+  test: msg("Test"),
+  in_review: msg("In review"),
+  blocked: msg("Blocked"),
+  done: msg("Done"),
+  cancelled: msg("Cancelled"),
+});
 /** The working stages that replaced In progress (WORKFLOW-STAGES-SPEC). */
 export const workStatuses = ["design", "development", "test"] as const satisfies readonly Status[];
 export const isWorkStatus = (status: string): status is (typeof workStatuses)[number] =>
@@ -31,21 +33,21 @@ export const legacyStatus = "in_progress" as const;
 export const priorities = ["low", "normal", "high", "urgent"] as const;
 /** What kind of work a card is (TASK-TYPE-SPEC). Optional on a task. */
 export const taskTypes = ["feature", "bugfix", "research", "refactor", "docs", "chore"] as const;
-export const taskTypeLabels: Record<TaskType, string> = {
-  feature: "Feature",
-  bugfix: "Bug fix",
-  research: "Research",
-  refactor: "Refactor",
-  docs: "Docs",
-  chore: "Chore",
-};
+export const taskTypeLabels: Record<TaskType, string> = localizedLabels({
+  feature: msg("Feature"),
+  bugfix: msg("Bug fix"),
+  research: msg("Research"),
+  refactor: msg("Refactor"),
+  docs: msg("Docs"),
+  chore: msg("Chore"),
+});
 export const statusSchema = z.enum(statuses);
 export type Status = z.infer<typeof statusSchema>;
 /** Statuses that may appear in history: current ones plus the retired In progress. */
 export const historyStatusSchema = z.union([statusSchema, z.literal(legacyStatus)]);
 export type HistoryStatus = z.infer<typeof historyStatusSchema>;
 export const historyStatusLabel = (status: HistoryStatus) =>
-  status === legacyStatus ? "In progress" : statusLabels[status];
+  status === legacyStatus ? t("In progress") : statusLabels[status];
 export const prioritySchema = z.enum(priorities);
 export const taskTypeSchema = z.enum(taskTypes);
 export type TaskType = z.infer<typeof taskTypeSchema>;
@@ -84,6 +86,8 @@ export const projectSchema = z.object({
   /** Display order in the project chooser (lower first); absent sorts by creation. */
   position: z.number().optional(),
   lanes: lanesSchema.optional(),
+  /** Model new sessions start with in this project; wins over the global default (MODEL-DEFAULTS-SPEC). */
+  agentModel: agentModelSchema.optional(),
   /** Linked multi-repo project: symlinks the plugin created inside its own root (PROJECT-PICKER-SPEC). */
   links: z.array(z.object({ name: z.string(), target: z.string() })).optional(),
 });
@@ -136,6 +140,29 @@ export const ideaSchema = z.object({
   updatedAt: timestamp,
 });
 export type Idea = z.infer<typeof ideaSchema>;
+/** A link between two cards of one project (CARD-LINKS-SPEC §2.1). */
+export const linkKinds = ["derived", "related", "blocks"] as const;
+export const linkLimits = { perTask: 50 } as const;
+export const linkSchema = z.object({
+  id: z.string(),
+  projectId: z.string(),
+  /** derived: from = follow-up card, to = source card. blocks: from blocks to. related: no direction. */
+  kind: z.enum(linkKinds),
+  from: z.string(),
+  to: z.string(),
+  /** Set on a derived link written when a card was created from an idea. */
+  ideaId: z.string().optional(),
+  createdBy: z.enum(["human", "system"]),
+  createdAt: timestamp,
+});
+export type Link = z.infer<typeof linkSchema>;
+export type LinkKind = Link["kind"];
+export const linkInput = z.strictObject({
+  kind: z.enum(linkKinds),
+  from: z.string().min(1),
+  to: z.string().min(1),
+});
+export type LinkInput = z.infer<typeof linkInput>;
 export const ideaEdit = z.strictObject({
   id: z.string().min(1),
   status: z.enum(["open", "dismissed"]),
@@ -173,6 +200,8 @@ export const boardSchema = z.object({
   events: z.array(eventSchema),
   /** Absent in files written before ideas (IDEAS-SPEC §2.1). */
   ideas: z.array(ideaSchema).default([]),
+  /** Absent in files written before card links; then derived from `Task.origin` once (CARD-LINKS-SPEC §2.2). */
+  links: z.array(linkSchema).default([]),
 });
 export const previousBoardSchema = boardSchema.extend({
   version: z.literal(2),
@@ -213,6 +242,7 @@ export const emptyBoard = (): Board => ({
   tasks: [],
   events: [],
   ideas: [],
+  links: [],
   agentReceipts: [],
 });
 export const projectInput = z.strictObject({
@@ -260,6 +290,8 @@ export const projectEdit = z.strictObject({
   archived: z.boolean().optional(),
   autoStatus: z.boolean().optional(),
   lanes: lanesSchema.optional(),
+  /** A model sets the project default; null removes it (the global default applies again). */
+  agentModel: agentModelSchema.nullable().optional(),
 });
 export const taskInput = z.strictObject({
   projectId: z.string(),
@@ -275,6 +307,8 @@ export const taskInput = z.strictObject({
   branchName: z.string().optional(),
   /** Create from this open idea (IDEAS-SPEC §6). */
   ideaId: z.string().min(1).optional(),
+  /** Create as a follow-up of this card (CARD-LINKS-SPEC §3); not together with ideaId. */
+  followUpOf: z.string().min(1).optional(),
 });
 export const taskEdit = z.strictObject({
   id: z.string(),

@@ -9,6 +9,7 @@ import { Disclosure } from "./disclosure";
 import { summariesKey, useSummariesQuery } from "./queries";
 import { useMotionHeight, useMotionValue } from "./motion";
 import { Button, Label, SectionHeader, font, message, radius, relativeTime, space, tint, useTheme } from "./ui";
+import { formatLocale, t, tn } from "../shared/i18n";
 
 export { summariesKey };
 
@@ -51,9 +52,9 @@ export function TaskProgress({ taskId, active }: { taskId: string; active: boole
   const older = (history.data || []).filter((e) => e.id !== latest?.id);
   return (
     <View style={{ gap: space[2] }}>
-      <SectionHeader title="Progress">
+      <SectionHeader title={t("Progress")}>
         <Button quiet icon="RefreshCw" disabled={!active || running || requesting} onPress={() => void refresh()}>
-          {running ? "Updating…" : "Refresh"}
+          {running ? t("Updating…") : t("Refresh")}
         </Button>
       </SectionHeader>
       {latest ? (
@@ -71,7 +72,7 @@ export function TaskProgress({ taskId, active }: { taskId: string; active: boole
             background={colors.surface1}
             footer={
               <Label muted size={font.xs} selectable={false}>
-                Updated {relativeTime(latest.at)} · {modelLabel(latest.model)}
+                {t("Updated {time}", { time: relativeTime(latest.at) })} · {modelLabel(latest.model)}
               </Label>
             }
           >
@@ -81,31 +82,31 @@ export function TaskProgress({ taskId, active }: { taskId: string; active: boole
       ) : (
         <Label muted size={font.sm}>
           {running
-            ? "Writing the first summary…"
+            ? t("Writing the first summary…")
             : overview.data && !overview.data.enabled
-              ? "Auto summary is off. Turn it on with the settings button at the bottom left of the board, or press Refresh."
-              : "Updates after each agent turn."}
+              ? t("Auto summary is off. Turn it on with the settings button at the bottom left of the board, or press Refresh.")
+              : t("Updates after each agent turn.")}
         </Label>
       )}
       {!!error && (
         <Label muted size={font.sm}>
-          Last update failed {relativeTime(error.at)}: {error.message}
+          {t("Last update failed {time}: {error}", { time: relativeTime(error.at), error: error.message })}
         </Label>
       )}
       {!!latest && (
         <Disclosure
-          title="History"
-          summary={history.data ? `${history.data.length} version${history.data.length === 1 ? "" : "s"}` : undefined}
+          title={t("History")}
+          summary={history.data ? tn(history.data.length, "{n} version", "{n} versions") : undefined}
           open={historyOpen}
           onChange={setHistoryOpen}
           disabled={!active}
         >
           {history.isPending ? (
-            <Label muted size={font.sm}>Loading…</Label>
+            <Label muted size={font.sm}>{t("Loading…")}</Label>
           ) : history.error ? (
             <Label muted size={font.sm}>{message(history.error)}</Label>
           ) : !older.length ? (
-            <Label muted size={font.sm}>No earlier versions.</Label>
+            <Label muted size={font.sm}>{t("No earlier versions.")}</Label>
           ) : (
             <View style={{ gap: space[1] }}>
               {older.map((entry) => (
@@ -157,7 +158,7 @@ function Clamped({ background, footer, children }: { background: string; footer:
         <View style={{ flex: 1, minWidth: 0 }}>{footer}</View>
         {overflows && (
           <Button quiet icon={open ? "ChevronUp" : "ChevronDown"} onPress={() => setOpen(!open)}>
-            {open ? "Show less" : "Show more"}
+            {open ? t("Show less") : t("Show more")}
           </Button>
         )}
       </View>
@@ -174,9 +175,9 @@ function SummaryBody({ entry }: { entry: Pick<SummaryEntry, "state" | "target" |
           {entry.state}
         </Label>
       )}
-      {!!entry.target && <Field title="Target" text={targetText(entry.target)} />}
-      {!!entry.recap && <Field title="Recap" text={entry.recap} />}
-      {!!entry.next && <Field title="Next" text={entry.next} />}
+      {!!entry.target && <Field title={t("Target")} text={targetText(entry.target)} />}
+      {!!entry.recap && <Field title={t("Recap")} text={entry.recap} />}
+      {!!entry.next && <Field title={t("Next")} text={entry.next} />}
     </View>
   );
 }
@@ -219,7 +220,7 @@ function HistoryItem({ entry }: { entry: SummaryEntry }) {
           </Label>
         </View>
         <Label muted size={font.xs} selectable={false}>
-          {new Date(entry.at).toLocaleString()}
+          {new Date(entry.at).toLocaleString(formatLocale())}
         </Label>
       </Pressable>
       {open && (

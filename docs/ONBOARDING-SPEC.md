@@ -1,0 +1,118 @@
+# New-user onboarding
+
+Status: **implemented, real-UI verification pending** (2026-10-16, card "增加new user onboarding"; user approved the design and its five calls). This adds a first-run welcome tour, a better empty state and a few one-time contextual tips. It changes no business contract in SINGLE-ROOT, Phase 2 or AUTO-STATUS specs.
+
+## Why
+
+A new user opens Ultra Kanban and sees "No projects yet". The ideas the product rests on are never stated in the UI: a board project is a Paseo project root, a card is one workspace, sessions live inside the card, and card status is not session status. The headline features (cards that move by themselves, Needs you, run summaries, Ideas, Insights) are only discoverable by accident. The goal is that a first-time user, within a minute and without reading docs, understands (1) how Kanban objects map onto Paseo objects, (2) the basic loop, (3) what is special here, and ends the tour one tap from creating a project.
+
+Success: a new user can say what a project, a card and a session are, who decides Done, and where to look when an agent needs them. Anti-goals: a blocking tour for existing users, a tour that is long, a tour that creates Paseo resources, tips that nag.
+
+## Observable behavior
+
+### 1. When the welcome tour appears
+
+- The board screen shows it once per host (settings `onboarding`, host scope, like the other preferences) when **all** hold: settings have loaded successfully, `welcomeSeen` is false, and the board has loaded with **zero projects**.
+- **Existing users are never interrupted.** If the board already has at least one project (archived ones count) when the settings first read as unseen, the client silently stores `welcomeSeen=true` and marks every tip as seen, so veterans get neither the tour nor first-time tips. They can open the tour manually (§4) or use *Show tips again*.
+- Settings loading, error or invalid never show the tour (fail quiet). The tour never opens over another modal, over an open card, or while a shortcut dialog is open.
+- Closing it in any way (Skip, Esc, scrim, finishing) sets `welcomeSeen=true`. It is not shown again automatically.
+
+### 2. The tour: a modal sheet, four pages, skippable
+
+Uses the plugin `Modal` (host-owned open/close; content has the shared rise from `client/modal.tsx`). Same component on desktop and phone: single column, max width ~480, scrolls if the viewport is short. Footer: step dots, **Skip** (text button, all pages except the last), **Back** (from page 2), **Next** / final primary button. Page changes use `MotionReveal` (short, interruptible, Reduce Motion honoured, no delay before the action).
+
+**Page 1: Three things, one map** — "How Ultra Kanban maps to Paseo"
+
+A vertical (compact) / horizontal (desktop) chain drawn with React Native views and `Icon`s, no images:
+
+| Kanban | Is a Paseo… | In one line |
+| --- | --- | --- |
+| **Project** | project root (a folder) | One board = one folder. Put several repos under one folder, or let us link them for you. |
+| **Card** | workspace | One task = one workspace (a worktree or a directory). Never two cards on one workspace. |
+| **Session** | agent session | One conversation with an agent, inside the card's workspace. A card can have many; you pick who gets your next message. |
+
+Footer line under the chain: "Card status and session status are separate. A finished turn never completes a card; only you mark Done." Each row is tappable? No: static text, to keep the page quiet.
+
+**Page 2: The loop** — "Hand out work, make the calls, review"
+
+Five numbered steps, one line each, with the lane names the user will actually see:
+1. Create a project from a folder.
+2. Add a task and start an agent with it (the card gets its own workspace).
+3. Watch the card move Design → Development → Test → In review by itself.
+4. When an agent needs you, the card says **Needs you**. Reply from the card.
+5. Review, then move it to Done yourself.
+
+**Page 3: What makes it different** — five feature rows (icon, name, one sentence), the same five as the README so promo and product agree:
+- *Automatic status*: cards follow the agent's work through the lanes. Done stays yours.
+- *Needs-you reminders*: questions, approvals and errors light the card, the Attention menu and the sidebar badge.
+- *Run summaries*: after every turn a cheap model keeps state / target / recap / next on the card.
+- *Follow-up ideas*: work an agent finds on the way lands in the Ideas inbox; Good idea or Not now.
+- *Project insights*: today's cards, turns, agent time, commits, tokens and what is waiting on you.
+
+**Page 4: Get started**
+
+Primary **Create project** (opens the existing project form after the tour closes); secondary **Not now**. Small text link "Show these tips again any time: board menu → Welcome tour". No project, workspace, card or session is created by the tour itself (no sample data).
+
+### 3. Better empty states (always visible, not one-time)
+
+- **No projects**: the current empty view keeps its icon and **Create project** button, and gains a compact three-chip strip "Project → Card → Session" (same wording as page 1) plus a "Take the tour" link. Visible even after the tour was seen, so it is never a dead end.
+- **Project with no cards**: columns stay, and a quiet centred hint over the empty board reads "Add your first task. It gets its own workspace and sessions." with the **New task** button. Disappears with the first card.
+
+### 4. Re-entry
+
+- There is no board overflow menu, so the entries are: a **Welcome tour** help icon in the board header (desktop/tablet layout), **Settings → Welcome tour → Show welcome tour** (every layout, including phones), the empty-board **Take the tour** link, and Command Center "Ultra Kanban: Welcome tour". Opening it manually ignores `welcomeSeen` and does not change it. The tour only opens in the full board screen, not in the workspace panel.
+- Settings → Welcome tour also has **Show tips again**: clears `tipsSeen` only (the tour itself is reopened by hand; clearing `welcomeSeen` would make the board silently mark existing users again). Opening the tour from Settings closes Settings first and opens the tour 450 ms later. Settings is a React Native `Modal` and the tour a host `Modal`; swapping two modals in one tick is the suspected cause of a reported whole-app freeze (not reproduced; unverified).
+
+### 5. One-time contextual tips (small, non-modal)
+
+A tip is a single dismissible banner row (icon, one sentence, **Got it**) under the overview bar; only **Got it** records it as seen. Priority when several apply: needs-you, first-done, first-idea, first-card. The empty-project hint takes the same slot and wins at the top of the relevant surface, using theme colours. At most one tip is visible at a time; a tip appears at most once per host (`tipsSeen`); dismissing or acting on the feature records it. Tips never block input, never move a focused input, and are not shown while the welcome tour is open.
+
+| Tip id | Shown when | Text |
+| --- | --- | --- |
+| `first-card` | the project has a card and none is open | "Your card moves by itself as the agent works. Open it any time to see its sessions, output and summary." |
+| `needs-you` | the first time any card in the project is Needs you | "A card is waiting for you. Reply goes straight to the session." |
+| `first-idea` | the first time Ideas has an open item | "An agent suggested follow-up work. Good idea starts a card or continues here; Not now dismisses it." |
+| `first-done` | the user first moves a card to Done/Cancelled | "Done cards can be wrapped up: archive their sessions and workspace. Auto wrap up is in settings." |
+
+Tips are the lowest-priority part of this feature and can ship after the tour (see Delivery).
+
+## Data contract
+
+New host-scoped setting in `shared/settings.ts`, same pattern as `ideasSettings` (read through a `…Values()` helper that tolerates missing fields):
+
+```
+id: "onboarding", scope: "host", version: 1
+schema: { welcomeSeen: boolean = false, tipsSeen: string[] (max 20, ids ≤ 40 chars) = [] }
+```
+
+The daemon only registers the setting (`server.registerSettings(onboardingSettings)`). No board schema, RPC, tool or skill change; no migration; agent-facing text is untouched. Settings are per host, so a user on a second device sees the tour once there too; this is accepted.
+
+Pure logic lives in `client/onboarding-logic.ts` (not `onboarding.ts`: it would shadow `onboarding.tsx` in module resolution) so it can be unit-tested without rendering: `shouldShowWelcome({ settingsStatus, welcomeSeen, boardLoaded, projectCount, blocked })`, `shouldAutoMarkSeen(…)` (existing users), `nextTip({ tipsSeen, facts })`, and page-index stepping. UI and the `useOnboarding` hook (optimistic overlay, revision-conflict merge and retry, like `board-view.ts`) in `client/onboarding.tsx`. The board only mounts the tour component and passes facts; it does not own onboarding state.
+
+## Constraints from AGENTS.md
+
+- React Native primitives, theme colours, `Icon`; no HTML/DOM/CSS strings. Plugin-owned open/close and page changes use the shared motion primitives; honour Reduce Motion; no listeners left after close.
+- All strings via `t()`/`tn()` and added to every catalog in `shared/i18n/` (`shared/i18n.test.ts` enforces completeness; 9 non-English catalogs).
+- Performance: the tour mounts only when due (no hidden subtree on phones); tips read facts the board already has (project count, attention items, ideas list) and add no polling or query.
+- The tour must not use a bare controlled `TextInput` (it has none).
+- Statuses/lanes in copy use the user's lane names where available, otherwise the defaults.
+
+## Not in scope
+
+Interactive coach-mark overlays that point at live UI (fragile across desktop/phone layouts), sample/demo projects (would create Paseo resources), video, per-user server-side onboarding state, onboarding for Paseo itself, changing agent prompts or the skill.
+
+## Delivery and acceptance
+
+Implemented: settings + logic + tests, tour modal and all entry points, empty states, tips, and 47 new strings in all 9 catalogs.
+
+Run and passing: `npm run typecheck`, `npm test` (63 files / 395 tests, including `client/onboarding-logic.test.ts` and i18n completeness).
+
+Covered by unit tests: the pure logic (fresh user shows; existing user silently marked; settings loading/error never shows; manual open leaves `welcomeSeen`; one tip at a time; tips once only), i18n completeness. Real-UI verification (desktop and compact, light and dark, Reduce Motion, tour on first run, empty states, re-entry, tips) in an explicitly full-access `codex/gpt-6-luna` session against the non-fullscreen Paseo window with a fresh settings state; record evidence in `docs/verification/onboarding.md`. Anything not exercised on a real window is recorded UNRUN. **Status: UNRUN.** The plugin has not been reloaded and no Luna session or window was used.
+
+## Calls I made that you can overrule
+
+1. Existing users are not shown the tour (silent mark), because an unexpected modal on a working board is worse than a missed intro.
+2. Four pages, modal sheet, no spotlight overlays.
+3. No sample project is created.
+4. Tips are a separate, optional stage and can be dropped without affecting the tour.
+5. Onboarding state is per host (setting), not per account.

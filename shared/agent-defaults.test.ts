@@ -1,0 +1,44 @@
+import { describe, expect, it } from "vitest";
+import { agentModelFromValues, agentModelSchema, effectiveAgentModel, startingAgent } from "./agent-defaults";
+
+const claude = { provider: "claude", model: "claude-sonnet-5-5", thinking: "high" };
+const codex = { provider: "codex", model: "gpt-6-luna" };
+
+describe("effective model default", () => {
+  it("prefers the project's default over the global one", () => {
+    expect(effectiveAgentModel({ agentModel: claude }, codex)).toEqual({ model: claude, source: "project" });
+  });
+  it("falls back to the global default, then to nothing", () => {
+    expect(effectiveAgentModel({}, codex)).toEqual({ model: codex, source: "global" });
+    expect(effectiveAgentModel(null, codex)).toEqual({ model: codex, source: "global" });
+    expect(effectiveAgentModel({ agentModel: undefined }, null)).toBeNull();
+  });
+});
+
+describe("startingAgent", () => {
+  const last = { provider: "claude", model: "claude-haiku-5-5", mode: "plan", thinking: "low" };
+  it("keeps the latest session when no default is chosen", () => {
+    expect(startingAgent(last, null)).toBe(last);
+    expect(startingAgent(null, null)).toBeNull();
+  });
+  it("replaces provider, model and reasoning; keeps the mode only for the same provider", () => {
+    expect(startingAgent(last, claude)).toEqual({ provider: "claude", model: "claude-sonnet-5-5", mode: "plan", thinking: "high" });
+    expect(startingAgent(last, codex)).toEqual({ provider: "codex", model: "gpt-6-luna", mode: "", thinking: "" });
+    expect(startingAgent(null, codex)).toEqual({ provider: "codex", model: "gpt-6-luna", mode: "", thinking: "" });
+  });
+});
+
+describe("stored values", () => {
+  it("builds a model only when provider and model are both set", () => {
+    expect(agentModelFromValues({ defaultProvider: "claude", defaultModel: "m", defaultThinking: "" })).toEqual({ provider: "claude", model: "m" });
+    expect(agentModelFromValues({ defaultProvider: "claude", defaultModel: "m", defaultThinking: "high" })).toEqual({ provider: "claude", model: "m", thinking: "high" });
+    expect(agentModelFromValues({ defaultProvider: "claude", defaultModel: "" })).toBeNull();
+    expect(agentModelFromValues({})).toBeNull();
+    expect(agentModelFromValues(undefined)).toBeNull();
+  });
+  it("rejects incomplete or unknown fields in the project's model", () => {
+    expect(agentModelSchema.safeParse({ provider: "claude" }).success).toBe(false);
+    expect(agentModelSchema.safeParse({ provider: "claude", model: "m", extra: 1 }).success).toBe(false);
+    expect(agentModelSchema.safeParse(claude).success).toBe(true);
+  });
+});

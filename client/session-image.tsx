@@ -8,6 +8,7 @@ import { localImagePath, type ImageRef } from "../shared/images";
 import { Modal } from "./modal";
 import { Label, Theme, font, message, noFocusRing, radius, useTheme } from "./ui";
 import { motionDuration, useMotionValue } from "./motion";
+import { t } from "../shared/i18n";
 
 /**
  * Transcript image. Remote URLs load directly; local paths (pasted images live
@@ -77,7 +78,7 @@ export function SessionImage({
     <>
       <Pressable
         accessibilityRole="imagebutton"
-        accessibilityLabel={`${image.alt}. Open larger`}
+        accessibilityLabel={t("{alt}. Open larger", { alt: image.alt })}
         onPress={() => uri && setOpen(true)}
         style={{ ...noFocusRing, width: "100%", maxWidth: natural ? Math.min(natural, maxWidth) : maxWidth }}
       >
@@ -107,13 +108,13 @@ export function SessionImage({
                   }
                   setLoaded(true);
                 }}
-                onError={() => setFailed("could not be displayed")}
+                onError={() => setFailed(t("could not be displayed"))}
               />
             </Animated.View>
           )}
         </View>
       </Pressable>
-      <Modal open={open} title={image.alt || "Image"} onOpenChange={(next) => !next && setOpen(false)}>
+      <Modal open={open} title={image.alt || t("Image")} onOpenChange={(next) => !next && setOpen(false)}>
         <Modal.Content>
           <Theme.Provider value={theme}>
             {uri && (

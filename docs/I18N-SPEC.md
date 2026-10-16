@@ -1,0 +1,41 @@
+# Interface languages (i18n)
+
+Status: implemented on the user's request ("增加常用语言的本地化", 2026-10-16). Task `682321fc`.
+
+## 1. Scope
+
+Ultra Kanban's own UI text is translated: buttons, labels, menus, toasts, dialogs, empty states, accessibility labels, Command Center titles, the session chip, insight suggestions, lane/type/priority names and relative times.
+
+Not translated, on purpose:
+
+- agent-facing text: the skill, MCP tool descriptions, prompts, work instructions and anything the daemon sends to a model;
+- daemon error messages and RPC validation text (technical, English);
+- text written by models (task progress summaries, daily digest): they follow the language of the conversation / cards, as before;
+- user content (titles, descriptions, notes, ideas, lane names a project renamed).
+
+Languages: English (source), 简体中文 `zh-CN`, 繁體中文 `zh-TW`, 日本語 `ja`, 한국어 `ko`, Español `es`, Français `fr`, Deutsch `de`, Português (Brasil) `pt-BR`, Русский `ru`. The list is `locales` in `shared/i18n.ts`.
+
+The Paseo SDK (0.11.2) exposes no host language, so the plugin follows the device (`Intl.DateTimeFormat().resolvedOptions().locale`, mapped by `resolveLocale`) unless the user picks one.
+
+## 2. Setting
+
+Host-scoped setting `language` (`languageSettings` in `shared/settings.ts`, registered in `index.server.ts`): `"auto"` (default, follow the device) or one language code. UI: Ultra Kanban settings → **Language**. An unreadable or invalid stored value behaves as `"auto"`. Changing it applies at once to every plugin surface (board, sidebar entry, workspace panel); the Command Center entries are registered once at load and follow the device language until the plugin reloads.
+
+## 3. Mechanism (gettext style, English text is the key)
+
+- `t("Add task")`, `t("Moved to {lane}", { lane })`, `tn(count, "{n} card", "{n} cards")` in `shared/i18n.ts`. No catalog entry (or English) returns the source text, so an untranslated string is English, never blank.
+- Placeholders are `{name}`; every translation must keep exactly the placeholders of its key. `tn` takes the singular and the plural English text; the catalog key is the **plural** text and its value is a string or per-CLDR-category forms (`one`, `few`, `many`, `other`) chosen with `Intl.PluralRules`. `{n}` is the count.
+- Module-level tables use `msg("…")` (identity, found by the extractor) and translate when rendered (`t(label)`), or `localizedLabels({...})` whose values translate on read (`statusLabels`, `taskTypeLabels`, `priorityLabels`, `relationLabels`, activity verbs). Never call `t` at module load: it would freeze the language.
+- The current language is a module variable set by `LocaleRoot` (`client/i18n.tsx`), which wraps each surface and remounts it (`key`) when the language changes. The daemon never sets one, so it stays English (prompts, errors); `withLocale(code, fn)` exists for daemon code that must build text for a given language.
+- Compared strings stay English identities (`state.label === "Error"`, transcript authors): translate at display, not at creation.
+- Dates use `formatLocale()`. Insight suggestions travel as `rule` + `args` (`Insight.args`) and are rendered client-side, so changing language needs no new daemon read.
+
+## 4. Catalogs and tests
+
+`shared/i18n/<code>.ts` is `Record<english, translation>`; `shared/i18n/catalogs.ts` registers them. `shared/i18n.test.ts` reads the source with the TypeScript compiler (`shared/i18n-keys.ts`) and fails when, for any language, a string is missing, a catalog entry is stale, a placeholder differs or a translation is empty. It also covers language resolution, fallback, plural selection and restoring the language after `withLocale`.
+
+Adding text: write `t("…")`, run `npm test`, add the missing entries to each catalog. Adding a language: add it to `locales`, create `shared/i18n/<code>.ts`, register it in `catalogs.ts`.
+
+## 5. Acceptance
+
+See [verification/i18n.md](verification/i18n.md).

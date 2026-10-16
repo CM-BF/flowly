@@ -1,0 +1,82 @@
+{
+  "events": [
+    {
+      "taskId": "9651229b-afec-4beb-b412-adebdf5e4dfd"
+    },
+    {
+      "taskId": "ff845efb-27e7-4711-a770-df9bbb04dfc3"
+    },
+    {
+      "taskId": "4aa5e3a3-a80d-40a9-a9c5-e389467e6c29"
+    },
+    {
+      "taskId": "9651229b-afec-4beb-b412-adebdf5e4dfd",
+      "note": "Related: Card Links Run2 B ed86d3bc"
+    },
+    {
+      "taskId": "ff845efb-27e7-4711-a770-df9bbb04dfc3",
+      "note": "Related: Card Links Run2 A ed86d3bc"
+    },
+    {
+      "taskId": "9651229b-afec-4beb-b412-adebdf5e4dfd",
+      "note": "Blocks: Card Links Run2 B ed86d3bc"
+    },
+    {
+      "taskId": "ff845efb-27e7-4711-a770-df9bbb04dfc3",
+      "note": "Blocked by: Card Links Run2 A ed86d3bc"
+    },
+    {
+      "taskId": "ff845efb-27e7-4711-a770-df9bbb04dfc3",
+      "note": "Blocks: Card Links Run2 C ed86d3bc"
+    },
+    {
+      "taskId": "4aa5e3a3-a80d-40a9-a9c5-e389467e6c29",
+      "note": "Blocked by: Card Links Run2 B ed86d3bc"
+    },
+    {
+      "taskId": "9651229b-afec-4beb-b412-adebdf5e4dfd"
+    },
+    {
+      "taskId": "9651229b-afec-4beb-b412-adebdf5e4dfd",
+      "note": "Workspace and 0 session(s) archived; the directory stays on disk."
+    },
+    {
+      "taskId": "ff845efb-27e7-4711-a770-df9bbb04dfc3",
+      "note": "Blocks: Card Links Run2 C ed86d3bc"
+    },
+    {
+      "taskId": "4aa5e3a3-a80d-40a9-a9c5-e389467e6c29",
+      "note": "Blocked by: Card Links Run2 B ed86d3bc"
+    },
+    {
+      "taskId": "ff845efb-27e7-4711-a770-df9bbb04dfc3",
+      "note": "Follow-up: Run2 followup ed86d3bc"
+    },
+    {
+      "taskId": "ff845efb-27e7-4711-a770-df9bbb04dfc3"
+    },
+    {
+      "taskId": "ff845efb-27e7-4711-a770-df9bbb04dfc3"
+    },
+    {
+      "taskId": "ff845efb-27e7-4711-a770-df9bbb04dfc3",
+      "note": "Follow-up: Run2 followup ed86d3bc"
+    }
+  ],
+  "fixtureTasksRemaining": [
+    "9651229b-afec-4beb-b412-adebdf5e4dfd",
+    "ff845efb-27e7-4711-a770-df9bbb04dfc3",
+    "4aa5e3a3-a80d-40a9-a9c5-e389467e6c29"
+  ],
+  "links": [
+    {
+      "id": "a6d2f2e2-3166-46ff-ab4f-09fd8243047e",
+      "projectId": "974a1963-7c02-4a80-ae6a-71643e774085",
+      "kind": "blocks",
+      "from": "9651229b-afec-4beb-b412-adebdf5e4dfd",
+      "to": "ff845efb-27e7-4711-a770-df9bbb04dfc3",
+      "createdBy": "human",
+      "createdAt": "2026-10-16T01:49:43.033Z"
+    }
+  ]
+}

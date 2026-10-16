@@ -1,0 +1,35 @@
+{
+  "run": "cfc6504c-8f61-460d-bab7-4abaf5b1c314",
+  "startedAt": "2026-10-16T01:44:57.717Z",
+  "directory": "/var/folders/0b/f1crzdg95g5fwbq49s_3pw9c0000gq/T/paseo-kanban-card-links-1RpKcJ",
+  "project": "abc3a335-97ba-420c-a34d-d26ae40b83c6",
+  "nativeProject": "prj_06aa3549a389e4b2",
+  "cards": [
+    {
+      "id": "801d627c-5ebc-4c92-bd90-2280bad89b4a",
+      "workspaceId": "wks_c4dacbdc3c69cdd8",
+      "title": "Card Links A cfc6504c"
+    },
+    {
+      "id": "de585f04-d9be-4d9e-a801-7a137f4641c0",
+      "workspaceId": "wks_c8278b483854bb0b",
+      "title": "Card Links B cfc6504c"
+    },
+    {
+      "id": "2d7cfbea-070a-4143-9b74-1b489518459d",
+      "workspaceId": "wks_21557016dde90ba7",
+      "title": "Card Links C cfc6504c"
+    }
+  ],
+  "sessions": [],
+  "operationIds": {
+    "project": "card-links-project-cfc6504c-8f61-460d-bab7-4abaf5b1c314",
+    "cards": [
+      "card-links-A-cfc6504c-8f61-460d-bab7-4abaf5b1c314",
+      "card-links-B-cfc6504c-8f61-460d-bab7-4abaf5b1c314",
+      "card-links-C-cfc6504c-8f61-460d-bab7-4abaf5b1c314"
+    ]
+  },
+  "cleanup": {},
+  "boardRevision": 1001
+}

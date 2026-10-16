@@ -1,5 +1,6 @@
 import { Platform } from "react-native";
 import { imageMimeTypes, maxImageBytes, maxImages, type OutgoingImage } from "../shared/composer";
+import { t } from "../shared/i18n";
 
 /**
  * Web-only image input for the session composer (paste, drag-and-drop, file
@@ -35,14 +36,14 @@ let sequence = 0;
 function readFile(file: BrowserFile): Promise<Attachment> {
   return new Promise((resolve, reject) => {
     const reader = new browser.FileReader!();
-    reader.onerror = () => reject(new Error(`Could not read ${file.name || "the image"}.`));
+    reader.onerror = () => reject(new Error(t("Could not read {name}.", { name: file.name || t("the image") })));
     reader.onload = () => {
       const uri = String(reader.result || "");
       const comma = uri.indexOf(",");
       resolve({
         id: `image-${Date.now()}-${++sequence}`,
         uri,
-        name: file.name || "Pasted image",
+        name: file.name || t("Pasted image"),
         data: uri.slice(comma + 1),
         mimeType: file.type as OutgoingImage["mimeType"],
       });
@@ -59,9 +60,9 @@ export async function readImages(files: readonly BrowserFile[], room: number) {
   const problems: string[] = [];
   const accepted: BrowserFile[] = [];
   for (const file of files) {
-    if (!(imageMimeTypes as readonly string[]).includes(file.type)) problems.push(`${file.name || "File"} is not a PNG, JPEG, GIF or WebP image.`);
-    else if (file.size > maxImageBytes) problems.push(`${file.name || "Image"} is larger than 5 MB.`);
-    else if (accepted.length >= room) problems.push(`At most ${maxImages} images per message.`);
+    if (!(imageMimeTypes as readonly string[]).includes(file.type)) problems.push(t("{name} is not a PNG, JPEG, GIF or WebP image.", { name: file.name || t("File") }));
+    else if (file.size > maxImageBytes) problems.push(t("{name} is larger than 5 MB.", { name: file.name || t("Image") }));
+    else if (accepted.length >= room) problems.push(t("At most {maxImages} images per message.", { maxImages }));
     else accepted.push(file);
   }
   const images = await Promise.all(accepted.map(readFile));

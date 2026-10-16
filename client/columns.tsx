@@ -22,6 +22,7 @@ import {
   type Point,
   type Rect,
 } from "./geometry";
+import { t, tn } from "../shared/i18n";
 
 type DragState = { task: Task; point: Point; target: Status | null; slot: DropSlot | null; sequence: number };
 export type Placement = NonNullable<ReturnType<typeof placementUpdate>>;
@@ -286,9 +287,9 @@ export function DesktopColumns({
               ? (dragging.slot?.lineY ?? null)
               : null;
           const headerMenu = menuHandlers(openMenu, nameOf(status), () => [
-            { id: "add", label: "Add task", icon: "Plus", disabled, onPress: () => onAdd(status) },
+            { id: "add", label: t("Add task"), icon: "Plus", disabled, onPress: () => onAdd(status) },
             ...(onToggleCollapse
-              ? [{ id: "collapse", label: collapsed.includes(status) ? "Expand column" : "Collapse column", icon: collapsed.includes(status) ? "ChevronsLeftRight" : "ChevronsRightLeft", onPress: () => onToggleCollapse(status) }]
+              ? [{ id: "collapse", label: collapsed.includes(status) ? t("Expand column") : t("Collapse column"), icon: collapsed.includes(status) ? "ChevronsLeftRight" : "ChevronsRightLeft", onPress: () => onToggleCollapse(status) }]
               : []),
           ]);
           const frameRef = (node: View | null) => {
@@ -302,7 +303,7 @@ export function DesktopColumns({
               <LaneFrame key={status} status={status} collapsed onLayout={measure} frameRef={frameRef}>
               <Pressable
                 accessibilityRole="button"
-                accessibilityLabel={`Expand ${nameOf(status)}, ${column.length} ${column.length === 1 ? "task" : "tasks"}`}
+                accessibilityLabel={tn(column.length, "Expand {lane}, {n} task", "Expand {lane}, {n} tasks", { lane: nameOf(status) })}
                 onPress={() => onToggleCollapse?.(status)}
                 {...headerMenu}
                 style={(state) => {
@@ -375,7 +376,7 @@ export function DesktopColumns({
                     <IconButton
                       icon="ChevronsRightLeft"
                       size={28}
-                      label={`Collapse ${nameOf(status)}`}
+                      label={t("Collapse {name}", { name: nameOf(status) })}
                       onHoverChange={trackHeaderButton(`${status}:collapse`)}
                       onPress={() => onToggleCollapse(status)}
                     />
@@ -384,7 +385,7 @@ export function DesktopColumns({
                 <IconButton
                   icon="Plus"
                   size={28}
-                  label={`Add task to ${nameOf(status)}`}
+                  label={t("Add task to {name}", { name: nameOf(status) })}
                   disabled={disabled}
                   onHoverChange={trackHeaderButton(`${status}:add`)}
                   onPress={() => onAdd(status)}
@@ -437,7 +438,7 @@ export function DesktopColumns({
                     }}
                   >
                     <Label muted size={font.sm} selectable={false}>
-                      {highlighted ? "Drop to move here" : "Empty"}
+                      {highlighted ? t("Drop to move here") : t("Empty")}
                     </Label>
                   </View>
                 )}
@@ -492,11 +493,11 @@ export function DesktopColumns({
           </Label>
           <Label muted size={font.sm} selectable={false}>
             {ghost.item.target && ghost.item.target !== ghost.item.task.status
-              ? `Move to ${nameOf(ghost.item.target)}`
+              ? t("Move to {name}", { name: nameOf(ghost.item.target) })
               : ghost.item.target &&
                   placementUpdate(ghost.item.task, ghost.item.target, ghost.item.slot, order.current[ghost.item.target] || [])
-                ? `Reorder in ${nameOf(ghost.item.target)}`
-                : "Drag to reorder or move"}
+                ? t("Reorder in {name}", { name: nameOf(ghost.item.target) })
+                : t("Drag to reorder or move")}
           </Label>
         </Animated.View>
       )}

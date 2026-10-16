@@ -1,6 +1,6 @@
 import type { PaseoApi } from "@getpaseo/client";
 import type { IdeaAdoption } from "../shared/model";
-import { ideaInstruction } from "../shared/ideas";
+import { FINISHED_CARD_IDEA, continuesInCard, ideaInstruction } from "../shared/ideas";
 import { isSummarizer } from "../shared/summary";
 import type { BoardStore } from "./store";
 
@@ -19,6 +19,7 @@ export async function adoptIdea(store: BoardStore, push: Push, input: IdeaAdopti
   const idea = board.ideas.find((i) => i.id === input.id);
   const task = idea && board.tasks.find((t) => t.id === idea.taskId);
   if (!idea || idea.status !== "open" || !task) throw new Error("This idea is no longer open.");
+  if (!continuesInCard(task)) throw new Error(FINISHED_CARD_IDEA);
   const agent = (await paseo.agents.ref(input.agentId).refresh())?.agent;
   if (!agent || agent.workspaceId !== task.workspaceId || agent.archivedAt || isSummarizer(agent))
     throw new Error("Choose a live session of this card.");
@@ -27,7 +28,8 @@ export async function adoptIdea(store: BoardStore, push: Push, input: IdeaAdopti
     const card = live && current.tasks.find((t) => t.id === live.taskId);
     const project = card && current.projects.find((p) => p.id === card.projectId);
     if (!live || live.status !== "open" || !card) throw new Error("This idea is no longer open.");
-    if (card.archivedAt || !project || project.archivedAt) throw new Error("The card or project is archived.");
+    if (!project || project.archivedAt) throw new Error("The project is archived.");
+    if (!continuesInCard(card)) throw new Error(FINISHED_CARD_IDEA);
     live.status = "accepted";
     live.acceptedAgentId = input.agentId;
     live.updatedAt = new Date().toISOString();

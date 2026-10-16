@@ -1,0 +1,18 @@
+{
+  "run": "cfc6504c-8f61-460d-bab7-4abaf5b1c314",
+  "startedAt": "2026-10-16T01:44:57.717Z",
+  "directory": "/var/folders/0b/f1crzdg95g5fwbq49s_3pw9c0000gq/T/paseo-kanban-card-links-1RpKcJ",
+  "project": null,
+  "nativeProject": null,
+  "cards": [],
+  "sessions": [],
+  "operationIds": {
+    "project": "card-links-project-cfc6504c-8f61-460d-bab7-4abaf5b1c314",
+    "cards": [
+      "card-links-A-cfc6504c-8f61-460d-bab7-4abaf5b1c314",
+      "card-links-B-cfc6504c-8f61-460d-bab7-4abaf5b1c314",
+      "card-links-C-cfc6504c-8f61-460d-bab7-4abaf5b1c314"
+    ]
+  },
+  "cleanup": {}
+}

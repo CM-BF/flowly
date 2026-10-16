@@ -1,5 +1,21 @@
 # Implementation progress
 
+## Composer focus during a running session — 2026-10-16
+
+- [x] Card report "PC 上 session 运行中打字会被打断，内容更新时出现，打断后完全无法输入". Cause: the transcript ScrollView had `keyboardDismissMode="on-drag"` on web; RN Web's `_handleScroll` then blurs the focused input on every scroll event, and follow-tail scrolls on each output update. Web now uses `none` ([spec](SESSION-INPUT-SPEC.md)).
+- [x] PASS: typecheck; headless app.paseo.sh against the local daemon, typing into this card's running session with forced transcript scrolls: with the fix the textarea kept focus (0 blurs); control run with the old value lost focus to `<body>`, blur stack `_handleScroll → blurTextInput`.
+- [ ] UNRUN: the Electron desktop window.
+
+## Card links — 2026-10-16
+
+- [x] Card request "设计任务卡片关联关系…父子任务可能有点麻烦，在其他agent kanban项目里怎么设计的". Researched Vibe Kanban (attempt-scoped subtasks, independent status), Multica, Linear/Jira/Plane, agent-tasks MCP. User chose option A: Follow-up of (derived) + Related + Blocks (hint only), no parent/child; approved the [card links spec](CARD-LINKS-SPEC.md), then "OK 做吧".
+- [x] Data: `board.links` (`derived`/`related`/`blocks`, same project, board stays v4); files without `links` derive them once from `Task.origin`. `shared/links.ts` (relations, resolution, cycle detection, context lines). `links.create` / `links.delete` (CAS-free, board revision only; events on both cards; Related replaced by a more specific link; cycle, duplicate, cross-project, archived and 50-per-card checks). `tasks.create` with `followUpOf` (checked before the workspace and in the write) and with `ideaId` writes a derived link. Card delete / project remove back up and drop links; the other card records `unlinked`.
+- [x] Agents: `kanban_get_task.links` (relation, title, lane, archived, resolved), session context lists links instead of `Derived from card`, skill rule (read-only; unresolved blocked_by is a hint).
+- [x] Client: "Waiting on N" card signal; drawer Links section below Ideas (groups, open, optimistic remove, `+` menu); "From idea on / Follow-up of" line; Link to a card… picker; New follow-up task form; card menu and phone action sheet entries.
+- [x] PASS: typecheck; `npm test` 331 passed / 63 skipped (new `shared/links.test.ts`, `server/links.test.ts`, `client/link-rows.test.ts`; idea tests updated).
+- [x] Luna (`codex/gpt-6-luna`, full access) acceptance, session `a2d45f82`, headless app.paseo.sh, two runs with fresh fixtures (cleaned): PASS link modal/search/toast, both-side groups, Waiting on → Was waiting on after Done, cycle and already-linked errors in the modal, remove + Activity, New follow-up task, linked-card delete backup (RPC), agent `kanban_get_task.links` and context lines, dark desktop, no console errors. FAIL fixed afterwards: the picker offered a card already linked by Blocks as a Related candidate. [Verification](verification/card-links.md).
+- [ ] UNRUN: compact 390×844 UI (automation could not reach the board in the mobile context); Delete permanently from the UI (checked via RPC); browser re-check of the picker fix; Electron window and a physical phone.
+
 ## Project insights — 2026-10-16
 
 - [x] Card request "项目整体天级统计、变更总结" / "为项目增加一个project级别的统计、总结、insight的功能". User chose purpose A (daily review and planning the day) and approved an untrimmed flow log; then "先这么实现看看". Wrote [insights spec](PROJECT-INSIGHTS-SPEC.md).

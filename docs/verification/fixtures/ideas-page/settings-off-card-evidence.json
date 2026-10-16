@@ -1,0 +1,6 @@
+{
+  "checks": {
+    "cardLightbulbHidden": true
+  },
+  "cardAriaLabel": "Open task Ideas Page Card A. Progress: Two Kanban ideas proposed; acceptance checks not yet run. Normal priority. 0 running, 1 finished turns, 0 unread sessions, 0 need attention. Latest agent output 29m ago: All four Kanban MCP calls succeeded; no files were changed. kanban_get_task (ini…."
+}

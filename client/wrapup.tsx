@@ -7,6 +7,7 @@ import { useQuery } from "@tanstack/react-query";
 import type { Task } from "../shared/model";
 import * as rpc from "../shared/rpc";
 import { Actions, Button, Label, Notice, Theme, font, message, space, useTheme } from "./ui";
+import { t, tn } from "../shared/i18n";
 
 export function CheckRow({ tone, text }: { tone: "ok" | "warn" | "block"; text: string }) {
   const { colors } = useTheme();
@@ -77,8 +78,8 @@ export function WrapupModal({
       });
       onDone(
         result.archivedWorkspace
-          ? `Wrapped up: workspace and sessions archived`
-          : `Wrapped up: ${result.archivedSessions} session${result.archivedSessions === 1 ? "" : "s"} archived`,
+          ? t("Wrapped up: workspace and sessions archived")
+          : tn(result.archivedSessions, "Wrapped up: {n} session archived", "Wrapped up: {n} sessions archived"),
       );
     } catch (e) {
       setError(message(e));
@@ -90,7 +91,7 @@ export function WrapupModal({
   return (
     <Modal
       open={open}
-      title={prompt ? "Wrap up this card?" : "Wrap up"}
+      title={prompt ? t("Wrap up this card?") : t("Wrap up")}
       onOpenChange={(next) => {
         if (!next && !pending) onClose();
       }}
@@ -99,19 +100,18 @@ export function WrapupModal({
         <Theme.Provider value={theme}>
           <Label size={font.base}>
             {(data?.archiveWorkspace && data.workspace?.kind === "worktree"
-              ? "Archive this card's worktree workspace and its sessions. Paseo may remove the worktree directory; the branch is kept."
+              ? t("Archive this card's worktree workspace and its sessions. Paseo may remove the worktree directory; the branch is kept.")
               : data?.archiveWorkspace
-                ? "Archive this card's workspace and its sessions. The directory stays on disk."
-                : "Archive this card's sessions. The workspace directory stays as it is.") +
-              (prompt ? " The card stays on the board." : " Then archive the card.")}
+                ? t("Archive this card's workspace and its sessions. The directory stays on disk.")
+                : t("Archive this card's sessions. The workspace directory stays as it is.")) +
+              ` ${prompt ? t("The card stays on the board.") : t("Then archive the card.")}`}
           </Label>
           {prompt && (
             <Label muted size={font.sm}>
-              To skip this question, turn on Auto wrap up in Ultra Kanban settings.
-            </Label>
+              {t("To skip this question, turn on Auto wrap up in Flowly settings.")}</Label>
           )}
           {check.isPending ? (
-            <Label muted>Checking…</Label>
+            <Label muted>{t("Checking…")}</Label>
           ) : check.error ? (
             <Notice>{message(check.error)}</Notice>
           ) : data ? (
@@ -123,23 +123,23 @@ export function WrapupModal({
                 <CheckRow key={text} tone="warn" text={text} />
               ))}
               {!data.workspace && (
-                <CheckRow tone="warn" text="Workspace is unavailable; only the card will be archived." />
+                <CheckRow tone="warn" text={t("Workspace is unavailable; only the card will be archived.")} />
               )}
               {!data.blockers.length && (
                 <CheckRow
                   tone="ok"
-                  text={`${data.sessions} session${data.sessions === 1 ? "" : "s"} idle${data.git ? ` · branch ${data.git.branch}` : ""}`}
+                  text={`${tn(data.sessions, "{n} session idle", "{n} sessions idle")}${data.git ? ` · ${t("branch {branch}", { branch: data.git.branch })}` : ""}`}
                 />
               )}
               {data.git && !data.git.uncommitted && !data.git.unpushed && (
-                <CheckRow tone="ok" text="No uncommitted changes or local-only commits" />
+                <CheckRow tone="ok" text={t("No uncommitted changes or local-only commits")} />
               )}
             </View>
           ) : null}
           {!!error && <Notice>{error}</Notice>}
           <Actions>
             <Button quiet disabled={pending} onPress={onClose}>
-              {prompt ? "Not now" : "Cancel"}
+              {prompt ? t("Not now") : t("Cancel")}
             </Button>
             <Button
               primary={!warned}
@@ -148,7 +148,7 @@ export function WrapupModal({
               disabled={blocked || pending || check.isFetching}
               onPress={() => void confirm()}
             >
-              {pending ? "Wrapping up…" : warned ? "Wrap up anyway" : "Wrap up"}
+              {pending ? t("Wrapping up…") : warned ? t("Wrap up anyway") : t("Wrap up")}
             </Button>
           </Actions>
         </Theme.Provider>

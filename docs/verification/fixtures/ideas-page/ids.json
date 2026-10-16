@@ -1,0 +1,132 @@
+{
+  "runId": "3a097844-33dd-42bf-887e-af120fcb9edc",
+  "startedAt": "2026-10-16T02:00:32.606Z",
+  "provider": "codex/gpt-6-luna",
+  "modeIdAtCreation": "full-access",
+  "directory": "/var/folders/0b/f1crzdg95g5fwbq49s_3pw9c0000gq/T/paseo-kanban-ideas-page-svca1I",
+  "project": {
+    "id": "04e323bd-52cd-41a2-bbc9-1a04439913e8",
+    "title": "Ideas Page 3a097844",
+    "description": "Disposable Ideas page acceptance fixture.",
+    "paseoProjectId": "prj_933e4be1d1a6f1cc",
+    "primaryPath": "/private/var/folders/0b/f1crzdg95g5fwbq49s_3pw9c0000gq/T/paseo-kanban-ideas-page-svca1I",
+    "repos": [
+      "/private/var/folders/0b/f1crzdg95g5fwbq49s_3pw9c0000gq/T/paseo-kanban-ideas-page-svca1I"
+    ],
+    "revision": 1,
+    "createdAt": "2026-10-16T02:00:34.451Z",
+    "updatedAt": "2026-10-16T02:00:34.451Z",
+    "archivedAt": null
+  },
+  "cards": [
+    {
+      "id": "8d01ea4c-0c4d-433a-99cf-44825ab116c2",
+      "workspaceId": "wks_4fb84a3df891b22a",
+      "title": "Ideas Page Card A",
+      "initialStatus": "todo"
+    },
+    {
+      "id": "fee7c9bd-9d4a-4f5a-ba0f-e2d56cf5a252",
+      "workspaceId": "wks_8b7df81bc6624dd7",
+      "title": "Ideas Page Card B",
+      "initialStatus": "todo"
+    }
+  ],
+  "testSessions": [
+    {
+      "id": "cb44462f-63a0-421f-a7fc-ca419c47e4f8",
+      "cardId": "8d01ea4c-0c4d-433a-99cf-44825ab116c2",
+      "workspaceId": "wks_4fb84a3df891b22a",
+      "modeIdAtCreation": "full-access",
+      "setupStatus": "idle"
+    },
+    {
+      "id": "f116624d-43b4-4395-858a-59f8398e65c4",
+      "cardId": "fee7c9bd-9d4a-4f5a-ba0f-e2d56cf5a252",
+      "workspaceId": "wks_8b7df81bc6624dd7",
+      "modeIdAtCreation": "full-access",
+      "setupStatus": "idle"
+    }
+  ],
+  "ideas": [
+    {
+      "id": "1f7f1edf-52a4-4069-affb-5d4a31cda395",
+      "taskId": "8d01ea4c-0c4d-433a-99cf-44825ab116c2",
+      "title": "Ideas Page A: continue validation",
+      "scope": "here",
+      "status": "accepted",
+      "acceptedTaskId": "0c27cc60-cec2-48e6-81f5-bf8e6f17f83f"
+    },
+    {
+      "id": "18e65fe3-ea77-47b4-a4d7-c75ebc76d7ed",
+      "taskId": "8d01ea4c-0c4d-433a-99cf-44825ab116c2",
+      "title": "Ideas Page A: independent filter audit",
+      "scope": "new",
+      "type": "research",
+      "priority": "high",
+      "status": "open at cleanup"
+    },
+    {
+      "id": "5521d014-00f2-4f7e-b56a-53da74cd4012",
+      "taskId": "fee7c9bd-9d4a-4f5a-ba0f-e2d56cf5a252",
+      "title": "Ideas Page B: add keyboard shortcut",
+      "scope": "new",
+      "type": "feature",
+      "priority": "normal",
+      "status": "deleted with card B"
+    }
+  ],
+  "cleanup": {
+    "completedAt": "2026-10-16T02:33:22.521Z",
+    "evidenceFile": "cleanup-evidence.json",
+    "checks": {
+      "ownedProjectPathMatches": true,
+      "fixtureTaskSetMatches": true,
+      "ownedSessionsArchivedOrRemoved": true,
+      "nativeProjectAbsentAfterRemoval": true,
+      "tempDirectoryRemoved": true,
+      "pluginProjectAbsent": true,
+      "fixtureCardsAbsent": true,
+      "fixtureIdeasAbsent": true,
+      "fixtureWorkspacesAbsent": true,
+      "nativeProjectAbsent": true
+    },
+    "projectRemoved": true,
+    "nativeProjectRemoved": true,
+    "tempDirectoryRemoved": true,
+    "workerSessionsArchived": true
+  },
+  "gitHead": "7cfcc6fb4ff36447c07ceb5c5e26334b0e8c9f1b",
+  "nativeProjectId": "prj_933e4be1d1a6f1cc",
+  "revisions": {
+    "8d01ea4c-0c4d-433a-99cf-44825ab116c2": 1,
+    "fee7c9bd-9d4a-4f5a-ba0f-e2d56cf5a252": 1
+  },
+  "projectRevision": 1,
+  "derivedCard": {
+    "id": "0c27cc60-cec2-48e6-81f5-bf8e6f17f83f",
+    "workspaceId": "wks_77606cfea4cfda1c",
+    "title": "Ideas Page A: continue validation"
+  },
+  "check9Session": {
+    "planned": false,
+    "cardId": "0c27cc60-cec2-48e6-81f5-bf8e6f17f83f",
+    "workspaceId": "wks_77606cfea4cfda1c",
+    "provider": "codex/gpt-6-luna",
+    "modeIdAtCreation": "full-access",
+    "title": "Ideas Page Luna disabled-setting check",
+    "id": "b5a2d9d2-c946-4030-bf30-a25668831850"
+  },
+  "check9Result": {
+    "code": "IDEAS_DISABLED",
+    "message": "Ideas are turned off in Ultra Kanban settings. Mention follow-up suggestions in your reply instead.",
+    "ideaIdCreated": false,
+    "boardIdeaCountBefore": 2,
+    "boardIdeaCountAfter": 2,
+    "finalSetting": "ON"
+  },
+  "settings": {
+    "finalValue": "ON",
+    "offAndOnChecks": "settings-off-evidence.json and settings-on-evidence.json"
+  }
+}

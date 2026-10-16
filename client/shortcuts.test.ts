@@ -14,6 +14,8 @@ describe("board shortcut keys", () => {
   test("maps letters case-insensitively and punctuation keys", () => {
     expect(resolveShortcut({ key: "n" }, true)).toBe("new-task");
     expect(resolveShortcut({ key: "N" }, true)).toBe("new-task");
+    expect(resolveShortcut({ key: "b" }, true)).toBe("ideas");
+    expect(resolveShortcut({ key: "i" }, true)).toBe("insights");
     expect(resolveShortcut({ key: "p" }, true)).toBe("projects");
     expect(resolveShortcut({ key: "/" }, true)).toBe("filters");
     expect(resolveShortcut({ key: "f" }, true)).toBe("filters");

@@ -1,4 +1,5 @@
-export type PickerOption = {
+
+import { t } from "../shared/i18n";export type PickerOption = {
   value: string;
   label: string;
   detail?: string;
@@ -31,7 +32,7 @@ export function modelOptions(
       value: m.id,
       label,
       detail: description && description !== label ? description : m.id !== label ? m.id : undefined,
-      badge: m.isDefault ? "Default" : undefined,
+      badge: m.isDefault ? t("Default") : undefined,
       };
     });
 }

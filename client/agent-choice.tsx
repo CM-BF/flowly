@@ -5,6 +5,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Label, font, space } from "./ui";
 import { PickerGroup, PickerRow } from "./picker";
 import { modelOptions, providerOptions } from "./options";
+import { t } from "../shared/i18n";
 
 export type AgentDefaults = { provider: string; model: string; mode: string; thinking?: string } | null | undefined;
 
@@ -116,18 +117,17 @@ export function AgentPicker({ choice, disabled = false }: { choice: AgentChoice;
   return (
     <View style={{ gap: space[1.5] }}>
       <Label medium size={font.sm} muted>
-        Agent
-      </Label>
+        {t("Agent")}</Label>
       <PickerGroup>
         <PickerRow
           first
-          title="Provider"
+          title={t("Provider")}
           icon="Bot"
           open={picker === "provider"}
           disabled={disabled}
           loading={choice.providers.isPending}
           value={choice.provider}
-          placeholder="Choose a provider"
+          placeholder={t("Choose a provider")}
           options={providerOptions(choice.providers.data?.providers || [], choice.providerInfo.data?.entries || [])}
           onToggle={() => toggle("provider")}
           onChange={(p) => {
@@ -136,13 +136,13 @@ export function AgentPicker({ choice, disabled = false }: { choice: AgentChoice;
           }}
         />
         <PickerRow
-          title="Model"
+          title={t("Model")}
           icon="Cpu"
           open={picker === "model"}
           disabled={disabled}
           loading={choice.models.isPending}
           value={choice.chosenModel}
-          placeholder="Choose a model"
+          placeholder={t("Choose a model")}
           options={modelOptions(choice.models.data?.models || [])}
           onToggle={() => toggle("model")}
           onChange={(m) => {
@@ -152,15 +152,15 @@ export function AgentPicker({ choice, disabled = false }: { choice: AgentChoice;
         />
         {choice.thinkingOptions.length > 0 && (
           <PickerRow
-            title="Reasoning"
+            title={t("Reasoning")}
             icon="Brain"
             open={picker === "thinking"}
             disabled={disabled}
             loading={false}
             value={choice.chosenThinking}
-            placeholder={defaultLabel ? `Model default (${defaultLabel})` : "Model default"}
+            placeholder={defaultLabel ? t("Model default ({defaultLabel})", { defaultLabel }) : t("Model default")}
             options={[
-              { value: "", label: defaultLabel ? `Model default (${defaultLabel})` : "Model default", detail: "Use the model's default reasoning effort" },
+              { value: "", label: defaultLabel ? t("Model default ({defaultLabel})", { defaultLabel }) : t("Model default"), detail: t("Use the model's default reasoning effort") },
               ...choice.thinkingOptions.map((t) => ({ value: t.id, label: t.label, detail: t.description })),
             ]}
             onToggle={() => toggle("thinking")}
@@ -171,15 +171,15 @@ export function AgentPicker({ choice, disabled = false }: { choice: AgentChoice;
           />
         )}
         <PickerRow
-          title="Permissions"
+          title={t("Permissions")}
           icon="ShieldCheck"
           open={picker === "mode"}
           disabled={disabled}
           loading={choice.modes.isPending}
           value={choice.chosenMode}
-          placeholder="Provider default"
+          placeholder={t("Provider default")}
           options={[
-            { value: "", label: "Provider default", detail: "Use the provider's configured permission mode" },
+            { value: "", label: t("Provider default"), detail: t("Use the provider's configured permission mode") },
             ...(choice.modes.data?.modes || []).map((m) => ({
               value: m.id,
               label: m.label,

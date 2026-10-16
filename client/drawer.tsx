@@ -51,8 +51,10 @@ import { openNativeSession } from "./session-state";
 import { cardQuestions } from "../shared/progress";
 import { TaskProgress } from "./task-progress";
 import { TaskUsage } from "./task-usage";
-import { IdeaOrigin, TaskIdeas } from "./task-ideas";
+import { TaskIdeas } from "./task-ideas";
+import { LinkOrigin, TaskLinks } from "./task-links";
 import { ideaInstruction } from "../shared/ideas";
+import { getLocale, localizedLabels, msg, t, tn } from "../shared/i18n";
 
 type TaskDrawerProps = Parameters<typeof TaskDrawerView>[0];
 
@@ -70,6 +72,8 @@ function TaskDrawerView({
   onEdit,
   onDelete,
   onCreateFromIdea,
+  onLink,
+  onFollowUp,
   onOpenTask,
   onStatusChanged,
   refresh,
@@ -78,6 +82,8 @@ function TaskDrawerView({
   active = true,
   sessionDefaults,
   startRequest,
+  startIdea,
+  onAllIdeas,
   escapeRequest,
 }: {
   task: Task;
@@ -93,6 +99,10 @@ function TaskDrawerView({
   onDelete?(): void;
   /** Opens the new-task form prefilled from an idea (IDEAS-SPEC §6). */
   onCreateFromIdea?(idea: Idea): void;
+  /** Opens "Link to a card…" for this card (CARD-LINKS-SPEC §5.4). */
+  onLink?(task: Task): void;
+  /** Opens the new-task form as a follow-up of this card (CARD-LINKS-SPEC §5.5). */
+  onFollowUp?(task: Task): void;
   /** Opens another card's drawer (idea source or result). */
   onOpenTask?(id: string): void;
   /** After this drawer changed the card's status (the board may ask to wrap up). */
@@ -104,6 +114,10 @@ function TaskDrawerView({
   sessionDefaults?: { provider: string; model: string; mode: string } | null;
   /** Changes when the card's action menu asks to start a session. */
   startRequest?: string;
+  /** With startRequest: prefill Start session from this idea (the Ideas page's "Do it in a new session"). */
+  startIdea?: Idea;
+  /** Opens the project Ideas page showing only this card (IDEAS-INBOX-SPEC §5). */
+  onAllIdeas?(taskId: string): void;
   /** Changes on each board Esc shortcut: leave the session preview, else close. */
   escapeRequest?: string;
 }) {
@@ -184,8 +198,9 @@ function TaskDrawerView({
     if (!active || !startRequest || consumedStart.current === startRequest) return;
     consumedStart.current = startRequest;
     setSelected("");
+    setIdeaSession(startIdea || null);
     setShowNew(true);
-  }, [active, startRequest]);
+  }, [active, startRequest, startIdea]);
   const consumedEscape = useRef(escapeRequest);
   useEffect(() => {
     if (!active || !escapeRequest || consumedEscape.current === escapeRequest) return;
@@ -255,7 +270,7 @@ function TaskDrawerView({
     ? message(workspace.error)
     : scope.error
       ? message(scope.error)
-      : scope.data?.reason || (!workspace.isPending && !workspace.data ? "Workspace unavailable." : "");
+      : scope.data?.reason || (!workspace.isPending && !workspace.data ? t("Workspace unavailable.") : "");
   const statusDisabled = !active || sending || !!task.archivedAt || !!project.archivedAt;
   const refreshAll = () => {
     refresh();
@@ -275,37 +290,37 @@ function TaskDrawerView({
   const taskActions = (): MenuEntry[] => [
     {
       id: "start",
-      label: "Start session",
+      label: t("Start session"),
       icon: "Play",
       disabled: unavailable || !!task.archivedAt,
       onPress: () => setShowNew(true),
     },
     ...(finished && !wrapped && !task.archivedAt && !project.archivedAt
-      ? [{ id: "wrap", label: "Wrap up…", icon: "PackageCheck", onPress: () => setShowWrapup(true) }]
+      ? [{ id: "wrap", label: t("Wrap up…"), icon: "PackageCheck", onPress: () => setShowWrapup(true) }]
       : []),
     { kind: "separator" as const, id: "s" },
     {
       id: "archive",
-      label: task.archivedAt ? "Restore card" : "Archive card",
+      label: task.archivedAt ? t("Restore card") : t("Archive card"),
       icon: task.archivedAt ? "ArchiveRestore" : "Archive",
       danger: !task.archivedAt,
       disabled: sending,
       onPress: () =>
         void perform(
           () => update({ id: task.id, revision: task.revision, archived: !task.archivedAt }),
-          task.archivedAt ? "Card restored" : "Card archived",
+          task.archivedAt ? t("Card restored") : t("Card archived"),
         ),
     },
     ...(onDelete
-      ? [{ id: "delete", label: "Delete permanently…", icon: "Trash2", danger: true, disabled: sending || !!project.archivedAt, onPress: onDelete }]
+      ? [{ id: "delete", label: t("Delete permanently…"), icon: "Trash2", danger: true, disabled: sending || !!project.archivedAt, onPress: onDelete }]
       : []),
   ];
   const sessionMenu = (a: (typeof ordered)[number]): MenuEntry[] => {
     const running = a.status === "running" || a.status === "initializing";
     return [
-      { id: "open", label: a.archivedAt ? "Open to restore" : "Open", icon: "MessageSquare", onPress: () => setSelected(a.id) },
+      { id: "open", label: a.archivedAt ? t("Open to restore") : t("Open"), icon: "MessageSquare", onPress: () => setSelected(a.id) },
       ...(typeof navigation?.openAgent === "function"
-        ? [{ id: "native", label: "Open in Paseo", icon: "ArrowUpRight", onPress: () => openNativeSession(navigation, a.id, hostId) }]
+        ? [{ id: "native", label: t("Open in Paseo"), icon: "ArrowUpRight", onPress: () => openNativeSession(navigation, a.id, hostId) }]
         : []),
       ...(!a.archivedAt && active
         ? (() => {
@@ -315,21 +330,21 @@ function TaskDrawerView({
               attention.unread
                 ? {
                     id: "read",
-                    label: "Mark as read",
+                    label: t("Mark as read"),
                     icon: "MailCheck",
                     disabled: unavailable,
                     onPress: () =>
                       void perform(
                         () => markRead({ taskId: task.id, agentId: a.id, ...(attention.token ? { token: attention.token } : {}) }),
-                        "Marked as read",
+                        t("Marked as read"),
                       ),
                   }
                 : {
                     id: "unread",
-                    label: "Mark as unread",
+                    label: t("Mark as unread"),
                     icon: "Mail",
                     disabled: unavailable,
-                    onPress: () => void perform(() => markUnread({ taskId: task.id, agentId: a.id }), "Marked as unread"),
+                    onPress: () => void perform(() => markUnread({ taskId: task.id, agentId: a.id }), t("Marked as unread")),
                   },
             ];
           })()
@@ -337,10 +352,10 @@ function TaskDrawerView({
       ...(running
         ? [{
             id: "stop",
-            label: "Stop",
+            label: t("Stop"),
             icon: "Square",
             onPress: () =>
-              void perform(() => configure({ taskId: task.id, agentId: a.id, stop: true }), "Session stopped"),
+              void perform(() => configure({ taskId: task.id, agentId: a.id, stop: true }), t("Session stopped")),
           }]
         : []),
       ...(!a.archivedAt
@@ -348,14 +363,14 @@ function TaskDrawerView({
             { kind: "separator" as const, id: "s1" },
             {
               id: "archive",
-              label: running ? "Archive (stop it first)" : "Archive session",
+              label: running ? t("Archive (stop it first)") : t("Archive session"),
               icon: "Archive",
               danger: true,
               disabled: running || !active,
               onPress: () =>
                 void perform(async () => {
                   await paseo.agents.ref(a.id).archive();
-                }, "Session archived"),
+                }, t("Session archived")),
             },
           ]
         : []),
@@ -374,7 +389,7 @@ function TaskDrawerView({
         setSelected(a.id);
         setError("");
       }}
-      menu={menuHandlers(openMenu, a.title || "Session", () => sessionMenu(a))}
+      menu={menuHandlers(openMenu, a.title || t("Session"), () => sessionMenu(a))}
     />
   );
   // Routine turn start/end records drive rules and markers; the timeline shows
@@ -408,7 +423,7 @@ function TaskDrawerView({
         await update({ id: task.id, revision: task.revision, status });
         onStatusChanged?.(from, status);
       },
-      `Moved to ${laneName(project, status)}`,
+      t("Moved to {lane}", { lane: laneName(project, status) }),
     );
   }
   // Status, type and priority open a dropdown next to their button (a sheet on phones).
@@ -427,17 +442,17 @@ function TaskDrawerView({
   const typeEntries = (): MenuEntry[] => [
     {
       id: "none",
-      label: "No type",
+      label: t("No type"),
       leading: <TypeIcon always />,
       checked: !task.type,
-      onPress: () => task.type && editField({ type: null }, "Type cleared"),
+      onPress: () => task.type && editField({ type: null }, t("Type cleared")),
     },
     ...taskTypes.map((type) => ({
       id: type,
       label: taskTypeLabels[type],
       leading: <TypeIcon type={type} />,
       checked: type === task.type,
-      onPress: () => type !== task.type && editField({ type }, `Type set to ${taskTypeLabels[type]}`),
+      onPress: () => type !== task.type && editField({ type }, t("Type set to {type}", { type: taskTypeLabels[type] })),
     })),
   ];
   const priorityEntries = (): MenuEntry[] =>
@@ -446,7 +461,7 @@ function TaskDrawerView({
       label: priorityLabels[priority],
       leading: <PriorityIcon priority={priority} always />,
       checked: priority === task.priority,
-      onPress: () => priority !== task.priority && editField({ priority }, `Priority set to ${priorityLabels[priority]}`),
+      onPress: () => priority !== task.priority && editField({ priority }, t("Priority set to {priority}", { priority: priorityLabels[priority] })),
     }));
   return (
     <View
@@ -481,7 +496,7 @@ function TaskDrawerView({
               : scope.error
                 ? message(scope.error)
                 : scope.data?.reason ||
-                  "Checking task and workspace availability…"
+                  t("Checking task and workspace availability…")
           }
           navigation={navigation}
           draft={drafts[selected] || ""}
@@ -519,7 +534,7 @@ function TaskDrawerView({
           <View style={{ paddingHorizontal: space[4], paddingTop: space[2], paddingBottom: space[3], gap: space[2] }}>
             <View style={{ flexDirection: "row", alignItems: "center", gap: space[1], marginLeft: compact ? -space[2] : 0 }}>
               {compact && (
-                <IconButton icon="ArrowLeft" label="Back to board" onPress={onClose} />
+                <IconButton icon="ArrowLeft" label={t("Back to board")} onPress={onClose} />
               )}
               <View style={{ flex: 1, minWidth: 0, flexDirection: "row", alignItems: "center", gap: space[1.5] }}>
                 <Icon name="Folder" size={13} color={colors.foregroundMuted} />
@@ -528,40 +543,40 @@ function TaskDrawerView({
                     {project.title}
                   </Label>
                 </View>
-                {!!task.archivedAt && <Badge>Archived</Badge>}
-                {legacy && <Badge>Legacy</Badge>}
+                {!!task.archivedAt && <Badge>{t("Archived")}</Badge>}
+                {legacy && <Badge>{t("Legacy")}</Badge>}
               </View>
-              <IconButton icon="Pencil" label="Edit task" disabled={!active || sending} onPress={onEdit} />
+              <IconButton icon="Pencil" label={t("Edit task")} disabled={!active || sending} onPress={onEdit} />
               <IconButton
                 icon="Ellipsis"
-                label="More task actions"
+                label={t("More task actions")}
                 disabled={!active}
                 onPress={(event) => openMenu?.(eventPoint(event), task.title, taskActions())}
               />
-              {!compact && <IconButton icon="X" label="Close side bar" onPress={onClose} />}
+              {!compact && <IconButton icon="X" label={t("Close side bar")} onPress={onClose} />}
             </View>
             <Label bold size={font.xl} lines={3}>{task.title}</Label>
             <View testID="task-actions" style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: space[2] }}>
               <Property
                 icon={<StatusIcon status={task.status} />}
                 text={laneName(project, task.status)}
-                label={`Status: ${laneName(project, task.status)}`}
+                label={t("Status: {lane}", { lane: laneName(project, task.status) })}
                 disabled={statusDisabled || !openMenu}
-                onPress={(at) => openMenu?.(at, "Status", statusEntries())}
+                onPress={(at) => openMenu?.(at, t("Status"), statusEntries())}
               />
               <Property
                 icon={<PriorityIcon priority={task.priority} always />}
                 text={priorityLabels[task.priority]}
-                label={`Priority: ${priorityLabels[task.priority]}`}
+                label={t("Priority: {priority}", { priority: priorityLabels[task.priority] })}
                 disabled={!active || sending || !openMenu}
-                onPress={(at) => openMenu?.(at, "Priority", priorityEntries())}
+                onPress={(at) => openMenu?.(at, t("Priority"), priorityEntries())}
               />
               <Property
                 icon={<TypeIcon type={task.type} always />}
-                text={task.type ? taskTypeLabels[task.type] : "No type"}
-                label={`Type: ${task.type ? taskTypeLabels[task.type] : "none"}`}
+                text={task.type ? taskTypeLabels[task.type] : t("No type")}
+                label={t("Type: {type}", { type: task.type ? taskTypeLabels[task.type] : t("none") })}
                 disabled={!active || sending || !openMenu}
-                onPress={(at) => openMenu?.(at, "Type", typeEntries())}
+                onPress={(at) => openMenu?.(at, t("Type"), typeEntries())}
               />
             </View>
             {!!error && <Notice>{error}</Notice>}
@@ -582,14 +597,14 @@ function TaskDrawerView({
                     refreshAll();
                     void workspace.refetch();
                     void scope.refetch();
-                  }}>Refresh details</Button>
+                  }}>{t("Refresh details")}</Button>
                 </View>
               </View>
             )}
             {questions.map((q) => (
               <Enter key={q.id}>
               <View
-                accessibilityLabel={`Question from ${sessions.data?.find((a) => a.id === q.agentId)?.title || "agent"}: ${q.note || ""}`}
+                accessibilityLabel={t("Question from {agent}: {note}", { agent: sessions.data?.find((a) => a.id === q.agentId)?.title || t("agent"), note: q.note || "" })}
                 style={{
                   gap: space[2],
                   padding: space[3],
@@ -603,12 +618,12 @@ function TaskDrawerView({
                   <Icon name="MessageCircleQuestion" size={15} color={colors.statusWarning} />
                   <View style={{ flex: 1, minWidth: 0 }}>
                     <Label medium size={font.sm} lines={1} selectable={false}>
-                      {sessions.data?.find((a) => a.id === q.agentId)?.title || "Agent"} needs you
+                      {t("{agent} needs you", { agent: sessions.data?.find((a) => a.id === q.agentId)?.title || t("Agent") })}
                     </Label>
                   </View>
                   <Label muted size={font.xs} selectable={false}>{relativeTime(q.at)}</Label>
                 </View>
-                <Label size={font.base} selectable>{q.note || "The agent asked a question."}</Label>
+                <Label size={font.base} selectable>{q.note || t("The agent asked a question.")}</Label>
                 <View style={{ flexDirection: "row", justifyContent: "flex-end" }}>
                   <Button
                     primary
@@ -619,8 +634,7 @@ function TaskDrawerView({
                       setError("");
                     }}
                   >
-                    Reply
-                  </Button>
+                    {t("Reply")}</Button>
                 </View>
               </View>
               </Enter>
@@ -645,59 +659,63 @@ function TaskDrawerView({
                 />
                 <View style={{ flex: 1, minWidth: 0 }}>
                   <Label medium size={font.md}>
-                    {wrapped ? "Wrapped up" : task.status === "done" ? "Finished" : "Cancelled"}
+                    {wrapped ? t("Wrapped up") : task.status === "done" ? t("Finished") : t("Cancelled")}
                   </Label>
                   <Label muted size={font.sm}>
                     {wrapped
-                      ? `${/(^|; )workspace kept(;|$)/.test(wrapped.note || "") ? "Sessions" : "Workspace and sessions"} archived ${relativeTime(wrapped.at)}. Move the card out of ${task.status === "done" ? "Done" : "Cancelled"} to bring them back.`
-                      : "Wrap up to archive its sessions, worktree and the card."}
+                      ? t(
+                          /(^|; )workspace kept(;|$)/.test(wrapped.note || "")
+                            ? task.status === "done"
+                              ? "Sessions archived {time}. Move the card out of Done to bring them back."
+                              : "Sessions archived {time}. Move the card out of Cancelled to bring them back."
+                            : task.status === "done"
+                              ? "Workspace and sessions archived {time}. Move the card out of Done to bring them back."
+                              : "Workspace and sessions archived {time}. Move the card out of Cancelled to bring them back.",
+                          { time: relativeTime(wrapped.at) },
+                        )
+                      : t("Wrap up to archive its sessions, worktree and the card.")}
                   </Label>
                 </View>
                 {!wrapped && (
                   <Button icon="Archive" disabled={!active || sending} onPress={() => setShowWrapup(true)}>
-                    Wrap up
-                  </Button>
+                    {t("Wrap up")}</Button>
                 )}
               </View>
             )}
-            {onOpenTask && <IdeaOrigin task={task} onOpenTask={onOpenTask} />}
+            {onOpenTask && <LinkOrigin taskId={task.id} onOpenTask={onOpenTask} />}
             {!!task.description && (
               <Label size={font.base} selectable>{task.description}</Label>
             )}
             <TaskProgress taskId={task.id} active={active} />
             <View style={{ gap: space[2] }}>
-              <SectionHeader title="Sessions" count={liveSessions.length}>
+              <SectionHeader title={t("Sessions")} count={liveSessions.length}>
                 <Button
                   quiet
                   icon="Plus"
                   disabled={!active || unavailable}
                   onPress={() => setShowNew(true)}
                 >
-                  Start session
-                </Button>
+                  {t("Start session")}</Button>
               </SectionHeader>
               {sessions.error && (
                 <View style={{ gap: space[2] }}>
                   <Notice>
                     {message(sessions.error)}
-                    {sessions.data?.length
-                      ? " Showing the last known session state."
-                      : ""}
+                    {sessions.data?.length ? ` ${t("Showing the last known session state.")}` : ""}
                   </Notice>
                   <View style={{ flexDirection: "row" }}>
                     <Button quiet icon="RefreshCw" onPress={() => void sessions.refetch()}>
-                      Retry sessions
-                    </Button>
+                      {t("Retry sessions")}</Button>
                   </View>
                 </View>
               )}
               {readState.error && (
                 <Notice tone="warning">
-                  Read state unavailable: {message(readState.error)}
+                  {t("Read state unavailable: {error}", { error: message(readState.error) })}
                 </Notice>
               )}
               {sessions.isPending ? (
-                <Label muted>Loading sessions…</Label>
+                <Label muted>{t("Loading sessions…")}</Label>
               ) : !liveSessions.length && !sessions.error ? (
                 <View
                   style={{
@@ -711,12 +729,11 @@ function TaskDrawerView({
                     borderColor: colors.border,
                   }}
                 >
-                  <Label muted size={font.md}>No sessions yet</Label>
-                  <Label muted size={font.sm}>Start one to put an agent on this task.</Label>
+                  <Label muted size={font.md}>{t("No sessions yet")}</Label>
+                  <Label muted size={font.sm}>{t("Start one to put an agent on this task.")}</Label>
                   <View style={{ paddingTop: space[2] }}>
                     <Button primary icon="Play" disabled={!active || unavailable} onPress={() => setShowNew(true)}>
-                      Start session
-                    </Button>
+                      {t("Start session")}</Button>
                   </View>
                 </View>
               ) : (
@@ -724,13 +741,12 @@ function TaskDrawerView({
               )}
               {archivedSessions.length > 0 && (
                 <Disclosure
-                  title={`Archived · ${archivedSessions.length}`}
+                  title={t("Archived · {n}", { n: archivedSessions.length })}
                   open={showArchived}
                   onChange={setShowArchived}
                 >
                   <Label muted size={font.sm}>
-                    Open one and send a message to restore it.
-                  </Label>
+                    {t("Open one and send a message to restore it.")}</Label>
                   <SessionGroup list={archivedSessions} render={renderSession} />
                 </Disclosure>
               )}
@@ -739,13 +755,25 @@ function TaskDrawerView({
               <TaskIdeas
                 taskId={task.id}
                 sessions={ordered}
-                disabled={!active || !!task.archivedAt || !!project.archivedAt}
+                // Ideas outlive the card: only an archived project makes them read-only (IDEAS-INBOX-SPEC §2.2).
+                disabled={!active || !!project.archivedAt}
                 onCreate={onCreateFromIdea}
+                onAllIdeas={onAllIdeas && (() => onAllIdeas(task.id))}
                 onNewSession={(idea) => {
                   setIdeaSession(idea);
                   setShowNew(true);
                 }}
                 onOpenTask={onOpenTask}
+              />
+            )}
+            {onOpenTask && onLink && onFollowUp && (
+              <TaskLinks
+                task={task}
+                project={project}
+                disabled={!active || !!task.archivedAt || !!project.archivedAt}
+                onOpenTask={onOpenTask}
+                onLink={onLink}
+                onFollowUp={onFollowUp}
               />
             )}
             {settled && (
@@ -757,18 +785,18 @@ function TaskDrawerView({
               open={detailsOpen}
               onChange={setDetailsOpen}
               disabled={!active}
-              summary={workspace.isPending || scope.isPending ? "Checking…" : unavailable ? "Unavailable" : legacy ? "Legacy" : workspace.data?.name}
+              summary={workspace.isPending || scope.isPending ? t("Checking…") : unavailable ? t("Unavailable") : legacy ? t("Legacy") : workspace.data?.name}
               legacy={legacy}
               workspaceName={workspace.data?.name}
               workspaceDirectory={workspace.data?.workspaceDirectory}
-              workspaceStatus={workspace.isPending ? "Checking…" : workspace.data?.status || "Unavailable"}
+              workspaceStatus={workspace.isPending ? t("Checking…") : workspace.data?.status || t("Unavailable")}
               owner={scope.data?.owner}
               directories={scope.data?.directories || []}
             />
             <TaskUsage taskId={task.id} active={ready} />
             {meaningful.length > 0 && (
               <Disclosure
-                title="Activity"
+                title={t("Activity")}
                 summary={`${meaningful.length}`}
                 open={activityOpen}
                 onChange={setActivityOpen}
@@ -785,12 +813,12 @@ function TaskDrawerView({
                         last={index === list.length - 1}
                         actor={
                           e.agentId
-                            ? sessions.data?.find((a) => a.id === e.agentId)?.title || "Agent"
+                            ? sessions.data?.find((a) => a.id === e.agentId)?.title || t("Agent")
                             : e.actor === "human"
-                              ? "You"
+                              ? t("You")
                               : e.actor === "system"
-                                ? "Kanban"
-                                : "Agent"
+                                ? t("Kanban")
+                                : t("Agent")
                         }
                       />
                     ))}
@@ -819,7 +847,7 @@ function TaskDrawerView({
           if (ideaSession)
             void adoptIdea({ id: ideaSession.id, agentId: id, send: false })
               .then(() => refresh())
-              .catch((e) => toast.show(`Session started, but the idea was not marked: ${message(e)}`, { variant: "error" }));
+              .catch((e) => toast.show(t("Session started, but the idea was not marked: {message}", { message: message(e) }), { variant: "error" }));
         }}
         refresh={refreshAll}
         defaults={sessionDefaults}
@@ -908,20 +936,20 @@ function Property({
   );
 }
 
-const activityText: Record<string, string> = {
-  created: "Created the task",
-  edited: "Edited the task",
-  status_changed: "Changed status",
-  archive_changed: "Changed archive state",
-  workspace_auto_archived: "Archived the workspace",
-  workspace_auto_archive_skipped: "Kept the workspace",
-  workspace_restored: "Restored the workspace",
-  workspace_restore_skipped: "Workspace not restored",
-  sessions_restored: "Restored the sessions",
-  progress_reported: "Reported progress",
-  "agent.turn_started": "Started a turn",
-  "agent.turn_ended": "Finished a turn",
-};
+const activityText: Record<string, string> = localizedLabels({
+  created: msg("Created the task"),
+  edited: msg("Edited the task"),
+  status_changed: msg("Changed status"),
+  archive_changed: msg("Changed archive state"),
+  workspace_auto_archived: msg("Archived the workspace"),
+  workspace_auto_archive_skipped: msg("Kept the workspace"),
+  workspace_restored: msg("Restored the workspace"),
+  workspace_restore_skipped: msg("Workspace not restored"),
+  sessions_restored: msg("Restored the sessions"),
+  progress_reported: msg("Reported progress"),
+  "agent.turn_started": msg("Started a turn"),
+  "agent.turn_ended": msg("Finished a turn"),
+});
 
 function ActivityItem({
   event,
@@ -937,9 +965,9 @@ function ActivityItem({
   const { colors } = useTheme();
   const question = event.reportKind === "question";
   const verb = question
-    ? "Asked"
+    ? t("Asked")
     : event.action === "agent.turn_ended" && event.outcome === "failed"
-      ? "Turn failed"
+      ? t("Turn failed")
       : activityText[event.action] ||
         event.action.replace(/[._]/g, " ").replace(/^./, (c) => c.toUpperCase());
   return (
@@ -956,13 +984,13 @@ function ActivityItem({
       <View style={{ flex: 1, minWidth: 0, paddingBottom: last ? 0 : space[3], gap: 2 }}>
         <Label size={font.md}>
           <Label medium size={font.md}>{actor}</Label>
-          {` ${verb.charAt(0).toLowerCase()}${verb.slice(1)}`}
+          {` ${getLocale() === "en" ? verb.charAt(0).toLowerCase() + verb.slice(1) : verb}`}
           {event.to ? ` → ${event.to === legacyStatus ? historyStatusLabel(event.to) : nameOf(event.to)}` : ""}
           {event.reportKind && !question && event.reportKind !== "progress" ? ` · ${event.reportKind}` : ""}
         </Label>
         {!!event.rule && (
           <View style={{ flexDirection: "row" }}>
-            <Badge>Auto</Badge>
+            <Badge>{t("Auto")}</Badge>
           </View>
         )}
         {!!event.note && (

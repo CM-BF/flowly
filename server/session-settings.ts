@@ -41,6 +41,7 @@ export type SessionSettingsInput = {
   thinkingOptionId?: string;
   modeId?: string;
   stop?: boolean;
+  title?: string;
 };
 
 /** Validated, card-scoped session setting changes for Kanban sessions. */
@@ -68,6 +69,11 @@ export class SessionSettingsService {
     if (input.stop) {
       await this.run(bin, ["agent", "stop", agent.id, ...home]);
       applied.push("stopped");
+    }
+    if (input.title !== undefined) {
+      // One `--name=` argument: a title starting with "-" is never read as an option.
+      await this.run(bin, ["agent", "update", agent.id, `--name=${input.title}`, ...home]);
+      applied.push("title");
     }
     if (input.thinkingOptionId) {
       await this.run(bin, ["agent", "update", agent.id, "--thinking", input.thinkingOptionId, ...home]);

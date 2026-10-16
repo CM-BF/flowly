@@ -1,0 +1,17 @@
+{
+  "startedAt": "2026-10-16T01:56:33.746Z",
+  "viewport": {
+    "width": 1440,
+    "height": 900
+  },
+  "checks": {
+    "reciprocalNoCLink": false,
+    "activityHasLinkedAndUnlinked": false,
+    "activityText": "Activity\n7\nYou unlinked\nFollow-up: Run2 followup ed86d3bc\n1m ago\nYou linked\nFollow-up: Run2 followup ed86d3bc\n5m ago\nYou unlinked\nBlocks: Card Links Run2 C ed86d3bc\n6m ago\nYou linked\nBlocks: Card Links Run2 C ed86d3bc\n7m ago\nYou linked\nBlocked by: Card Links Run2 A ed86d3bc\n7m ago\nYou linked\nRelated: Card Links Run2 A ed86d3bc\n7m ago\nYou created the task\n8m ago"
+  },
+  "errors": [],
+  "screenshots": [
+    "card-links-run2-activity-final.png"
+  ],
+  "finishedAt": "2026-10-16T01:56:36.964Z"
+}

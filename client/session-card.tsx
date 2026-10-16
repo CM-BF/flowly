@@ -7,6 +7,7 @@ import { sessionState } from "./session-state";
 import { sessionTone } from "./status";
 import { PulseDot } from "./motion";
 import type { sessionAttention } from "../shared/session-attention";
+import { t } from "../shared/i18n";
 
 /** One row of the drawer's session list group. */
 export function SessionCard({
@@ -36,13 +37,13 @@ export function SessionCard({
   const readText = readStateUnavailable
     ? ""
     : !attention?.readKnown
-      ? "Read state unknown"
+      ? t("Read state unknown")
       : "";
   const model = [agent.provider, agent.model].filter(Boolean).join(" · ");
   return (
     <Pressable
       accessibilityRole="button"
-      accessibilityLabel={`Preview ${agent.title || agent.id}: ${state.label}${unread ? ", unread" : ""}${!readStateUnavailable && attention?.needsAttention ? ", needs attention" : ""}`}
+      accessibilityLabel={`${t("Preview {title}: {state}", { title: agent.title || agent.id, state: t(state.label) })}${unread ? `, ${t("unread")}` : ""}${!readStateUnavailable && attention?.needsAttention ? `, ${t("needs attention")}` : ""}`}
       onPress={onPress}
       {...(menu || {})}
       style={(pressState) => {
@@ -73,7 +74,7 @@ export function SessionCard({
       </View>
       <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
         <Label size={font.base} medium bold={unread} lines={1} selectable={false}>
-          {agent.title || "Untitled session"}
+          {agent.title || t("Untitled session")}
         </Label>
         <Label muted size={font.sm} lines={1} selectable={false}>
           <Label
@@ -82,11 +83,11 @@ export function SessionCard({
             color={state.label === "Idle" || state.label === "Ready" || state.label === "Archived" || state.label === "Closed" ? colors.foregroundMuted : tone}
             selectable={false}
           >
-            {unread && !state.active && state.label !== "Error" && state.label !== "Waiting for approval" ? `${state.label} · Unread` : state.label}
+            {unread && !state.active && state.label !== "Error" && state.label !== "Waiting for approval" ? `${t(state.label)} · ${t("Unread")}` : t(state.label)}
           </Label>
           {model ? ` · ${model}` : ""}
           {readText ? ` · ${readText}` : ""}
-          {agent.providerUnavailable ? " · Provider unavailable" : ""}
+          {agent.providerUnavailable ? ` · ${t("Provider unavailable")}` : ""}
         </Label>
       </View>
       {/* Last activity, centered on the whole row (beside the chevron). */}

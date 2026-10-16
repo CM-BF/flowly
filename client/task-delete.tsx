@@ -10,10 +10,10 @@ import { wrapupSettings, wrapupSettingsValues } from "../shared/settings";
 import { Modal } from "./modal";
 import { Actions, Button, Choices, Label, Notice, Theme, font, message, space } from "./ui";
 import { CheckRow } from "./wrapup";
+import { t, tn } from "../shared/i18n";
 
 export type DeleteResult = z.infer<typeof rpc.deleteTask.output>;
 type Scope = "keep" | "archive";
-const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
 
 /**
  * Permanently deletes a card from the board (TASK-DELETE-SPEC), optionally
@@ -72,13 +72,13 @@ export function DeleteTaskDialog({
   }
   const what = data?.archiveWorkspace
     ? data.workspace?.kind === "worktree"
-      ? `its worktree workspace and ${plural(data.sessions, "session")}. Paseo may remove the worktree directory; the branch is kept.`
-      : `its workspace and ${plural(data.sessions, "session")}. The directory stays on disk.`
-    : `its ${plural(data?.sessions ?? 0, "session")}. The workspace is shared and stays.`;
+      ? tn(data.sessions, "its worktree workspace and {n} session. Paseo may remove the worktree directory; the branch is kept.", "its worktree workspace and {n} sessions. Paseo may remove the worktree directory; the branch is kept.")
+      : tn(data.sessions, "its workspace and {n} session. The directory stays on disk.", "its workspace and {n} sessions. The directory stays on disk.")
+    : tn(data?.sessions ?? 0, "its {n} session. The workspace is shared and stays.", "its {n} sessions. The workspace is shared and stays.");
   return (
     <Modal
       open
-      title={`Delete “${task.title}” permanently?`}
+      title={t("Delete “{title}” permanently?", { title: task.title })}
       onOpenChange={(open) => {
         if (!open && !pending) onClose();
       }}
@@ -87,57 +87,54 @@ export function DeleteTaskDialog({
         <Theme.Provider value={theme}>
           <View style={{ gap: 12 }}>
             <Label>
-              The card, its activity and progress summaries leave Ultra Kanban and cannot be restored from the board. A copy of the removed records is kept in the plugin's data folder.
-            </Label>
+              {t("The card, its activity and progress summaries leave Flowly and cannot be restored from the board. A copy of the removed records is kept in the plugin's data folder.")}</Label>
             {check.isPending ? (
-              <Label muted>Checking its Paseo sessions…</Label>
+              <Label muted>{t("Checking its Paseo sessions…")}</Label>
             ) : check.error ? (
-              <Notice>{`Could not check Paseo: ${message(check.error)}. The card can still be deleted; Paseo keeps its sessions.`}</Notice>
+              <Notice>{t("Could not check Paseo: {message}. The card can still be deleted; Paseo keeps its sessions.", { message: message(check.error) })}</Notice>
             ) : nothing ? (
-              <Label muted size={font.sm}>Its workspace is already archived or gone in Paseo; nothing else to archive.</Label>
+              <Label muted size={font.sm}>{t("Its workspace is already archived or gone in Paseo; nothing else to archive.")}</Label>
             ) : ask ? (
               <>
                 <Choices
-                  title="Paseo sessions and workspace"
+                  title={t("Paseo sessions and workspace")}
                   value={scope}
                   options={[
-                    { value: "keep", label: "Keep" },
-                    { value: "archive", label: "Archive", disabled: !archivable },
+                    { value: "keep", label: t("Keep") },
+                    { value: "archive", label: t("Archive"), disabled: !archivable },
                   ]}
                   onChange={setScope}
                 />
                 <Label muted size={font.sm}>
                   {archive
-                    ? `Archives ${what}`
-                    : "Paseo keeps the card's workspace, sessions and files. Running sessions keep running, but their Kanban tools stop working for this card."}
+                    ? t("Archives {what}", { what })
+                    : t("Paseo keeps the card's workspace, sessions and files. Running sessions keep running, but their Kanban tools stop working for this card.")}
                 </Label>
                 <View style={{ gap: space[2] }}>
                   {data!.blockers.map((text) => (
-                    <CheckRow key={text} tone="block" text={`${text} Archiving is unavailable.`} />
+                    <CheckRow key={text} tone="block" text={t("{text} Archiving is unavailable.", { text })} />
                   ))}
                   {archive && data!.warnings.map((text) => <CheckRow key={text} tone="warn" text={text} />)}
                 </View>
                 {!auto && (
                   <Label muted size={font.sm}>
-                    To archive without asking, turn on Auto archive on delete in Ultra Kanban settings.
-                  </Label>
+                    {t("To archive without asking, turn on Auto archive on delete in Flowly settings.")}</Label>
                 )}
               </>
             ) : (
-              <Label muted size={font.sm}>{`Auto archive on delete: also archives ${what}`}</Label>
+              <Label muted size={font.sm}>{t("Auto archive on delete: also archives {what}", { what })}</Label>
             )}
             {error && <Notice>{error}</Notice>}
             <Actions>
               <Button quiet disabled={pending} onPress={onClose}>
-                Cancel
-              </Button>
+                {t("Cancel")}</Button>
               <Button
                 danger
                 icon="Trash2"
                 disabled={pending || check.isPending}
                 onPress={() => void confirm()}
               >
-                {pending ? "Deleting…" : archive ? "Archive and delete" : "Delete permanently"}
+                {pending ? t("Deleting…") : archive ? t("Archive and delete") : t("Delete permanently")}
               </Button>
             </Actions>
           </View>

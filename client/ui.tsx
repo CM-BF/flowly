@@ -15,6 +15,8 @@ import {
 import { Icon, TextInput } from "@getpaseo/plugin/client/react-native";
 import { motionDuration, useMotionValue, lerp } from "./motion";
 import { useShortcutBlock } from "./shortcuts";
+import { composerEnterAction, type ComposerKey } from "./session-input";
+import { formatLocale, t } from "../shared/i18n";
 
 /** Host Paseo scale (0.11.2): 4pt grid, 12–18 type, 4–12 radii. */
 export const space = { 1: 4, 1.5: 6, 2: 8, 3: 12, 4: 16, 5: 20, 6: 24 } as const;
@@ -323,6 +325,8 @@ export function Field({
   editable = true,
   hint,
   commitDelay,
+  onSubmit,
+  autoFocus,
 }: {
   title: string;
   value: string;
@@ -332,6 +336,9 @@ export function Field({
   editable?: boolean;
   hint?: string;
   commitDelay?: number;
+  /** Enter submits (Shift+Enter is a new line in a multiline field). Pass nothing while the form can't be submitted. */
+  onSubmit?: () => void;
+  autoFocus?: boolean;
 }) {
   const { colors } = useTheme();
   const [focused, setFocused] = useState(false);
@@ -348,8 +355,24 @@ export function Field({
         commitDelay={commitDelay}
         multiline={multiline}
         editable={editable}
+        autoFocus={autoFocus}
         placeholder={placeholder}
         placeholderTextColor={colors.foregroundMuted}
+        {...(onSubmit
+          ? Platform.OS === "web"
+            ? {
+                onKeyPress: (event: { nativeEvent: unknown; preventDefault(): void }) => {
+                  const action = composerEnterAction(event.nativeEvent as ComposerKey);
+                  if (action === "native") return;
+                  event.preventDefault();
+                  if (action !== "suppress") onSubmit();
+                },
+              }
+            : // A phone's return key is a new line in a multiline field; in a single line it submits.
+              multiline
+              ? {}
+              : { onSubmitEditing: () => onSubmit(), returnKeyType: "done" as const, blurOnSubmit: false }
+          : {})}
         onFocus={() => setFocused(true)}
         onBlur={() => setFocused(false)}
         style={{
@@ -710,14 +733,14 @@ export function relativeTime(iso: string | null | undefined, now = Date.now()) {
   const at = iso ? Date.parse(iso) : NaN;
   if (!Number.isFinite(at)) return "";
   const s = Math.max(0, Math.round((now - at) / 1000));
-  if (s < 45) return "just now";
+  if (s < 45) return t("just now");
   const m = Math.round(s / 60);
-  if (m < 60) return `${m}m ago`;
+  if (m < 60) return t("{n}m ago", { n: m });
   const h = Math.round(m / 60);
-  if (h < 24) return `${h}h ago`;
+  if (h < 24) return t("{n}h ago", { n: h });
   const d = Math.round(h / 24);
-  if (d < 30) return `${d}d ago`;
-  return new Date(at).toLocaleDateString();
+  if (d < 30) return t("{n}d ago", { n: d });
+  return new Date(at).toLocaleDateString(formatLocale());
 }
 
 export const capitalize = (text: string) =>
@@ -755,7 +778,7 @@ export function Switch({
   );
 }
 
-function SwitchTrack({ value }: { value: boolean }) {
+export function SwitchTrack({ value }: { value: boolean }) {
   const { colors } = useTheme();
   const thumb = useMotionValue(value ? 1 : 0, motionDuration.feedback);
   return (

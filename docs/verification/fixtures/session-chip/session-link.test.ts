@@ -205,7 +205,7 @@ describe("session chip links", () => {
       throw new Error("boom");
     });
     await expect(registrations.get("session-a").item.button.behavior.onPress()).rejects.toThrow(
-      "Couldn't open Ultra Kanban: boom",
+      "Couldn't open Flowly: boom",
     );
     dispose();
     await registrations.get("session-a").item.button.behavior.onPress();

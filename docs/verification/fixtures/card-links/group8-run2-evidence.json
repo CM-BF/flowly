@@ -1,0 +1,15 @@
+{
+  "startedAt": "2026-10-16T01:53:47.812Z",
+  "viewport": {
+    "width": 1440,
+    "height": 900
+  },
+  "checks": {
+    "startSessionDialogText": "d\n项目管理能力\n8m\nP\npeek\nFix peek split button transparency on dark theme\nSep 18\nS\nSearch System\nInit\n21h\nS\nsearch_calc\nNew workspace\nS\nsearch_workspace\nNew workspace\nS\nsearch-arsenal\nArsenal skill 依赖 sra 技能并统一 credential\n5d\n233\n·\npassed\nBuild search-wtf jargon glossary skill\nOct 3\n217\n·\npassed\nFix search-skills-feedback auto-issue creation\n2d\nIdentify search-gitlab-browser skill author and purpose\n5d\n232\n·\npassed\nInitialize search-tutor-me skill\nSep 25\nS\nsearch-edison\nNew workspace\nS\nshopee-server/search\nClean up item card 3.0 code, preserve video/live bass\n2d\n5897\n·\npassed\nS\nsra-toolkit\nNew workspace\nT\ntolaria-vault\nFix missing daily report generation for yesterday\n22h\nU\nuser_search\nAdd instant mart debug logging\nAug 28\n266\n·\npassed\n24%\n100%\n100%\n888K\n8.8M\nUltra Kanban\nUltra Kanban\nSearch System\nCard Links Run2 ed86d3bc\n4 shown\nAttention\nPriority\nFilter\n1\nNew task\n4\ntasks\n· 1 done\nIdle\nInsights\n0\nBacklog\nTodo\n3\nCard Links Run2 B ed86d3bc\nCard Links Run2 C ed86d3bc\nRun2 followup ed86d3bc\nDesign\n0\nDevelopment\n0\n0\nTest\nIn review\n0\n0\nBlocked\nDone\n1\nCard Links Run2 A ed86d3bc\nWorkspace unavailable\n0\nCancelled\nCard Links Run2 ed86d3bc\nCard Links Run2 B ed86d3bc\nTodo\nNormal\nNo type\nDisposable card links acceptance fixture.\nProgress\nRefresh\nUpdates after each agent turn.\nSessions\n0\nStart session\nNo sessions yet\nStart one to put an agent on this task.\nStart session\nLinks\n2\nFollow-ups\nRun2 followup ed86d3bc\nTodo\nWas waiting on\nCard Links Run2 A ed86d3bc\nDone\nDetails & workspace\nCard Links Run2 B ed86d3bc\nUsage\nNo token data\nActivity\n6\nNew session\nSession title (optional)\nInstruction\nAgent\nProvider\nLoading…\nModel\nGPT-6-Luna\nReasoning\nModel default (xhigh)\nPermissions\nFull Access\nThe task's title and description are included automatically, along with Kanban tools.\nCancel\nCreate session"
+  },
+  "errors": [],
+  "screenshots": [
+    "card-links-run2-start-session-dialog.png"
+  ],
+  "finishedAt": "2026-10-16T01:53:51.323Z"
+}

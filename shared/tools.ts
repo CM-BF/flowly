@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { relations } from "./links";
 import {
   taskSchema,
   projectSchema,
@@ -117,6 +118,18 @@ export const toolContextSchema = z.object({
       scope: z.enum(["here", "new"]).optional(),
       acceptedTaskId: z.string().optional(),
       acceptedAgentId: z.string().optional(),
+    }),
+  ),
+  /** Linked cards, read-only (CARD-LINKS-SPEC §4). `resolved` only for blocked_by. */
+  links: z.array(
+    z.object({
+      relation: z.enum(relations),
+      taskId: z.string(),
+      title: z.string(),
+      status: statusSchema,
+      laneName: z.string(),
+      archived: z.boolean(),
+      resolved: z.boolean().optional(),
     }),
   ),
 });

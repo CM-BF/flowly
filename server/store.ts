@@ -5,6 +5,7 @@ import { constants } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { upgradeBoard } from "./migrate";
 import { ideaTitleKey } from "../shared/ideas";
+import { otherEnd, relationLabels, relationOf, touches } from "../shared/links";
 import type { FlowLog } from "./flow-log";
 import {
   boardSchema,
@@ -287,6 +288,10 @@ export class BoardStore {
       if (input.title !== undefined) p.title = input.title;
       if (input.description !== undefined) p.description = input.description;
       if (input.autoStatus !== undefined) p.autoStatus = input.autoStatus;
+      if (input.agentModel !== undefined) {
+        if (input.agentModel) p.agentModel = input.agentModel;
+        else delete p.agentModel;
+      }
       if (input.archived !== undefined)
         p.archivedAt = input.archived ? new Date().toISOString() : null;
       p.revision++;
@@ -313,6 +318,7 @@ export class BoardStore {
         events: board.events.filter((e) => taskIds.has(e.taskId)),
         agentReceipts: board.agentReceipts.filter((r) => taskIds.has(r.taskId)),
         ideas: board.ideas.filter((i) => taskIds.has(i.taskId)),
+        links: board.links.filter((l) => l.projectId === project.id || taskIds.has(l.from) || taskIds.has(l.to)),
       };
       const folder = join(this.directory, "removed");
       await mkdir(folder, { recursive: true, mode: 0o700 });
@@ -323,6 +329,7 @@ export class BoardStore {
       board.events = board.events.filter((e) => !taskIds.has(e.taskId));
       board.agentReceipts = board.agentReceipts.filter((r) => !taskIds.has(r.taskId));
       board.ideas = board.ideas.filter((i) => !taskIds.has(i.taskId));
+      board.links = board.links.filter((l) => !removed.links.includes(l));
       return { id: project.id, removedTasks: taskIds.size, backup };
     });
   }
@@ -343,6 +350,7 @@ export class BoardStore {
         events: board.events.filter((e) => e.taskId === task.id),
         agentReceipts: board.agentReceipts.filter((r) => r.taskId === task.id),
         ideas: board.ideas.filter((i) => i.taskId === task.id),
+        links: board.links.filter((l) => touches(l, task.id)),
       };
       const folder = join(this.directory, "removed");
       await mkdir(folder, { recursive: true, mode: 0o700 });
@@ -352,10 +360,22 @@ export class BoardStore {
       board.events = board.events.filter((e) => e.taskId !== task.id);
       board.agentReceipts = board.agentReceipts.filter((r) => r.taskId !== task.id);
       board.ideas = board.ideas.filter((i) => i.taskId !== task.id);
+      // The other card keeps a trace of the link it lost (CARD-LINKS-SPEC §6).
+      for (const link of removed.links) {
+        const other = otherEnd(link, task.id);
+        if (board.tasks.some((t) => t.id === other))
+          this.event(board, {
+            taskId: other,
+            actor: "human",
+            action: "unlinked",
+            note: `${relationLabels[relationOf(link, other)]}: ${task.title}`,
+          });
+      }
+      board.links = board.links.filter((l) => !touches(l, task.id));
       return { id: task.id, backup };
     });
   }
-  /** Dismisses or restores an idea; accepted ideas are final (IDEAS-SPEC §7). */
+  /** Dismisses or restores an idea; accepted ideas are final (IDEAS-SPEC §7, IDEAS-INBOX-SPEC §2.2). */
   updateIdea(input: IdeaEdit) {
     return this.transaction((board) => {
       const idea = board.ideas.find((i) => i.id === input.id);
@@ -364,8 +384,8 @@ export class BoardStore {
       if (idea.status === input.status) return { value: idea, changed: false };
       const task = board.tasks.find((t) => t.id === idea.taskId),
         project = board.projects.find((p) => p.id === idea.projectId);
-      if (!task || task.archivedAt || !project || project.archivedAt)
-        throw new Error("The card or project is archived.");
+      // The card's own status and archive do not matter: ideas outlive it (IDEAS-INBOX-SPEC §2.2).
+      if (!task || !project || project.archivedAt) throw new Error("The project is archived.");
       if (input.status === "open") {
         const open = board.ideas.filter((i) => i.taskId === idea.taskId && i.status === "open");
         if (open.some((i) => ideaTitleKey(i.title) === ideaTitleKey(idea.title)))

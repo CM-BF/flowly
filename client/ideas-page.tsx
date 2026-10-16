@@ -1,0 +1,367 @@
+import { memo, useMemo, useState, type ReactNode } from "react";
+import { Pressable, View } from "react-native";
+import { Icon, ScrollView } from "@getpaseo/plugin/client/react-native";
+import { enabledStatuses } from "../shared/lanes";
+import type { Idea, Project, Status, Task } from "../shared/model";
+import { eventPoint, useMenuOpener } from "./context-menu";
+import { groupByCard, ideaTabCounts, visibleIdeas, type IdeaQuery, type IdeaSort, type IdeaTab } from "./idea-rows";
+import { Enter } from "./motion";
+import { StatusIcon } from "./status";
+import { ClosedIdea, IdeaCard, IdeaRow, sessionName, useExitList, useIdeaActions, type IdeaSession } from "./task-ideas";
+import { Button, Choices, Label, TextBox, font, radius, space, tint, touch, useTheme, verticalContent, verticalScroll } from "./ui";
+import { t, msg, tn } from "../shared/i18n";
+
+const sortLabels: Record<IdeaSort, string> = { newest: msg("Newest"), priority: msg("Priority"), card: msg("Card") };
+/** Closed segments grow by this many rows at a time. */
+const PAGE = 50;
+
+/**
+ * Project Ideas page (IDEAS-INBOX-SPEC §4): every card's ideas, including
+ * those of finished and archived cards. Replaces the board area while open,
+ * like Insights. Actions are the drawer's (useIdeaActions).
+ */
+export const IdeasPage = memo(function IdeasPage({
+  project,
+  tasks,
+  ideas,
+  compact,
+  cardFilter,
+  nameOf,
+  sessionsOf,
+  onCardFilter,
+  onOpenTask,
+  onCreate,
+  onNewSession,
+  onBack,
+}: {
+  project: Project;
+  /** The project's cards, archived included. */
+  tasks: readonly Task[];
+  /** The project's ideas. */
+  ideas: readonly Idea[];
+  compact: boolean;
+  /** Only this card's ideas ("All ideas" from a card); blank for all. */
+  cardFilter: string;
+  nameOf(status: Status): string;
+  sessionsOf(taskId: string): readonly IdeaSession[];
+  onCardFilter(taskId: string): void;
+  onOpenTask(id: string): void;
+  onCreate(idea: Idea): void;
+  onNewSession(idea: Idea): void;
+  onBack(): void;
+}) {
+  const { colors } = useTheme();
+  const openMenu = useMenuOpener();
+  const [tab, setTab] = useState<IdeaTab>("open");
+  const [search, setSearch] = useState("");
+  const [sort, setSort] = useState<IdeaSort>("newest");
+  const [grouped, setGrouped] = useState(false);
+  const [scopes, setScopes] = useState<ReadonlySet<"here" | "new">>(() => new Set());
+  const [finishedOnly, setFinishedOnly] = useState(false);
+  const [shown, setShown] = useState(PAGE);
+  const actions = useIdeaActions({ sessionsOf, onCreate, onNewSession });
+  const { hidden } = actions;
+  const lanes = useMemo(() => enabledStatuses(project), [project]);
+  const cards = useMemo(() => new Map(tasks.map((t) => [t.id, t])), [tasks]);
+  // Ideas closed here but not yet on the board read as closed (optimistic).
+  const effective = useMemo(
+    () => (hidden.size ? ideas.map((i) => (hidden.has(i.id) && i.status === "open" ? { ...i, status: "dismissed" as const } : i)) : ideas),
+    [ideas, hidden],
+  );
+  const scoped = useMemo(() => (cardFilter ? effective.filter((i) => i.taskId === cardFilter) : effective), [effective, cardFilter]);
+  const counts = ideaTabCounts(scoped);
+  const query: IdeaQuery = { tab, search: search.toLowerCase(), scopes, finishedOnly, taskId: cardFilter, sort };
+  const list = useMemo(
+    () => visibleIdeas(effective, tasks, lanes, query),
+    // `query` is rebuilt every render; its parts are the dependencies.
+    [effective, tasks, lanes, tab, search, scopes, finishedOnly, cardFilter, sort],
+  );
+  const filtered = !!(search.trim() || scopes.size || finishedOnly || cardFilter);
+  const clearFilters = () => {
+    setSearch("");
+    setScopes(new Set());
+    setFinishedOnly(false);
+    onCardFilter("");
+  };
+  const toggleScope = (scope: "here" | "new") =>
+    setScopes((current) => {
+      const next = new Set(current);
+      if (!next.delete(scope)) next.add(scope);
+      return next;
+    });
+  const source = (taskId: string) => <SourceLine task={cards.get(taskId)} nameOf={nameOf} onOpenTask={onOpenTask} />;
+  const cardTitle = (id: string) => cards.get(id)?.title;
+  const renderOpen = (rows: ExitRows) =>
+    rows.map((row) => (
+      <IdeaRow key={row.item.id} leaving={row.leaving} entering={row.entering} spacing={space[3]}>
+        <IdeaCard
+          idea={row.item}
+          disabled={!!project.archivedAt || row.leaving}
+          source={grouped ? undefined : source(row.item.taskId)}
+          onGood={actions.choose}
+          onDismiss={actions.dismiss}
+        />
+      </IdeaRow>
+    ));
+  const renderClosed = (rows: readonly Idea[]) =>
+    rows.map((idea) => (
+      <View key={idea.id} style={{ borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface1, paddingHorizontal: space[3], marginBottom: space[2] }}>
+        <ClosedIdea
+          idea={idea}
+          acceptedTitle={idea.acceptedTaskId ? cardTitle(idea.acceptedTaskId) : undefined}
+          sentTo={idea.acceptedAgentId ? sessionName(sessionsOf(idea.taskId), idea.acceptedAgentId) : undefined}
+          disabled={!!project.archivedAt || !!actions.restoring}
+          onOpenTask={onOpenTask}
+          onRestore={actions.restore}
+        />
+        {!grouped && <View style={{ marginHorizontal: -space[3] }}>{source(idea.taskId)}</View>}
+      </View>
+    ));
+  const closedRows = tab === "open" ? noIdeas : list.slice(0, shown);
+  const renderGroups = <T extends { taskId: string }>(rows: readonly T[], render: (rows: T[]) => ReactNode) =>
+    groupByCard(rows).map((group) => (
+      <View key={group.taskId} style={{ gap: space[1.5], marginBottom: space[2] }}>
+        <GroupHeader task={cards.get(group.taskId)} count={group.ideas.length} nameOf={nameOf} onOpenTask={onOpenTask} />
+        {render(group.ideas)}
+      </View>
+    ));
+  const emptyState = (
+    <View style={{ alignItems: "center", gap: space[2], paddingVertical: space[6] }}>
+      <Icon name="Lightbulb" size={22} color={colors.foregroundMuted} />
+      <Label muted size={font.md}>
+        {!ideas.length ? t("No ideas yet. Agents propose next steps here as they work.") : t("No matching ideas.")}
+      </Label>
+      {!!ideas.length && filtered && (
+        <Button small quiet onPress={clearFilters}>
+          {t("Clear filters")}</Button>
+      )}
+    </View>
+  );
+  return (
+    <View style={{ flex: 1, minHeight: 0 }}>
+      <View
+        style={{
+          flexDirection: "row",
+          alignItems: "center",
+          gap: space[2],
+          paddingHorizontal: space[3],
+          height: touch ? 48 : 40,
+          borderBottomWidth: 1,
+          borderColor: colors.border,
+        }}
+      >
+        <Button quiet icon="ChevronLeft" label={t("Back to board (Esc)")} onPress={onBack}>
+          {t("Board")}</Button>
+        <View style={{ flex: 1 }} />
+        <Icon name="Lightbulb" size={15} color={colors.foregroundMuted} />
+        <Label bold size={font.md} selectable={false}>
+          {t("Ideas")}</Label>
+        <View style={{ flex: 1 }} />
+        {/* Balances the Back button so the title stays centred. */}
+        <View style={{ width: compact ? 56 : 72 }} />
+      </View>
+      <ScrollView
+        {...verticalScroll}
+        keyboardShouldPersistTaps="handled"
+        style={{ flex: 1, minHeight: 0 }}
+        contentContainerStyle={{ ...verticalContent, padding: space[3], paddingBottom: space[6] * 2, alignItems: "center" }}
+      >
+        <View style={{ width: "100%", maxWidth: 760, gap: space[3] }}>
+          <Choices
+            title={t("Ideas")}
+            hideTitle
+            value={tab}
+            options={[
+              { value: "open", label: t("Open {open}", { open: counts.open }) },
+              { value: "accepted", label: t("Accepted {accepted}", { accepted: counts.accepted }) },
+              { value: "dismissed", label: t("Dismissed {dismissed}", { dismissed: counts.dismissed }) },
+            ]}
+            onChange={(next) => {
+              setTab(next);
+              setShown(PAGE);
+            }}
+          />
+          <View style={{ flexDirection: "row", alignItems: "center", gap: space[2] }}>
+            <View style={{ flex: 1, minWidth: 0 }}>
+              <TextBox
+                value={search}
+                onChangeText={setSearch}
+                commitDelay={200}
+                placeholder={t("Search ideas and cards")}
+                accessibilityLabel={t("Search ideas")}
+                style={{
+                  height: touch ? 40 : 32,
+                  paddingHorizontal: space[3],
+                  borderRadius: radius.md,
+                  borderWidth: 1,
+                  borderColor: colors.border,
+                  color: colors.foreground,
+                  fontSize: font.base,
+                }}
+              />
+            </View>
+            <Button
+              small
+              quiet
+              icon="ArrowUpDown"
+              label={t("Sort: {sort}", { sort: t(sortLabels[sort]) })}
+              onPress={(event) =>
+                openMenu
+                  ? openMenu(
+                      eventPoint(event),
+                      t("Sort ideas"),
+                      (Object.keys(sortLabels) as IdeaSort[]).map((value) => ({
+                        id: value,
+                        label: t(sortLabels[value]),
+                        checked: value === sort,
+                        onPress: () => setSort(value),
+                      })),
+                    )
+                  : setSort(sort === "newest" ? "priority" : sort === "priority" ? "card" : "newest")
+              }
+            >
+              {compact ? "" : t(sortLabels[sort])}
+            </Button>
+          </View>
+          <View style={{ flexDirection: "row", flexWrap: "wrap", gap: space[1.5] }}>
+            {!!cardFilter && (
+              <FilterChip
+                on
+                icon="X"
+                label={t("Card: {title}", { title: cardTitle(cardFilter) || t("removed card") })}
+                hint={t("Shows every card's ideas")}
+                onPress={() => onCardFilter("")}
+              />
+            )}
+            <FilterChip on={grouped} icon="Rows3" label={t("Group by card")} onPress={() => setGrouped(!grouped)} />
+            <FilterChip on={scopes.has("here")} icon="CornerDownRight" label={t("Continues a task")} onPress={() => toggleScope("here")} />
+            <FilterChip on={scopes.has("new")} icon="SquarePlus" label={t("New task")} onPress={() => toggleScope("new")} />
+            <FilterChip on={finishedOnly} icon="CircleCheck" label={t("From finished cards")} onPress={() => setFinishedOnly(!finishedOnly)} />
+          </View>
+          <Enter key={tab} distance={0}>
+            <View>
+              {tab === "open" ? (
+                // Mounted per visit, so rows already open do not rise in again.
+                <OpenList
+                  list={list}
+                  empty={emptyState}
+                  render={(rows) =>
+                    grouped ? renderGroups(rows.map((r) => ({ ...r, taskId: r.item.taskId })), renderOpen) : renderOpen(rows)
+                  }
+                />
+              ) : !list.length ? (
+                emptyState
+              ) : grouped ? (
+                renderGroups(closedRows, renderClosed)
+              ) : (
+                renderClosed(closedRows)
+              )}
+              {tab !== "open" && list.length > shown && (
+                <View style={{ alignItems: "center" }}>
+                  <Button small quiet onPress={() => setShown(shown + PAGE)}>
+                    {t("Show more ({n})", { n: list.length - shown })}
+                  </Button>
+                </View>
+              )}
+            </View>
+          </Enter>
+        </View>
+      </ScrollView>
+    </View>
+  );
+});
+
+const noIdeas: Idea[] = [];
+type ExitRows = ReturnType<typeof useExitList<Idea>>;
+
+/** The open segment: rows that leave collapse in place; new arrivals rise in. */
+function OpenList({ list, empty, render }: { list: readonly Idea[]; empty: ReactNode; render(rows: ExitRows): ReactNode }) {
+  const rows = useExitList(list);
+  return <>{rows.length ? render(rows) : empty}</>;
+}
+
+/** "From <card> · <lane>" under an idea; opens the card (archived ones too). */
+function SourceLine({ task, nameOf, onOpenTask }: { task: Task | undefined; nameOf(status: Status): string; onOpenTask(id: string): void }) {
+  const { colors } = useTheme();
+  if (!task) return null;
+  return (
+    <Pressable
+      accessibilityRole="link"
+      accessibilityLabel={t("From card {title}, {state}. Open it", { title: task.title, state: task.archivedAt ? t("archived") : nameOf(task.status) })}
+      onPress={() => onOpenTask(task.id)}
+      style={({ pressed, hovered }: { pressed: boolean; hovered?: boolean }) => ({
+        flexDirection: "row",
+        alignItems: "center",
+        gap: space[1.5],
+        marginHorizontal: space[3],
+        marginBottom: space[1.5],
+        paddingHorizontal: space[2],
+        minHeight: touch ? 36 : 28,
+        borderRadius: radius.md,
+        backgroundColor: pressed || hovered ? colors.surface2 : tint(colors.foreground, 0.03),
+      })}
+    >
+      <Label muted size={font.xs} selectable={false}>{t("From")}</Label>
+      <StatusIcon status={task.status} size={12} />
+      <View style={{ flexShrink: 1, minWidth: 0 }}>
+        <Label size={font.sm} lines={1} selectable={false}>{task.title}</Label>
+      </View>
+      <Label muted size={font.xs} selectable={false}>· {task.archivedAt ? t("Archived") : nameOf(task.status)}</Label>
+      <View style={{ flex: 1 }} />
+      <Icon name="ChevronRight" size={13} color={colors.foregroundMuted} />
+    </Pressable>
+  );
+}
+
+function GroupHeader({ task, count, nameOf, onOpenTask }: { task: Task | undefined; count: number; nameOf(status: Status): string; onOpenTask(id: string): void }) {
+  const { colors } = useTheme();
+  if (!task) return null;
+  return (
+    <Pressable
+      accessibilityRole="link"
+      accessibilityLabel={tn(count, "{title}, {state}, {n} idea. Open the card", "{title}, {state}, {n} ideas. Open the card", { title: task.title, state: task.archivedAt ? t("archived") : nameOf(task.status) })}
+      onPress={() => onOpenTask(task.id)}
+      style={({ pressed }) => ({ flexDirection: "row", alignItems: "center", gap: space[2], minHeight: touch ? 40 : 30, opacity: pressed ? 0.7 : 1 })}
+    >
+      <StatusIcon status={task.status} size={14} />
+      <View style={{ flexShrink: 1, minWidth: 0 }}>
+        <Label bold size={font.md} lines={1} selectable={false}>{task.title}</Label>
+      </View>
+      <Label muted size={font.sm} selectable={false}>
+        {task.archivedAt ? `${t("Archived")} · ` : ""}
+        {count}
+      </Label>
+      <Icon name="ChevronRight" size={13} color={colors.foregroundMuted} />
+    </Pressable>
+  );
+}
+
+function FilterChip({ on, icon, label, hint, onPress }: { on: boolean; icon: string; label: string; hint?: string; onPress(): void }): ReactNode {
+  const { colors } = useTheme();
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      accessibilityHint={hint}
+      accessibilityState={{ selected: on }}
+      onPress={onPress}
+      hitSlop={touch ? 6 : 0}
+      style={({ pressed, hovered }: { pressed: boolean; hovered?: boolean }) => ({
+        flexDirection: "row",
+        alignItems: "center",
+        gap: space[1],
+        height: touch ? 32 : 26,
+        paddingHorizontal: space[2],
+        borderRadius: radius.full,
+        borderWidth: 1,
+        borderColor: on ? colors.accent : colors.border,
+        backgroundColor: on ? tint(colors.accent, 0.12) : pressed || hovered ? colors.surface2 : "transparent",
+      })}
+    >
+      <Icon name={icon} size={12} color={on ? colors.accent : colors.foregroundMuted} />
+      <Label size={font.sm} color={on ? colors.accent : undefined} muted={!on} selectable={false}>
+        {label}
+      </Label>
+    </Pressable>
+  );
+}

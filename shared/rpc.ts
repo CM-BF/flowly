@@ -3,6 +3,8 @@ import { z } from "zod";
 import {
   ideaAdoption,
   ideaEdit,
+  linkInput,
+  linkSchema,
   ideaSchema,
   boardSchema,
   projectInput,
@@ -143,6 +145,17 @@ export const adoptIdea = defineRpc({
   name: "ideas.adopt",
   input: ideaAdoption,
   output: ideaSchema,
+});
+/** Link two cards of one project (CARD-LINKS-SPEC §3). */
+export const createLink = defineRpc({
+  name: "links.create",
+  input: linkInput,
+  output: linkSchema,
+});
+export const deleteLink = defineRpc({
+  name: "links.delete",
+  input: z.strictObject({ id: z.string().min(1) }),
+  output: z.object({ id: z.string() }),
 });
 export const deleteTask = defineRpc({
   name: "tasks.delete",
@@ -293,8 +306,10 @@ export const configureSession = defineRpc({
       thinkingOptionId: z.string().min(1).max(100).regex(/^[A-Za-z0-9][A-Za-z0-9_.:-]*$/).optional(),
       modeId: z.string().min(1).max(100).regex(/^[A-Za-z0-9][A-Za-z0-9_.:-]*$/).optional(),
       stop: z.boolean().optional(),
+      /** New display name of the session; a single line. */
+      title: z.string().trim().min(1).max(200).regex(/^[^\u0000-\u001f\u007f]+$/, "A title is a single line.").optional(),
     })
-    .refine((i) => i.thinkingOptionId || i.modeId || i.stop, { message: "Nothing to change." }),
+    .refine((i) => i.thinkingOptionId || i.modeId || i.stop || i.title, { message: "Nothing to change." }),
   output: z.object({ applied: z.array(z.string()) }),
 });
 export const readComposer = defineRpc({

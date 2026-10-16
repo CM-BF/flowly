@@ -4,6 +4,7 @@ import { Icon } from "@getpaseo/plugin/client/react-native";
 import { Modal } from "./modal";
 import { Label, Row, Theme, font, noFocusRing, radius, space, touch, useTheme } from "./ui";
 import { useMotionPresence, lerp } from "./motion";
+import { t } from "../shared/i18n";
 
 export type MenuEntry =
   | { kind?: "item"; id: string; label: string; icon?: string; leading?: ReactNode; danger?: boolean; checked?: boolean; disabled?: boolean; onPress(): void }
@@ -89,7 +90,7 @@ export function ContextMenuProvider({ compact, children }: { compact: boolean; c
           <>
             {/* Only an open menu catches outside clicks; a closing one never swallows the next click. */}
             {presence.active && <Pressable
-              accessibilityLabel="Close menu"
+              accessibilityLabel={t("Close menu")}
               onPress={close}
               {...({ onContextMenu: (e: { preventDefault?(): void }) => { e.preventDefault?.(); close(); } } as object)}
               style={{ ...noFocusRing, position: "absolute", top: 0, left: 0, right: 0, bottom: 0, zIndex: 200 }}
@@ -164,7 +165,7 @@ export function ContextMenuProvider({ compact, children }: { compact: boolean; c
         )}
       </View>
       {compact && (
-        <Modal open={!!menu} title={menu?.title || "Actions"} onOpenChange={(next) => !next && close()}>
+        <Modal open={!!menu} title={menu?.title || t("Actions")} onOpenChange={(next) => !next && close()}>
           <Modal.Content contentContainerStyle={{ padding: space[3], gap: space[1] }}>
             <Theme.Provider value={theme}>
               {(menu?.entries || []).map((entry) =>

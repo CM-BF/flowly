@@ -1,0 +1,19 @@
+{
+  "sessionId": "b5a2d9d2-c946-4030-bf30-a25668831850",
+  "provider": "codex/gpt-6-luna",
+  "modeIdAtCreation": "full-access",
+  "fixtureCardId": "0c27cc60-cec2-48e6-81f5-bf8e6f17f83f",
+  "setting": "ideas",
+  "valueDuringCall": false,
+  "calls": ["kanban_get_task", "kanban_propose_idea"],
+  "proposal": {
+    "title": "Ideas Page: disabled setting must prevent writes",
+    "code": "IDEAS_DISABLED",
+    "message": "Ideas are turned off in Ultra Kanban settings. Mention follow-up suggestions in your reply instead.",
+    "ideaIdCreated": false,
+    "retried": false
+  },
+  "pluginBoardReadBefore": { "ideaCount": 2, "openIdeaCount": 1 },
+  "pluginBoardReadAfter": { "ideaCount": 2, "openIdeaCount": 1 },
+  "result": "PASS: proposal refused without writing"
+}

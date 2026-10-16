@@ -2,6 +2,7 @@ import { defineSettings } from "@getpaseo/plugin";
 import { z } from "zod";
 import { boardSorts } from "./sort";
 import { priorities, statusSchema, taskTypes } from "./model";
+import { languageChoices } from "./i18n";
 
 /** Host-scoped board view preferences (not board data). */
 export const boardViewSettings = defineSettings({
@@ -68,4 +69,67 @@ export type StatusSettings = z.infer<typeof statusSettings.schema>;
 export function statusSettingsValues(values: unknown): StatusSettings {
   const parsed = statusSettings.schema.safeParse(values ?? {});
   return parsed.success ? parsed.data : statusSettings.schema.parse({});
+}
+
+/** The Ideas feature (IDEAS-INBOX-SPEC §10): off hides every Ideas entry and refuses new proposals. */
+export const ideasSettings = defineSettings({
+  id: "ideas",
+  scope: "host",
+  version: 1,
+  schema: z.object({
+    ideas: z.boolean().default(true),
+  }),
+});
+export type IdeasSettings = z.infer<typeof ideasSettings.schema>;
+export function ideasSettingsValues(values: unknown): IdeasSettings {
+  const parsed = ideasSettings.schema.safeParse(values ?? {});
+  return parsed.success ? parsed.data : ideasSettings.schema.parse({});
+}
+
+/** Interface language: follow the device (default) or one fixed language. Host-scoped. */
+export const languageSettings = defineSettings({
+  id: "language",
+  scope: "host",
+  version: 1,
+  schema: z.object({
+    language: z.enum(languageChoices).default("auto"),
+  }),
+});
+export type LanguageSettings = z.infer<typeof languageSettings.schema>;
+export function languageSettingsValues(values: unknown): LanguageSettings {
+  const parsed = languageSettings.schema.safeParse(values ?? {});
+  return parsed.success ? parsed.data : languageSettings.schema.parse({});
+}
+
+/** First-run guidance (ONBOARDING-SPEC): whether the welcome tour was seen and which one-time tips were shown. Host-scoped. */
+export const onboardingSettings = defineSettings({
+  id: "onboarding",
+  scope: "host",
+  version: 1,
+  schema: z.object({
+    welcomeSeen: z.boolean().default(false),
+    tipsSeen: z.array(z.string().max(40)).max(20).default([]),
+  }),
+});
+export type OnboardingSettings = z.infer<typeof onboardingSettings.schema>;
+export function onboardingSettingsValues(values: unknown): OnboardingSettings {
+  const parsed = onboardingSettings.schema.safeParse(values ?? {});
+  return parsed.success ? parsed.data : onboardingSettings.schema.parse({});
+}
+
+/** Global default model for new sessions (MODEL-DEFAULTS-SPEC). Empty strings mean "none": new sessions follow the latest session. */
+export const modelSettings = defineSettings({
+  id: "models",
+  scope: "host",
+  version: 1,
+  schema: z.object({
+    defaultProvider: z.string().max(100).default(""),
+    defaultModel: z.string().max(200).default(""),
+    defaultThinking: z.string().max(100).default(""),
+  }),
+});
+export type ModelSettings = z.infer<typeof modelSettings.schema>;
+export function modelSettingsValues(values: unknown): ModelSettings {
+  const parsed = modelSettings.schema.safeParse(values ?? {});
+  return parsed.success ? parsed.data : modelSettings.schema.parse({});
 }

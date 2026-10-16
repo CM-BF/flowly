@@ -1,0 +1,18 @@
+{
+  "startedAt": "2026-10-16T01:51:49.248Z",
+  "viewport": {
+    "width": 1440,
+    "height": 900
+  },
+  "checks": {
+    "followupSaved": true,
+    "newDrawerFollowupOf": true,
+    "sourceListsFollowup": true
+  },
+  "errors": [],
+  "screenshots": [
+    "card-links-run2-followup-created-desktop-light.png",
+    "card-links-run2-followup-drawer-desktop-light.png"
+  ],
+  "finishedAt": "2026-10-16T01:51:53.146Z"
+}

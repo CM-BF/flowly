@@ -6,6 +6,7 @@ import * as rpc from "../shared/rpc";
 import { cacheHitRate, compactDuration, compactNumber, percent, totalTokens, type SessionUsage, type TokenUsage } from "../shared/usage";
 import { Disclosure } from "./disclosure";
 import { Label, font, message, radius, space, useTheme } from "./ui";
+import { t, tn } from "../shared/i18n";
 
 /** Drawer "Usage": token use read from local Claude Code / Codex logs (USAGE-STATS-SPEC). Collapsed by default. */
 export function TaskUsage({ taskId, active }: { taskId: string; active: boolean }) {
@@ -24,32 +25,32 @@ export function TaskUsage({ taskId, active }: { taskId: string; active: boolean 
   const total = data ? totalTokens(data.total) : 0;
   const summary = data
     ? total
-      ? `${compactNumber(total)} tokens${cacheHitRate(data.total) !== null ? ` · ${percent(cacheHitRate(data.total)!)} cached` : ""}${data.turns ? ` · ${data.turns} turn${data.turns === 1 ? "" : "s"}` : ""}`
-      : "No token data"
+      ? [t("{n} tokens", { n: compactNumber(total) }), cacheHitRate(data.total) !== null ? t("{rate} cached", { rate: percent(cacheHitRate(data.total)!) }) : "", data.turns ? tn(data.turns, "{n} turn", "{n} turns") : ""].filter(Boolean).join(" · ")
+      : t("No token data")
     : usage.isPending
-      ? "Counting…"
+      ? t("Counting…")
       : "";
   const work = data?.sessions.filter((s) => !s.summarizer) || [];
   const summarizers = data?.sessions.filter((s) => s.summarizer) || [];
   return (
-    <Disclosure title="Usage" summary={summary} open={open} onChange={setOpen} disabled={!active}>
+    <Disclosure title={t("Usage")} summary={summary} open={open} onChange={setOpen} disabled={!active}>
       {usage.error && !data ? (
         <Label muted size={font.sm}>{message(usage.error)}</Label>
       ) : !data ? (
-        <Label muted size={font.sm}>Counting…</Label>
+        <Label muted size={font.sm}>{t("Counting…")}</Label>
       ) : (
         <View style={{ gap: space[3] }}>
           <View style={{ padding: space[3], gap: space[1], borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface1 }}>
             <Breakdown tokens={data.total} />
             {(data.turns > 0 || data.activeMs > 0) && (
               <Label muted size={font.xs} selectable={false}>
-                {data.turns} turn{data.turns === 1 ? "" : "s"} · {compactDuration(data.activeMs)} running
+                {tn(data.turns, "{n} turn", "{n} turns")} · {t("{time} running", { time: compactDuration(data.activeMs) })}
               </Label>
             )}
           </View>
           {work.length > 0 && (
             <View style={{ gap: space[1] }}>
-              <Label muted size={font.xs} selectable={false}>Sessions</Label>
+              <Label muted size={font.xs} selectable={false}>{t("Sessions")}</Label>
               {work.map((s) => (
                 <SessionLine key={s.agentId} session={s} />
               ))}
@@ -57,13 +58,12 @@ export function TaskUsage({ taskId, active }: { taskId: string; active: boolean 
           )}
           {summarizers.length > 0 && (
             <Line
-              title={`Progress summaries · ${summarizers.length} run${summarizers.length === 1 ? "" : "s"}`}
+              title={tn(summarizers.length, "Progress summaries · {n} run", "Progress summaries · {n} runs")}
               value={compactNumber(totalTokens(data.summarizer))}
             />
           )}
           <Label muted size={font.xs} selectable={false}>
-            From local Claude Code / Codex logs; tokens only. Output includes reasoning.
-          </Label>
+            {t("From local Claude Code / Codex logs; tokens only. Output includes reasoning.")}</Label>
         </View>
       )}
     </Disclosure>
@@ -73,15 +73,15 @@ export function TaskUsage({ taskId, active }: { taskId: string; active: boolean 
 function Breakdown({ tokens }: { tokens: TokenUsage }) {
   return (
     <View style={{ gap: 2 }}>
-      <Line title="Input" value={compactNumber(tokens.input)} />
-      <Line title="Cache read" value={compactNumber(tokens.cacheRead)} />
-      <Line title="Cache write" value={compactNumber(tokens.cacheWrite)} />
+      <Line title={t("Input")} value={compactNumber(tokens.input)} />
+      <Line title={t("Cache read")} value={compactNumber(tokens.cacheRead)} />
+      <Line title={t("Cache write")} value={compactNumber(tokens.cacheWrite)} />
       <Line
-        title="Output"
-        value={`${compactNumber(tokens.output)}${tokens.reasoning ? ` (${compactNumber(tokens.reasoning)} reasoning)` : ""}`}
+        title={t("Output")}
+        value={`${compactNumber(tokens.output)}${tokens.reasoning ? ` (${t("{n} reasoning", { n: compactNumber(tokens.reasoning) })})` : ""}`}
       />
-      <Line title="Total" value={compactNumber(totalTokens(tokens))} strong />
-      <Line title="Cache hit rate" value={hitText(tokens)} hint="cache read ÷ all input" />
+      <Line title={t("Total")} value={compactNumber(totalTokens(tokens))} strong />
+      <Line title={t("Cache hit rate")} value={hitText(tokens)} hint={t("cache read ÷ all input")} />
     </View>
   );
 }
@@ -94,7 +94,7 @@ const hitText = (tokens: TokenUsage) => {
 function SessionLine({ session }: { session: SessionUsage }) {
   const rate = session.tokens ? cacheHitRate(session.tokens) : null;
   const detail = session.tokens
-    ? `${compactNumber(totalTokens(session.tokens))}${rate === null ? "" : ` · ${percent(rate)} cached`}`
+    ? `${compactNumber(totalTokens(session.tokens))}${rate === null ? "" : ` · ${t("{rate} cached", { rate: percent(rate) })}`}`
     : session.note || "—";
   return (
     <Line

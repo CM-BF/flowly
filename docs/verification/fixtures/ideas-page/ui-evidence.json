@@ -1,0 +1,64 @@
+{
+  "startedAt": "2026-10-16T02:07:26.208Z",
+  "method": "Playwright Chromium 1.63 fresh non-persistent context; local-network-access granted only to https://app.paseo.sh; daemon 127.0.0.1:6767",
+  "sessionIds": [
+    "cb44462f-63a0-421f-a7fc-ca419c47e4f8",
+    "f116624d-43b4-4395-858a-59f8398e65c4"
+  ],
+  "checks": {
+    "chipBeforeInsights": {
+      "visible": true,
+      "order": [
+        "Ideas 3",
+        "Insights"
+      ]
+    },
+    "openIdeas": {
+      "titleVisible": true,
+      "backButton": true,
+      "sourceLine": false
+    },
+    "escapeLeavesIdeas": true,
+    "bShortcut": true,
+    "insightsClosesIdeas": false,
+    "controls": {
+      "segments": true,
+      "search": true,
+      "filterChips": [
+        [
+          "Continues a task",
+          true
+        ],
+        [
+          "New task",
+          true
+        ],
+        [
+          "From finished cards",
+          true
+        ],
+        [
+          "Group by card",
+          true
+        ]
+      ],
+      "sourceCards": []
+    },
+    "searchIdea": true,
+    "searchCardTitle": true,
+    "emptyState": true,
+    "groupByCard": true,
+    "scopeFilters": false,
+    "finishedFilterEmpty": true,
+    "sortPriority": false,
+    "sortCard": false
+  },
+  "consoleErrors": [],
+  "pageErrors": [],
+  "screenshots": [
+    "ideas-page-board-desktop-light.png",
+    "ideas-page-ideas-desktop-light.png",
+    "ideas-page-insights-after-ideas-desktop-light.png"
+  ],
+  "fatal": "TimeoutError: locator.click: Timeout 15000ms exceeded.\nCall log:\n\u001b[2m  - waiting for getByRole('button', { name: /Open task Ideas Page Card A/ })\u001b[22m\n"
+}

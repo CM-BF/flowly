@@ -1,6 +1,6 @@
 /**
  * The project last viewed on the board during this app run (PROJECT-TABS-SPEC).
- * Module state on purpose: it survives leaving and re-entering Ultra Kanban,
+ * Module state on purpose: it survives leaving and re-entering Flowly,
  * and a cold start (fresh client bundle) begins again at the first project.
  */
 let lastViewed = "";

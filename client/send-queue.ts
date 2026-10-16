@@ -1,3 +1,4 @@
+import { msg } from "../shared/i18n";
 /**
  * Running-session send behaviour, aligned with Paseo's app setting
  * `sendBehavior` (interrupt | steer | queue, default steer). Plugins cannot read
@@ -7,9 +8,9 @@
 export type SendBehavior = "steer" | "interrupt" | "queue";
 export const sendBehaviors: readonly SendBehavior[] = ["steer", "queue", "interrupt"];
 export const sendBehaviorText: Record<SendBehavior, { label: string; detail: string }> = {
-  steer: { label: "Steer", detail: "Enter steers the active turn. ⌘/Ctrl+Enter queues." },
-  queue: { label: "Queue", detail: "Enter queues until the turn ends. ⌘/Ctrl+Enter sends now." },
-  interrupt: { label: "Interrupt", detail: "Enter interrupts, then sends. ⌘/Ctrl+Enter queues." },
+  steer: { label: msg("Steer"), detail: msg("Enter steers the active turn. ⌘/Ctrl+Enter queues.") },
+  queue: { label: msg("Queue"), detail: msg("Enter queues until the turn ends. ⌘/Ctrl+Enter sends now.") },
+  interrupt: { label: msg("Interrupt"), detail: msg("Enter interrupts, then sends. ⌘/Ctrl+Enter queues.") },
 };
 
 export type SendAction =

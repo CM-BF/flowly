@@ -1,0 +1,26 @@
+{
+  "startedAt": "2026-10-16T01:48:53.502Z",
+  "viewport": {
+    "width": 1440,
+    "height": 900
+  },
+  "checks": {
+    "modalOpened": true,
+    "chips": [
+      true,
+      true,
+      true,
+      true
+    ],
+    "searchFiltersTitle": true,
+    "liveSameProjectCandidates": true,
+    "excludesSelf": false
+  },
+  "errors": [],
+  "screenshots": [
+    "card-links-run2-board-desktop-light.png",
+    "card-links-run2-modal-desktop-light.png",
+    "card-links-run2-modal-search-desktop-light.png"
+  ],
+  "finishedAt": "2026-10-16T01:48:56.449Z"
+}

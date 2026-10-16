@@ -64,3 +64,15 @@ test("RPC input refuses option-like IDs and empty changes", () => {
   expect(parse({ taskId: "t", agentId: "-a", stop: true })).toBe(false);
   expect(parse({ taskId: "t", agentId: "a1" })).toBe(false);
 });
+
+test("renaming passes one --name= argument, so a dash-leading title is never an option", async () => {
+  const x = await setup(live);
+  const result = await x.service.apply({ taskId: "t", agentId: "a1", title: "--stop me" }, x.paseo);
+  expect(result.applied).toEqual(["title"]);
+  expect(x.calls[0].slice(0, 4)).toEqual(["agent", "update", "a1", "--name=--stop me"]);
+  const parse = (title: unknown) => configureSession.input.safeParse({ taskId: "t", agentId: "a1", title }).success;
+  expect(parse("  Fix login  ")).toBe(true);
+  expect(parse("   ")).toBe(false);
+  expect(parse("two\nlines")).toBe(false);
+  expect(configureSession.input.parse({ taskId: "t", agentId: "a1", title: "  Fix login  " }).title).toBe("Fix login");
+});

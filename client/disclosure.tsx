@@ -3,6 +3,7 @@ import { Animated, Pressable, View } from "react-native";
 import { Icon } from "@getpaseo/plugin/client/react-native";
 import { useMotionPresence, lerp } from "./motion";
 import { Label, font, touch, useTheme } from "./ui";
+import { t } from "../shared/i18n";
 
 export function Disclosure({ title, summary, open, disabled, onChange, children }: {
   title: string;

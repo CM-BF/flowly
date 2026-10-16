@@ -1,0 +1,19 @@
+{
+  "startedAt": "2026-10-16T01:50:03.793Z",
+  "viewport": {
+    "width": 1440,
+    "height": 900
+  },
+  "checks": {
+    "wasWaitingOnAfterACompleted": true,
+    "boardWaitingBadgeBefore": false,
+    "relatedAlreadyLinkedDisabled": false,
+    "linkedLabelInsideModal": false
+  },
+  "errors": [],
+  "screenshots": [
+    "card-links-run2-resolved-b-drawer-desktop-light.png",
+    "card-links-run2-already-linked-modal-desktop-light.png"
+  ],
+  "finishedAt": "2026-10-16T01:50:07.899Z"
+}

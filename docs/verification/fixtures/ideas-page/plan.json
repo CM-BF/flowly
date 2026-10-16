@@ -1,0 +1,16 @@
+{
+  "runId": "3a097844-33dd-42bf-887e-af120fcb9edc",
+  "plannedAt": "2026-10-16T09:59:00+08:00",
+  "projectTitle": "Ideas Page 3a097844",
+  "tempDirectoryPrefix": "paseo-kanban-ideas-page-",
+  "resourcesPlanned": {
+    "nativeProject": 1,
+    "pluginProject": 1,
+    "cards": ["Card A", "Card B"],
+    "codexSessions": [{"card": "Card A", "provider": "codex/gpt-6-luna", "modeIdAtCreation": "full-access"}],
+    "ideas": 3,
+    "derivedCard": "optional, only if UI check 5 succeeds"
+  },
+  "creationMethod": "Plugin RPC/UI plus supported card session agent tool; no direct board.json edits.",
+  "cleanup": "try/finally; archive worker; remove fixture project through plugin RPC with alsoPaseo true; verify native registry and plugin board; delete only recorded temp directory."
+}

@@ -1,4 +1,5 @@
 import { Pressable } from "react-native";
+import { LocaleRoot } from "./i18n";
 import { useRpc, type PluginSidebarItemProps } from "@getpaseo/plugin/client";
 import { SidebarRow } from "@getpaseo/plugin/client/ui";
 import { useQuery } from "@tanstack/react-query";
@@ -6,6 +7,7 @@ import { readSessionReceipts } from "../shared/rpc";
 import { attentionBadgeText, attentionFromSources, attentionScreenParams } from "./attention";
 import { useBoardQuery, useLiveAgents } from "./queries";
 import { CountPill, Theme } from "./ui";
+import { tn } from "../shared/i18n";
 
 /**
  * Restrained background refresh. The queries share the board's keys, so while
@@ -34,7 +36,15 @@ function useAttentionCount() {
   return items ? items.length : null;
 }
 
-export function SidebarEntry({ currentScreen, openScreen, theme }: PluginSidebarItemProps) {
+export function SidebarEntry(props: PluginSidebarItemProps) {
+  return (
+    <LocaleRoot>
+      <SidebarEntryRow {...props} />
+    </LocaleRoot>
+  );
+}
+
+function SidebarEntryRow({ currentScreen, openScreen, theme }: PluginSidebarItemProps) {
   const count = useAttentionCount();
   const text = attentionBadgeText(count);
   return (
@@ -47,7 +57,7 @@ export function SidebarEntry({ currentScreen, openScreen, theme }: PluginSidebar
           <Theme.Provider value={theme}>
             <Pressable
               accessibilityRole="button"
-              accessibilityLabel={`Open Needs attention, ${text} ${count === 1 ? "card" : "cards"}`}
+              accessibilityLabel={tn(count ?? 0, "Open Needs attention, {text} card", "Open Needs attention, {text} cards", { text })}
               hitSlop={10}
               onPress={() =>
                 openScreen({

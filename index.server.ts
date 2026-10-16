@@ -4,7 +4,7 @@ import { BoardStore, columnOrder } from "./server/store";
 import { BoardService, dataDirectory } from "./server/service";
 import { NativeDirectoryPicker, detectNativePicker, listDirectories } from "./server/directories";
 import * as rpc from "./shared/rpc";
-import { boardViewSettings, statusSettings, statusSettingsValues, wrapupSettings, wrapupSettingsValues } from "./shared/settings";
+import { boardViewSettings, ideasSettings, languageSettings, modelSettings, onboardingSettings, ideasSettingsValues, statusSettings, statusSettingsValues, wrapupSettings, wrapupSettingsValues } from "./shared/settings";
 import { ToolServer } from "./server/tool-server";
 import { SessionReadStore, SessionReadService } from "./server/session-reads";
 import { WrapupService } from "./server/wrapup";
@@ -15,6 +15,7 @@ import { ArchivedSessionsService } from "./server/archived-sessions";
 import { ifChanged } from "./server/etag";
 import { ComposerService, ComposerStore } from "./server/composer";
 import { adoptIdea } from "./server/ideas";
+import { createLink, deleteLink } from "./server/links";
 import { SessionSettingsService } from "./server/session-settings";
 import { applyTurnEnded, applyTurnStarted, recordLifecycle } from "./server/progress-rules";
 import { SummaryService, SummaryStore } from "./server/summaries";
@@ -26,9 +27,13 @@ import { DigestStore, InsightsService } from "./server/insights";
 
 export default function contribute(server: PluginServerContext) {
   server.registerSettings(boardViewSettings);
+  server.registerSettings(languageSettings);
+  server.registerSettings(modelSettings);
+  server.registerSettings(onboardingSettings);
   const summaryPrefs = server.registerSettings(summarySettings);
   const wrapupPrefs = server.registerSettings(wrapupSettings);
   const statusPrefs = server.registerSettings(statusSettings);
+  const ideasPrefs = server.registerSettings(ideasSettings);
   // The global switch for rules A1/A1r; unreadable settings keep the default (on).
   const autoStatusOn = async () => {
     const state = await statusPrefs.read().catch(() => null);
@@ -90,6 +95,11 @@ export default function contribute(server: PluginServerContext) {
   );
   server.handle(rpc.wrapup, (input, { paseo }) => wrapups.run(input, paseo));
   const tools = new ToolServer(store);
+  // Unreadable settings keep the default (on).
+  tools.agents.ideasOn = async () => {
+    const state = await ideasPrefs.read().catch(() => null);
+    return ideasSettingsValues(state?.status === "ready" ? state.values : {}).ideas;
+  };
   void tools
     .start()
     .catch((e) =>
@@ -188,6 +198,8 @@ export default function contribute(server: PluginServerContext) {
   // Archiving comes first: a failed or refused archive leaves the card in place.
   server.handle(rpc.updateIdea, (input) => store.updateIdea(input));
   server.handle(rpc.adoptIdea, (input, { paseo }) => adoptIdea(store, (message, api) => composer.push(message, api), input, paseo));
+  server.handle(rpc.createLink, (input) => createLink(store, input));
+  server.handle(rpc.deleteLink, (input) => deleteLink(store, input));
   server.handle(rpc.deleteTask, async (input, { paseo }) => {
     const archived = input.archive
       ? await wrapups.run({ ...input, keepCard: true, purpose: "delete" }, paseo)
@@ -280,7 +292,7 @@ export default function contribute(server: PluginServerContext) {
       recordLifecycle(store, board, identity, "agent.permission_requested"),
     );
   });
-  console.log("Ultra Kanban store ready:", store.directory);
+  console.log("Flowly store ready:", store.directory);
   server.before("agent.session_open", async ({ request }, { paseo }) => {
     tools.attach(paseo);
     if (request.purpose !== "interactive") return;

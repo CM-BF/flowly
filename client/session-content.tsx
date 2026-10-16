@@ -3,6 +3,7 @@ import { Linking, Platform, Text, View } from "react-native";
 import { Icon } from "@getpaseo/plugin/client/react-native";
 import { parseSessionInline, parseSessionMarkdown } from "./session-markdown";
 import { Label, useTheme } from "./ui";
+import { t } from "../shared/i18n";
 
 const mono = Platform.OS === "ios" ? "Menlo" : "monospace";
 
@@ -63,7 +64,7 @@ const Inline = memo(function Inline({
           );
         })}
       </Text>
-      {linkError && <Label muted>Unable to open this link.</Label>}
+      {linkError && <Label muted>{t("Unable to open this link.")}</Label>}
     </View>
   );
 });
@@ -139,7 +140,7 @@ export const SessionMarkdown = memo(function SessionMarkdown({ text }: { text: s
                         <Inline
                           text={
                             block.headers[cellIndex] ||
-                            `Column ${cellIndex + 1}`
+                            t("Column {n}", { n: cellIndex + 1 })
                           }
                           size={12}
                           bold

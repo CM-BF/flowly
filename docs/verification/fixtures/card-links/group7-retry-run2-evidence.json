@@ -1,0 +1,14 @@
+{
+  "startedAt": "2026-10-16T01:54:46.287Z",
+  "viewport": {
+    "width": 1440,
+    "height": 900
+  },
+  "checks": {},
+  "errors": [],
+  "screenshots": [
+    "card-links-run2-group7-retry-failure.png"
+  ],
+  "failure": "locator.waitFor: Timeout 7000ms exceeded.\nCall log:\n\u001b[2m  - waiting for getByRole('button', { name: /Delete permanently/i }) to be visible\u001b[22m\n\n    at /Users/bofan.wang/Developer/personal/paseo-utlra-kanban/docs/verification/fixtures/card-links/group7-retry-run2.mjs:1:333",
+  "finishedAt": "2026-10-16T01:54:55.493Z"
+}

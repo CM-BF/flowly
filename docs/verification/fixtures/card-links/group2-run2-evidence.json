@@ -1,0 +1,19 @@
+{
+  "startedAt": "2026-10-16T01:49:14.778Z",
+  "viewport": {
+    "width": 1440,
+    "height": 900
+  },
+  "checks": {
+    "relatedLinkCreated": true,
+    "successToast": true,
+    "reciprocalGroup": true
+  },
+  "errors": [],
+  "screenshots": [
+    "card-links-run2-related-drawer-desktop-light.png",
+    "card-links-run2-group2-failure.png"
+  ],
+  "failure": "locator.getAttribute: Error: strict mode violation: getByRole('button', { name: /Card Links Run2 A ed86d3bc/ }) resolved to 5 elements:\n    1) <button tabindex=\"0\" role=\"button\" type=\"button\" aria-selected=\"false\" aria-label=\"Card Links Run2 A ed86d3bc\" class=\"css-g5y9jx r-1loqt21 r-1otgn73 unistyles_29gkxecby80 \" data-testid=\"sidebar-workspace-row-srv_90C-XtZzxWEH:wks_a00484a672961406\">…</button> aka getByTestId('sidebar-workspace-row-srv_90C-XtZzxWEH:wks_a00484a672961406')\n    2) <button tabindex=\"0\" role=\"button\" type=\"button\" class=\"css-g5y9jx r-1loqt21 r-1otgn73\" aria-label=\"Open task Card Links Run2 A ed86d3bc. Normal priority. 0 running, 0 finished turns, 0 unread sessions, 0 need attention.\">…</button> aka getByRole('button', { name: 'Open task Card Links Run2 A' })\n    3) <button tabindex=\"0\" role=\"button\" type=\"button\" data-native-polish-pressable=\"\" class=\"css-g5y9jx r-1loqt21 r-1otgn73\" aria-label=\"Actions for Card Links Run2 A ed86d3bc\">…</button> aka getByRole('button', { name: 'Actions for Card Links Run2 A' })\n    4) <button tabindex=\"0\" role=\"button\" type=\"button\" data-native-polish-pressable=\"\" class=\"css-g5y9jx r-1loqt21 r-1otgn73\" aria-label=\"Remove link: Relate",
+  "finishedAt": "2026-10-16T01:49:19.332Z"
+}

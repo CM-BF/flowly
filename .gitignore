@@ -4,3 +4,4 @@ dist/
 coverage/
 .test-data/
 *.log
+docs/promo/ids.json

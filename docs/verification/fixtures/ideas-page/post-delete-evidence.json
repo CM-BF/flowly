@@ -1,0 +1,14 @@
+{
+  "checks": {
+    "postDeleteChip": true,
+    "postDeleteIdeas": true,
+    "drawerIdeas": true,
+    "allIdeasCardFilter": true
+  },
+  "screenshots": [
+    "ideas-page-after-delete-desktop-light.png",
+    "ideas-page-card-filter-desktop-light.png"
+  ],
+  "consoleErrors": [],
+  "pageErrors": []
+}

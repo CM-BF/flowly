@@ -1,6 +1,17 @@
 # Paseo Kanban Plugin：Spec 大纲与路线图
 
+2026-10-16 新用户 onboarding（设计待评审，未实现）：首次打开时的四页欢迎引导（project / 卡片 / session 与 Paseo 的对应关系、基本流程、特色功能、开始使用），空状态增强，可重看入口，以及可选的一次性情境提示；仅新增 host 级 `onboarding` 设置，不改看板数据、RPC 或 agent 工具。[设计 spec](ONBOARDING-SPEC.md)。
+2026-10-16 改名：展示名由 Ultra Kanban 改为 **Flowly**（不设中文名；定位为 agent 原生工作流，看板是界面）。插件 ID `paseo-ultra-kanban`、数据目录、设置、MCP 服务名不变；历史 spec/验证文档中的旧名保持原样。
+
+2026-10-16 默认模型：设置新增 Models 页（新会话默认模型、摘要模型），项目设置可单独指定默认模型并优先于全局；都未设置时沿用最近一个会话。设置界面同时重做为卡片式分组。[增量 spec](MODEL-DEFAULTS-SPEC.md)和[验证](verification/model-defaults.md)。
+
+2026-10-16 设置菜单改为左右两列：左列按功能分为 General / Workflow / AI summaries / Ideas，右列显示所选分区的设置；窄屏改为顶部分区条。[增量 spec](SETTINGS-LAYOUT-SPEC.md)和[验证](verification/settings-layout.md)。
+
+2026-10-16 界面多语言：UI 文案按设备语言（或设置中手选）显示，首批 zh-CN / zh-TW / ja / ko / es / fr / de / pt-BR / ru；英文原文即 key，缺译回退英文；agent 面向文本、daemon 错误与模型写的摘要不翻译。[增量 spec](I18N-SPEC.md)和[验证](verification/i18n.md)。
+
 2026-10-15 Ideas 卡片：agent 用 `kanban_propose_idea` 把本卡范围外的后续工作作为 idea 挂到来源卡（理由、上下文、类型/优先级），看板卡片显示灯泡计数，侧栏 Ideas 区块可 Create task（打开预填 idea 内容与来源卡进展的新建表单，建卡时原子标记 accepted 并记录 `origin`，两卡互链）或 Dismiss/Restore；数据存 `board.json` 的 `ideas`，无需迁移。[增量 spec](IDEAS-SPEC.md)。
+
+2026-10-16 项目 Ideas 页：总览栏 “Ideas N” chip（快捷键 B）打开与 Insights 对齐的整页，收拢本项目所有卡片的 ideas（Open/Accepted/Dismissed、搜索、排序、按卡分组、筛选）；idea 不随卡片 Done/收尾/归档改变，删卡或移除项目时删除；finished/归档卡上的 idea 只能新建卡片或忽略。[增量 spec](IDEAS-INBOX-SPEC.md)。
 2026-10-15 app 性能优化：主因是手机 JS 线程被大体量轮询（relay 下 JS 解密）和无 memo 的整树重渲染占满。看板/summary/resources 改为 etag 读取（未变时 147 KB → 38 B），session 输出改用 daemon 精简 tail（68 KB → 9 KB），agent 列表改为 Paseo 订阅流（替代 5 s 全量轮询与侧栏每 3 s 扫描全部含归档 agent），卡片/侧栏/对话 memo 化，手机打开卡片不再卸载看板，运行脉冲改为原生循环；输入框原生自增高、发送即清空（失败恢复）、晚到的草稿恢复不再重挂载输入框。[增量 spec](PERFORMANCE-SPEC.md)和[验证](verification/performance.md)。
 2026-10-15 彻底删除卡片：任意 lane 的卡片在看板菜单与详情菜单中可“Delete permanently…”，确认后从看板删除卡片及其活动、回执和进展 summary（先备份到 `removed/`）；删除时可选择同时归档其 session 与自有 workspace，设置“Auto archive on delete”在预检干净时不再询问；并清理了 Ultra Kanban 下 worktree 已被旧收尾删除、无法恢复的 11 张归档卡。[增量 spec](TASK-DELETE-SPEC.md)。
 2026-10-15 任务类型：卡片可选 Feature / Bug fix / Research / Refactor / Docs / Chore 类型（可留空，旧卡无类型、无需迁移），在新建/编辑表单、卡片、侧栏、详情和筛选中显示；agent 会话上下文带上类型。[增量 spec](TASK-TYPE-SPEC.md)。

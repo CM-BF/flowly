@@ -42,6 +42,8 @@ idea 不是任务卡：不进泳道、不占 workspace、不改来源卡状态�
 
 卡片新增可选字段 `origin: { taskId, ideaId }`，表示由哪张卡的哪个 idea 建出。旧卡没有该字段，不迁移。来源卡或 idea 后来被删除时字段保留，界面显示为已删除。
 
+2026-10-16 起由 [CARD-LINKS-SPEC](CARD-LINKS-SPEC.md) 取代展示：建卡时同时写一条 `derived` 关联，界面与工具只读关联；`origin` 仅作历史记录保留。
+
 ### 2.3 回执与事件
 
 - 回执 `action` 新增 `"idea"`；`status` 记录提出时卡片的状态。
@@ -103,7 +105,7 @@ idea 不是任务卡：不进泳道、不占 workspace、不改来源卡状态�
 - 非 open 的 idea 收在默认折叠的 `Closed · N` 分组：
   - accepted（`ThumbsUp` 图标）：新建卡片时显示 “→ 新卡标题”，点击打开该卡，新卡已删除时显示 “→ deleted card”；在本卡继续时显示 “→ Sent to <session 标题>”。
   - dismissed：显示弱化标题与 **Restore**。
-- 卡片已归档或项目已归档时按钮禁用。
+- 项目已归档时按钮禁用。卡片 Done/Cancelled 或已归档时 idea 保持 open，只能新建卡片或忽略（2026-10-16 起，见 [IDEAS-INBOX-SPEC](IDEAS-INBOX-SPEC.md) §2）。
 - Not now / Restore 成功不弹 toast（列表本身即反馈），失败用 error toast。
 
 ### 5.3 新卡侧栏
@@ -196,11 +198,11 @@ agent 建议 `scope=new` 时 “Start a new task · Suggested” 排在最前、
 
 - 永久删除卡片：一并删除以它为来源的 idea，写入 `removed/task-…json` 备份。由这些 idea 建出的卡保留 `origin`。
 - 移除项目：一并删除并备份该项目的 idea。
-- 归档卡片：idea 保留；agent 不能再提出（与其他写工具一致）；Good idea / Not now 禁用。
+- 归档卡片：idea 保留且仍可处理（只能新建卡片或忽略，IDEAS-INBOX-SPEC §2）；agent 不能再提出（与其他写工具一致）。
 
 ## 9. 不做
 
-- summarizer 自动生成 idea；项目级 Ideas 收件箱；虚拟 Ideas 泳道。
+- summarizer 自动生成 idea；虚拟 Ideas 泳道。项目级 Ideas 页已于 2026-10-16 加入，见 [IDEAS-INBOX-SPEC](IDEAS-INBOX-SPEC.md)。
 - 自动建卡或自动给新卡派 agent；idea 排序、投票、编辑。
 
 ## 10. 验收

@@ -1,0 +1,14 @@
+{
+  "sessionId":"1d94a008-4d15-4590-ae37-df81f82582d7",
+  "provider":"codex/gpt-6-luna",
+  "modeAtCreation":"full-access",
+  "createdFrom":"fixture card drawer Start session",
+  "toolCalled":"kanban_get_task",
+  "toolLinks":[
+    {"relation":"blocked_by","title":"Card Links Run2 A ed86d3bc","status":"done","lane":"Done"},
+    {"relation":"follow_up","title":"Run2 followup ed86d3bc","status":"todo","lane":"Todo"}
+  ],
+  "initialContextListed":["follow_up: Run2 followup ed86d3bc"],
+  "initialContextDidNotList":["blocked_by: Card Links Run2 A ed86d3bc (resolved)"],
+  "archived":true
+}
