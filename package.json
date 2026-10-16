@@ -20,7 +20,6 @@
     "dev": "vitest"
   },
   "devDependencies": {
-    "@getpaseo/client": "0.11.2",
     "@getpaseo/plugin": "0.11.2",
     "@getpaseo/protocol": "0.11.2",
     "@tanstack/react-query": "^5.90.11",
@@ -35,6 +34,7 @@
   "description": "Flowly: the agent-native workflow for Paseo",
   "license": "MIT",
   "dependencies": {
+    "@getpaseo/client": "0.11.2",
     "@modelcontextprotocol/node": "2.1.1",
     "@modelcontextprotocol/server": "2.3.1"
   }

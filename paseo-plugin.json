@@ -4,5 +4,15 @@
   "description": "The agent-native workflow for Paseo: cards that move by themselves, with reminders, summaries, ideas and insights",
   "requirements": {
     "paseo": ">=0.11.2 <0.12.0"
-  }
+  },
+  "build": [
+    [
+      "npm",
+      "ci",
+      "--omit=dev",
+      "--ignore-scripts",
+      "--no-audit",
+      "--no-fund"
+    ]
+  ]
 }
