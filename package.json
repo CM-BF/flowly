@@ -1,7 +1,27 @@
 {
-  "name": "flowly",
-  "private": true,
+  "name": "paseo-flowly",
   "version": "1.0.0",
+  "description": "Flowly: the agent-native workflow for Paseo",
+  "keywords": [
+    "paseo",
+    "paseo-plugin",
+    "kanban",
+    "agents",
+    "workflow",
+    "ai-agents"
+  ],
+  "homepage": "https://github.com/JasprW/flowly#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/JasprW/flowly.git"
+  },
+  "bugs": {
+    "url": "https://github.com/JasprW/flowly/issues"
+  },
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
   "files": [
     "paseo-plugin.json",
     "OVERVIEW.md",
@@ -12,7 +32,11 @@
     "client/",
     "server/",
     "shared/",
-    "skills/"
+    "skills/",
+    "!**/*.test.ts",
+    "!**/*.test.tsx",
+    "!shared/i18n-keys.ts",
+    "!shared/zz-*"
   ],
   "scripts": {
     "typecheck": "tsc --noEmit",
@@ -31,8 +55,6 @@
     "vitest": "^4.0.0",
     "zod": "^4.4.3"
   },
-  "description": "Flowly: the agent-native workflow for Paseo",
-  "license": "MIT",
   "dependencies": {
     "@getpaseo/client": "0.11.2",
     "@modelcontextprotocol/node": "2.1.1",
