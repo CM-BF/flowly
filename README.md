@@ -6,7 +6,7 @@
 
 **A Paseo plugin that turns agent sessions into a workflow that runs itself, with a kanban board as its face.** You hand out work, make the calls, and review. Progress, reminders, summaries, follow-up ideas and daily stats are kept up to date by the board.
 
-> Plugin ID `paseo-ultra-kanban` · requires Paseo `>=0.11.2 <0.12.0` · runs on desktop, tablet and phone clients.
+> Plugin ID `flowly` · requires Paseo `>=0.11.2 <0.12.0` · runs on desktop, tablet and phone clients.
 
 ![Board: cards move across Design, Development, Test and In review as agents work](docs/promo/screenshots/01-board-auto-status.png)
 
@@ -70,9 +70,9 @@ The interface follows your device language, or pick one in **Flowly settings →
 ```sh
 git clone https://github.com/JasprW/flowly.git && cd flowly
 npm install
-paseo plugin install "$PWD" --id paseo-ultra-kanban
-paseo plugin reload paseo-ultra-kanban   # after later changes
-paseo plugin logs paseo-ultra-kanban
+paseo plugin install "$PWD" --id flowly
+paseo plugin reload flowly   # after later changes
+paseo plugin logs flowly
 ```
 
 Open **Flowly** from Paseo's sidebar. The daemon needs the `paseo` CLI on its path to register a new native project.
@@ -99,7 +99,7 @@ Pick the model new sessions start with under **Settings → Models**. A project 
 
 ### Data and safety
 
-Board data is stored on the daemon machine in `~/.paseo/plugin-data/paseo-ultra-kanban/` (`PASEO_HOME` selects the daemon home). Writes are serialized and atomic, stale edits are rejected, and invalid files are preserved rather than reset. Removing or permanently deleting a project or card writes a backup to `removed/` first. Archiving plugin records never deletes Paseo resources or directories. The tool service listens on loopback with private per-session credentials.
+Board data is stored on the daemon machine in `~/.paseo/plugin-data/flowly/` (`PASEO_HOME` selects the daemon home). Writes are serialized and atomic, stale edits are rejected, and invalid files are preserved rather than reset. Removing or permanently deleting a project or card writes a backup to `removed/` first. Archiving plugin records never deletes Paseo resources or directories. The tool service listens on loopback with private per-session credentials.
 
 ## Development
 

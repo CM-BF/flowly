@@ -1,7 +1,7 @@
 # Paseo Kanban Plugin：Spec 大纲与路线图
 
 2026-10-16 新用户 onboarding（设计待评审，未实现）：首次打开时的四页欢迎引导（project / 卡片 / session 与 Paseo 的对应关系、基本流程、特色功能、开始使用），空状态增强，可重看入口，以及可选的一次性情境提示；仅新增 host 级 `onboarding` 设置，不改看板数据、RPC 或 agent 工具。[设计 spec](ONBOARDING-SPEC.md)。
-2026-10-16 改名：展示名由 Ultra Kanban 改为 **Flowly**（不设中文名；定位为 agent 原生工作流，看板是界面）。插件 ID `paseo-ultra-kanban`、数据目录、设置、MCP 服务名不变；历史 spec/验证文档中的旧名保持原样。
+2026-10-16 改名：展示名由 Ultra Kanban 改为 **Flowly**（不设中文名；定位为 agent 原生工作流，看板是界面）。插件 ID 同日改为 `flowly`（数据目录与设置由 `migrateLegacyPluginData` 复制迁移）；skill 与 MCP 服务名仍为 `paseo-ultra-kanban`；历史 spec/验证文档中的旧名保持原样。
 
 2026-10-16 默认模型：设置新增 Models 页（新会话默认模型、摘要模型），项目设置可单独指定默认模型并优先于全局；都未设置时沿用最近一个会话。设置界面同时重做为卡片式分组。[增量 spec](MODEL-DEFAULTS-SPEC.md)和[验证](verification/model-defaults.md)。
 

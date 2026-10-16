@@ -6,7 +6,7 @@
 
 **Flowly 是一个 Paseo 插件：把 agent session 变成会自己运转的工作流，看板是它的界面。** 你只管派活、拍板、验收；进度、提醒、总结、后续想法和数据复盘由看板自动维护。
 
-> 插件 ID `paseo-ultra-kanban` · 需要 Paseo `>=0.11.2 <0.12.0` · 支持桌面、平板和手机客户端。
+> 插件 ID `flowly` · 需要 Paseo `>=0.11.2 <0.12.0` · 支持桌面、平板和手机客户端。
 
 ![看板：卡片随 agent 工作在 Design、Development、Test、In review 之间流转](docs/promo/screenshots/01-board-auto-status.png)
 
@@ -70,9 +70,9 @@ agent 工作时发现的后续事项（顺带发现的 bug、现有方案的局�
 ```sh
 git clone https://github.com/JasprW/flowly.git && cd flowly
 npm install
-paseo plugin install "$PWD" --id paseo-ultra-kanban
-paseo plugin reload paseo-ultra-kanban   # 之后有改动时重载
-paseo plugin logs paseo-ultra-kanban
+paseo plugin install "$PWD" --id flowly
+paseo plugin reload flowly   # 之后有改动时重载
+paseo plugin logs flowly
 ```
 
 在 Paseo 侧边栏打开 **Flowly**。daemon 所在机器的 PATH 里需要有 `paseo` CLI，用于注册新的原生 project。
@@ -99,7 +99,7 @@ paseo plugin logs paseo-ultra-kanban
 
 ### 数据与安全
 
-看板数据存放在 daemon 所在机器的 `~/.paseo/plugin-data/paseo-ultra-kanban/`（`PASEO_HOME` 可指定 daemon 主目录）。写入串行化并原子替换，过期编辑会被拒绝，无效文件会被保留而不是重置。移除或永久删除 project / 卡片前会先备份到 `removed/`。归档插件记录不会删除 Paseo 资源或磁盘目录。工具服务只监听本机回环地址，每个 session 使用独立的私有凭据。
+看板数据存放在 daemon 所在机器的 `~/.paseo/plugin-data/flowly/`（`PASEO_HOME` 可指定 daemon 主目录）。写入串行化并原子替换，过期编辑会被拒绝，无效文件会被保留而不是重置。移除或永久删除 project / 卡片前会先备份到 `removed/`。归档插件记录不会删除 Paseo 资源或磁盘目录。工具服务只监听本机回环地址，每个 session 使用独立的私有凭据。
 
 ## 开发
 

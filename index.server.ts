@@ -1,7 +1,7 @@
 import type { PluginServerContext } from "@getpaseo/plugin/server";
 import type { PaseoApi } from "@getpaseo/client";
 import { BoardStore, columnOrder } from "./server/store";
-import { BoardService, dataDirectory } from "./server/service";
+import { BoardService, dataDirectory, migrateLegacyPluginData } from "./server/service";
 import { NativeDirectoryPicker, detectNativePicker, listDirectories } from "./server/directories";
 import * as rpc from "./shared/rpc";
 import { boardViewSettings, ideasSettings, languageSettings, modelSettings, onboardingSettings, ideasSettingsValues, statusSettings, statusSettingsValues, wrapupSettings, wrapupSettingsValues } from "./shared/settings";
@@ -39,6 +39,7 @@ export default function contribute(server: PluginServerContext) {
     const state = await statusPrefs.read().catch(() => null);
     return statusSettingsValues(state?.status === "ready" ? state.values : {}).autoStatus;
   };
+  if (!process.env.ULTRA_KANBAN_DATA_DIR) migrateLegacyPluginData();
   const store = new BoardStore(dataDirectory());
   const summaries = new SummaryService(
     store,

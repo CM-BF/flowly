@@ -2,6 +2,7 @@ import { laneName, laneProblem } from "../shared/lanes";
 import { linkContextLines, linksOf } from "../shared/links";
 import { addLink } from "./links";
 import type { PaseoApi } from "@getpaseo/client";
+import { cpSync, existsSync, renameSync, rmSync } from "node:fs";
 import { lstat, mkdir, readlink, realpath, rmdir, stat, symlink, unlink } from "node:fs/promises";
 import { basename, join, relative, resolve, isAbsolute } from "node:path";
 import { homedir } from "node:os";
@@ -57,9 +58,32 @@ export function generatedBranchName(title: string, operationId: string) {
   const suffix = createHash("sha256").update(operationId).digest("hex").slice(0, 6);
   return `kanban/${slug || "task"}-${suffix}`;
 }
+export const PLUGIN_ID = "flowly";
+/** Plugin id before the rename to match the product name. */
+export const LEGACY_PLUGIN_ID = "paseo-ultra-kanban";
 export const dataDirectory = () =>
   process.env.ULTRA_KANBAN_DATA_DIR ||
-  resolve(paseoHome(), "plugin-data/paseo-ultra-kanban");
+  resolve(paseoHome(), "plugin-data", PLUGIN_ID);
+
+/**
+ * One-time, non-destructive carry-over of data and host settings stored under
+ * the legacy plugin id. Copies into a temp sibling then renames, so a crash
+ * never leaves a half-copied directory; the legacy directories are left intact.
+ */
+export function migrateLegacyPluginData(home = paseoHome()) {
+  const moved: string[] = [];
+  for (const area of ["plugin-data", "plugin-settings"]) {
+    const from = resolve(home, area, LEGACY_PLUGIN_ID);
+    const to = resolve(home, area, PLUGIN_ID);
+    if (!existsSync(from) || existsSync(to)) continue;
+    const tmp = `${to}.migrating`;
+    rmSync(tmp, { recursive: true, force: true });
+    cpSync(from, tmp, { recursive: true, preserveTimestamps: true, verbatimSymlinks: true });
+    renameSync(tmp, to);
+    moved.push(area);
+  }
+  return moved;
+}
 /** Fixed parent of plugin-created linked multi-repo project roots (PROJECT-PICKER-SPEC). */
 export const linkedDirectory = () =>
   process.env.ULTRA_KANBAN_LINKED_DIR || resolve(dataDirectory(), "projects");

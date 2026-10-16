@@ -27,7 +27,7 @@
 
 ## Architecture and compatibility
 
-- Plugin ID is `paseo-ultra-kanban`. Do not overwrite the separately installed `paseo-kanban` plugin.
+- Plugin ID is `flowly` (formerly `paseo-ultra-kanban`; `migrateLegacyPluginData` copies the old plugin-data/plugin-settings dirs once, leaving them intact). Do not overwrite the separately installed `paseo-kanban` plugin.
 - Root code is limited to `index.client.tsx` and `index.server.ts`. Other code belongs in `client/`, `server/`, or runtime-neutral `shared/`.
 - Use the supplied Paseo SDK for resources and schema-validated RPC for plugin behavior. Never create a second Paseo connection in client UI.
 - Client uses React Native primitives, host-provided modules, theme colors, and compact layouts. No HTML, DOM, CSS strings, `localStorage`, or imports of server/Node modules.
@@ -64,8 +64,8 @@
 - `npm install`
 - `npm run typecheck`
 - `npm test`
-- `paseo plugin install "$PWD" --id paseo-ultra-kanban`
-- `paseo plugin reload paseo-ultra-kanban`
-- `paseo plugin logs paseo-ultra-kanban`
+- `paseo plugin install "$PWD" --id flowly`
+- `paseo plugin reload flowly`
+- `paseo plugin logs flowly`
 
-When creating a commit, include the Codex co-author trailer required by the parent `/Users/bofan.wang/AGENTS.md`. Stage only this project's changes.
+When creating a commit, stage only this project's changes.

@@ -9,7 +9,7 @@ import { createPaseoApi } from '@getpaseo/client';
 
 const client = new DaemonClient({ url: 'ws://127.0.0.1:6767/ws', clientId: `promo-${randomUUID()}`, clientType: 'cli', appVersion: '0.11.2', connectTimeoutMs: 10000, reconnect: { enabled: false } });
 const api = createPaseoApi(client);
-const rpc = (m, i) => client.invokePluginRpc('paseo-ultra-kanban', m, i);
+const rpc = (m, i) => client.invokePluginRpc('flowly', m, i);
 const fx = { startedAt: new Date().toISOString(), directory: null, project: null, cards: [], sessions: [] };
 const save = () => writeFile(new URL('./ids.json', import.meta.url), JSON.stringify(fx, null, 2), { mode: 0o600 });
 const day = (n) => new Date(Date.now() - n * 864e5).toISOString();

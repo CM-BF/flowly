@@ -9,7 +9,7 @@ const api = createPaseoApi(client);
 try {
   await client.connect();
   const card = fx.cards.find((c) => c.title.includes(process.argv[2]));
-  const prep = await client.invokePluginRpc('paseo-ultra-kanban', 'tools.prepare-session', { id: card.id, operationId: `promo-session-${randomUUID()}` });
+  const prep = await client.invokePluginRpc('flowly', 'tools.prepare-session', { id: card.id, operationId: `promo-session-${randomUUID()}` });
   const s = await api.workspaces.ref(card.workspaceId).agents.create({
     agentId: prep.agentId, idempotencyKey: `promo:${prep.agentId}`, title: `Haiku · ${card.title.slice(0, 40)}`,
     labels: { 'ultra-kanban-task': card.id, 'ultra-kanban-project': fx.project.id },

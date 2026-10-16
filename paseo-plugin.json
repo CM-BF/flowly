@@ -1,5 +1,5 @@
 {
-  "id": "paseo-ultra-kanban",
+  "id": "flowly",
   "name": "Flowly",
   "description": "The agent-native workflow for Paseo: cards that move by themselves, with reminders, summaries, ideas and insights",
   "requirements": {
