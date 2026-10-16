@@ -1,23 +1,120 @@
-# Paseo Ultra Kanban
+# Flowly
 
-A local Paseo plugin for projects, one-workspace task cards and multiple agent sessions.
+**Flowly** — the agent-native workflow for Paseo.
 
-Read [the accepted outline](docs/SPEC-OUTLINE.md), [Phase 1 spec](docs/PHASE-01-SPEC.md) and [progress](docs/PROGRESS.md).
+**English** · [简体中文](README.zh-CN.md)
 
-Cards default to all current project repositories. Optionally select one or more task repositories; this scope is separate from the workspace's startup directory. Existing workspaces in any project repository, including external Git worktrees and workspaces with another native Paseo project owner, can be linked without reparenting. A workspace remains unique to one card.
+**A Paseo plugin that turns agent sessions into a workflow that runs itself, with a kanban board as its face.** You hand out work, make the calls, and review. Progress, reminders, summaries, follow-up ideas and daily stats are kept up to date by the board.
+
+> Plugin ID `paseo-ultra-kanban` · requires Paseo `>=0.11.2 <0.12.0` · runs on desktop, tablet and phone clients.
+
+![Board: cards move across Design, Development, Test and In review as agents work](docs/promo/screenshots/01-board-auto-status.png)
+
+<details>
+<summary>Dark theme</summary>
+
+![Board, dark theme](docs/promo/screenshots/01-board-auto-status-dark.png)
+
+</details>
+
+## Highlights
+
+### 1. Automatic status flow
+
+Start a session from a card and the card follows the work: **Design → Development → Test → In review**. The agent sets its stage through scoped Kanban tools; the daemon also moves cards when a session starts or resumes a turn. A finished turn never marks a card Done. Done and Cancelled stay your decision. Cards show running, finished, unread and needs-attention session counts, and the latest agent output.
+
+Turn it off globally (*Settings → Moving cards*) or per project.
+
+### 2. Needs-you reminders
+
+When an agent needs a decision it asks one clear question and stops. The card lights up **Needs you**, the **Attention** menu and the sidebar badge count it, and **Reply** jumps straight to that session. Approvals and errors are surfaced the same way.
+
+![An agent's question on a card, with a Reply button](docs/promo/screenshots/02-needs-you-drawer.png)
+
+### 3. Run summaries
+
+After every completed turn a cheap model (Haiku 5.5 by default, configurable) updates the card's **state / target / recap / next**. Past versions are kept, so you can still see how far a card got after it is Done. Summaries never change the card's status.
+
+![Card summary: state, target, recap and next step](docs/promo/screenshots/03-card-summary.png)
+
+### 4. Follow-up ideas
+
+Work an agent discovers along the way (a bug it tripped over, a limitation, the next step) lands in the project's **Ideas** inbox instead of being lost in a chat. **Good idea** gives you two paths: continue in the same session, or start a new card or new session with the context pre-filled. **Not now** dismisses it. Agents never create cards or start work on their own.
+
+![Ideas inbox with source cards](docs/promo/screenshots/04-ideas-inbox.png)
+![Good idea: start a new task, continue in the session, or use a new session](docs/promo/screenshots/04b-good-idea-two-paths.png)
+
+### 5. Project insights
+
+One page for the day: cards done, new and reworked, turns, agent time, commits and tokens (with cache hit rate), the list of what is **waiting on you**, rule-based suggestions, an AI-written daily summary, per-card token use and a 7-day trend.
+
+![Project insights: tiles, waiting on you, suggestions, summary and token use](docs/promo/screenshots/05-insights.png)
+
+<details>
+<summary>Dark theme</summary>
+
+![Project insights, dark theme](docs/promo/screenshots/05-insights-dark.png)
+
+</details>
+
+## Languages
+
+The interface follows your device language, or pick one in **Flowly settings → Language**: English, 简体中文, 繁體中文, 日本語, 한국어, Español, Français, Deutsch, Português (Brasil) and Русский. Agent instructions, daemon error details and the text agents and summaries write are not translated.
+
+| 日本語 | Deutsch |
+| --- | --- |
+| ![Board in Japanese](docs/promo/screenshots/i18n/ja-JP-board.png) | ![Board in German](docs/promo/screenshots/i18n/de-DE-board.png) |
+
+## Install
+
+```sh
+git clone <this repository> && cd paseo-utlra-kanban
+npm install
+paseo plugin install "$PWD" --id paseo-ultra-kanban
+paseo plugin reload paseo-ultra-kanban   # after later changes
+paseo plugin logs paseo-ultra-kanban
+```
+
+Open **Flowly** from Paseo's sidebar. The daemon needs the `paseo` CLI on its path to register a new native project.
+
+## Quick start
+
+1. **New project**: pick a directory (or several repositories) to register as a native Paseo project.
+2. **New task**: describe the work; optionally start an agent together with the card.
+3. Watch the card move. Answer **Needs you** cards, review **In review** cards, accept or dismiss **Ideas**, and open **Insights** at the end of the day.
+
+## How it works
+
+- **One board project = one native Paseo project root.** To work across repositories, put them under one directory and register it, or let the plugin create a linked root with one symlink per repository (removing a link never touches the target).
+- **One card = one workspace**, with any number of sessions in it. You choose which session receives an instruction; ordinary follow-ups send exactly what you type.
+- **Agent tools.** Sessions created from a card get scoped MCP tools: `kanban_get_task`, `kanban_update_status`, `kanban_report_progress` and `kanban_propose_idea`, plus a skill that explains them. An agent can move its card between the work stages and In review; a person decides Done and Cancelled. A CLI fallback is provided for sessions without MCP.
+- **Card status and session status are independent.** A turn ending never completes a card.
+- **Also included:** drag and drop (including within a column), card links (follow-up, blocks, related), task types and priorities, wrap-up of Done cards (archive their sessions and own workspace, after a preflight), keyboard shortcuts (`?`), per-card token usage, and a compact phone layout.
+
+### Models
+
+Pick the model new sessions start with under **Settings → Models**. A project can set its own default in its settings, which wins over the global one; with neither, new sessions start from the latest session's settings.
+
+![Settings → Models: default model and summary model](docs/promo/screenshots/settings/models.png)
+
+### Data and safety
+
+Board data is stored on the daemon machine in `~/.paseo/plugin-data/paseo-ultra-kanban/` (`PASEO_HOME` selects the daemon home). Writes are serialized and atomic, stale edits are rejected, and invalid files are preserved rather than reset. Removing or permanently deleting a project or card writes a backup to `removed/` first. Archiving plugin records never deletes Paseo resources or directories. The tool service listens on loopback with private per-session credentials.
+
+## Development
 
 ```sh
 npm install
 npm run typecheck
 npm test
-paseo plugin install "$PWD" --id paseo-ultra-kanban
-paseo plugin reload paseo-ultra-kanban
 ```
 
-Data lives in `~/.paseo/plugin-data/paseo-ultra-kanban/board.json` by default. `PASEO_HOME` selects the daemon home; `ULTRA_KANBAN_DATA_DIR` overrides the store directory for tests. The plugin preserves invalid data and the previous valid backup. New workspaces explicitly select their repository and the board's native project ID.
+To add or change text, wrap it in `t()` / `tn()` and add the translation to every file in [`shared/i18n/`](shared/i18n/); `npm test` lists what is missing. See [`docs/I18N-SPEC.md`](docs/I18N-SPEC.md).
 
-Tests use dedicated fixture directories. Existing Paseo resources and the separately installed `paseo-kanban` plugin are preserved.
+Root code is limited to `index.client.tsx` and `index.server.ts`; everything else lives in `client/`, `server/` and runtime-neutral `shared/`. Design decisions, specs and acceptance evidence are in [`docs/`](docs/): start with [`SPEC-OUTLINE.md`](docs/SPEC-OUTLINE.md), [`SINGLE-ROOT-SPEC.md`](docs/SINGLE-ROOT-SPEC.md) and [`PROGRESS.md`](docs/PROGRESS.md). Project rules for contributors and agents are in [`AGENTS.md`](AGENTS.md). Release and promo material (copy, demo project script, screenshot script) lives in [`docs/promo/`](docs/promo/README.md).
 
-Data version 1 is read as version 2 with unrestricted scopes on legacy cards. The next successful mutation persists the migration and backs up the preceding file. A worktree isolates its source repo only; additional scoped repos use their existing directories. Task scope is an instruction boundary, and provider permissions determine actual access.
+## License
 
-Phase 1 stops for user acceptance after Luna verification. Agent tool/skill integration is deferred until the user's next instruction.
+[MIT](LICENSE) © 2026 Bofan Wang
+
+The separately installed `paseo-kanban` plugin is a different plugin and is never overwritten.

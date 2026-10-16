@@ -32,7 +32,8 @@
     "vitest": "^4.0.0",
     "zod": "^4.4.3"
   },
-  "description": "A Paseo Kanban plugin with projects, workspaces and agent sessions",
+  "description": "Flowly: the agent-native workflow for Paseo",
+  "license": "MIT",
   "dependencies": {
     "@modelcontextprotocol/node": "2.1.1",
     "@modelcontextprotocol/server": "2.3.1"
