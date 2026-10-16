@@ -4,10 +4,15 @@
 #   make release VERSION=1.1.0 DRY_RUN=1    print every outward step instead of running it
 #
 # Every outward step (push, npm publish, GitHub release) asks first; pass YES=1 to skip the questions.
-# npm credentials are never stored: export NPM_TOKEN (granular token that bypasses 2FA) or use `npm login`;
-# NPM_OTP=123456 supplies a one-time code. The token only lives in a temporary file during the publish.
+# npm credentials: put NPM_TOKEN (a granular token that bypasses 2FA) in .env, which is git-ignored
+# (copy .env.example), or export it, or rely on `npm login`. NPM_OTP=123456 supplies a one-time code.
+# The token is only written to a temporary file while npm runs, never printed.
 
 SHELL := /bin/bash
+
+# Local secrets (git-ignored): NPM_TOKEN and optionally NPM_OTP.
+-include .env
+export NPM_TOKEN NPM_OTP
 .DEFAULT_GOAL := help
 
 PKG    := $(shell node -p "require('./package.json').name")
@@ -24,11 +29,11 @@ define confirm
 @if [ -z "$(YES)" ] && [ -z "$(DRY_RUN)" ]; then read -r -p "$(1) [y/N] " a; [ "$$a" = y ] || { echo "aborted"; exit 1; }; fi
 endef
 
-.PHONY: help check pack verify-clean bump tag push publish wait-npm github-release release registry install-local reload
+.PHONY: help npm-whoami check pack verify-clean bump tag push publish wait-npm github-release release registry install-local reload
 
 help: ## Show this help
 	@echo "Flowly release workflow (package $(PKG)@$(CUR))"; echo
-	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*## "} {printf "  make %-15s %s\n", $$1, $$2}'
+	@grep -E '^[a-z-]+:.*## ' $(firstword $(MAKEFILE_LIST)) | awk 'BEGIN {FS = ":.*## "} {printf "  make %-15s %s\n", $$1, $$2}'
 
 check: ## Typecheck and run the tests
 	npm run typecheck
@@ -64,6 +69,11 @@ publish: ## Publish the current version to npm, then wait until it is live
 	if [ -n "$$NPM_TOKEN" ]; then printf '//registry.npmjs.org/:_authToken=%s\n' "$$NPM_TOKEN" > "$$t"; export NPM_CONFIG_USERCONFIG="$$t"; fi; \
 	$(RUN) npm publish --ignore-scripts $${NPM_OTP:+--otp=$$NPM_OTP}
 	@if [ -z "$(DRY_RUN)" ]; then $(MAKE) --no-print-directory wait-npm; fi
+
+npm-whoami: ## Show which npm account the token in .env (or your npm login) belongs to
+	@set -e; t=$$(mktemp); trap 'rm -f "$$t"' EXIT; \
+	if [ -n "$$NPM_TOKEN" ]; then printf '//registry.npmjs.org/:_authToken=%s\n' "$$NPM_TOKEN" > "$$t"; export NPM_CONFIG_USERCONFIG="$$t"; fi; \
+	npm whoami
 
 wait-npm: ## Wait until npm shows the current version (new versions can take a few minutes)
 	@for i in $$(seq 1 30); do \

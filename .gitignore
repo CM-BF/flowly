@@ -5,3 +5,8 @@ coverage/
 .test-data/
 *.log
 docs/promo/ids.json
+
+# local secrets (npm token for `make release`)
+.env
+.env.*
+!.env.example
