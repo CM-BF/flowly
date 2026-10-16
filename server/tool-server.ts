@@ -191,7 +191,7 @@ export class ToolServer {
           "kanban_propose_idea",
           {
             description:
-              "Propose a follow-up task outside this card's scope (a bug found on the way, a refactor, the next feature). The user may turn it into a new card that starts from your detail, rationale and context; the new card's agent cannot see this conversation, so put files, branches and findings in context. Do not propose this card's own remaining work, propose at most 3 per delivery, check ideas from get_task for duplicates, and never start the idea yourself. Does not change card status or task revision. Copy revisions/request from get_task.",
+              "Propose a next step the user did not ask for. scope=here: an extension of this card's goal; the user may send it back to this card's session as an instruction. scope=new: divergent work (a bug found on the way, a refactor, a separate feature); the user may turn it into a new card that starts from your detail, rationale and context, whose agent cannot see this conversation, so put files, branches and findings in context. Do not propose work this card already requires, propose at most 3 per delivery, check ideas from get_task for duplicates, and never start the idea yourself. Does not change card status or task revision. Copy revisions/request from get_task.",
             inputSchema: ideaInputSchema,
             outputSchema: toolResultSchema,
             annotations: {

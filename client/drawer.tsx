@@ -734,6 +734,7 @@ function TaskDrawerView({
             {onCreateFromIdea && onOpenTask && (
               <TaskIdeas
                 taskId={task.id}
+                sessions={ordered}
                 disabled={!active || !!task.archivedAt || !!project.archivedAt}
                 onCreate={onCreateFromIdea}
                 onOpenTask={onOpenTask}

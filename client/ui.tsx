@@ -118,7 +118,7 @@ export function Button({
   small = false,
 }: {
   children: ReactNode;
-  onPress: () => void;
+  onPress: (event: GestureResponderEvent) => void;
   primary?: boolean;
   disabled?: boolean;
   label?: string;

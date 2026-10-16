@@ -152,7 +152,9 @@ export class AgentService {
             id: i.id,
             title: i.title,
             status: i.status,
+            ...(i.scope ? { scope: i.scope } : {}),
             ...(i.acceptedTaskId ? { acceptedTaskId: i.acceptedTaskId } : {}),
+            ...(i.acceptedAgentId ? { acceptedAgentId: i.acceptedAgentId } : {}),
           })),
       }))),
     };
@@ -284,6 +286,7 @@ export class AgentService {
           context: idea.context,
           ...(idea.type ? { type: idea.type } : {}),
           ...(idea.priority ? { priority: idea.priority } : {}),
+          scope: idea.scope,
           status: "open",
           createdAt: event.at,
           updatedAt: event.at,

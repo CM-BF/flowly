@@ -5,7 +5,8 @@ import type { PaseoApi } from "@getpaseo/client";
 import { AgentService } from "./agent-service";
 import { BoardService } from "./service";
 import { agentFixture } from "./agent-fixture";
-import { ideaDescription } from "../shared/ideas";
+import { ideaDescription, ideaInstruction } from "../shared/ideas";
+import { adoptIdea } from "./ideas";
 import { sessionContext } from "../shared/scope";
 
 const roots: string[] = [];
@@ -74,7 +75,7 @@ test("proposing an idea records it with an event and receipt, without touching t
   expect(board.events.at(-1)).toMatchObject({ action: "idea_proposed", actor: "agent", note: "Fix the flaky test" });
   expect(board.ideas[0].eventId).toBe(board.events.at(-1)!.id);
   expect(result.receipt).toMatchObject({ action: "idea", taskRevision: 1, status: "todo" });
-  expect(result.current?.ideas).toEqual([{ id: result.ideaId, title: "Fix the flaky test", status: "open" }]);
+  expect(result.current?.ideas).toEqual([{ id: result.ideaId, title: "Fix the flaky test", status: "open", scope: "new" }]);
 });
 
 test("an uncertain retry replays the receipt and idea; reusing the request differently is refused", async () => {
@@ -222,4 +223,54 @@ test("session context names the source card only for derived cards", async () =>
   const dirs = [{ repo: x.a, directory: x.a }];
   expect(sessionContext(task, project, dirs, x.a)).not.toContain("Derived from card");
   expect(sessionContext(task, project, dirs, x.a, { id: "s", title: "Source" })).toContain("Derived from card: Source (s)\n");
+});
+
+test("Do it in this task marks the idea for the chosen session and queues the instruction", async () => {
+  const x = await setup();
+  const { ideaId } = await propose(x, "Extend the filter", { scope: "here", context: "filters.ts" });
+  expect((await x.store.read()).ideas[0].scope).toBe("here");
+  const push = vi.fn(async () => ({}));
+  const idea = await adoptIdea(x.store, push, { id: ideaId!, agentId: "second" }, x.paseo);
+  expect(idea).toMatchObject({ status: "accepted", acceptedAgentId: "second" });
+  expect(push).toHaveBeenCalledWith(
+    {
+      taskId: "t",
+      agentId: "second",
+      text: "Good idea — go ahead with it in this task: Extend the filter\n\nMake store.test deterministic.\n\nWhy: It failed twice while verifying this card.\n\nContext:\nfilters.ts",
+    },
+    x.paseo,
+  );
+  const board = await x.store.read();
+  expect(board.events.at(-1)).toMatchObject({ action: "idea_adopted", actor: "human", agentId: "second" });
+  expect(board.tasks[0].revision).toBe(1);
+  await expect(adoptIdea(x.store, push, { id: ideaId!, agentId: "second" }, x.paseo)).rejects.toThrow("no longer open");
+  expect(push).toHaveBeenCalledTimes(1);
+});
+
+test("Do it in this task refuses another workspace's or an archived session and reverts a failed hand-off", async () => {
+  const x = await setup();
+  const { ideaId } = await propose(x);
+  const push = vi.fn(async () => ({}));
+  await expect(adoptIdea(x.store, push, { id: ideaId!, agentId: "wrong" }, x.paseo)).rejects.toThrow("live session");
+  x.actors.second.archivedAt = new Date().toISOString();
+  await expect(adoptIdea(x.store, push, { id: ideaId!, agentId: "second" }, x.paseo)).rejects.toThrow("live session");
+  expect(push).not.toHaveBeenCalled();
+  const events = (await x.store.read()).events.length;
+  const failing = vi.fn(async () => {
+    throw new Error("Queue is full (50 messages).");
+  });
+  await expect(adoptIdea(x.store, failing, { id: ideaId!, agentId: "actor" }, x.paseo)).rejects.toThrow("Queue is full");
+  const board = await x.store.read();
+  expect(board.ideas[0]).toMatchObject({ status: "open" });
+  expect(board.ideas[0].acceptedAgentId).toBeUndefined();
+  expect(board.events).toHaveLength(events);
+});
+
+test("ideas default to a new-card scope; the instruction skips empty parts", async () => {
+  const x = await setup();
+  await propose(x);
+  expect((await x.store.read()).ideas[0].scope).toBe("new");
+  expect(ideaInstruction({ title: " T ", detail: "Do it.", rationale: "", context: "" })).toBe(
+    "Good idea — go ahead with it in this task: T\n\nDo it.",
+  );
 });

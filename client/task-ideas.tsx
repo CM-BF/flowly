@@ -5,6 +5,7 @@ import { useRpc } from "@getpaseo/plugin/client";
 import { useQueryClient } from "@tanstack/react-query";
 import * as rpc from "../shared/rpc";
 import { taskTypeLabels, type Idea, type Task } from "../shared/model";
+import { eventPoint, useMenuOpener, type MenuEntry, type Point } from "./context-menu";
 import { Disclosure } from "./disclosure";
 import { Enter, lerp, motionDuration, useMotionPresence } from "./motion";
 import { exitRows } from "./idea-rows";
@@ -12,18 +13,25 @@ import { boardKey, useBoardQuery } from "./queries";
 import { PriorityIcon, TypeIcon, priorityLabels } from "./status";
 import { Button, Label, SectionHeader, font, message, radius, relativeTime, space, touch, useTheme } from "./ui";
 
+export type IdeaSession = { id: string; title?: string | null; archivedAt?: string | null };
+
 /**
- * Drawer "Ideas": follow-ups agents proposed on this card (IDEAS-SPEC §5.2).
- * Renders nothing without ideas. "Not now" is optimistic: the card collapses
- * away at once and comes back with an error toast if the save fails.
+ * Drawer "Ideas": next steps agents proposed on this card (IDEAS-SPEC §5.2).
+ * Renders nothing without ideas. "Good idea" offers two paths (§6): continue
+ * in this card (sent to one of its sessions) or start a new card. Closing an
+ * idea (Not now, Do it here) is optimistic: the card collapses away at once and
+ * comes back with an error toast if the save fails.
  */
 export function TaskIdeas({
   taskId,
+  sessions,
   disabled,
   onCreate,
   onOpenTask,
 }: {
   taskId: string;
+  /** This card's sessions, newest first (archived included, for names). */
+  sessions: readonly IdeaSession[];
   disabled: boolean;
   onCreate(idea: Idea): void;
   onOpenTask(id: string): void;
@@ -31,7 +39,9 @@ export function TaskIdeas({
   const board = useBoardQuery();
   const toast = useToast();
   const queryClient = useQueryClient();
+  const openMenu = useMenuOpener();
   const updateIdea = useRpc(rpc.updateIdea);
+  const adoptIdea = useRpc(rpc.adoptIdea);
   const [closedOpen, setClosedOpen] = useState(false);
   const [dismissing, setDismissing] = useState<ReadonlySet<string>>(() => new Set());
   const [restoring, setRestoring] = useState("");
@@ -46,6 +56,39 @@ export function TaskIdeas({
   const rows = useExitList(open);
   if (!ideas.length) return null;
   const titleOf = (id: string) => board.data?.tasks.find((t) => t.id === id)?.title;
+  const sessionName = (id: string) => sessions.find((s) => s.id === id)?.title || "a session";
+  const live = sessions.filter((s) => !s.archivedAt);
+  // The session that proposed it keeps its context; otherwise the newest live one.
+  const target = (idea: Idea) => live.find((s) => s.id === idea.agentId) || live[0];
+  const adopt = async (idea: Idea, session: IdeaSession) => {
+    setDismissing((current) => new Set(current).add(idea.id));
+    try {
+      await adoptIdea({ id: idea.id, agentId: session.id });
+      await queryClient.invalidateQueries({ queryKey: boardKey });
+      toast.show(`Sent to ${session.title || "the session"}`, { variant: "success" });
+    } catch (e) {
+      setDismissing((current) => without(current, [idea.id]));
+      toast.show(message(e), { variant: "error" });
+    }
+  };
+  const choose = (idea: Idea, at: Point) => {
+    const session = target(idea);
+    const here: MenuEntry = {
+      id: "here",
+      label: session ? `Do it in this task${idea.scope === "here" ? " · Suggested" : ""}` : "Do it in this task (no live session)",
+      icon: "CornerDownRight",
+      disabled: !session,
+      onPress: () => session && void adopt(idea, session),
+    };
+    const fresh: MenuEntry = {
+      id: "new",
+      label: `Start a new task${idea.scope === "here" ? "" : " · Suggested"}`,
+      icon: "SquarePlus",
+      onPress: () => onCreate(idea),
+    };
+    if (!openMenu) return onCreate(idea);
+    openMenu(at, session ? `Good idea → ${session.title || "this card's session"}` : "Good idea", idea.scope === "here" ? [here, fresh] : [fresh, here]);
+  };
   const dismiss = async (idea: Idea) => {
     setDismissing((current) => new Set(current).add(idea.id));
     try {
@@ -74,12 +117,12 @@ export function TaskIdeas({
         <View>
           {rows.map((row) => (
             <IdeaRow key={row.item.id} leaving={row.leaving} entering={row.entering}>
-              <IdeaCard idea={row.item} disabled={disabled || row.leaving} onCreate={onCreate} onDismiss={dismiss} />
+              <IdeaCard idea={row.item} disabled={disabled || row.leaving} onGood={choose} onDismiss={dismiss} />
             </IdeaRow>
           ))}
         </View>
       ) : (
-        <Label muted size={font.sm}>No open ideas. Agents add them when they find follow-up work.</Label>
+        <Label muted size={font.sm}>No open ideas. Agents add them when they see a worthwhile next step.</Label>
       )}
       {closed.length > 0 && (
         <Disclosure title={`Closed · ${closed.length}`} open={closedOpen} onChange={setClosedOpen}>
@@ -89,6 +132,7 @@ export function TaskIdeas({
                 key={idea.id}
                 idea={idea}
                 acceptedTitle={idea.acceptedTaskId ? titleOf(idea.acceptedTaskId) : undefined}
+                sentTo={idea.acceptedAgentId ? sessionName(idea.acceptedAgentId) : undefined}
                 disabled={disabled || !!restoring || dismissing.has(idea.id)}
                 onOpenTask={onOpenTask}
                 onRestore={(i) => void restore(i)}
@@ -185,12 +229,12 @@ function IdeaRow({ leaving, entering, children }: { leaving: boolean; entering: 
 const IdeaCard = memo(function IdeaCard({
   idea,
   disabled,
-  onCreate,
+  onGood,
   onDismiss,
 }: {
   idea: Idea;
   disabled: boolean;
-  onCreate(idea: Idea): void;
+  onGood(idea: Idea, at: Point): void;
   onDismiss(idea: Idea): void;
 }) {
   const { colors } = useTheme();
@@ -199,6 +243,11 @@ const IdeaCard = memo(function IdeaCard({
   const details = useMotionPresence(expanded ? true : undefined, expanded ? "details" : "", false);
   const hasMore = !!(idea.detail.trim() || idea.context.trim()) || idea.rationale.length > 90;
   const meta = [
+    <Meta
+      key="scope"
+      icon={<Icon name={idea.scope === "here" ? "CornerDownRight" : "SquarePlus"} size={12} color={colors.foregroundMuted} />}
+      text={idea.scope === "here" ? "Continues this task" : "New task"}
+    />,
     idea.type && (
       <Meta key="type" icon={<TypeIcon type={idea.type} size={12} />} text={taskTypeLabels[idea.type]} />
     ),
@@ -288,8 +337,8 @@ const IdeaCard = memo(function IdeaCard({
           primary
           icon="ThumbsUp"
           disabled={disabled}
-          label={`Good idea: create a task from ${idea.title}`}
-          onPress={() => onCreate(idea)}
+          label={`Good idea: ${idea.title}. Choose to do it in this task or start a new task.`}
+          onPress={(event) => onGood(idea, eventPoint(event))}
         >
           Good idea
         </Button>
@@ -323,12 +372,15 @@ function IdeaField({ title, text }: { title: string; text: string }) {
 function ClosedIdea({
   idea,
   acceptedTitle,
+  sentTo,
   disabled,
   onOpenTask,
   onRestore,
 }: {
   idea: Idea;
   acceptedTitle?: string;
+  /** Accepted in this card: the session it was sent to. */
+  sentTo?: string;
   disabled: boolean;
   onOpenTask(id: string): void;
   onRestore(idea: Idea): void;
@@ -341,7 +393,9 @@ function ClosedIdea({
       <View style={{ flex: 1, minWidth: 0, gap: 1 }}>
         <Label size={font.sm} muted={!accepted} lines={1} selectable={false}>{idea.title}</Label>
         {accepted &&
-          (acceptedTitle && idea.acceptedTaskId ? (
+          (sentTo ? (
+            <Label muted size={font.xs} lines={1} selectable={false}>→ Sent to {sentTo}</Label>
+          ) : acceptedTitle && idea.acceptedTaskId ? (
             <Pressable
               accessibilityRole="link"
               accessibilityLabel={`Open task ${acceptedTitle}`}

@@ -2,8 +2,8 @@ export const cliSource = String.raw`#!/usr/bin/env node
 import {readFile, writeFile} from 'node:fs/promises';
 
 const args=process.argv.slice(2), opts={}, positional=[];
-const allowed=new Set(['context-file','save-request','request-file','task-revision','project-revision','note','kind','title','detail','rationale','context','type','priority']);
-const ideaFlags=['title','detail','rationale','context','type','priority'];
+const allowed=new Set(['context-file','save-request','request-file','task-revision','project-revision','note','kind','title','detail','rationale','context','type','priority','scope']);
+const ideaFlags=['title','detail','rationale','context','type','priority','scope'];
 function fail(message){throw new Error(message);}
 try {
   for(let i=0;i<args.length;i++) {
@@ -11,7 +11,7 @@ try {
     if(arg.startsWith('--')) {const key=arg.slice(2);if(!allowed.has(key)||Object.hasOwn(opts,key))fail('Unknown or duplicate flag: '+arg); const value=args[++i];if(value===undefined||value.startsWith('--'))fail('Missing value for '+arg);opts[key]=value;}
     else positional.push(arg);
   }
-  const command=positional[0];if(!['current','get','status','note','idea'].includes(command))fail('Usage: current [--save-request path] | status <design|development|test|blocked|in_review> | note | idea --title --detail --rationale [--context --type --priority], with --context-file and --request-file.');
+  const command=positional[0];if(!['current','get','status','note','idea'].includes(command))fail('Usage: current [--save-request path] | status <design|development|test|blocked|in_review> | note | idea --title --detail --rationale [--context --type --priority --scope here|new], with --context-file and --request-file.');
   if(positional.length!==(command==='status'?2:1))fail('Unexpected positional arguments.');
   const path=opts['context-file']||process.env.ULTRA_KANBAN_CONTEXT_FILE;if(!path)fail('No session context. Use the command supplied by the card drawer.');
   const context=JSON.parse(await readFile(path,'utf8'));

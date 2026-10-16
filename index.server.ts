@@ -14,6 +14,7 @@ import { SessionTailService } from "./server/session-tail";
 import { ArchivedSessionsService } from "./server/archived-sessions";
 import { ifChanged } from "./server/etag";
 import { ComposerService, ComposerStore } from "./server/composer";
+import { adoptIdea } from "./server/ideas";
 import { SessionSettingsService } from "./server/session-settings";
 import { applyTurnEnded, applyTurnStarted, recordLifecycle } from "./server/progress-rules";
 import { SummaryService, SummaryStore } from "./server/summaries";
@@ -184,6 +185,7 @@ export default function contribute(server: PluginServerContext) {
   server.handle(rpc.deleteCheck, (input, { paseo }) => wrapups.check(input.id, paseo, "delete"));
   // Archiving comes first: a failed or refused archive leaves the card in place.
   server.handle(rpc.updateIdea, (input) => store.updateIdea(input));
+  server.handle(rpc.adoptIdea, (input, { paseo }) => adoptIdea(store, (message, api) => composer.push(message, api), input, paseo));
   server.handle(rpc.deleteTask, async (input, { paseo }) => {
     const archived = input.archive
       ? await wrapups.run({ ...input, keepCard: true, purpose: "delete" }, paseo)

@@ -7,6 +7,21 @@ export const openIdeas = (ideas: readonly Idea[], taskId: string) =>
   ideas.filter((i) => i.taskId === taskId && i.status === "open");
 
 /**
+ * The instruction sent to a session of the idea's own card when the user
+ * chooses "Do it in this task" (IDEAS-SPEC §6.2).
+ */
+export function ideaInstruction(idea: Pick<Idea, "title" | "detail" | "rationale" | "context">): string {
+  return [
+    `Good idea — go ahead with it in this task: ${idea.title.trim()}`,
+    idea.detail.trim(),
+    idea.rationale.trim() && `Why: ${idea.rationale.trim()}`,
+    idea.context.trim() && `Context:\n${idea.context.trim()}`,
+  ]
+    .filter(Boolean)
+    .join("\n\n");
+}
+
+/**
  * Prefilled description of a card created from an idea (IDEAS-SPEC §6): the idea,
  * why, its context, the source card and, when present, the source's progress.
  */

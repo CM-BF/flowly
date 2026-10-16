@@ -6,9 +6,14 @@
 
 agent 工作时常发现本卡范围之外、值得做的后续工作（顺带发现的 bug、重构机会、下一阶段功能）。现在这些只留在对话里，用户要自己记、自己重新描述上下文。
 
-Ideas 让 agent 把它们作为结构化建议挂到来源卡上；用户觉得好就一键打开预填好的新建表单，带着上下文建出新卡；不好就忽略。
+Ideas 让 agent 把它们作为结构化建议挂到来源卡上。用户觉得好时有两条路（2026-10-16 用户要求“两种路径都要支持”）：
 
-idea 不是任务卡：不进泳道、不占 workspace、不改来源卡状态或 task revision。只有用户点 **Good idea** 并保存表单才会产生卡片；agent 永远不自行建卡或派活（v1 不做自动分配）。
+- **在本卡继续**：idea 是当前任务的延伸，作为一条指令发回本卡的 session，在原上下文中接着做；
+- **新建卡片**：idea 是发散性的工作，打开预填好的新建表单，带着上下文建出新卡。
+
+不好就忽略。
+
+idea 不是任务卡：不进泳道、不占 workspace、不改来源卡状态或 task revision。只有用户点 **Good idea** 并选择一条路才会发生动作；agent 永远不自行建卡或派活（v1 不做自动分配）。
 
 ## 2. 数据
 
@@ -23,8 +28,10 @@ idea 不是任务卡：不进泳道、不占 workspace、不改来源卡状态�
   rationale ≤1000：为什么值得做、由什么触发
   context  ≤4000：新任务需要的文件、分支、发现（新卡的 agent 看不到来源卡对话）
   type?: TaskType, priority?: Priority,
+  scope?: "here" | "new",      // agent 的建议：在本卡继续 / 新建卡片；缺省读作 "new"
   status: "open" | "accepted" | "dismissed",
-  acceptedTaskId?: string,
+  acceptedTaskId?: string,     // 选择“新建卡片”后建出的卡
+  acceptedAgentId?: string,    // 选择“在本卡继续”时发往的 session
   createdAt, updatedAt }
 ```
 
@@ -41,6 +48,7 @@ idea 不是任务卡：不进泳道、不占 workspace、不改来源卡状态�
 - Activity 事件：
   - `idea_proposed`（agent，来源卡，note=标题）
   - `idea_accepted`（human，来源卡，note=`标题 → 新卡标题`）
+  - `idea_adopted`（human，来源卡，agentId=目标 session，note=标题）
   - `idea_dismissed`、`idea_restored`（human，来源卡，note=标题）
 
 ## 3. Agent 工具 `kanban_propose_idea`
@@ -52,7 +60,8 @@ idea 不是任务卡：不进泳道、不占 workspace、不改来源卡状态�
   title, detail, rationale,
   context?: string = "",
   type?: "feature"|"bugfix"|"research"|"refactor"|"docs"|"chore",
-  priority?: "low"|"normal"|"high"|"urgent" }
+  priority?: "low"|"normal"|"high"|"urgent",
+  scope?: "here"|"new" = "new" }   // here：本卡目标的延伸，本卡 session 带着现有上下文就能接着做；new：发散性工作
 ```
 
 - 与 `kanban_report_progress` 相同的身份、签名、过期、revision、归档和已完成检查；不改卡片状态或 revision。
@@ -61,12 +70,12 @@ idea 不是任务卡：不进泳道、不占 workspace、不改来源卡状态�
   - `IDEA_DUPLICATE`：本卡已有同标题的 open idea（去首尾空白、忽略大小写），消息中带已有 idea ID。
   - `IDEA_LIMIT`：本卡已有 10 个 open idea。
 - 输出：`toolResultSchema`，多一个 `ideaId`。
-- `kanban_get_task` 的上下文新增 `ideas: [{ id, title, status, acceptedTaskId? }]`（本卡全部 idea），供 agent 避免重复。
-- CLI 新增 `idea` 子命令：`idea --request-file <snapshot> --title … --detail … --rationale … [--context …] [--type …] [--priority …]`（不需要 `--note`）。HTTP `/api` 的 `action` 新增 `"idea"`。
+- `kanban_get_task` 的上下文新增 `ideas: [{ id, title, status, scope?, acceptedTaskId?, acceptedAgentId? }]`（本卡全部 idea），供 agent 避免重复。
+- CLI 新增 `idea` 子命令：`idea --request-file <snapshot> --title … --detail … --rationale … [--context …] [--type …] [--priority …] [--scope here|new]`（不需要 `--note`）。HTTP `/api` 的 `action` 新增 `"idea"`。
 
 ## 4. Skill 规则（新增一条）
 
-- 工作中发现**超出本卡范围**的后续工作时用 `kanban_propose_idea` 提出，通常在交付时；本卡自身未完成的部分不是 idea。
+- 工作中发现用户没要求、但值得做的下一步时用 `kanban_propose_idea` 提出，通常在交付时。本卡目标的延伸用 `scope=here`（用户可能把它发回本 session 继续）；发散性工作（顺带发现的 bug、重构、独立功能）用 `scope=new`。本卡本来就要求的工作不是 idea，直接做。
 - 每次交付最多 3 个；先看 `ideas` 避免重复。
 - `context` 写清新任务需要的文件、分支和结论，因为新卡的 agent 看不到本对话。
 - idea 只是建议：不要自行开始、不要建卡。
@@ -85,13 +94,14 @@ idea 不是任务卡：不进泳道、不占 workspace、不改来源卡状态�
 - 每个 open idea 一张小卡片（2026-10-16 用户要求优化设计、交互与动效，接受按钮改为 Good idea）：
   - 标题（加粗）；一行元信息：类型、优先级（仅非 Normal；High/Urgent 带箭头图标，Low 显示为不带图标的 “Low priority”）、提出时间（相对时间）；理由最多 2 行。
   - 有更多内容时点击卡片展开 “What to do”（detail）与 “Context”，不截断；右上角 chevron 随展开旋转 180°，高度与透明度一起过渡（展开 220 ms 减速、收起 160 ms 加速）。
-  - 左下角按钮（2026-10-16 用户反馈改为左对齐，主操作在前）：**Good idea**（主操作，`ThumbsUp` 图标，打开预填新建表单）、**Not now**（安静按钮，忽略）。按钮使用紧凑尺寸（2026-10-16 用户反馈移动端过大）：手机 32 pt 高、桌面 28 px，12 号字，触控区域仍通过 hitSlop 保持 44 pt；Closed 分组的 Restore 同样紧凑。无障碍名称分别为 “Not now: dismiss …”、“Good idea: create a task from …”。
-  - Not now 为乐观更新：卡片立即在原位收起（高度、透明度与轻微缩放一起过渡 160 ms），保存失败时恢复并弹 error toast。idea 被转成卡片后同样收起离开列表。
+  - 左下角按钮（2026-10-16 用户反馈改为左对齐，主操作在前）：**Good idea**（主操作，`ThumbsUp` 图标，打开选择菜单，见 §6）、**Not now**（安静按钮，忽略）。按钮使用紧凑尺寸（2026-10-16 用户反馈移动端过大）：手机 32 pt 高、桌面 28 px，12 号字，触控区域仍通过 hitSlop 保持 44 pt；Closed 分组的 Restore 同样紧凑。无障碍名称分别为 “Not now: dismiss …”、“Good idea: … Choose to do it in this task or start a new task.”。
+  - 元信息行最前面显示 agent 的建议：`CornerDownRight` “Continues this task” 或 `SquarePlus` “New task”。
+  - Not now 为乐观更新：卡片立即在原位收起（高度、透明度与轻微缩放一起过渡 160 ms），保存失败时恢复并弹 error toast。“在本卡继续”同样乐观收起，成功后弹 success toast “Sent to <session>”；idea 被转成卡片后同样收起离开列表。
   - 抽屉打开时已有的 idea 不播放进场；打开期间新到达（agent 提出）或被 Restore 的 idea 上浮淡入。
   - 所有动效使用 `client/motion.tsx` 原语，遵循 Reduce Motion、可打断；收起中的卡片不可交互、对读屏隐藏。
-- 没有 open idea 但有已关闭的 idea 时显示 “No open ideas. Agents add them when they find follow-up work.”
+- 没有 open idea 但有已关闭的 idea 时显示 “No open ideas. Agents add them when they see a worthwhile next step.”
 - 非 open 的 idea 收在默认折叠的 `Closed · N` 分组：
-  - accepted（`ThumbsUp` 图标）：显示 “→ 新卡标题”，点击打开该卡；新卡已删除时显示 “→ deleted card”。
+  - accepted（`ThumbsUp` 图标）：新建卡片时显示 “→ 新卡标题”，点击打开该卡，新卡已删除时显示 “→ deleted card”；在本卡继续时显示 “→ Sent to <session 标题>”。
   - dismissed：显示弱化标题与 **Restore**。
 - 卡片已归档或项目已归档时按钮禁用。
 - Not now / Restore 成功不弹 toast（列表本身即反馈），失败用 error toast。
@@ -100,9 +110,18 @@ idea 不是任务卡：不进泳道、不占 workspace、不改来源卡状态�
 
 有 `origin` 时，在描述之前显示一行 “From idea on <来源卡标题>”，点击打开来源卡；来源卡已删除时显示 “From idea on a deleted card”，不可点。
 
-## 6. 从 idea 建卡
+## 6. Good idea 的两条路
 
-1. 点 **Good idea** 打开现有新建任务表单（同一组件），预填：
+点 **Good idea** 打开插件菜单（桌面为锚定下拉、手机为底部弹层），标题 “Good idea → <目标 session>”，两项：
+
+- **Do it in this task**（`CornerDownRight`）→ §6.2；
+- **Start a new task**（`SquarePlus`）→ §6.1。
+
+agent 建议的那项排在前面并带 “· Suggested”。目标 session：提出该 idea 的 session（仍在本卡 workspace 且未归档）优先，否则本卡最新的未归档 session；没有可用 session 时该项禁用并显示 “(no live session)”。
+
+### 6.1 新建卡片
+
+1. 打开现有新建任务表单（同一组件），预填：
    - 标题、类型、优先级 = idea 的值（未给则为表单默认）；状态 = 该项目第一个可用的起始泳道（与普通新建相同的默认）。
    - 描述 = `ideaDescription()`（`shared/ideas.ts`）：
 
@@ -129,11 +148,36 @@ idea 不是任务卡：不进泳道、不占 workspace、不改来源卡状态�
    - 同一 `operationId` 的重复提交返回首次创建的卡（现有行为），不重复处理 idea。
 3. 新卡的 agent 会话上下文在任务类型之后加一行 `Derived from card: <来源卡标题> (<ID>)`。
 
+### 6.2 在本卡继续
+
+`ideas.adopt { id, agentId }`（`server/ideas.ts`）：
+
+1. 校验 idea 为 open，目标 session 属于本卡 workspace、未归档、不是 summarizer，否则报错且不改任何数据。
+2. 先在一次事务中把 idea 改为 accepted、记录 `acceptedAgentId`、在本卡记 `idea_adopted` 事件（卡片或项目已归档时拒绝），这样重复点击不会发两次。
+3. 再通过 composer 队列把 `ideaInstruction()` 发给该 session：空闲时立即发送，运行中则排在当前回合之后（与侧栏发消息的排队行为一致，不打断）。消息：
+
+   ```
+   Good idea — go ahead with it in this task: <title>
+
+   <detail>
+
+   Why: <rationale>
+
+   Context:
+   <context>
+   ```
+
+   这是用户显式选择的看板动作，因此不受“普通跟进只发送用户原文”的限制。
+4. 入队失败时把 idea 恢复为 open、删除该事件，并把错误返回给界面。
+
+不改卡片状态或 task revision；session 收到消息开始新回合后，现有自动状态规则照常生效。
+
 ## 7. 人工 RPC
 
 | 方法 | 输入 | 行为 |
 | --- | --- | --- |
 | `ideas.update` | `{ id, status: "open" \| "dismissed" }` | open ↔ dismissed；accepted 报错；恢复为 open 时受 10 个上限约束；状态不变时不写 |
+| `ideas.adopt` | `{ id, agentId }` | 在本卡继续（§6.2）；返回更新后的 idea |
 
 看板 revision 随之增加，客户端经现有 etag 读取刷新。
 

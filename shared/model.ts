@@ -125,8 +125,13 @@ export const ideaSchema = z.object({
   context: z.string().max(ideaLimits.context),
   type: taskTypeSchema.optional(),
   priority: prioritySchema.optional(),
+  /** The proposing agent's suggestion: continue in this card ("here") or start a new card ("new"). Absent reads as "new". */
+  scope: z.enum(["here", "new"]).optional(),
   status: z.enum(ideaStatuses),
+  /** Accepted as a new card. */
   acceptedTaskId: z.string().optional(),
+  /** Accepted in this card: the session the idea was sent to. */
+  acceptedAgentId: z.string().optional(),
   createdAt: timestamp,
   updatedAt: timestamp,
 });
@@ -136,6 +141,13 @@ export const ideaEdit = z.strictObject({
   status: z.enum(["open", "dismissed"]),
 });
 export type IdeaEdit = z.infer<typeof ideaEdit>;
+/** Accept an idea in its own card by sending it to one of the card's sessions (IDEAS-SPEC §6.2). */
+export const ideaAdoption = z.strictObject({
+  id: z.string().min(1),
+  // IDs reach Paseo calls; keep them plain.
+  agentId: z.string().min(1).max(200).regex(/^[A-Za-z0-9][A-Za-z0-9_-]*$/),
+});
+export type IdeaAdoption = z.infer<typeof ideaAdoption>;
 export const eventSchema = z.object({
   id: z.string(),
   taskId: z.string(),

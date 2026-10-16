@@ -1,6 +1,7 @@
 import { defineRpc } from "@getpaseo/plugin";
 import { z } from "zod";
 import {
+  ideaAdoption,
   ideaEdit,
   ideaSchema,
   boardSchema,
@@ -135,6 +136,12 @@ export const updateTask = defineRpc({
 export const updateIdea = defineRpc({
   name: "ideas.update",
   input: ideaEdit,
+  output: ideaSchema,
+});
+/** Accept an idea in its own card: send it to one of the card's sessions (IDEAS-SPEC §6.2). */
+export const adoptIdea = defineRpc({
+  name: "ideas.adopt",
+  input: ideaAdoption,
   output: ideaSchema,
 });
 export const deleteTask = defineRpc({

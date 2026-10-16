@@ -63,6 +63,12 @@ export const ideaInputSchema = z.strictObject({
     .describe("Files, branches and findings the new task needs; its agent cannot see this conversation."),
   type: taskTypeSchema.optional(),
   priority: prioritySchema.optional(),
+  scope: z
+    .enum(["here", "new"])
+    .default("new")
+    .describe(
+      "here: an extension of this card's goal that this card's session can continue with its current context; new: divergent work that deserves its own card.",
+    ),
 });
 export const identitySchema = z.strictObject({
   agentId: z.string().min(1),
@@ -108,7 +114,9 @@ export const toolContextSchema = z.object({
       id: z.string(),
       title: z.string(),
       status: z.enum(ideaStatuses),
+      scope: z.enum(["here", "new"]).optional(),
       acceptedTaskId: z.string().optional(),
+      acceptedAgentId: z.string().optional(),
     }),
   ),
 });

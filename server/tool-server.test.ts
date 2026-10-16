@@ -117,7 +117,7 @@ test("MCP initialize/list can precede actor creation; live calls require SDK con
   });
   expect(proposed.result.structuredContent.receipt.action).toBe("idea");
   expect(proposed.result.structuredContent.current.ideas).toEqual([
-    { id: proposed.result.structuredContent.ideaId, title: "Follow-up", status: "open" },
+    { id: proposed.result.structuredContent.ideaId, title: "Follow-up", status: "open", scope: "new" },
   ]);
 });
 test("loopback host/origin/credential guards and scoped request validation", async () => {
@@ -269,8 +269,10 @@ test("CLI runs a complete scoped flow; replay, wrong env, snapshots and flags", 
     "Seen while testing.",
     "--type",
     "chore",
+    "--scope",
+    "here",
   );
-  expect(proposed.current.ideas).toEqual([{ id: proposed.ideaId, title: "CLI idea", status: "open" }]);
+  expect(proposed.current.ideas).toEqual([{ id: proposed.ideaId, title: "CLI idea", status: "open", scope: "here" }]);
   for (const args of [
     ["idea", "--request-file", snapshot, "--title", "No detail", "--rationale", "r"],
     ["note", "--request-file", snapshot, "--note", "n", "--title", "misplaced"],
