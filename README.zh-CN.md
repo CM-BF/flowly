@@ -23,7 +23,7 @@
 paseo plugin add jasprw/flowly
 ```
 
-这会安装 [Paseo 插件库](https://paseo.sh/plugins) 里审核通过的版本。想直接从 Git 安装最新的 `main`，用 `paseo plugin add git:JasprW/flowly`。
+这会安装 [Paseo 插件库](https://paseo.sh/plugins) 里审核通过的版本。也发布到了 npm，包名 [`paseo-flowly`](https://www.npmjs.com/package/paseo-flowly)（`paseo plugin add npm:paseo-flowly`）。想直接从 Git 安装最新的 `main`，用 `paseo plugin add git:JasprW/flowly`。
 
 在 Paseo 侧边栏打开 **Flowly**。daemon 所在机器的 PATH 里需要有 `paseo` CLI，用于注册新的原生 project。
 
