@@ -68,6 +68,14 @@ agent 工作时发现的后续事项（顺带发现的 bug、现有方案的局�
 ## 安装
 
 ```sh
+paseo plugin add git:JasprW/flowly
+```
+
+插件库的上架审核通过后，也可以用 `paseo plugin add JasprW/flowly`。
+
+从本地仓库运行（开发用）：
+
+```sh
 git clone https://github.com/JasprW/flowly.git && cd flowly
 npm install
 paseo plugin install "$PWD" --id flowly

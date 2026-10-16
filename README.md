@@ -68,6 +68,14 @@ The interface follows your device language, or pick one in **Flowly settings →
 ## Install
 
 ```sh
+paseo plugin add git:JasprW/flowly
+```
+
+Once the registry listing is approved, `paseo plugin add JasprW/flowly` works too.
+
+To run from a checkout (for development):
+
+```sh
 git clone https://github.com/JasprW/flowly.git && cd flowly
 npm install
 paseo plugin install "$PWD" --id flowly
