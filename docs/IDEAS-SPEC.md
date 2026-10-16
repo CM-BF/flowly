@@ -176,7 +176,7 @@ agent 建议的那项排在前面并带 “· Suggested”。目标 session：�
 
 | 方法 | 输入 | 行为 |
 | --- | --- | --- |
-| `ideas.update` | `{ id, status: "open" \| "dismissed" }` | open ↔ dismissed；accepted 报错；恢复为 open 时受 10 个上限约束；状态不变时不写 |
+| `ideas.update` | `{ id, status: "open" \| "dismissed" }` | open ↔ dismissed；accepted 报错；恢复为 open 时，若本卡已有同标题（去首尾空白、忽略大小写）的 open idea 则报错 “This card already has an open idea with that title.”，并受 10 个上限约束；状态不变时不写 |
 | `ideas.adopt` | `{ id, agentId }` | 在本卡继续（§6.2）；返回更新后的 idea |
 
 看板 revision 随之增加，客户端经现有 etag 读取刷新。

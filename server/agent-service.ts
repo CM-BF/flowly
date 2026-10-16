@@ -2,6 +2,7 @@ import { isSummarizer } from "../shared/summary";
 import { enabledStatuses, laneEnabled, laneName } from "../shared/lanes";
 import type { PaseoApi } from "@getpaseo/client";
 import { randomUUID } from "node:crypto";
+import { ideaTitleKey } from "../shared/ideas";
 import {
   agentStatuses,
   ideaInputSchema,
@@ -341,7 +342,6 @@ export function resolveAgentStatus(requested: StatusInput["status"], current: St
 }
 
 const ideaField = (ideaId: string | undefined) => (ideaId ? { ideaId } : {});
-export const ideaTitleKey = (title: string) => title.trim().toLowerCase();
 
 /** Rejects a duplicate open title or an eleventh open idea on the card (IDEAS-SPEC §3). */
 export function checkIdea(board: Board, taskId: string, title: string) {

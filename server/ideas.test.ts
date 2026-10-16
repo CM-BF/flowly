@@ -103,6 +103,19 @@ test("duplicate open titles and an eleventh open idea are refused", async () => 
   expect((await x.store.read()).ideas.filter((i) => i.status === "open")).toHaveLength(10);
 });
 
+test("restoring a dismissed idea is refused while an open idea has the same title", async () => {
+  const x = await setup();
+  const { ideaId } = await propose(x, "Fix the flaky test");
+  await x.store.updateIdea({ id: ideaId!, status: "dismissed" });
+  await propose(x, "  FIX the flaky test ");
+  const revision = (await x.store.read()).revision;
+  await expect(x.store.updateIdea({ id: ideaId!, status: "open" })).rejects.toThrow("open idea with that title");
+  const board = await x.store.read();
+  expect(board.revision).toBe(revision);
+  expect(board.ideas.find((i) => i.id === ideaId)?.status).toBe("dismissed");
+  expect(board.ideas.filter((i) => i.status === "open")).toHaveLength(1);
+});
+
 test("finished and archived cards cannot receive ideas", async () => {
   const x = await setup();
   await x.store.editTask({ id: "t", revision: 1, status: "done", actor: "human" });

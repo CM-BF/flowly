@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { constants } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { upgradeBoard } from "./migrate";
+import { ideaTitleKey } from "../shared/ideas";
 import type { FlowLog } from "./flow-log";
 import {
   boardSchema,
@@ -365,11 +366,13 @@ export class BoardStore {
         project = board.projects.find((p) => p.id === idea.projectId);
       if (!task || task.archivedAt || !project || project.archivedAt)
         throw new Error("The card or project is archived.");
-      if (
-        input.status === "open" &&
-        board.ideas.filter((i) => i.taskId === idea.taskId && i.status === "open").length >= ideaLimits.openPerTask
-      )
-        throw new Error(`This card already has ${ideaLimits.openPerTask} open ideas.`);
+      if (input.status === "open") {
+        const open = board.ideas.filter((i) => i.taskId === idea.taskId && i.status === "open");
+        if (open.some((i) => ideaTitleKey(i.title) === ideaTitleKey(idea.title)))
+          throw new Error("This card already has an open idea with that title.");
+        if (open.length >= ideaLimits.openPerTask)
+          throw new Error(`This card already has ${ideaLimits.openPerTask} open ideas.`);
+      }
       idea.status = input.status;
       idea.updatedAt = new Date().toISOString();
       this.event(board, {

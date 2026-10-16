@@ -3,6 +3,9 @@ import type { Idea, Task } from "./model";
 /** Task description limit (taskSchema.description). */
 export const DESCRIPTION_MAX = 20000;
 
+/** Titles compare trimmed and case-insensitively (one open idea per title on a card). */
+export const ideaTitleKey = (title: string) => title.trim().toLowerCase();
+
 export const openIdeas = (ideas: readonly Idea[], taskId: string) =>
   ideas.filter((i) => i.taskId === taskId && i.status === "open");
 
