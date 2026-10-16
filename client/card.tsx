@@ -70,6 +70,7 @@ export function TaskCard({
   selected,
   legacy,
   available,
+  wrapped = false,
   running,
   sessions,
   summary,
@@ -92,6 +93,8 @@ export function TaskCard({
   selected: boolean;
   legacy: boolean;
   available: boolean;
+  /** Done/Cancelled and wrapped up: its workspace is archived on purpose, not missing. */
+  wrapped?: boolean;
   running: number;
   sessions: number;
   summary?: SessionAttentionSummary;
@@ -276,6 +279,7 @@ export function TaskCard({
           task={task}
           legacy={legacy}
           available={available}
+          wrapped={wrapped}
           summary={signals}
           summaryState={summaryState}
           running={running}
@@ -394,6 +398,7 @@ function CardSignals({
   task,
   legacy,
   available,
+  wrapped,
   summary,
   summaryState,
   running,
@@ -405,6 +410,7 @@ function CardSignals({
   task: Task;
   legacy: boolean;
   available: boolean;
+  wrapped: boolean;
   summary?: SessionAttentionSummary;
   summaryState: "ready" | "loading" | "stale" | "unavailable";
   running: number;
@@ -418,7 +424,9 @@ function CardSignals({
   if (questions)
     items.push(<Signal key="question" icon="MessageCircleQuestion" color={colors.statusWarning} text={t("Needs you")} />);
   if (waiting) items.push(<Signal key="waiting" icon="Hourglass" text={t("Waiting on {waiting}", { waiting })} />);
-  if (!available)
+  if (!available && wrapped)
+    items.push(<Signal key="wrapped" icon="CircleCheck" text={t("Wrapped up")} />);
+  else if (!available)
     items.push(<Signal key="ws" icon="TriangleAlert" color={colors.statusWarning} text={t("Workspace unavailable")} />);
   else if (summaryState === "loading")
     items.push(<Signal key="load" icon="Loader" text={t("Loading…")} />);

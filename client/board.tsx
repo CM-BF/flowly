@@ -55,6 +55,7 @@ import {
   type AttentionItem,
 } from "./attention";
 import { relativeTime } from "./ui";
+import { currentWrapup } from "../shared/wrapup-state";
 import { ProjectForm, TaskForm, type TaskSeed } from "./forms";
 import { ideaDescription } from "../shared/ideas";
 import { waitingOn } from "../shared/links";
@@ -809,6 +810,7 @@ function BoardContent(
         selected={taskId === t.id}
         legacy={!!project && isLegacyScope(t, project)}
         available={cardIndex.workspaceIds.has(t.workspaceId)}
+        wrapped={(t.status === "done" || t.status === "cancelled") && !!currentWrapup(events, t.id)}
         running={sessions.filter((a) => a.status === "running").length}
         sessions={sessions.length}
         summary={sessionAttentionSummary(sessions, t, receipts, events)}
