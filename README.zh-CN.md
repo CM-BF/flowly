@@ -68,7 +68,7 @@ agent 工作时发现的后续事项（顺带发现的 bug、现有方案的局�
 ## 安装
 
 ```sh
-git clone <本仓库地址> && cd paseo-utlra-kanban
+git clone https://github.com/JasprW/flowly.git && cd flowly
 npm install
 paseo plugin install "$PWD" --id paseo-ultra-kanban
 paseo plugin reload paseo-ultra-kanban   # 之后有改动时重载

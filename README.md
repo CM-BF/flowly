@@ -68,7 +68,7 @@ The interface follows your device language, or pick one in **Flowly settings →
 ## Install
 
 ```sh
-git clone <this repository> && cd paseo-utlra-kanban
+git clone https://github.com/JasprW/flowly.git && cd flowly
 npm install
 paseo plugin install "$PWD" --id paseo-ultra-kanban
 paseo plugin reload paseo-ultra-kanban   # after later changes
