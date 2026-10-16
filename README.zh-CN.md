@@ -17,6 +17,16 @@
 
 </details>
 
+## 安装
+
+```sh
+paseo plugin add git:JasprW/flowly
+```
+
+插件库的上架审核通过后，也可以用 `paseo plugin add JasprW/flowly`。
+
+在 Paseo 侧边栏打开 **Flowly**。daemon 所在机器的 PATH 里需要有 `paseo` CLI，用于注册新的原生 project。
+
 ## 主要功能
 
 ### 1. 自动状态流转
@@ -65,26 +75,6 @@ agent 工作时发现的后续事项（顺带发现的 bug、现有方案的局�
 | --- | --- |
 | ![日语界面的看板](docs/promo/screenshots/i18n/ja-JP-board.png) | ![德语界面的看板](docs/promo/screenshots/i18n/de-DE-board.png) |
 
-## 安装
-
-```sh
-paseo plugin add git:JasprW/flowly
-```
-
-插件库的上架审核通过后，也可以用 `paseo plugin add JasprW/flowly`。
-
-从本地仓库运行（开发用）：
-
-```sh
-git clone https://github.com/JasprW/flowly.git && cd flowly
-npm install
-paseo plugin install "$PWD" --id flowly
-paseo plugin reload flowly   # 之后有改动时重载
-paseo plugin logs flowly
-```
-
-在 Paseo 侧边栏打开 **Flowly**。daemon 所在机器的 PATH 里需要有 `paseo` CLI，用于注册新的原生 project。
-
 ## 快速上手
 
 1. **New project**：选择一个目录（或多个仓库），把它注册为原生 Paseo project。
@@ -111,8 +101,17 @@ paseo plugin logs flowly
 
 ## 开发
 
+从本地仓库运行（开发用）：
+
 ```sh
+git clone https://github.com/JasprW/flowly.git && cd flowly
 npm install
+paseo plugin install "$PWD" --id flowly
+paseo plugin reload flowly   # 之后有改动时重载
+paseo plugin logs flowly
+```
+
+```sh
 npm run typecheck
 npm test
 ```

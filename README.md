@@ -17,6 +17,16 @@
 
 </details>
 
+## Install
+
+```sh
+paseo plugin add git:JasprW/flowly
+```
+
+Once the registry listing is approved, `paseo plugin add JasprW/flowly` works too.
+
+Open **Flowly** from Paseo's sidebar. The daemon needs the `paseo` CLI on its path to register a new native project.
+
 ## Highlights
 
 ### 1. Automatic status flow
@@ -65,26 +75,6 @@ The interface follows your device language, or pick one in **Flowly settings →
 | --- | --- |
 | ![Board in Japanese](docs/promo/screenshots/i18n/ja-JP-board.png) | ![Board in German](docs/promo/screenshots/i18n/de-DE-board.png) |
 
-## Install
-
-```sh
-paseo plugin add git:JasprW/flowly
-```
-
-Once the registry listing is approved, `paseo plugin add JasprW/flowly` works too.
-
-To run from a checkout (for development):
-
-```sh
-git clone https://github.com/JasprW/flowly.git && cd flowly
-npm install
-paseo plugin install "$PWD" --id flowly
-paseo plugin reload flowly   # after later changes
-paseo plugin logs flowly
-```
-
-Open **Flowly** from Paseo's sidebar. The daemon needs the `paseo` CLI on its path to register a new native project.
-
 ## Quick start
 
 1. **New project**: pick a directory (or several repositories) to register as a native Paseo project.
@@ -111,8 +101,17 @@ Board data is stored on the daemon machine in `~/.paseo/plugin-data/flowly/` (`P
 
 ## Development
 
+To run from a checkout (for development):
+
 ```sh
+git clone https://github.com/JasprW/flowly.git && cd flowly
 npm install
+paseo plugin install "$PWD" --id flowly
+paseo plugin reload flowly   # after later changes
+paseo plugin logs flowly
+```
+
+```sh
 npm run typecheck
 npm test
 ```
