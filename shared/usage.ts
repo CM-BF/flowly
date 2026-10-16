@@ -9,6 +9,8 @@ export const tokenUsageSchema = z.object({
   reasoning: z.number(),
 });
 export type TokenUsage = z.infer<typeof tokenUsageSchema>;
+/** Token buckets are 15-minute slots: every time zone offset is a multiple of 15 minutes (PROJECT-INSIGHTS-SPEC §11). */
+export const TOKEN_SLOT_MS = 15 * 60_000;
 export const zeroUsage = (): TokenUsage => ({ input: 0, cacheRead: 0, cacheWrite: 0, output: 0, reasoning: 0 });
 export const totalTokens = (u: TokenUsage) => u.input + u.cacheRead + u.cacheWrite + u.output;
 /** Share of all input tokens served from cache: cacheRead / (input + cacheRead + cacheWrite); null without input. */

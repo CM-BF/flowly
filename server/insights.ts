@@ -7,6 +7,7 @@ import type { FlowLog } from "./flow-log";
 import type { GitStats } from "./git-stats";
 import type { SummaryStore } from "./summaries";
 import { availableModels } from "./summaries";
+import type { AgentLike, UsageService } from "./usage";
 import { laneName } from "../shared/lanes";
 import { historyStatusLabel, type Board, type HistoryStatus, type Project } from "../shared/model";
 import { SUMMARIZER_LABELS, isSummarizer, resolveModel, type SummaryEntry, type SummarySettings } from "../shared/summary";
@@ -17,8 +18,10 @@ import {
   dayKey,
   dayStart,
   isDay,
+  tokenInsights,
   validZone,
   withoutRevertedResumes,
+  type TokenInsights,
   type Commit,
   type FlowEntry,
   type ProjectInsights,
@@ -127,6 +130,8 @@ export class DigestStore {
 /** Project Insights (PROJECT-INSIGHTS-SPEC): stats from the flow log, git and live sessions; the daily digest. */
 export class InsightsService {
   private running = new Set<string>();
+  /** Reads provider logs for tokens by day (§11). */
+  usage: UsageService | null = null;
   private reconciled: Promise<unknown> | null = null;
   constructor(
     readonly board: BoardStore,
@@ -197,6 +202,32 @@ export class InsightsService {
       repos: git.repos,
       gitError: git.error,
     });
+  }
+
+  /**
+   * Tokens by day for every session in the project's card workspaces (archived
+   * and summarizer sessions included), read from local provider logs only.
+   */
+  async tokens(input: DayInput, paseo: PaseoApi): Promise<TokenInsights> {
+    if (!this.usage) throw new Error("Token usage is not available.");
+    const tz = validZone(input.tz);
+    const { tasks } = await this.context(input.projectId);
+    const owner = new Map(tasks.map((t) => [t.workspaceId, t.id]));
+    const agents: (AgentLike & { taskId: string })[] = [];
+    let cursor: string | undefined;
+    do {
+      const page = await paseo.agents.list({ filter: { includeArchived: true }, page: { limit: 200, cursor } });
+      for (const { agent } of page.entries) {
+        const taskId = agent.workspaceId ? owner.get(agent.workspaceId) : undefined;
+        if (taskId) agents.push({ ...(agent as AgentLike), taskId });
+      }
+      cursor = page.pageInfo.nextCursor ?? undefined;
+    } while (cursor);
+    const usage = this.usage;
+    const series = await Promise.all(
+      agents.map(async (a) => ({ taskId: a.taskId, buckets: await usage.buckets(a).catch(() => null) })),
+    );
+    return tokenInsights({ series, now: this.now(), tz, day: input.day });
   }
 
   private key(input: DayInput) {

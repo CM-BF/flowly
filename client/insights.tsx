@@ -6,14 +6,14 @@ import { useQueryClient } from "@tanstack/react-query";
 import * as rpc from "../shared/rpc";
 import { enabledStatuses } from "../shared/lanes";
 import { isWorkStatus, type Project, type Status, type Task } from "../shared/model";
-import { addDays, waited, type Insight, type ProjectInsights } from "../shared/insights";
+import { addDays, waited, type Insight, type ProjectInsights, type TokenInsights } from "../shared/insights";
 import type { DigestItem, DigestView } from "../shared/digest";
-import { compactDuration } from "../shared/usage";
+import { cacheHitRate, compactDuration, compactNumber, percent, totalTokens } from "../shared/usage";
 import { modelLabel } from "../shared/summary";
 import type { AttentionItem } from "./attention";
 import { Disclosure } from "./disclosure";
 import { Enter } from "./motion";
-import { localZone, useDigestQuery, useInsightsQuery } from "./queries";
+import { localZone, useDigestQuery, useInsightsQuery, useTokensQuery } from "./queries";
 import { StatusIcon } from "./status";
 import { Button, Dot, IconButton, Label, Notice, font, message, noFocusRing, radius, relativeTime, space, touch, useTheme, verticalContent, verticalScroll } from "./ui";
 
@@ -46,6 +46,9 @@ export const InsightsPage = memo(function InsightsPage({
   const shownDay = data?.day || day;
   const isToday = !!data && data.day === data.today;
   const digest = useDigestQuery(project.id, shownDay, active && !!data);
+  const tokens = useTokensQuery(project.id, day, active);
+  // Only show tokens for the day on screen (the placeholder may hold the previous day).
+  const dayTokens = tokens.data && data && tokens.data.day === data.day ? tokens.data : undefined;
   const titleOf = (id: string) => tasks.find((t) => t.id === id)?.title || "Removed card";
   const lanes = enabledStatuses(project);
   return (
@@ -95,11 +98,12 @@ export const InsightsPage = memo(function InsightsPage({
             <Label muted>Loading insights…</Label>
           ) : (
             <>
-              <Numbers data={data} compact={compact} />
+              <Numbers data={data} tokens={dayTokens} tokensError={tokens.error ? message(tokens.error) : ""} compact={compact} />
               {isToday && <Waiting data={data} attention={attention} titleOf={titleOf} nameOf={nameOf} onOpenTask={onOpenTask} />}
               {isToday && <Suggestions insights={data.insights} titleOf={titleOf} onOpenTask={onOpenTask} />}
               <Digest projectId={project.id} day={data.day} isToday={isToday} view={digest.data} error={digest.error} titleOf={titleOf} onOpenTask={onOpenTask} />
-              <Trend data={data} lanes={lanes} nameOf={nameOf} compact={compact} />
+              <TokenUse tokens={dayTokens} titleOf={titleOf} onOpenTask={onOpenTask} />
+              <Trend data={data} tokens={dayTokens} lanes={lanes} nameOf={nameOf} compact={compact} />
               {data.incomplete > 0 && (
                 <Label muted size={font.xs}>
                   {data.incomplete} card{data.incomplete === 1 ? "" : "s"} started before the full history was kept, so older numbers may be low.
@@ -151,7 +155,7 @@ function Panel({ children }: { children: ReactNode }) {
 
 const fmt = (n: number) => (n >= 10 || Number.isInteger(n) ? String(Math.round(n)) : n.toFixed(1));
 
-function Numbers({ data, compact }: { data: ProjectInsights; compact: boolean }) {
+function Numbers({ data, tokens, tokensError, compact }: { data: ProjectInsights; tokens: TokenInsights | undefined; tokensError: string; compact: boolean }) {
   const { colors } = useTheme();
   const s = data.stats,
     a = data.average;
@@ -163,6 +167,14 @@ function Numbers({ data, compact }: { data: ProjectInsights; compact: boolean })
     { label: "Turns", value: String(turns), avg: fmt(a.turns), hint: s.turns.failed ? `${s.turns.failed} failed` : undefined },
     { label: "Agent time", value: s.agentMs ? compactDuration(s.agentMs) : "0", avg: a.agentMs ? compactDuration(a.agentMs) : "0", hint: s.peakSessions > 1 ? `up to ${s.peakSessions} at once` : undefined },
     { label: "Commits", value: data.git.repos ? String(s.commits) : "—", avg: data.git.repos ? fmt(a.commits) : "", hint: s.commits ? `+${s.added} −${s.deleted}` : undefined },
+    tokens
+      ? {
+          label: "Tokens",
+          value: compactNumber(totalTokens(tokens.tokens)),
+          avg: compactNumber(tokens.average),
+          hint: cacheHitRate(tokens.tokens) !== null ? `${percent(cacheHitRate(tokens.tokens)!)} cached` : undefined,
+        }
+      : { label: "Tokens", value: tokensError ? "—" : "…", avg: "", hint: tokensError ? "Unavailable" : "Reading logs" },
   ];
   return (
     <View style={{ flexDirection: "row", flexWrap: "wrap", gap: space[2] }}>
@@ -172,7 +184,7 @@ function Numbers({ data, compact }: { data: ProjectInsights; compact: boolean })
           accessibilityLabel={`${t.label}: ${t.value}${t.avg ? `, 7-day average ${t.avg}` : ""}`}
           style={{
             flexGrow: 1,
-            flexBasis: compact ? "30%" : 0,
+            flexBasis: compact ? "30%" : "13%",
             minWidth: compact ? 96 : 100,
             padding: space[3],
             gap: 2,
@@ -483,7 +495,84 @@ function DigestLine({ item, title, onOpenTask }: { item: DigestItem; title: stri
   );
 }
 
-function Trend({ data, lanes, nameOf, compact }: { data: ProjectInsights; lanes: readonly Status[]; nameOf(status: Status): string; compact: boolean }) {
+function TokenUse({ tokens, titleOf, onOpenTask }: { tokens: TokenInsights | undefined; titleOf(id: string): string; onOpenTask(id: string): void }) {
+  const { colors } = useTheme();
+  if (!tokens) return null;
+  const t = tokens.tokens;
+  return (
+    <Section title="Token use" detail={compactNumber(totalTokens(t))}>
+      <Panel>
+        <View style={{ padding: space[3], gap: space[2] }}>
+          <View style={{ flexDirection: "row", flexWrap: "wrap", columnGap: space[4], rowGap: space[1] }}>
+            {[
+              ["Input", t.input],
+              ["Cache read", t.cacheRead],
+              ["Cache write", t.cacheWrite],
+              ["Output", t.output],
+            ].map(([label, value]) => (
+              <Label key={label} muted size={font.sm} selectable={false}>
+                {label} <Label size={font.sm}>{compactNumber(value as number)}</Label>
+              </Label>
+            ))}
+            {cacheHitRate(t) !== null && (
+              <Label muted size={font.sm} selectable={false}>
+                Cached <Label size={font.sm}>{percent(cacheHitRate(t)!)}</Label>
+              </Label>
+            )}
+          </View>
+          {tokens.tasks.map((row) => (
+            <Pressable
+              key={row.taskId}
+              accessibilityRole="button"
+              accessibilityLabel={`${titleOf(row.taskId)}: ${compactNumber(totalTokens(row.tokens))} tokens. Open card`}
+              onPress={() => onOpenTask(row.taskId)}
+              style={(state) => {
+                const { hovered, pressed } = state as typeof state & { hovered?: boolean };
+                return {
+                  ...noFocusRing,
+                  flexDirection: "row",
+                  alignItems: "center",
+                  gap: space[2],
+                  minHeight: touch ? 40 : 30,
+                  paddingHorizontal: space[1],
+                  borderRadius: radius.md,
+                  backgroundColor: hovered || pressed ? colors.surface2 : "transparent",
+                };
+              }}
+            >
+              <View style={{ flex: 1, minWidth: 0 }}>
+                <Label size={font.md} lines={1} selectable={false}>
+                  {titleOf(row.taskId)}
+                </Label>
+              </View>
+              {cacheHitRate(row.tokens) !== null && (
+                <Label muted size={font.sm} selectable={false}>
+                  {percent(cacheHitRate(row.tokens)!)} cached
+                </Label>
+              )}
+              <View style={{ minWidth: 52, alignItems: "flex-end" }}>
+                <Label medium size={font.sm} selectable={false}>
+                  {compactNumber(totalTokens(row.tokens))}
+                </Label>
+              </View>
+            </Pressable>
+          ))}
+          {!tokens.tasks.length && (
+            <Label muted size={font.sm}>
+              No tokens recorded on this day.
+            </Label>
+          )}
+          <Label muted size={font.xs} selectable={false}>
+            From local Claude Code / Codex logs; tokens only, progress summaries included.
+            {tokens.missing ? ` ${tokens.missing} of ${tokens.sessions} sessions have no local log.` : ""}
+          </Label>
+        </View>
+      </Panel>
+    </Section>
+  );
+}
+
+function Trend({ data, tokens, lanes, nameOf, compact }: { data: ProjectInsights; tokens: TokenInsights | undefined; lanes: readonly Status[]; nameOf(status: Status): string; compact: boolean }) {
   const { colors } = useTheme();
   const [open, setOpen] = useState(!compact);
   const max = Math.max(1, ...data.trend.flatMap((d) => [d.created, d.done]));
@@ -518,6 +607,25 @@ function Trend({ data, lanes, nameOf, compact }: { data: ProjectInsights; lanes:
             ))}
           </View>
         </View>
+        {!!tokens && (
+          <View style={{ gap: space[2] }}>
+            <Label muted size={font.xs} selectable={false}>
+              Tokens per day
+            </Label>
+            <View style={{ flexDirection: "row", alignItems: "flex-end", gap: space[2] }}>
+              {tokens.trend.map((d) => (
+                <View key={d.day} accessibilityLabel={`${d.day}: ${compactNumber(d.total)} tokens`} style={{ flex: 1, alignItems: "center", gap: space[1] }}>
+                  <View style={{ height: 48, justifyContent: "flex-end" }}>
+                    <Bar value={d.total} max={Math.max(1, ...tokens.trend.map((x) => x.total))} height={48} color={colors.statusSuccess} />
+                  </View>
+                  <Label muted size={font.xs} selectable={false}>
+                    {d.total ? compactNumber(d.total) : "0"}
+                  </Label>
+                </View>
+              ))}
+            </View>
+          </View>
+        )}
         {dwell.length > 0 && (
           <View style={{ gap: space[1] }}>
             <Label muted size={font.xs} selectable={false}>

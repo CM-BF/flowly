@@ -9,6 +9,8 @@
 - [x] PASS: typecheck; `npm test` 308 passed / 63 skipped (new insights, flow-log, git-stats, digest and service tests); plugin reloaded; analysis checked against this board's real data.
 - [x] Luna UI acceptance (session `bceb36e5`, worker `03d2ee59`) in a headless app.paseo.sh client, 1440×900 and 390×844 light/dark: 9 PASS, 1 FAIL (Commits tile hid its average behind the line delta), fixed afterwards (hint and average share the line). Digest generated with Haiku 5.5 and its sessions archived; fixtures cleaned. [Verification](verification/project-insights.md).
 - [ ] UNRUN: digest model-error paths; Electron window and a physical phone; re-screenshot after the tile fix.
+- [x] Idea "Insights：按天统计 token 用量" (continued in this card): log parsers keep 15-minute token slots (Claude per deduped message, Codex count differences with reset handling); `insights.tokens` sums them into the client's days for all sessions of the project's cards; Tokens tile, Token use section (types, cache rate, top 5 cards) and Tokens per day bars. Spec §11.
+- [x] PASS: typecheck; `npm test` 320 passed / 63 skipped (bucket and day-sum tests); real logs: plugin per-day sums equal an independent script (Claude 23,843,196 on 2026-10-16; Codex 5,683,345 on 2026-10-14).
 
 ## Ideas cards — 2026-10-15
 

@@ -204,3 +204,22 @@ test("a resume that rule A1r undid is neither rework nor a new review wait", () 
   const kept = analyze(base({ tasks: [task("a", { status: "development" })], entries: entries.slice(0, 2) }));
   expect(kept.stats.rework).toBe(1);
 });
+
+test("tokens by day: slots summed in the zone's day, 7-day trend and average, top cards, missing logs", async () => {
+  const { tokenInsights } = await import("./insights");
+  const slot = (iso: string) => Math.floor(Date.parse(iso) / (15 * 60_000));
+  const u = (input: number, output = 0) => ({ input, cacheRead: 0, cacheWrite: 0, output, reasoning: 0 });
+  const series = [
+    // 2026-10-15T17:00Z is 2026-10-16 01:00 in Singapore.
+    { taskId: "a", buckets: new Map([[slot("2026-10-15T17:00:00Z"), u(100, 10)], [slot("2026-10-15T15:45:00Z"), u(7)]]) },
+    { taskId: "b", buckets: new Map([[slot("2026-10-16T03:00:00Z"), u(500)], [slot("2026-10-14T03:00:00Z"), u(70)]]) },
+    { taskId: "b", buckets: null },
+  ];
+  const r = tokenInsights({ series, now: Date.parse("2026-10-16T06:00:00Z"), tz: "Asia/Singapore" });
+  expect(r.day).toBe("2026-10-16");
+  expect(r.tokens).toEqual(u(600, 10));
+  expect(r.tasks.map((t) => t.taskId)).toEqual(["b", "a"]);
+  expect(r.trend.map((d) => d.total)).toEqual([0, 0, 0, 0, 70, 7, 610]);
+  expect(r.average).toBe(11);
+  expect({ sessions: r.sessions, missing: r.missing }).toEqual({ sessions: 3, missing: 1 });
+});

@@ -258,3 +258,18 @@ export function useDigestQuery(projectId: string, day: string | null, enabled: b
     refetchInterval: (q) => (q.state.data?.running ? 3000 : false),
   });
 }
+
+/** Tokens by day from local provider logs (PROJECT-INSIGHTS-SPEC §11); separate so the page never waits on log parsing. */
+export function useTokensQuery(projectId: string, day: string | null, enabled: boolean) {
+  const read = useRpc(rpc.projectTokens);
+  const client = useQueryClient();
+  const tz = localZone();
+  const key = ["ultra", "insights-tokens", projectId, day || "today"] as const;
+  return useQuery({
+    queryKey: key,
+    queryFn: () => readChanged(client, key, (etag) => read({ projectId, tz, ...(day ? { day } : {}), ...(etag ? { etag } : {}) })),
+    enabled,
+    refetchInterval: enabled ? 60_000 : false,
+    placeholderData: (previous) => previous,
+  });
+}

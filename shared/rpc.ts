@@ -28,7 +28,7 @@ import {
 import { summaryEntrySchema, summaryOverviewSchema } from "./summary";
 import { taskUsageSchema } from "./usage";
 import { tailEntrySchema } from "./session-tail";
-import { projectInsightsSchema } from "./insights";
+import { projectInsightsSchema, tokenInsightsSchema } from "./insights";
 import { digestViewSchema } from "./digest";
 
 /** `{ etag }` in; the value is omitted when it still matches (PERFORMANCE-SPEC §3). */
@@ -405,4 +405,9 @@ export const refreshDigest = defineRpc({
   name: "insights.digest-refresh",
   input: z.strictObject({ ...insightsDay, day: z.string().regex(/^\d{4}-\d{2}-\d{2}$/) }),
   output: z.object({ queued: z.boolean() }),
+});
+export const projectTokens = defineRpc({
+  name: "insights.tokens",
+  input: z.strictObject({ ...insightsDay, day: z.string().max(10).optional(), etag: z.string().max(200).optional() }),
+  output: z.object({ etag: z.string(), value: tokenInsightsSchema.optional() }),
 });

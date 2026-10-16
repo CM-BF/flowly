@@ -6,13 +6,21 @@ import { createInterface } from "node:readline";
 import type { PaseoApi } from "@getpaseo/client";
 import type { BoardStore } from "./store";
 import { isSummarizer } from "../shared/summary";
-import { addUsage, zeroUsage, type SessionUsage, type TaskUsage, type TokenUsage } from "../shared/usage";
+import { TOKEN_SLOT_MS, addUsage, zeroUsage, type SessionUsage, type TaskUsage, type TokenUsage } from "../shared/usage";
 
 /**
  * Token usage read from provider session logs on this machine (USAGE-STATS-SPEC).
  * Read-only; parse results are cached by path, size and mtime.
  */
-export type LogUsage = { tokens: TokenUsage; turns: number; activeMs: number };
+export type LogUsage = { tokens: TokenUsage; turns: number; activeMs: number; buckets: TokenBuckets };
+/** Tokens by 15-minute slot (`floor(ms / SLOT_MS)`): every time zone offset is a multiple of 15 minutes. */
+export type TokenBuckets = Map<number, TokenUsage>;
+export const SLOT_MS = TOKEN_SLOT_MS;
+function addTo(buckets: TokenBuckets, at: number, tokens: TokenUsage) {
+  if (!Number.isFinite(at)) return;
+  const slot = Math.floor(at / SLOT_MS);
+  buckets.set(slot, addUsage(buckets.get(slot) || zeroUsage(), tokens));
+}
 
 const num = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : 0);
 const time = (v: unknown) => (typeof v === "string" ? Date.parse(v) : NaN);
@@ -48,6 +56,7 @@ function claudePrompt(entry: Record<string, any>): boolean {
 /** Sums one Claude Code log: assistant messages deduplicated by id; turns start at prompts. */
 export async function readClaudeLog(path: string, seen = new Set<string>()): Promise<LogUsage> {
   const tokens = zeroUsage();
+  const buckets: TokenBuckets = new Map();
   let turns = 0,
     activeMs = 0,
     turnStart = NaN,
@@ -70,19 +79,39 @@ export async function readClaudeLog(path: string, seen = new Set<string>()): Pro
     if (seen.has(id)) continue;
     seen.add(id);
     const u = message.usage;
-    tokens.input += num(u.input_tokens);
-    tokens.cacheRead += num(u.cache_read_input_tokens);
-    tokens.cacheWrite += num(u.cache_creation_input_tokens);
-    tokens.output += num(u.output_tokens);
-    tokens.reasoning += num(u.output_tokens_details?.thinking_tokens);
+    const one = {
+      input: num(u.input_tokens),
+      cacheRead: num(u.cache_read_input_tokens),
+      cacheWrite: num(u.cache_creation_input_tokens),
+      output: num(u.output_tokens),
+      reasoning: num(u.output_tokens_details?.thinking_tokens),
+    };
+    Object.assign(tokens, addUsage(tokens, one));
+    addTo(buckets, time(entry.timestamp), one);
   }
   close();
-  return { tokens, turns, activeMs };
+  return { tokens, turns, activeMs, buckets };
 }
 
 /** One Codex rollout: the last cumulative token_count; turns are task_started → task_complete. */
+/** Codex cumulative totals as unified token types. */
+function codexUsage(total: Record<string, unknown>): TokenUsage {
+  const cacheRead = num(total.cached_input_tokens),
+    cacheWrite = num(total.cache_write_input_tokens);
+  return {
+    input: Math.max(0, num(total.input_tokens) - cacheRead - cacheWrite),
+    cacheRead,
+    cacheWrite,
+    output: num(total.output_tokens),
+    reasoning: num(total.reasoning_output_tokens),
+  };
+}
+
 export async function readCodexLog(path: string): Promise<LogUsage> {
   let total: Record<string, unknown> | null = null;
+  // Cumulative counts: each token_count adds its difference from the previous one to its slot.
+  const buckets: TokenBuckets = new Map();
+  let previous = zeroUsage();
   let turns = 0,
     activeMs = 0,
     started = NaN;
@@ -96,17 +125,19 @@ export async function readCodexLog(path: string): Promise<LogUsage> {
       const end = time(entry.timestamp);
       if (Number.isFinite(started) && end > started) activeMs += end - started;
       started = NaN;
-    } else if (payload.type === "token_count" && payload.info?.total_token_usage) total = payload.info.total_token_usage;
+    } else if (payload.type === "token_count" && payload.info?.total_token_usage) {
+      total = payload.info.total_token_usage;
+      const now = codexUsage(total!);
+      const keys = ["input", "cacheRead", "cacheWrite", "output", "reasoning"] as const;
+      // A counter that went down was reset: count the new total from zero.
+      const reset = keys.some((k) => now[k] < previous[k]);
+      const delta = zeroUsage();
+      for (const k of keys) delta[k] = reset ? now[k] : now[k] - previous[k];
+      if (keys.some((k) => delta[k] > 0)) addTo(buckets, time(entry.timestamp), delta);
+      previous = now;
+    }
   }
-  const tokens = zeroUsage();
-  if (total) {
-    tokens.cacheRead = num(total.cached_input_tokens);
-    tokens.cacheWrite = num(total.cache_write_input_tokens);
-    tokens.input = Math.max(0, num(total.input_tokens) - tokens.cacheRead - tokens.cacheWrite);
-    tokens.output = num(total.output_tokens);
-    tokens.reasoning = num(total.reasoning_output_tokens);
-  }
-  return { tokens, turns, activeMs };
+  return { tokens: total ? codexUsage(total) : zeroUsage(), turns, activeMs, buckets };
 }
 
 const exists = (path: string) =>
@@ -164,7 +195,7 @@ export class LogLocator {
   }
 }
 
-type AgentLike = {
+export type AgentLike = {
   id: string;
   title?: string | null;
   provider: string;
@@ -216,17 +247,38 @@ export class UsageService {
         const usage = await this.cached(files, async () => {
           const seen = new Set<string>();
           const main = await readClaudeLog(claude.path, seen);
-          for (const file of claude.subagents) main.tokens = addUsage(main.tokens, (await readClaudeLog(file, seen)).tokens);
+          for (const file of claude.subagents) {
+            const sub = await readClaudeLog(file, seen);
+            main.tokens = addUsage(main.tokens, sub.tokens);
+            for (const [slot, tokens] of sub.buckets) main.buckets.set(slot, addUsage(main.buckets.get(slot) || zeroUsage(), tokens));
+          }
           return main;
         });
-        return { ...base, source: "claude", ...usage };
+        return { ...base, source: "claude", tokens: usage.tokens, turns: usage.turns, activeMs: usage.activeMs };
       }
       const codex = await this.locator.codex(sessionId);
-      if (codex) return { ...base, source: "codex", ...(await this.cached([codex], () => readCodexLog(codex))) };
+      if (codex) {
+        const usage = await this.cached([codex], () => readCodexLog(codex));
+        return { ...base, source: "codex", tokens: usage.tokens, turns: usage.turns, activeMs: usage.activeMs };
+      }
       return { ...base, note: "No local Claude Code or Codex log for this session." };
     } catch (e) {
       return { ...base, note: `Could not read its log: ${e instanceof Error ? e.message : String(e)}` };
     }
+  }
+
+  /** A session's tokens by 15-minute slot, or null when it has no local log (PROJECT-INSIGHTS-SPEC §11). */
+  async buckets(agent: AgentLike): Promise<TokenBuckets | null> {
+    const sessionId = agent.runtimeInfo?.sessionId;
+    if (!sessionId) return null;
+    const claude = await this.locator.claude(sessionId);
+    if (claude) {
+      await this.session(agent);
+      return this.cache.get(claude.path)?.value.buckets || null;
+    }
+    const codex = await this.locator.codex(sessionId);
+    if (!codex) return null;
+    return (await this.cached([codex], () => readCodexLog(codex))).buckets;
   }
 
   async task(taskId: string, paseo: PaseoApi): Promise<TaskUsage> {

@@ -10,7 +10,7 @@
 2. 现在什么在等我；
 3. 今天先做什么（规则建议）。
 
-趋势只看最近 7 天。不做（后续 idea）：按天 token、周/月视图、对外日报导出、跨项目汇总。
+趋势只看最近 7 天。不做（后续 idea）：周/月视图、对外日报导出、跨项目汇总。按天 token 已于 2026-10-16 由 idea 加入（§11）。
 
 Insights 只读，不改卡片状态、revision 或 Paseo 资源（变更总结的临时 summarizer session 除外，见 §7）。
 
@@ -122,3 +122,14 @@ daemon 计算，最多 5 条，按严重度（warning > info）再按规则顺�
 - 单元：日志追加/补齐/去重/删卡重写/项目移除；回放与切天（跨天、时区）；DayStats 各项；等待时长；R1–R7 触发与不触发；git 输出解析；总结输出解析与输入构造。
 - typecheck、全量测试；reload 本插件；对本项目调用 `insights.project` 核对数字。
 - Luna 6 全权限测试 session 用 fixture 项目实测桌面与紧凑布局并清理。
+
+## 11. 按天 token（2026-10-16，idea “Insights：按天统计 token 用量”，用户选择在本卡继续）
+
+- 数据源与口径同 USAGE-STATS-SPEC：本机 Claude Code / Codex 日志，只读，不落盘内容，只算 token。
+- 分桶：解析日志时按 15 分钟时间片累加（所有时区偏移都是 15 分钟的倍数），再按客户端时区切天。
+  - Claude：每条 assistant 消息（按 `message.id` 去重，含子 agent 日志）计入其 `timestamp` 所在时间片。
+  - Codex：`token_count` 为累计值，相邻两次的差值计入后一次的时间片；任一字段变小视为计数重置，从零计。
+- 范围：项目内所有卡片 workspace 的 session，含已归档与 progress summarizer（标签区分不再细分）。项目根 workspace 中的 digest session 不属于任何卡片，不计入。
+- RPC `insights.tokens { projectId, tz, day?, etag? }` → `{ day, today, tokens, average, trend[7]: {day,total}, tasks[≤5]: {taskId,tokens}, sessions, missing }`。与 `insights.project` 分开，页面不等日志解析。
+- UI：数字行增加 Tokens（总量、缓存命中率、7 天均值）；Summary 之后的 **Token use** 区块：按类型合计、缓存命中率、当天最耗 token 的 5 张卡（点击打开）、无日志的 session 数与来源脚注；Last 7 days 增加“Tokens per day”柱。
+- 验收：解析分桶（去重、跨天、计数重置）与按天汇总单元测试；对真实 Claude 与 Codex 日志，插件按天合计与独立脚本手工统计一致。

@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { isWorkStatus, priorities, statuses, type Status, type Task } from "./model";
+import { TOKEN_SLOT_MS, addUsage, tokenUsageSchema, totalTokens, zeroUsage, type TokenUsage } from "./usage";
 
 /** Project insights: daily stats, waiting on you, suggestions (PROJECT-INSIGHTS-SPEC). */
 
@@ -545,4 +546,65 @@ export function suggest(
     .sort((a, b) => order(a.i) - order(b.i) || a.index - b.index)
     .slice(0, MAX_INSIGHTS)
     .map(({ i }) => i);
+}
+
+// ---- Tokens by day (§11) ----------------------------------------------------
+
+export const TOP_TOKEN_TASKS = 5;
+export const tokenInsightsSchema = z.object({
+  day: z.string(),
+  today: z.string(),
+  tokens: tokenUsageSchema,
+  /** Mean total tokens over the 7 days before `day`. */
+  average: z.number(),
+  trend: z.array(z.object({ day: z.string(), total: z.number() })),
+  /** Cards that used the most tokens on `day`, most first. */
+  tasks: z.array(z.object({ taskId: z.string(), tokens: tokenUsageSchema })),
+  /** Sessions read, and sessions without a local Claude Code / Codex log. */
+  sessions: z.number().int(),
+  missing: z.number().int(),
+});
+export type TokenInsights = z.infer<typeof tokenInsightsSchema>;
+
+/** Sums 15-minute token slots into the zone's days. */
+export function tokenInsights(input: {
+  series: readonly { taskId: string; buckets: ReadonlyMap<number, TokenUsage> | null }[];
+  now: number;
+  tz: string | undefined;
+  day?: string;
+}): TokenInsights {
+  const { tz, now } = input;
+  const today = dayKey(now, tz);
+  const day = input.day && isDay(input.day) && input.day <= today ? input.day : today;
+  const range = (d: string) => [Math.floor(dayStart(d, tz) / TOKEN_SLOT_MS), Math.floor(dayStart(addDays(d, 1), tz) / TOKEN_SLOT_MS)] as const;
+  const sum = (d: string, taskId?: string) => {
+    const [from, to] = range(d);
+    let out = zeroUsage();
+    for (const s of input.series) {
+      if (!s.buckets || (taskId && s.taskId !== taskId)) continue;
+      for (const [slot, tokens] of s.buckets) if (slot >= from && slot < to) out = addUsage(out, tokens);
+    }
+    return out;
+  };
+  const tokens = sum(day);
+  const previous = Array.from({ length: TREND_DAYS }, (_, i) => totalTokens(sum(addDays(day, -(i + 1)))));
+  const trend = Array.from({ length: TREND_DAYS }, (_, i) => addDays(day, i - TREND_DAYS + 1)).map((d) => ({
+    day: d,
+    total: d === day ? totalTokens(tokens) : totalTokens(sum(d)),
+  }));
+  const tasks = [...new Set(input.series.map((s) => s.taskId))]
+    .map((taskId) => ({ taskId, tokens: sum(day, taskId) }))
+    .filter((t) => totalTokens(t.tokens) > 0)
+    .sort((a, b) => totalTokens(b.tokens) - totalTokens(a.tokens))
+    .slice(0, TOP_TOKEN_TASKS);
+  return {
+    day,
+    today,
+    tokens,
+    average: previous.reduce((a, b) => a + b, 0) / previous.length,
+    trend,
+    tasks,
+    sessions: input.series.length,
+    missing: input.series.filter((s) => !s.buckets).length,
+  };
 }

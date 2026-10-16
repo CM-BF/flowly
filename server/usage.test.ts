@@ -154,3 +154,43 @@ test("cache hit rate is cache reads over all input", () => {
   expect(percent(0.9472)).toBe("94.7%");
   expect(percent(1)).toBe("100%");
 });
+
+test("token buckets: Claude messages by timestamp slot (deduped); Codex count differences, resets counted from zero", async () => {
+  const r = await root();
+  const claude = join(r, "c.jsonl");
+  await writeFile(
+    claude,
+    jsonl([
+      assistant("m1", "2026-10-15T23:50:00Z", { input_tokens: 1, output_tokens: 2 }),
+      assistant("m1", "2026-10-15T23:50:01Z", { input_tokens: 1, output_tokens: 2 }),
+      assistant("m2", "2026-10-16T00:10:00Z", { input_tokens: 4, cache_read_input_tokens: 10, output_tokens: 1 }),
+    ]),
+  );
+  const slot = (iso: string) => Math.floor(Date.parse(iso) / (15 * 60_000));
+  const c = await readClaudeLog(claude);
+  expect([...c.buckets]).toEqual([
+    [slot("2026-10-15T23:50:00Z"), { input: 1, cacheRead: 0, cacheWrite: 0, output: 2, reasoning: 0 }],
+    [slot("2026-10-16T00:10:00Z"), { input: 4, cacheRead: 10, cacheWrite: 0, output: 1, reasoning: 0 }],
+  ]);
+  const codex = join(r, `rollout-x-${SID}.jsonl`);
+  const count = (at: string, input: number, cached: number, out: number) => ({
+    type: "event_msg",
+    timestamp: at,
+    payload: { type: "token_count", info: { total_token_usage: { input_tokens: input, cached_input_tokens: cached, cache_write_input_tokens: 0, output_tokens: out, reasoning_output_tokens: 0 } } },
+  });
+  await writeFile(
+    codex,
+    jsonl([
+      count("2026-10-15T10:00:00Z", 100, 80, 10),
+      count("2026-10-15T10:01:00Z", 100, 80, 10), // repeated count adds nothing
+      count("2026-10-16T09:00:00Z", 300, 250, 30),
+      count("2026-10-16T09:30:00Z", 50, 40, 5), // counter reset
+    ]),
+  );
+  const x = await readCodexLog(codex);
+  expect([...x.buckets]).toEqual([
+    [slot("2026-10-15T10:00:00Z"), { input: 20, cacheRead: 80, cacheWrite: 0, output: 10, reasoning: 0 }],
+    [slot("2026-10-16T09:00:00Z"), { input: 30, cacheRead: 170, cacheWrite: 0, output: 20, reasoning: 0 }],
+    [slot("2026-10-16T09:30:00Z"), { input: 10, cacheRead: 40, cacheWrite: 0, output: 5, reasoning: 0 }],
+  ]);
+});
