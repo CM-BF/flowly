@@ -146,8 +146,10 @@ export const ideaAdoption = z.strictObject({
   id: z.string().min(1),
   // IDs reach Paseo calls; keep them plain.
   agentId: z.string().min(1).max(200).regex(/^[A-Za-z0-9][A-Za-z0-9_-]*$/),
+  /** false: only record the session (it was just started with the idea as its first instruction). */
+  send: z.boolean().default(true),
 });
-export type IdeaAdoption = z.infer<typeof ideaAdoption>;
+export type IdeaAdoption = z.input<typeof ideaAdoption>;
 export const eventSchema = z.object({
   id: z.string(),
   taskId: z.string(),

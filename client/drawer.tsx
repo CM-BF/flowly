@@ -52,6 +52,7 @@ import { cardQuestions } from "../shared/progress";
 import { TaskProgress } from "./task-progress";
 import { TaskUsage } from "./task-usage";
 import { IdeaOrigin, TaskIdeas } from "./task-ideas";
+import { ideaInstruction } from "../shared/ideas";
 
 type TaskDrawerProps = Parameters<typeof TaskDrawerView>[0];
 
@@ -111,12 +112,15 @@ function TaskDrawerView({
   const { colors } = theme;
   const paseo = usePaseo(),
     update = useRpc(rpc.updateTask),
+    adoptIdea = useRpc(rpc.adoptIdea),
     contextRead = useRpc(rpc.taskContext),
     configure = useRpc(rpc.configureSession);
   const { query: readState, receipts, markRead, markUnread } = useSessionReads();
   const [selected, setSelected] = useState(sessionEntry?.sessionId || ""),
     [highlighted, setHighlighted] = useState(""),
     [showNew, setShowNew] = useState(false),
+    // A session started from an idea (IDEAS-SPEC §6.3): prefills the form, recorded on the idea once created.
+    [ideaSession, setIdeaSession] = useState<Idea | null>(null),
     [showWrapup, setShowWrapup] = useState(false),
     [showArchived, setShowArchived] = useState(false),
     [detailsOpen, setDetailsOpen] = useState(false),
@@ -737,6 +741,10 @@ function TaskDrawerView({
                 sessions={ordered}
                 disabled={!active || !!task.archivedAt || !!project.archivedAt}
                 onCreate={onCreateFromIdea}
+                onNewSession={(idea) => {
+                  setIdeaSession(idea);
+                  setShowNew(true);
+                }}
                 onOpenTask={onOpenTask}
               />
             )}
@@ -800,14 +808,22 @@ function TaskDrawerView({
         open={active && showNew}
         workspaceDirectory={workspace.data?.workspaceDirectory}
         unavailable={!active || unavailable}
-        onClose={() => setShowNew(false)}
+        onClose={() => {
+          setShowNew(false);
+          setIdeaSession(null);
+        }}
         onCreated={(id, text) => {
           setHighlighted(id);
           toast.show(text, { variant: "success" });
           setSelected("");
+          if (ideaSession)
+            void adoptIdea({ id: ideaSession.id, agentId: id, send: false })
+              .then(() => refresh())
+              .catch((e) => toast.show(`Session started, but the idea was not marked: ${message(e)}`, { variant: "error" }));
         }}
         refresh={refreshAll}
         defaults={sessionDefaults}
+        seed={ideaSession ? { title: ideaSession.title, prompt: ideaInstruction(ideaSession) } : null}
       />
       <WrapupModal
         task={task}

@@ -287,3 +287,13 @@ test("ideas default to a new-card scope; the instruction skips empty parts", asy
     "Good idea — go ahead with it in this task: T\n\nDo it.",
   );
 });
+
+test("a session started with the idea as its first instruction is only recorded, not sent again", async () => {
+  const x = await setup();
+  const { ideaId } = await propose(x, "Extend the filter", { scope: "here" });
+  const push = vi.fn(async () => ({}));
+  const idea = await adoptIdea(x.store, push, { id: ideaId!, agentId: "second", send: false }, x.paseo);
+  expect(idea).toMatchObject({ status: "accepted", acceptedAgentId: "second" });
+  expect(push).not.toHaveBeenCalled();
+  expect((await x.store.read()).events.at(-1)).toMatchObject({ action: "idea_adopted", agentId: "second" });
+});

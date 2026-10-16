@@ -20,9 +20,12 @@ export function SessionCreate({
   onCreated,
   refresh,
   defaults,
+  seed,
 }: {
   task: Task;
   open: boolean;
+  /** Prefill for a session started from an idea (IDEAS-SPEC §6.3); read when the form opens. */
+  seed?: { title: string; prompt: string } | null;
   /** Provider/model/mode of the latest session, reused as this form's starting point. */
   defaults?: { provider: string; model: string; mode: string } | null;
   workspaceDirectory?: string;
@@ -49,8 +52,8 @@ export function SessionCreate({
   useEffect(() => {
     if (open && !wasOpen.current) {
       choice.reset(defaults);
-      setPrompt("");
-      setTitle("");
+      setPrompt(seed?.prompt || "");
+      setTitle(seed?.title || "");
       setError("");
     }
     wasOpen.current = open;

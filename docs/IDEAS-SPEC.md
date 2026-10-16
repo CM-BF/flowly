@@ -112,12 +112,15 @@ idea 不是任务卡：不进泳道、不占 workspace、不改来源卡状态�
 
 ## 6. Good idea 的两条路
 
-点 **Good idea** 打开插件菜单（桌面为锚定下拉、手机为底部弹层），标题 “Good idea → <目标 session>”，两项：
+点 **Good idea** 打开插件菜单（桌面为锚定下拉、手机为底部弹层），标题 “Good idea”（2026-10-16 用户确认加入“新 session”与“选择 session”）：
 
-- **Do it in this task**（`CornerDownRight`）→ §6.2；
+- **Continue in <session>**（`CornerDownRight`）→ §6.2，发给默认 session：提出该 idea 的 session（仍在本卡 workspace 且未归档）优先，否则本卡最新的未归档 session；没有可用 session 时不显示此项；
+- **Send to another session…**（`MessagesSquare`，本卡有 2 个及以上未归档 session 时出现）→ 打开第二个菜单 “Send to”，列出所有未归档 session（默认的那个带 `Check`），选中后按 §6.2 发送；
+- **Do it in a new session**（`Plus`）→ §6.3；
+- 分隔线；
 - **Start a new task**（`SquarePlus`）→ §6.1。
 
-agent 建议的那项排在前面并带 “· Suggested”。目标 session：提出该 idea 的 session（仍在本卡 workspace 且未归档）优先，否则本卡最新的未归档 session；没有可用 session 时该项禁用并显示 “(no live session)”。
+agent 建议 `scope=new` 时 “Start a new task · Suggested” 排在最前、其余在分隔线后；建议 `scope=here` 时本卡的三项在前，Continue 带 “· Suggested”（没有可用 session 时改由 “Do it in a new session” 带 Suggested）。
 
 ### 6.1 新建卡片
 
@@ -172,12 +175,20 @@ agent 建议的那项排在前面并带 “· Suggested”。目标 session：�
 
 不改卡片状态或 task revision；session 收到消息开始新回合后，现有自动状态规则照常生效。
 
+### 6.3 用新 session 做
+
+适合原 session 正忙、上下文过长或想换模型的情况。
+
+1. 打开现有 “Start session” 弹窗（`SessionCreate`），预填 session 标题 = idea 标题、第一条指令 = `ideaInstruction()`；模型、模式照常可选，指令可修改。由于是用户从 idea 显式发起，这里预填指令是允许的（普通 Start session 仍不预填）。
+2. session 创建成功后调用 `ideas.adopt { id, agentId: <新 session>, send: false }`：只校验并记录（accepted、`acceptedAgentId`、`idea_adopted` 事件），不再经 composer 发送，避免重复。
+3. 记录失败时 session 照常运行，弹 error toast “Session started, but the idea was not marked: …”；关闭弹窗不创建 session 时 idea 保持 open。
+
 ## 7. 人工 RPC
 
 | 方法 | 输入 | 行为 |
 | --- | --- | --- |
 | `ideas.update` | `{ id, status: "open" \| "dismissed" }` | open ↔ dismissed；accepted 报错；恢复为 open 时，若本卡已有同标题（去首尾空白、忽略大小写）的 open idea 则报错 “This card already has an open idea with that title.”，并受 10 个上限约束；状态不变时不写 |
-| `ideas.adopt` | `{ id, agentId }` | 在本卡继续（§6.2）；返回更新后的 idea |
+| `ideas.adopt` | `{ id, agentId, send = true }` | 在本卡继续（§6.2）；`send: false` 只记录（§6.3）；返回更新后的 idea |
 
 看板 revision 随之增加，客户端经现有 etag 读取刷新。
 

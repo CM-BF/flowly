@@ -27,6 +27,7 @@ export function TaskIdeas({
   sessions,
   disabled,
   onCreate,
+  onNewSession,
   onOpenTask,
 }: {
   taskId: string;
@@ -34,6 +35,8 @@ export function TaskIdeas({
   sessions: readonly IdeaSession[];
   disabled: boolean;
   onCreate(idea: Idea): void;
+  /** Opens Start session prefilled with the idea (IDEAS-SPEC §6.3). */
+  onNewSession(idea: Idea): void;
   onOpenTask(id: string): void;
 }) {
   const board = useBoardQuery();
@@ -71,23 +74,34 @@ export function TaskIdeas({
       toast.show(message(e), { variant: "error" });
     }
   };
+  const name = (s: IdeaSession) => s.title || "this card's session";
+  /**
+   * Good idea (IDEAS-SPEC §6): continue in a session of this card (the
+   * proposer's by default, or another one), start a new session in this card,
+   * or start a new card. The agent's suggestion leads.
+   */
   const choose = (idea: Idea, at: Point) => {
-    const session = target(idea);
-    const here: MenuEntry = {
-      id: "here",
-      label: session ? `Do it in this task${idea.scope === "here" ? " · Suggested" : ""}` : "Do it in this task (no live session)",
-      icon: "CornerDownRight",
-      disabled: !session,
-      onPress: () => session && void adopt(idea, session),
-    };
-    const fresh: MenuEntry = {
-      id: "new",
-      label: `Start a new task${idea.scope === "here" ? "" : " · Suggested"}`,
-      icon: "SquarePlus",
-      onPress: () => onCreate(idea),
-    };
     if (!openMenu) return onCreate(idea);
-    openMenu(at, session ? `Good idea → ${session.title || "this card's session"}` : "Good idea", idea.scope === "here" ? [here, fresh] : [fresh, here]);
+    const here = idea.scope === "here";
+    const session = target(idea);
+    const continueEntries: MenuEntry[] = [
+      ...(session
+        ? [{ id: "continue", label: `Continue in ${name(session)}${here ? " · Suggested" : ""}`, icon: "CornerDownRight", onPress: () => void adopt(idea, session) }]
+        : []),
+      ...(live.length > 1
+        ? [{
+            id: "other",
+            label: "Send to another session…",
+            icon: "MessagesSquare",
+            onPress: () =>
+              openMenu(at, "Send to", live.map((s) => ({ id: s.id, label: name(s), icon: s.id === session?.id ? "Check" : "MessageSquare", onPress: () => void adopt(idea, s) }))),
+          }]
+        : []),
+      { id: "session", label: `Do it in a new session${here && !session ? " · Suggested" : ""}`, icon: "Plus", onPress: () => onNewSession(idea) },
+    ];
+    const cardEntry: MenuEntry = { id: "card", label: `Start a new task${here ? "" : " · Suggested"}`, icon: "SquarePlus", onPress: () => onCreate(idea) };
+    const divider: MenuEntry = { kind: "separator", id: "divider" };
+    openMenu(at, "Good idea", here ? [...continueEntries, divider, cardEntry] : [cardEntry, divider, ...continueEntries]);
   };
   const dismiss = async (idea: Idea) => {
     setDismissing((current) => new Set(current).add(idea.id));

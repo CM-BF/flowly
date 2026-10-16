@@ -8,7 +8,8 @@ type Push = (input: { taskId: string; agentId: string; text: string }, paseo: Pa
 
 /**
  * "Do it in this task" (IDEAS-SPEC §6.2): mark the idea accepted for the
- * chosen session of its own card, then queue it to that session through the
+ * chosen session of its own card, then (unless `send` is false, for a session
+ * just started with the idea as its first instruction) queue it through the
  * composer (sent now when idle, after the running turn otherwise). The mark
  * comes first so a repeated press cannot send twice; a failed hand-off puts
  * the idea back to open.
@@ -39,6 +40,7 @@ export async function adoptIdea(store: BoardStore, push: Push, input: IdeaAdopti
     });
     return { value: { idea: { ...live }, eventId: event.id }, changed: true };
   });
+  if (input.send === false) return accepted.idea;
   try {
     await push({ taskId: task.id, agentId: input.agentId, text: ideaInstruction(accepted.idea) }, paseo);
   } catch (error) {
