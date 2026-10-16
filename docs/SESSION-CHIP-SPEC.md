@@ -1,10 +1,16 @@
 # Native session chip back to a Kanban card
 
-Status: implementation authorized by the user's request. A linked native session gets a chip that opens Ultra Kanban at its task and that exact session preview. Sidebar Back retains its current task-details behavior.
+Status: implementation authorized by the user's request. A linked native session gets a chip that opens Flowly at its task's overview (see the 2026-10-16 amendment).
 
 ## 2026-10-14 amendment — chip action navigates only
 
 User report (Android): tapping the chip showed a host toast `Cannot read property 'id' of undefined`. Not reproducible in the web client (fresh mount or with the board already mounted after Open in Paseo). The chip action no longer pre-validates through the client-level RPC/SDK: it opens screen `board` with the link and a new request ID. The board screen's existing fresh read and membership validation remains the authoritative fail-closed check, and its errors surface on the board. Any remaining action failure is rethrown with the step prefix `Couldn't open Ultra Kanban:`; board-side lookups prefix `Kanban board read failed:` / `Session lookup failed:`. This supersedes the earlier "Clicking a chip fresh-reads the board and refreshes its native actor" and "Native chip actions revalidate even between poll intervals" lines; competing clicks now resolve as last navigation wins.
+
+## 2026-10-16 amendment — Hermes root cause; chip opens the task
+
+Root cause of the Android toast above: Hermes gives a loop body's `const` one binding for the whole loop, so every chip's press handler read the last iteration's task/actor (`undefined` when the last agent had no card) and threw before the prefixed step. Chip buttons are now built in their own call (`chipButton`); deferred closures must never capture `for` loop variables (AGENTS.md).
+
+User decision: the chip opens the **task**, not the session it was tapped in. The board still validates the full link (card, workspace and the session's membership) and then opens the card's overview. A card that is already open on a session preview returns to its details (a one-time entry with an empty session ID). This supersedes "select the exact session preview" below; Back/Close/re-click rules apply to the overview the same way.
 
 ## Capability and placement
 
@@ -16,7 +22,7 @@ The plugin context owns one host's SDK/RPC/navigation. Discover links only from 
 
 - Each existing session whose actual workspace is bound to a board card gets one **Task · title** chip. Its accessible full title names the task. Unlinked sessions have no chip. Multiple sessions in one workspace link to the same card but keep their own session IDs. Archived sessions/cards/projects remain linkable for read-only inspection when native resources still exist.
 - Clicking a chip fresh-reads the board and refreshes its native actor. Require the original card/workspace identity and actual membership, and an existing board project. Then open screen `board` with task/session/workspace IDs and a new request ID. No prompt, read acknowledgement, task status or native resource mutation.
-- The board independently validates string route params and resolves a fresh board/actor before opening. Select the card's project, clear title/priority filters, reveal archives/finished columns if needed, select its compact status, open the task sidebar and select the exact session preview. Preserve the current sidebar width where the host keeps this screen mounted.
+- The board independently validates string route params and resolves a fresh board/actor before opening. Select the card's project, clear title/priority filters, reveal archives/finished columns if needed, select its compact status, open the task sidebar at the card overview. Preserve the current sidebar width where the host keeps this screen mounted.
 - Preview **Back to task** returns to that card overview. Sidebar Close stays closed, and manually opening a card starts at task details. Polls, rerenders and unchanged URL params must not reopen the session after Back or Close. Clicking the chip again creates a new request, so the same session can explicitly reopen. A second chip for another session/card redirects to that new target.
 - Newer navigation wins over a slower older request. Changing params to an invalid/missing/moved target closes the previous target sidebar and reports an error; never substitute another card, project or session. The board remains usable through ordinary navigation. Only known params are used; partial malformed card links fail closed.
 - The initial sidebar session entry is consumed once. Subsequent session choices, actor-specific drafts, operation locks, subscriptions, read state, composer and follow-tail retain existing behavior. Opening the chip does not mark a session as read.
@@ -34,7 +40,7 @@ Screen string params: `{ taskId, sessionId, workspaceId, requestId }`. IDs are n
 - `client/session-link.ts`: param validation, fresh link resolution, host-scoped native chip registration and cleanup.
 - `index.client.tsx`: thin registration and returned chip cleanup.
 - `client/board.tsx`: route resolution and one-time project/filter/sidebar entry. A request updates the host-scoped board cache with its fresh validated snapshot.
-- `client/drawer.tsx`: consumes a targeted session entry once; Back continues to clear local selection.
+- `client/drawer.tsx`: consumes a targeted entry once (an empty session ID selects the card overview); Back continues to clear local selection.
 
 ## Verification and cleanup
 

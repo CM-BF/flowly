@@ -171,21 +171,24 @@ export function DesktopColumns({
         viewport.current = { x, y, width, height };
         // Web onLayout only reports size changes, so lanes shifted by a sibling
         // collapsing/expanding keep a stale x: re-measure them for this drag.
-        for (const [status, frame] of Object.entries(frames.current) as [Status, View | null][])
+        // forEach, not a for loop: each callback must keep its own lane on Hermes (one binding per loop `const`).
+        (Object.entries(frames.current) as [Status, View | null][]).forEach(([status, frame]) =>
           frame?.measureInWindow((laneX, _laneY, laneWidth) => {
             columns.current = [
               ...columns.current.filter((c) => c.status !== status),
               { status, x: laneX - viewport.current.x + offset.current, width: laneWidth },
             ];
             if (live.current) move(live.current.point);
-          });
+          }),
+        );
         if (live.current) move(live.current.point);
       });
-      for (const [status, list] of Object.entries(lists.current) as [Status, View | null][])
+      (Object.entries(lists.current) as [Status, View | null][]).forEach(([status, list]) =>
         list?.measureInWindow((_x, y) => {
           listTops.current[status] = y;
           if (live.current) move(live.current.point);
-        });
+        }),
+      );
     },
     move,
     end(point) {

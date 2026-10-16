@@ -18,6 +18,7 @@ const linkSchema = z.object({
   requestId: id,
 });
 export type CardSessionLink = z.infer<typeof linkSchema>;
+/** A one-time drawer entry; an empty `sessionId` opens the card overview. */
 export type SessionEntry = { sessionId: string; requestId: string };
 export type LinkBoard = RpcOutput<typeof readBoard>;
 
@@ -119,6 +120,22 @@ export function registerSessionChips(
       }),
     );
   }
+  // Built in its own call so the press handler keeps this chip's task and
+  // session: Hermes gives loop-body `const`s one binding for the whole loop,
+  // so a closure created in the loop would see the last iteration's values.
+  function chipButton(task: LinkBoard["tasks"][number], sessionId: string) {
+    const titleCharacters = Array.from(task.title);
+    const link = { taskId: task.id, workspaceId: task.workspaceId, sessionId };
+    return {
+      title: t("Open Kanban task: {title}", { title: task.title }),
+      label: t("Task · {title}", { title: titleCharacters.length > 28 ? titleCharacters.slice(0, 28).join("") + "…" : task.title }),
+      icon: "PanelsTopLeft",
+      behavior: {
+        kind: "action" as const,
+        onPress: () => open({ ...link, requestId: newRequestId() }),
+      },
+    };
+  }
   async function refresh() {
     try {
       const results = await Promise.allSettled([
@@ -155,22 +172,7 @@ export function registerSessionChips(
           registrations.delete(actor.id);
           existing = undefined;
         }
-        const titleCharacters = Array.from(task.title);
-        const button = {
-          title: t("Open Kanban task: {title}", { title: task.title }),
-          label: t("Task · {title}", { title: titleCharacters.length > 28 ? titleCharacters.slice(0, 28).join("") + "…" : task.title }),
-          icon: "PanelsTopLeft",
-          behavior: {
-            kind: "action" as const,
-            onPress: () =>
-              open({
-                taskId: task.id,
-                workspaceId: task.workspaceId,
-                sessionId: actor.id,
-                requestId: newRequestId(),
-              }),
-          },
-        };
+        const button = chipButton(task, actor.id);
         if (existing) existing.chip.update(button);
         else
           registrations.set(actor.id, {

@@ -339,9 +339,11 @@ function BoardContent(
       );
       setMobileStatus(target.task.status);
       setError("");
+      // The chip opens the card's overview, not the session it was tapped in:
+      // an empty session entry returns an already open card to its details.
       setSessionEntry({
         taskId: target.task.id,
-        sessionId: target.actor.id,
+        sessionId: "",
         requestId: target.link.requestId,
       });
     })().catch((error) => {
@@ -1143,7 +1145,7 @@ function BoardContent(
         )}
         {!!input.link && resolvedLink.isPending && (
           <View style={{ paddingHorizontal: space[4], paddingTop: space[3] }}>
-            <Label muted>{t("Opening linked session…")}</Label>
+            <Label muted>{t("Opening linked card…")}</Label>
           </View>
         )}
         {!!(input.error || resolvedLink.error) && (
@@ -1152,7 +1154,7 @@ function BoardContent(
             {!input.error && (
               <View style={{ flexDirection: "row" }}>
                 <Button quiet icon="RefreshCw" onPress={() => void resolvedLink.refetch()}>
-                  {t("Retry linked session")}</Button>
+                  {t("Retry linked card")}</Button>
               </View>
             )}
           </View>

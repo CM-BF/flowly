@@ -41,7 +41,8 @@ export default function contribute(client: PluginClientContext) {
     context: "global",
     onSelect: ({ openScreen }) => openScreen({ screenId: "board" }),
   });
-  for (const item of intentItems)
+  // forEach, not a for loop: Hermes gives a loop's `const` one binding, so every onSelect would see the last item.
+  intentItems.forEach((item) =>
     client.addCommandCenterItem({
       id: `board-${item.intent}`,
       title: t(item.title),
@@ -50,7 +51,8 @@ export default function contribute(client: PluginClientContext) {
       context: "global",
       onSelect: ({ openScreen }) =>
         openScreen({ screenId: "board", params: intentParams(item.intent) }),
-    });
+    }),
+  );
   client.addCommandCenterItem({
     id: "workspace-board",
     title: t("Open workspace card"),

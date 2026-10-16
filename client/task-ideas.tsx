@@ -238,7 +238,8 @@ export function useExitList<T extends { id: string }>(items: readonly T[]) {
       for (const row of gone) next.set(row.item.id, row);
       return next;
     });
-    for (const { item } of gone) {
+    // forEach, not a for loop: each timer must keep its own id on Hermes (one binding per loop `const`).
+    gone.forEach(({ item }) => {
       clearTimeout(timers.current.get(item.id));
       timers.current.set(
         item.id,
@@ -251,7 +252,7 @@ export function useExitList<T extends { id: string }>(items: readonly T[]) {
           });
         }, motionDuration.reverse + 40),
       );
-    }
+    });
     // `leaving` is read, not tracked: only a change of the open list starts or cancels exits.
   }, [items]);
   useEffect(() => () => timers.current.forEach(clearTimeout), []);
