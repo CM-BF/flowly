@@ -584,7 +584,7 @@ function TaskDrawerView({
                 onPress={(at) => openMenu?.(at, t("Type"), typeEntries())}
               />
             </View>
-            <TaskTags task={task} active={active && !project.archivedAt} onFilterTag={onFilterTag} />
+            <TaskTags task={task} active={active} readOnly={!!project.archivedAt} onFilterTag={onFilterTag} />
             {!!error && <Notice>{error}</Notice>}
           </View>
           <Divider />

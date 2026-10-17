@@ -873,14 +873,11 @@ const catalog: Catalog = {
   "Remove tag {tag}": "Quitar la etiqueta {tag}",
   "A card can have at most {n} tags.": "Una tarjeta puede tener como máximo {n} etiquetas.",
   "Add a tag": "Añadir una etiqueta",
-  "Add another tag": "Añadir otra etiqueta",
   "e.g. drawer, performance": "p. ej. drawer, performance",
   "Add tag {tag}": "Añadir la etiqueta {tag}",
-  "Tag {tag} added": "Etiqueta {tag} añadida",
-  "Tags added": "Etiquetas añadidas",
-  "Tag {tag} removed": "Etiqueta {tag} quitada",
-  "Done editing tags": "Terminar de editar etiquetas",
-  "Edit tags": "Editar etiquetas",
-  "No tags yet. Tag the modules and directions this card touches.": "Aún no hay etiquetas. Etiqueta los módulos y direcciones que toca esta tarjeta.",
+  "Add tag": "Añadir etiqueta",
+  "No tags": "Sin etiquetas",
+  "Matching": "Coincidencias",
+  "Used in this project": "Usadas en este proyecto",
 };
 export default catalog;

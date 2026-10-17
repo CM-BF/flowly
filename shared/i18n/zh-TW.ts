@@ -873,14 +873,11 @@ const catalog: Catalog = {
   "Remove tag {tag}": "移除標籤 {tag}",
   "A card can have at most {n} tags.": "每張卡片最多 {n} 個標籤。",
   "Add a tag": "新增標籤",
-  "Add another tag": "再新增一個標籤",
   "e.g. drawer, performance": "例如 drawer, performance",
   "Add tag {tag}": "新增標籤 {tag}",
-  "Tag {tag} added": "已新增標籤 {tag}",
-  "Tags added": "已新增標籤",
-  "Tag {tag} removed": "已移除標籤 {tag}",
-  "Done editing tags": "完成編輯標籤",
-  "Edit tags": "編輯標籤",
-  "No tags yet. Tag the modules and directions this card touches.": "還沒有標籤。替這張卡片涉及的模組和方向加上標籤。",
+  "Add tag": "新增標籤",
+  "No tags": "無標籤",
+  "Matching": "符合",
+  "Used in this project": "本專案已用",
 };
 export default catalog;

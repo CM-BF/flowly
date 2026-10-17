@@ -873,14 +873,11 @@ const catalog: Catalog = {
   "Remove tag {tag}": "태그 {tag} 제거",
   "A card can have at most {n} tags.": "카드 하나에 태그는 최대 {n}개입니다.",
   "Add a tag": "태그 추가",
-  "Add another tag": "태그 하나 더 추가",
   "e.g. drawer, performance": "예: drawer, performance",
   "Add tag {tag}": "태그 {tag} 추가",
-  "Tag {tag} added": "태그 {tag}을(를) 추가했습니다",
-  "Tags added": "태그를 추가했습니다",
-  "Tag {tag} removed": "태그 {tag}을(를) 제거했습니다",
-  "Done editing tags": "태그 편집 완료",
-  "Edit tags": "태그 편집",
-  "No tags yet. Tag the modules and directions this card touches.": "아직 태그가 없습니다. 이 카드가 다루는 모듈과 방향을 태그로 붙이세요.",
+  "Add tag": "태그 추가",
+  "No tags": "태그 없음",
+  "Matching": "일치",
+  "Used in this project": "이 프로젝트에서 사용 중",
 };
 export default catalog;

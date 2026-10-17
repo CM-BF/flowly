@@ -873,14 +873,11 @@ const catalog: Catalog = {
   "Remove tag {tag}": "タグ {tag} を削除",
   "A card can have at most {n} tags.": "1 枚のカードに付けられるタグは最大 {n} 個です。",
   "Add a tag": "タグを追加",
-  "Add another tag": "別のタグを追加",
   "e.g. drawer, performance": "例: drawer, performance",
   "Add tag {tag}": "タグ {tag} を追加",
-  "Tag {tag} added": "タグ {tag} を追加しました",
-  "Tags added": "タグを追加しました",
-  "Tag {tag} removed": "タグ {tag} を削除しました",
-  "Done editing tags": "タグの編集を終了",
-  "Edit tags": "タグを編集",
-  "No tags yet. Tag the modules and directions this card touches.": "タグはまだありません。このカードが関わるモジュールや方向性をタグ付けしましょう。",
+  "Add tag": "タグを追加",
+  "No tags": "タグなし",
+  "Matching": "一致",
+  "Used in this project": "このプロジェクトで使用中",
 };
 export default catalog;
