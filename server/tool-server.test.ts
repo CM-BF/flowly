@@ -79,6 +79,8 @@ test("MCP initialize/list can precede actor creation; live calls require SDK con
     "kanban_update_status",
     "kanban_report_progress",
     "kanban_propose_idea",
+    "kanban_add_artifact",
+    "kanban_remove_artifact",
   ]);
   const cold = await mcp("tools/call", {
     name: "kanban_get_task",

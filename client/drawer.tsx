@@ -53,6 +53,7 @@ import { TaskProgress } from "./task-progress";
 import { TaskUsage } from "./task-usage";
 import { TaskIdeas } from "./task-ideas";
 import { LinkOrigin, TaskLinks } from "./task-links";
+import { TaskArtifacts } from "./task-artifacts";
 import { ideaInstruction } from "../shared/ideas";
 import { getLocale, localizedLabels, msg, t, tn } from "../shared/i18n";
 
@@ -687,6 +688,7 @@ function TaskDrawerView({
               <Label size={font.base} selectable>{task.description}</Label>
             )}
             <TaskProgress taskId={task.id} active={active} />
+            <TaskArtifacts task={task} disabled={!active || !!task.archivedAt || !!project.archivedAt} />
             <View style={{ gap: space[2] }}>
               <SectionHeader title={t("Sessions")} count={liveSessions.length}>
                 <Button

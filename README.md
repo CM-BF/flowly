@@ -54,7 +54,11 @@ Work an agent discovers along the way (a bug it tripped over, a limitation, the 
 ![Ideas inbox with source cards](docs/promo/screenshots/04-ideas-inbox.png)
 ![Good idea: start a new task, continue in the session, or use a new session](docs/promo/screenshots/04b-good-idea-two-paths.png)
 
-### 5. Project insights
+### 5. Inputs and outputs
+
+Each card has an **Artifacts** list: the documents, links and deliverables it worked from (inputs) and produced (outputs). Agents register them through the board tools as they work; you add, edit or remove your own from the card. Only references are stored; files stay where they are and open in a read-only preview. Every entry shows whether you or an agent added it, and agents can't remove the ones you added.
+
+### 6. Project insights
 
 One page for the day: cards done, new and reworked, turns, agent time, commits and tokens (with cache hit rate), the list of what is **waiting on you**, rule-based suggestions, an AI-written daily summary, per-card token use and a 7-day trend.
 

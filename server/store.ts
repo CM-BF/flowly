@@ -319,6 +319,7 @@ export class BoardStore {
         agentReceipts: board.agentReceipts.filter((r) => taskIds.has(r.taskId)),
         ideas: board.ideas.filter((i) => taskIds.has(i.taskId)),
         links: board.links.filter((l) => l.projectId === project.id || taskIds.has(l.from) || taskIds.has(l.to)),
+        artifacts: board.artifacts.filter((a) => taskIds.has(a.taskId)),
       };
       const folder = join(this.directory, "removed");
       await mkdir(folder, { recursive: true, mode: 0o700 });
@@ -330,6 +331,7 @@ export class BoardStore {
       board.agentReceipts = board.agentReceipts.filter((r) => !taskIds.has(r.taskId));
       board.ideas = board.ideas.filter((i) => !taskIds.has(i.taskId));
       board.links = board.links.filter((l) => !removed.links.includes(l));
+      board.artifacts = board.artifacts.filter((a) => !taskIds.has(a.taskId));
       return { id: project.id, removedTasks: taskIds.size, backup };
     });
   }
@@ -351,6 +353,7 @@ export class BoardStore {
         agentReceipts: board.agentReceipts.filter((r) => r.taskId === task.id),
         ideas: board.ideas.filter((i) => i.taskId === task.id),
         links: board.links.filter((l) => touches(l, task.id)),
+        artifacts: board.artifacts.filter((a) => a.taskId === task.id),
       };
       const folder = join(this.directory, "removed");
       await mkdir(folder, { recursive: true, mode: 0o700 });
@@ -372,6 +375,7 @@ export class BoardStore {
           });
       }
       board.links = board.links.filter((l) => !touches(l, task.id));
+      board.artifacts = board.artifacts.filter((a) => a.taskId !== task.id);
       return { id: task.id, backup };
     });
   }

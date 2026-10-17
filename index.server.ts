@@ -16,6 +16,7 @@ import { ifChanged } from "./server/etag";
 import { ComposerService, ComposerStore } from "./server/composer";
 import { adoptIdea } from "./server/ideas";
 import { createLink, deleteLink } from "./server/links";
+import { ArtifactService } from "./server/artifacts";
 import { SessionSettingsService } from "./server/session-settings";
 import { applyTurnEnded, applyTurnStarted, recordLifecycle } from "./server/progress-rules";
 import { SummaryService, SummaryStore } from "./server/summaries";
@@ -100,6 +101,10 @@ export default function contribute(server: PluginServerContext) {
   tools.agents.ideasOn = async () => {
     const state = await ideasPrefs.read().catch(() => null);
     return ideasSettingsValues(state?.status === "ready" ? state.values : {}).ideas;
+  };
+  tools.agents.artifactsOn = async () => {
+    const state = await ideasPrefs.read().catch(() => null);
+    return ideasSettingsValues(state?.status === "ready" ? state.values : {}).artifacts;
   };
   void tools
     .start()
@@ -201,6 +206,12 @@ export default function contribute(server: PluginServerContext) {
   server.handle(rpc.adoptIdea, (input, { paseo }) => adoptIdea(store, (message, api) => composer.push(message, api), input, paseo));
   server.handle(rpc.createLink, (input) => createLink(store, input));
   server.handle(rpc.deleteLink, (input) => deleteLink(store, input));
+  const artifacts = new ArtifactService(store);
+  server.handle(rpc.createArtifact, (input, { paseo }) => artifacts.create(input, paseo));
+  server.handle(rpc.updateArtifact, (input) => artifacts.update(input));
+  server.handle(rpc.deleteArtifact, (input) => artifacts.delete(input));
+  server.handle(rpc.artifactStatus, (input, { paseo }) => artifacts.status(input, paseo));
+  server.handle(rpc.previewArtifact, (input, { paseo }) => artifacts.preview(input, paseo));
   server.handle(rpc.deleteTask, async (input, { paseo }) => {
     const archived = input.archive
       ? await wrapups.run({ ...input, keepCard: true, purpose: "delete" }, paseo)

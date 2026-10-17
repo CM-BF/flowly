@@ -20,6 +20,8 @@ import {
 } from "@modelcontextprotocol/node";
 import {
   ideaInputSchema,
+  artifactInputSchema,
+  artifactRemovalSchema,
   progressInputSchema,
   statusInputSchema,
   toolContextSchema,
@@ -203,6 +205,28 @@ export class ToolServer {
           },
           (input) => wrap(() => this.agents.write(identity, "idea", input)),
         );
+        mcp.registerTool(
+          "kanban_add_artifact",
+          {
+            description:
+              "Register a file or link that is an input this card worked from or an output it delivered, so the user and later sessions can find it. role=input|output; target is an http(s) link or a path (absolute, or relative to the workspace directory) inside this card's directories. Add deliverables when you produce them (specs, reports, exported files, PRs, verification evidence), not every file you touched: source code changes are already visible through the workspace diff. Use a short title and a one-line note on what it is for. Adding a recorded target again updates the one you or another agent added; one the user added stays as is. Check artifacts in get_task first. Does not change card status or task revision. Copy revisions/request from get_task.",
+            inputSchema: artifactInputSchema,
+            outputSchema: toolResultSchema,
+            annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+          },
+          (input) => wrap(() => this.agents.write(identity, "artifact", input)),
+        );
+        mcp.registerTool(
+          "kanban_remove_artifact",
+          {
+            description:
+              "Remove an artifact an agent added to this card (id from get_task artifacts), e.g. a wrong or replaced entry. Artifacts the user added can only be removed by the user. Never deletes the file. Copy revisions/request from get_task.",
+            inputSchema: artifactRemovalSchema,
+            outputSchema: toolResultSchema,
+            annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
+          },
+          (input) => wrap(() => this.agents.write(identity, "artifact_remove", input)),
+        );
         return mcp;
       },
       { responseMode: "json", maxRequestBodySize: 65536 },
@@ -287,7 +311,7 @@ export class ToolServer {
     }
     const body = z
       .strictObject({
-        action: z.enum(["get", "status", "progress", "idea"]),
+        action: z.enum(["get", "status", "progress", "idea", "artifact", "artifact_remove"]),
         input: z.unknown(),
       })
       .parse(JSON.parse(Buffer.concat(chunks).toString("utf8")));

@@ -246,6 +246,15 @@ export function AiPage() {
           onChange={(value) => ideas.save({ ideas: value })}
         />
       </SettingsGroup>
+      <SettingsGroup title={t("Artifacts")} description={t("Each card lists its inputs and outputs: files and links it worked from or delivered. You can always add them by hand.")}>
+        <SettingSwitch
+          title={t("Agent artifacts")}
+          detail={t("Off: agents can no longer add or remove artifacts and list deliverables in their replies instead. Existing artifacts are kept.")}
+          value={ideas.values?.artifacts ?? true}
+          disabled={ideas.busy}
+          onChange={(value) => ideas.save({ artifacts: value })}
+        />
+      </SettingsGroup>
     </SettingsPage>
   );
 }

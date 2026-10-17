@@ -1,0 +1,273 @@
+import { randomUUID } from "node:crypto";
+import { open, readdir, realpath, stat } from "node:fs/promises";
+import { homedir } from "node:os";
+import { extname, isAbsolute, relative, resolve, sep } from "node:path";
+import { absoluteTarget, artifactNoteLine, defaultTitle, isUrlTarget, validUrl } from "../shared/artifacts";
+import { artifactLimits, type Artifact, type ArtifactEdit, type ArtifactRole, type Board, type Project, type Task } from "../shared/model";
+import { effectiveRepos } from "../shared/scope";
+import type { BoardStore } from "./store";
+
+/**
+ * Card artifacts (CARD-ARTIFACTS-SPEC): references to files inside the card's
+ * directories or to http(s) links. Files are never copied or changed.
+ */
+
+/** Where a card's files may live, and the directory "./" targets are relative to. */
+export type ArtifactRoots = { workspace: string; roots: string[] };
+
+/** The card's workspace directory (or its source path) plus its scope directories and linked repositories. */
+export function artifactRoots(task: Task, project: Project, workspaceDirectory?: string | null): ArtifactRoots {
+  const workspace = workspaceDirectory || task.sourcePath;
+  return {
+    workspace,
+    roots: [...new Set([workspace, task.sourcePath, project.primaryPath, ...effectiveRepos(task, project), ...(project.links || []).map((l) => l.target)])],
+  };
+}
+
+const real = (path: string) => realpath(path).catch(() => null);
+const inside = (path: string, root: string) => path === root || path.startsWith(root.endsWith(sep) ? root : root + sep);
+
+/** The real path of `path` when it lies within one of `roots` (after resolving symlinks), else null. */
+export async function withinRoots(path: string, roots: readonly string[]) {
+  const target = await real(path);
+  if (!target) return null;
+  for (const root of roots) {
+    const r = await real(root);
+    if (r && inside(target, r)) return target;
+  }
+  return null;
+}
+
+/**
+ * Validates a new target and returns its stored form (CARD-ARTIFACTS-SPEC §2.2):
+ * links as given, files inside the workspace as "./relative", other files absolute.
+ */
+export async function normalizeTarget(raw: string, where: ArtifactRoots): Promise<{ kind: Artifact["kind"]; target: string }> {
+  const value = raw.trim();
+  if (isUrlTarget(value) || (/^[a-z][a-z0-9+.-]*:\/\//i.test(value) && !/^file:\/\//i.test(value))) {
+    if (!validUrl(value)) throw new Error("Only http and https links can be added.");
+    return { kind: "url", target: value };
+  }
+  const path = value.replace(/^file:\/\//i, "").replace(/^~(?=\/|$)/, homedir());
+  const absolute = isAbsolute(path) ? resolve(path) : resolve(where.workspace, path);
+  if (!(await real(absolute))) throw new Error("This file doesn't exist.");
+  if (!(await withinRoots(absolute, where.roots))) throw new Error("Files outside this card's directories can't be added.");
+  const fromWorkspace = relative(resolve(where.workspace), absolute);
+  const target =
+    fromWorkspace === "" ? "./" : !fromWorkspace.startsWith("..") && !isAbsolute(fromWorkspace) ? `./${fromWorkspace.split(sep).join("/")}` : absolute;
+  if (target.length > artifactLimits.target) throw new Error("This path is too long.");
+  return { kind: "file", target };
+}
+
+/** Whether each file artifact still exists (and stays inside the card's directories). Links are never missing. */
+export async function missingArtifacts(list: readonly Artifact[], where: ArtifactRoots) {
+  const missing = new Set<string>();
+  await Promise.all(
+    list.map(async (a) => {
+      if (a.kind === "file" && !(await withinRoots(absoluteTarget(a.target, where.workspace), where.roots))) missing.add(a.id);
+    }),
+  );
+  return missing;
+}
+
+function liveCard(board: Board, taskId: string) {
+  const task = board.tasks.find((t) => t.id === taskId);
+  const project = board.projects.find((p) => p.id === task?.projectId);
+  if (!task || !project) throw new Error("Task not found.");
+  if (task.archivedAt || project.archivedAt) throw new Error("Archived cards can't be changed.");
+  return { task, project };
+}
+
+export type NewArtifact = {
+  taskId: string;
+  role: ArtifactRole;
+  kind: Artifact["kind"];
+  target: string;
+  title?: string;
+  note?: string;
+  createdBy: Artifact["createdBy"];
+  agentId?: string;
+};
+
+/**
+ * Adds an artifact to `board`, or updates the card's existing one with the
+ * same target (CARD-ARTIFACTS-SPEC §2.2). An agent never changes one a
+ * person added; that one is returned as is.
+ */
+export function putArtifact(store: BoardStore, board: Board, input: NewArtifact, now = new Date().toISOString()) {
+  const { task } = liveCard(board, input.taskId);
+  const actor = input.createdBy === "agent" ? { actor: "agent" as const, agentId: input.agentId } : { actor: "human" as const };
+  const existing = board.artifacts.find((a) => a.taskId === task.id && a.kind === input.kind && a.target === input.target);
+  if (existing) {
+    if (input.createdBy === "agent" && existing.createdBy === "human") return { artifact: existing, changed: false };
+    const next = {
+      role: input.role,
+      title: input.title?.trim() || existing.title,
+      note: input.note !== undefined ? input.note.trim() : existing.note,
+    };
+    const changed = next.role !== existing.role || next.title !== existing.title || next.note !== existing.note;
+    if (changed) Object.assign(existing, next, { updatedAt: now });
+    return { artifact: existing, changed };
+  }
+  if (board.artifacts.filter((a) => a.taskId === task.id).length >= artifactLimits.perTask)
+    throw new Error(`A card can have at most ${artifactLimits.perTask} artifacts.`);
+  const artifact: Artifact = {
+    id: randomUUID(),
+    taskId: task.id,
+    projectId: task.projectId,
+    role: input.role,
+    kind: input.kind,
+    target: input.target,
+    title: input.title?.trim() || defaultTitle(input.kind, input.target),
+    note: input.note?.trim() || "",
+    createdBy: input.createdBy,
+    ...(input.agentId ? { agentId: input.agentId } : {}),
+    createdAt: now,
+    updatedAt: now,
+  };
+  board.artifacts.push(artifact);
+  const event = store.event(board, { taskId: task.id, ...actor, action: "artifact_added", note: artifactNoteLine(artifact) });
+  return { artifact, changed: true, eventId: event.id };
+}
+
+/** Removes an artifact; an agent may remove only artifacts agents added (CARD-ARTIFACTS-SPEC §4.1). */
+export function dropArtifact(store: BoardStore, board: Board, id: string, by: { createdBy: Artifact["createdBy"]; agentId?: string; taskId?: string }) {
+  const artifact = board.artifacts.find((a) => a.id === id && (!by.taskId || a.taskId === by.taskId));
+  if (!artifact) throw new Error("This artifact no longer exists.");
+  liveCard(board, artifact.taskId);
+  if (by.createdBy === "agent" && artifact.createdBy === "human") throw new Error("Only the user can remove artifacts they added.");
+  board.artifacts = board.artifacts.filter((a) => a !== artifact);
+  const event = store.event(board, {
+    taskId: artifact.taskId,
+    ...(by.createdBy === "agent" ? { actor: "agent" as const, agentId: by.agentId } : { actor: "human" as const }),
+    action: "artifact_removed",
+    note: artifactNoteLine(artifact),
+  });
+  return { artifact, eventId: event.id };
+}
+
+export function editArtifact(store: BoardStore, input: ArtifactEdit) {
+  return store.transaction((board) => {
+    const artifact = board.artifacts.find((a) => a.id === input.id);
+    if (!artifact) throw new Error("This artifact no longer exists.");
+    liveCard(board, artifact.taskId);
+    if (artifact.updatedAt !== input.updatedAt) throw new Error("This artifact changed. Reload and try again.");
+    const next = {
+      role: input.role ?? artifact.role,
+      title: input.title?.trim() || artifact.title,
+      note: input.note !== undefined ? input.note : artifact.note,
+    };
+    const changed = next.role !== artifact.role || next.title !== artifact.title || next.note !== artifact.note;
+    if (changed) Object.assign(artifact, next, { updatedAt: new Date().toISOString() });
+    return { value: { ...artifact }, changed };
+  });
+}
+
+const images: Record<string, string> = { ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".gif": "image/gif", ".webp": "image/webp" };
+const MAX_IMAGE = 8 * 1024 * 1024,
+  MAX_TEXT = 256 * 1024,
+  MAX_ENTRIES = 200;
+
+export type ArtifactPreview =
+  | { type: "image"; dataUri: string }
+  | { type: "text"; text: string; markdown: boolean }
+  | { type: "directory"; entries: { name: string; directory: boolean }[]; more: boolean }
+  | { type: "unsupported"; size: number };
+
+/**
+ * Reads a registered file artifact for display (CARD-ARTIFACTS-SPEC §6.2). Only
+ * the recorded target is read, and it is checked against the card's
+ * directories again (a symlink may have been swapped since it was added).
+ */
+export async function previewFile(artifact: Artifact, where: ArtifactRoots): Promise<ArtifactPreview> {
+  if (artifact.kind !== "file") throw new Error("Links open in the browser.");
+  const path = await withinRoots(absoluteTarget(artifact.target, where.workspace), where.roots);
+  if (!path) throw new Error("This file no longer exists.");
+  const info = await stat(path);
+  if (info.isDirectory()) {
+    const list = await readdir(path, { withFileTypes: true });
+    const sorted = list
+      .map((e) => ({ name: e.name, directory: e.isDirectory() }))
+      .sort((a, b) => Number(b.directory) - Number(a.directory) || a.name.localeCompare(b.name));
+    return { type: "directory", entries: sorted.slice(0, MAX_ENTRIES), more: sorted.length > MAX_ENTRIES };
+  }
+  if (!info.isFile()) return { type: "unsupported", size: 0 };
+  const ext = extname(path).toLowerCase();
+  if (images[ext]) {
+    if (info.size > MAX_IMAGE) return { type: "unsupported", size: info.size };
+    const handle = await open(path, "r");
+    try {
+      return { type: "image", dataUri: `data:${images[ext]};base64,${(await handle.readFile()).toString("base64")}` };
+    } finally {
+      await handle.close();
+    }
+  }
+  if (info.size > MAX_TEXT) return { type: "unsupported", size: info.size };
+  const handle = await open(path, "r");
+  try {
+    const data = await handle.readFile();
+    if (data.includes(0)) return { type: "unsupported", size: info.size };
+    return { type: "text", text: data.toString("utf8"), markdown: ext === ".md" || ext === ".markdown" };
+  } finally {
+    await handle.close();
+  }
+}
+
+type Paseo = { workspaces: { ref(id: string): { refresh(): Promise<{ workspaceDirectory: string } | null | undefined> } } };
+
+/** Human RPCs for artifacts (CARD-ARTIFACTS-SPEC §3). */
+export class ArtifactService {
+  constructor(readonly store: BoardStore) {}
+
+  /** The card's directories, from its live workspace when Paseo still knows it. */
+  async where(taskId: string, paseo: Paseo, snapshot?: Board): Promise<ArtifactRoots> {
+    const board = snapshot || (await this.store.read());
+    const task = board.tasks.find((t) => t.id === taskId);
+    const project = board.projects.find((p) => p.id === task?.projectId);
+    if (!task || !project) throw new Error("Task not found.");
+    const workspace = await paseo.workspaces
+      .ref(task.workspaceId)
+      .refresh()
+      .catch(() => null);
+    return artifactRoots(task, project, workspace?.workspaceDirectory);
+  }
+
+  async create(input: { taskId: string; role: ArtifactRole; target: string; title?: string; note?: string }, paseo: Paseo) {
+    const { kind, target } = await normalizeTarget(input.target, await this.where(input.taskId, paseo));
+    return this.store.transaction((board) => {
+      const { artifact, changed } = putArtifact(this.store, board, { ...input, kind, target, createdBy: "human" });
+      return { value: { ...artifact }, changed };
+    });
+  }
+
+  update(input: ArtifactEdit) {
+    return editArtifact(this.store, input);
+  }
+
+  delete(input: { id: string }) {
+    return this.store.transaction((board) => ({
+      value: { id: dropArtifact(this.store, board, input.id, { createdBy: "human" }).artifact.id },
+      changed: true,
+    }));
+  }
+
+  /** Ids of the card's file artifacts that no longer exist; cached briefly (CARD-ARTIFACTS-SPEC §9). */
+  private cache = new Map<string, { at: number; key: string; missing: string[] }>();
+  async status(input: { taskId: string }, paseo: Paseo) {
+    const board = await this.store.read();
+    const list = board.artifacts.filter((a) => a.taskId === input.taskId);
+    const key = list.map((a) => `${a.id}:${a.target}`).join("|");
+    const hit = this.cache.get(input.taskId);
+    if (hit && hit.key === key && Date.now() - hit.at < 15000) return { missing: hit.missing };
+    const missing = [...(await missingArtifacts(list, await this.where(input.taskId, paseo, board)))];
+    this.cache.set(input.taskId, { at: Date.now(), key, missing });
+    return { missing };
+  }
+
+  async preview(input: { id: string }, paseo: Paseo) {
+    const board = await this.store.read();
+    const artifact = board.artifacts.find((a) => a.id === input.id);
+    if (!artifact) throw new Error("This artifact no longer exists.");
+    return previewFile(artifact, await this.where(artifact.taskId, paseo, board));
+  }
+}

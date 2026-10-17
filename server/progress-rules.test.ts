@@ -21,6 +21,7 @@ function board(status: Status, extra: { autoStatus?: boolean; archived?: boolean
     events: [],
     ideas: [],
     links: [],
+    artifacts: [],
     agentReceipts: [],
   } as Board;
 }

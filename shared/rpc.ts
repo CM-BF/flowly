@@ -5,6 +5,9 @@ import {
   ideaEdit,
   linkInput,
   linkSchema,
+  artifactInput,
+  artifactEdit,
+  artifactSchema,
   ideaSchema,
   boardSchema,
   projectInput,
@@ -156,6 +159,42 @@ export const deleteLink = defineRpc({
   name: "links.delete",
   input: z.strictObject({ id: z.string().min(1) }),
   output: z.object({ id: z.string() }),
+});
+/** Card artifacts: references to files and links (CARD-ARTIFACTS-SPEC §3). */
+export const createArtifact = defineRpc({
+  name: "artifacts.create",
+  input: artifactInput,
+  output: artifactSchema,
+});
+export const updateArtifact = defineRpc({
+  name: "artifacts.update",
+  input: artifactEdit,
+  output: artifactSchema,
+});
+export const deleteArtifact = defineRpc({
+  name: "artifacts.delete",
+  input: z.strictObject({ id: z.string().min(1) }),
+  output: z.object({ id: z.string() }),
+});
+/** Ids of a card's file artifacts that no longer exist (CARD-ARTIFACTS-SPEC §9). */
+export const artifactStatus = defineRpc({
+  name: "artifacts.status",
+  input: z.strictObject({ taskId: z.string().min(1) }),
+  output: z.object({ missing: z.array(z.string()) }),
+});
+export const previewArtifact = defineRpc({
+  name: "artifacts.preview",
+  input: z.strictObject({ id: z.string().min(1) }),
+  output: z.discriminatedUnion("type", [
+    z.object({ type: z.literal("image"), dataUri: z.string() }),
+    z.object({ type: z.literal("text"), text: z.string(), markdown: z.boolean() }),
+    z.object({
+      type: z.literal("directory"),
+      entries: z.array(z.object({ name: z.string(), directory: z.boolean() })),
+      more: z.boolean(),
+    }),
+    z.object({ type: z.literal("unsupported"), size: z.number() }),
+  ]),
 });
 export const deleteTask = defineRpc({
   name: "tasks.delete",

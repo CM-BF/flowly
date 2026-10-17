@@ -202,6 +202,7 @@ function FeaturesPage() {
     { icon: "Bell", color: colors.statusWarning, title: t("Needs-you reminders"), text: t("Questions, approvals and errors light up the card, the Attention menu and the sidebar badge.") },
     { icon: "Brain", color: colors.accent, title: t("Run summaries"), text: t("After every turn a cheap model keeps the card's state, recap and next step up to date.") },
     { icon: "Lightbulb", color: colors.statusSuccess, title: t("Follow-up ideas"), text: t("Work an agent finds along the way lands in the Ideas inbox. Good idea or Not now.") },
+    { icon: "Package", color: colors.accent, title: t("Inputs and outputs"), text: t("Each card lists the files and links it worked from and delivered, added by agents or by you.") },
     { icon: "CircleGauge", color: colors.accent, title: t("Project insights"), text: t("Today's cards, turns, agent time, commits, tokens and what is waiting on you.") },
   ];
   return (

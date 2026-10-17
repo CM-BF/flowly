@@ -78,6 +78,8 @@ export const ideasSettings = defineSettings({
   version: 1,
   schema: z.object({
     ideas: z.boolean().default(true),
+    /** Agents may record card artifacts (CARD-ARTIFACTS-SPEC §4.3). */
+    artifacts: z.boolean().default(true),
   }),
 });
 export type IdeasSettings = z.infer<typeof ideasSettings.schema>;

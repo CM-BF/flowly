@@ -4,9 +4,13 @@ import type { PaseoApi } from "@getpaseo/client";
 import { randomUUID } from "node:crypto";
 import { ideaTitleKey } from "../shared/ideas";
 import { isResolved, linksOf } from "../shared/links";
+import { absoluteTarget, artifactsOf } from "../shared/artifacts";
+import { artifactRoots, dropArtifact, missingArtifacts, normalizeTarget, putArtifact } from "./artifacts";
 import {
   agentStatuses,
   ideaInputSchema,
+  artifactInputSchema,
+  artifactRemovalSchema,
   progressInputSchema,
   statusInputSchema,
   type ToolIdentity,
@@ -15,6 +19,8 @@ import {
   type StatusInput,
   type ProgressInput,
   type IdeaInput,
+  type ArtifactToolInput,
+  type ArtifactRemovalInput,
 } from "../shared/tools";
 import { BoardStore } from "./store";
 import { BoardService } from "./service";
@@ -28,6 +34,8 @@ export class AgentService {
   readonly accesses = new Map<string, { at: string; action: string }>();
   /** The Ideas setting; off refuses new proposals (IDEAS-INBOX-SPEC §10). Set by the plugin entry. */
   ideasOn: () => Promise<boolean> = async () => true;
+  /** The Agent artifacts setting; off refuses artifact writes (CARD-ARTIFACTS-SPEC §4.3). */
+  artifactsOn: () => Promise<boolean> = async () => true;
   constructor(
     readonly store: BoardStore,
     readonly secrets: ToolSecrets,
@@ -148,7 +156,7 @@ export class AgentService {
         repoPaths: r.context.workspaceRepoPaths,
       },
       sessions: { entries: entries.slice(0, 20), partial, unavailableReason },
-      ...(await this.store.read().then((board) => ({
+      ...(await this.store.read().then(async (board) => ({
         activity: board.events.filter((e) => e.taskId === r.task.id).slice(-20),
         ideas: board.ideas
           .filter((i) => i.taskId === r.task.id)
@@ -160,6 +168,22 @@ export class AgentService {
             ...(i.acceptedTaskId ? { acceptedTaskId: i.acceptedTaskId } : {}),
             ...(i.acceptedAgentId ? { acceptedAgentId: i.acceptedAgentId } : {}),
           })),
+        artifacts: await (async () => {
+          const list = artifactsOf(board.artifacts, r.task.id).slice(0, 100);
+          const where = artifactRoots(r.task, r.project, r.workspace.workspaceDirectory);
+          const missing = await missingArtifacts(list, where);
+          return list.map((a) => ({
+            id: a.id,
+            role: a.role,
+            kind: a.kind,
+            target: a.target,
+            ...(a.kind === "file" ? { absolutePath: absoluteTarget(a.target, where.workspace) } : {}),
+            title: a.title,
+            note: a.note,
+            createdBy: a.createdBy,
+            missing: missing.has(a.id),
+          }));
+        })(),
         links: linksOf(board, r.task.id)
           .filter((v) => v.other)
           .map(({ relation, other }) => ({
@@ -182,15 +206,19 @@ export class AgentService {
   }
   async write(
     identity: ToolIdentity,
-    action: "status" | "progress" | "idea",
+    action: "status" | "progress" | "idea" | "artifact" | "artifact_remove",
     raw: unknown,
   ): Promise<ToolResult> {
-    const input: StatusInput | ProgressInput | IdeaInput =
+    const input: StatusInput | ProgressInput | IdeaInput | ArtifactToolInput | ArtifactRemovalInput =
       action === "status"
         ? statusInputSchema.parse(raw)
         : action === "idea"
           ? ideaInputSchema.parse(raw)
-          : progressInputSchema.parse(raw);
+          : action === "artifact"
+            ? artifactInputSchema.parse(raw)
+            : action === "artifact_remove"
+              ? artifactRemovalSchema.parse(raw)
+              : progressInputSchema.parse(raw);
     const signed = this.secrets.validateRequest(
       identity,
       input.request,
@@ -198,6 +226,18 @@ export class AgentService {
     );
     const resources = await this.resources(identity);
     const ideasOn = action === "idea" ? await this.ideasOn() : true;
+    const artifactWrite = action === "artifact" || action === "artifact_remove";
+    const artifactsOn = artifactWrite ? await this.artifactsOn() : true;
+    // Paths are checked before the write; the transaction only records the result.
+    const artifactTarget =
+      action === "artifact" && artifactsOn
+        ? await normalizeTarget(
+            (input as ArtifactToolInput).target,
+            artifactRoots(resources.task, resources.project, resources.workspace.workspaceDirectory),
+          ).catch((e) => {
+            throw new ToolError("ARTIFACT_INVALID", e instanceof Error ? e.message : String(e));
+          })
+        : undefined;
     const key = `${identity.agentId}:${digest(input.request.id)}`,
       payloadHash = digest(JSON.stringify({ action, input }));
     const result = await this.store.transaction((board) => {
@@ -208,8 +248,8 @@ export class AgentService {
             "REQUEST_REUSED",
             "Request already committed with different parameters.",
           );
-        const idea = board.ideas.find((i) => i.eventId === existing.eventId);
-        return { value: { receipt: existing, replayed: true, ideaId: idea?.id }, changed: false };
+        const idea = existing.eventId ? board.ideas.find((i) => i.eventId === existing.eventId) : undefined;
+        return { value: { receipt: existing, replayed: true, ideaId: idea?.id, artifactId: existing.artifactId }, changed: false };
       }
       const age = this.clock() - Date.parse(signed.issuedAt);
       if (age > 15 * 60 * 1000 || age < -30000)
@@ -257,6 +297,11 @@ export class AgentService {
       if (action === "idea" && !ideasOn)
         throw new ToolError("IDEAS_DISABLED", "Ideas are turned off in Flowly settings. Mention follow-up suggestions in your reply instead.");
       if (action === "idea") checkIdea(board, task.id, (input as IdeaInput).title);
+      if (artifactWrite && !artifactsOn)
+        throw new ToolError(
+          "ARTIFACTS_DISABLED",
+          "Agent artifacts are turned off in Flowly settings. List your deliverables in your reply instead.",
+        );
       const previous = task.status,
         next = action === "status" ? resolveAgentStatus((input as StatusInput).status, previous) : previous;
       if (next !== previous && !laneEnabled(project, next))
@@ -269,8 +314,38 @@ export class AgentService {
         task.revision++;
         task.updatedAt = new Date(this.clock()).toISOString();
       }
+      let artifactId: string | undefined;
+      const artifactEvent = artifactWrite
+        ? (() => {
+            try {
+              if (action === "artifact") {
+                const a = input as ArtifactToolInput;
+                const put = putArtifact(
+                  this.store,
+                  board,
+                  { taskId: task.id, role: a.role, ...artifactTarget!, title: a.title, note: a.note, createdBy: "agent", agentId: identity.agentId },
+                  new Date(this.clock()).toISOString(),
+                );
+                artifactId = put.artifact.id;
+                return { id: put.eventId ?? "", at: new Date(this.clock()).toISOString() };
+              }
+              const dropped = dropArtifact(this.store, board, (input as ArtifactRemovalInput).id, {
+                createdBy: "agent",
+                agentId: identity.agentId,
+                taskId: task.id,
+              });
+              artifactId = dropped.artifact.id;
+              return { id: dropped.eventId, at: new Date(this.clock()).toISOString() };
+            } catch (e) {
+              if (e instanceof ToolError) throw e;
+              const text = e instanceof Error ? e.message : String(e);
+              throw new ToolError(text.startsWith("Only the user") ? "ARTIFACT_FORBIDDEN" : "ARTIFACT_INVALID", text);
+            }
+          })()
+        : undefined;
       const event =
-        action === "idea"
+        artifactEvent ??
+        (action === "idea"
           ? this.store.event(board, {
               taskId: task.id,
               agentId: identity.agentId,
@@ -287,7 +362,7 @@ export class AgentService {
               reportKind:
                 action === "progress" ? (input as ProgressInput).kind : "progress",
               ...(next !== previous ? { from: previous, to: next } : {}),
-            });
+            }));
       let ideaId: string | undefined;
       if (action === "idea") {
         const idea = input as IdeaInput;
@@ -318,6 +393,7 @@ export class AgentService {
         payloadHash,
         action,
         eventId: event.id,
+        ...(artifactId ? { artifactId } : {}),
         taskRevision: task.revision,
         projectRevision: project.revision,
         status: task.status,
@@ -325,7 +401,7 @@ export class AgentService {
         expiresAt: new Date(this.clock() + 7 * 86400000).toISOString(),
       };
       board.agentReceipts.push(receipt);
-      return { value: { receipt, replayed: false, ideaId }, changed: true };
+      return { value: { receipt, replayed: false, ideaId, artifactId }, changed: true };
     });
     const {
       key: _key,
@@ -339,12 +415,12 @@ export class AgentService {
         at: new Date(this.clock()).toISOString(),
         action,
       });
-      return { receipt, replayed: result.replayed, ...ideaField(result.ideaId), current };
+      return { receipt, replayed: result.replayed, ...ideaField(result.ideaId), ...(result.artifactId ? { artifactId: result.artifactId } : {}), current };
     } catch (e) {
       return {
         receipt,
         replayed: result.replayed,
-        ...ideaField(result.ideaId),
+        ...ideaField(result.ideaId), ...(result.artifactId ? { artifactId: result.artifactId } : {}),
         current: null,
         contextError: e instanceof Error ? e.message : "Re-read the task.",
       };

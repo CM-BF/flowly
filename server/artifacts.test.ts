@@ -1,0 +1,126 @@
+import { afterEach, expect, test } from "vitest";
+import { mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { join } from "node:path";
+import { agentFixture } from "./agent-fixture";
+import { ArtifactService, normalizeTarget } from "./artifacts";
+import { artifactContextLines } from "../shared/artifacts";
+import type { AgentService } from "./agent-service";
+
+const roots: string[] = [];
+afterEach(async () => {
+  await Promise.all(roots.splice(0).map((p) => rm(p, { recursive: true, force: true })));
+});
+async function setup() {
+  const f = await agentFixture();
+  roots.push(f.root);
+  await mkdir(join(f.a, "docs"));
+  await writeFile(join(f.a, "docs", "spec.md"), "# Spec\n");
+  await writeFile(join(f.b, "report.txt"), "report");
+  await mkdir(join(f.root, "outside"));
+  await writeFile(join(f.root, "outside", "secret.txt"), "secret");
+  return { ...f, artifacts: new ArtifactService(f.store) };
+}
+const input = (ctx: Awaited<ReturnType<AgentService["get"]>>) => ({ expectedRevision: ctx.revision, request: ctx.request });
+
+test("targets: workspace files become ./relative, other scope files stay absolute, links pass, the rest is refused", async () => {
+  const x = await setup();
+  const where = { workspace: x.a, roots: [x.a, x.b] };
+  expect(await normalizeTarget("docs/spec.md", where)).toEqual({ kind: "file", target: "./docs/spec.md" });
+  expect(await normalizeTarget(join(x.a, "docs"), where)).toEqual({ kind: "file", target: "./docs" });
+  expect(await normalizeTarget(`file://${join(x.b, "report.txt")}`, where)).toEqual({ kind: "file", target: join(x.b, "report.txt") });
+  expect(await normalizeTarget("https://example.com/pr/1", where)).toEqual({ kind: "url", target: "https://example.com/pr/1" });
+  await expect(normalizeTarget("ftp://example.com/x", where)).rejects.toThrow("Only http and https");
+  await expect(normalizeTarget("missing.md", where)).rejects.toThrow("doesn't exist");
+  await expect(normalizeTarget("../outside/secret.txt", where)).rejects.toThrow("outside this card's directories");
+  // A symlink inside the workspace pointing outside does not escape.
+  await symlink(join(x.root, "outside", "secret.txt"), join(x.a, "leak.txt"));
+  await expect(normalizeTarget("leak.txt", where)).rejects.toThrow("outside this card's directories");
+});
+
+test("human create, dedupe, edit conflict and delete; board revision only, events recorded", async () => {
+  const x = await setup();
+  const before = await x.store.read();
+  const created = await x.artifacts.create({ taskId: "t", role: "input", target: "docs/spec.md" }, x.paseo);
+  expect(created).toMatchObject({ kind: "file", target: "./docs/spec.md", title: "spec.md", createdBy: "human", role: "input" });
+  let board = await x.store.read();
+  expect(board.revision).toBe(before.revision + 1);
+  expect(board.tasks[0].revision).toBe(1);
+  expect(board.events.at(-1)).toMatchObject({ action: "artifact_added", actor: "human", note: "Input: spec.md" });
+  // Same target again: one record, the given fields applied.
+  const again = await x.artifacts.create({ taskId: "t", role: "output", target: join(x.a, "docs/spec.md"), note: "the spec" }, x.paseo);
+  expect(again.id).toBe(created.id);
+  board = await x.store.read();
+  expect(board.artifacts).toHaveLength(1);
+  expect(board.artifacts[0]).toMatchObject({ role: "output", note: "the spec" });
+  await expect(x.artifacts.update({ id: created.id, updatedAt: created.updatedAt, title: "x" })).rejects.toThrow("changed");
+  const edited = await x.artifacts.update({ id: created.id, updatedAt: board.artifacts[0].updatedAt, title: "Spec" });
+  expect(edited.title).toBe("Spec");
+  await x.artifacts.delete({ id: created.id });
+  board = await x.store.read();
+  expect(board.artifacts).toHaveLength(0);
+  expect(board.events.at(-1)).toMatchObject({ action: "artifact_removed", note: "Output: Spec" });
+  await expect(x.artifacts.delete({ id: created.id })).rejects.toThrow("no longer exists");
+});
+
+test("archived cards refuse changes; missing files are reported; preview reads only registered targets", async () => {
+  const x = await setup();
+  const spec = await x.artifacts.create({ taskId: "t", role: "output", target: "docs/spec.md" }, x.paseo);
+  const dir = await x.artifacts.create({ taskId: "t", role: "input", target: "docs" }, x.paseo);
+  expect(await x.artifacts.preview({ id: spec.id }, x.paseo)).toEqual({ type: "text", text: "# Spec\n", markdown: true });
+  expect(await x.artifacts.preview({ id: dir.id }, x.paseo)).toMatchObject({ type: "directory", entries: [{ name: "spec.md", directory: false }] });
+  await rm(join(x.a, "docs", "spec.md"));
+  expect((await x.artifacts.status({ taskId: "t" }, x.paseo)).missing).toEqual([spec.id]);
+  await expect(x.artifacts.preview({ id: spec.id }, x.paseo)).rejects.toThrow("no longer exists");
+  // Swapped for a symlink to a file outside the card: still refused.
+  await symlink(join(x.root, "outside", "secret.txt"), join(x.a, "docs", "spec.md"));
+  await expect(x.artifacts.preview({ id: spec.id }, x.paseo)).rejects.toThrow("no longer exists");
+  await x.store.mutate((b) => void (b.tasks[0].archivedAt = new Date().toISOString()));
+  await expect(x.artifacts.create({ taskId: "t", role: "input", target: "https://a.example" }, x.paseo)).rejects.toThrow("Archived");
+  await expect(x.artifacts.delete({ id: dir.id })).rejects.toThrow("Archived");
+});
+
+test("agent tools: add, update own, keep human ones, remove only agent ones, setting off, replay", async () => {
+  const x = await setup();
+  const human = await x.artifacts.create({ taskId: "t", role: "input", target: "https://issue.example/1" }, x.paseo);
+  let ctx = await x.service.get(x.identity);
+  expect(ctx.artifacts).toEqual([
+    expect.objectContaining({ id: human.id, createdBy: "human", missing: false, kind: "url" }),
+  ]);
+  const added = await x.service.write(x.identity, "artifact", { ...input(ctx), role: "output", target: "docs/spec.md", note: "Design" });
+  expect(added.artifactId).toBeTruthy();
+  expect(added.receipt.taskRevision).toBe(ctx.revision.task);
+  const fromAgent = (await x.store.read()).artifacts.find((a) => a.id === added.artifactId)!;
+  expect(fromAgent).toMatchObject({ createdBy: "agent", agentId: "actor", target: "./docs/spec.md" });
+  expect(added.current?.artifacts.find((a) => a.id === fromAgent.id)?.absolutePath).toBe(join(x.a, "docs/spec.md"));
+  // Replay of the same request: same receipt, no second record.
+  const replay = await x.service.write(x.identity, "artifact", { ...input(ctx), role: "output", target: "docs/spec.md", note: "Design" });
+  expect(replay.replayed).toBe(true);
+  expect(replay.artifactId).toBe(added.artifactId);
+  // An agent re-adding the user's link leaves it unchanged.
+  ctx = await x.service.get(x.identity);
+  await x.service.write(x.identity, "artifact", { ...input(ctx), role: "output", target: "https://issue.example/1", title: "Mine" });
+  expect((await x.store.read()).artifacts.find((a) => a.id === human.id)).toMatchObject({ role: "input", title: human.title });
+  ctx = await x.service.get(x.identity);
+  await expect(x.service.write(x.identity, "artifact_remove", { ...input(ctx), id: human.id })).rejects.toMatchObject({ code: "ARTIFACT_FORBIDDEN" });
+  await expect(
+    x.service.write(x.identity, "artifact", { ...input(ctx), role: "input", target: join(x.root, "outside", "secret.txt") }),
+  ).rejects.toMatchObject({ code: "ARTIFACT_INVALID" });
+  const removed = await x.service.write({ ...x.identity, agentId: "second" }, "artifact_remove", { ...input(await x.service.get({ ...x.identity, agentId: "second" })), id: fromAgent.id });
+  expect(removed.artifactId).toBe(fromAgent.id);
+  x.service.artifactsOn = async () => false;
+  ctx = await x.service.get(x.identity);
+  await expect(x.service.write(x.identity, "artifact", { ...input(ctx), role: "input", target: "docs" })).rejects.toMatchObject({ code: "ARTIFACTS_DISABLED" });
+});
+
+test("deleting a card drops and backs up its artifacts; session context lists inputs and outputs", async () => {
+  const x = await setup();
+  await x.artifacts.create({ taskId: "t", role: "input", target: "https://issue.example/1", title: "Issue" }, x.paseo);
+  const { backup } = await x.store.deleteTask({ id: "t", revision: 1 });
+  expect((await x.store.read()).artifacts).toEqual([]);
+  expect(JSON.parse(await readFile(backup, "utf8")).artifacts).toHaveLength(1);
+  const lines = artifactContextLines(
+    Array.from({ length: 12 }, (_, i) => ({ role: i ? "output" : "input", title: `T${i}`, target: `./f${i}` }) as never),
+  );
+  expect(lines.slice(0, 3)).toEqual(["Inputs:", "- T0: ./f0", "Outputs so far:"]);
+  expect(lines.at(-1)).toBe("- …and 1 more");
+});

@@ -1,5 +1,6 @@
 import { laneName, laneProblem } from "../shared/lanes";
 import { linkContextLines, linksOf } from "../shared/links";
+import { artifactContextLines, artifactsOf } from "../shared/artifacts";
 import { addLink } from "./links";
 import type { PaseoApi } from "@getpaseo/client";
 import { cpSync, existsSync, renameSync, rmSync } from "node:fs";
@@ -575,6 +576,7 @@ export class BoardService {
         directories,
         workspace?.workspaceDirectory || task.sourcePath,
         linkContextLines(linksOf(board, task.id), (t) => laneName(project, t.status)),
+        artifactContextLines(artifactsOf(board.artifacts, task.id)),
       ),
       directories,
       workspaceRepoPaths: matches,

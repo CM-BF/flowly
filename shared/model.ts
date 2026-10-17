@@ -163,6 +163,46 @@ export const linkInput = z.strictObject({
   to: z.string().min(1),
 });
 export type LinkInput = z.infer<typeof linkInput>;
+/** A file or link a card worked from (input) or delivered (output); a reference, not a copy (CARD-ARTIFACTS-SPEC §2.1). */
+export const artifactRoles = ["input", "output"] as const;
+export const artifactKinds = ["file", "url"] as const;
+export const artifactLimits = { title: 120, note: 1000, target: 2000, perTask: 100 } as const;
+export const artifactSchema = z.object({
+  id: z.string(),
+  taskId: z.string(),
+  projectId: z.string(),
+  role: z.enum(artifactRoles),
+  kind: z.enum(artifactKinds),
+  /** file: "./path" inside the card's workspace, else an absolute path; url: an http(s) URL. */
+  target: z.string().min(1).max(artifactLimits.target),
+  title: z.string().trim().min(1).max(artifactLimits.title),
+  note: z.string().max(artifactLimits.note),
+  createdBy: z.enum(["human", "agent"]),
+  agentId: z.string().optional(),
+  createdAt: timestamp,
+  updatedAt: timestamp,
+});
+export type Artifact = z.infer<typeof artifactSchema>;
+export type ArtifactRole = Artifact["role"];
+const artifactTitle = z.string().trim().max(artifactLimits.title);
+const artifactNote = z.string().trim().max(artifactLimits.note);
+export const artifactInput = z.strictObject({
+  taskId: z.string().min(1),
+  role: z.enum(artifactRoles),
+  target: z.string().trim().min(1).max(artifactLimits.target),
+  title: artifactTitle.optional(),
+  note: artifactNote.optional(),
+});
+export type ArtifactInput = z.infer<typeof artifactInput>;
+export const artifactEdit = z.strictObject({
+  id: z.string().min(1),
+  /** The `updatedAt` the edit started from; a different one is a conflict. */
+  updatedAt: z.string().min(1),
+  role: z.enum(artifactRoles).optional(),
+  title: artifactTitle.optional(),
+  note: artifactNote.optional(),
+});
+export type ArtifactEdit = z.infer<typeof artifactEdit>;
 export const ideaEdit = z.strictObject({
   id: z.string().min(1),
   status: z.enum(["open", "dismissed"]),
@@ -202,6 +242,8 @@ export const boardSchema = z.object({
   ideas: z.array(ideaSchema).default([]),
   /** Absent in files written before card links; then derived from `Task.origin` once (CARD-LINKS-SPEC §2.2). */
   links: z.array(linkSchema).default([]),
+  /** Absent in files written before artifacts (CARD-ARTIFACTS-SPEC §2.1). */
+  artifacts: z.array(artifactSchema).default([]),
 });
 export const previousBoardSchema = boardSchema.extend({
   version: z.literal(2),
@@ -215,8 +257,11 @@ export const receiptSchema = z.object({
   agentId: z.string(),
   taskId: z.string(),
   payloadHash: z.string(),
-  action: z.enum(["status", "progress", "idea"]),
+  action: z.enum(["status", "progress", "idea", "artifact", "artifact_remove"]),
+  /** Empty when an artifact write changed nothing (same target already recorded). */
   eventId: z.string(),
+  /** The artifact an artifact write added, updated or removed. */
+  artifactId: z.string().optional(),
   taskRevision: z.number().int().positive(),
   projectRevision: z.number().int().positive(),
   status: historyStatusSchema,
@@ -243,6 +288,7 @@ export const emptyBoard = (): Board => ({
   events: [],
   ideas: [],
   links: [],
+  artifacts: [],
   agentReceipts: [],
 });
 export const projectInput = z.strictObject({

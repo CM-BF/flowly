@@ -9,6 +9,9 @@ import {
   legacyStatus,
   ideaLimits,
   ideaStatuses,
+  artifactLimits,
+  artifactRoles,
+  artifactKinds,
   prioritySchema,
   taskTypeSchema,
 } from "./model";
@@ -71,6 +74,26 @@ export const ideaInputSchema = z.strictObject({
       "here: an extension of this card's goal that this card's session can continue with its current context; new: divergent work that deserves its own card.",
     ),
 });
+/** kanban_add_artifact (CARD-ARTIFACTS-SPEC §4.1): register an input or a deliverable of this card. */
+export const artifactInputSchema = z.strictObject({
+  expectedRevision: revisionSchema,
+  request: requestSchema,
+  role: z.enum(artifactRoles).describe("input: material this card worked from; output: something it delivered."),
+  target: z
+    .string()
+    .trim()
+    .min(1)
+    .max(artifactLimits.target)
+    .describe("An http(s) link, or a file/directory path (absolute, or relative to the workspace directory) inside this card's directories."),
+  title: z.string().trim().max(artifactLimits.title).optional().describe("Short title; defaults to the file name or link."),
+  note: z.string().trim().max(artifactLimits.note).optional().describe("One line on what it is for."),
+});
+/** kanban_remove_artifact: only artifacts an agent added. */
+export const artifactRemovalSchema = z.strictObject({
+  expectedRevision: revisionSchema,
+  request: requestSchema,
+  id: z.string().min(1).describe("Artifact id from get_task."),
+});
 export const identitySchema = z.strictObject({
   agentId: z.string().min(1),
   taskId: z.string().min(1),
@@ -120,6 +143,20 @@ export const toolContextSchema = z.object({
       acceptedAgentId: z.string().optional(),
     }),
   ),
+  /** The card's inputs and deliverables (CARD-ARTIFACTS-SPEC §4.2). `absolutePath` only for files. */
+  artifacts: z.array(
+    z.object({
+      id: z.string(),
+      role: z.enum(artifactRoles),
+      kind: z.enum(artifactKinds),
+      target: z.string(),
+      absolutePath: z.string().optional(),
+      title: z.string(),
+      note: z.string(),
+      createdBy: z.enum(["human", "agent"]),
+      missing: z.boolean(),
+    }),
+  ),
   /** Linked cards, read-only (CARD-LINKS-SPEC §4). `resolved` only for blocked_by. */
   links: z.array(
     z.object({
@@ -142,6 +179,8 @@ export const toolResultSchema = z.object({
   replayed: z.boolean(),
   /** The proposed idea, for kanban_propose_idea. */
   ideaId: z.string().optional(),
+  /** The added, updated or removed artifact, for the artifact tools. */
+  artifactId: z.string().optional(),
   current: toolContextSchema.nullable(),
   contextError: z.string().optional(),
 });
@@ -170,3 +209,5 @@ export type ToolPreparation = z.infer<typeof preparationSchema>;
 export type StatusInput = z.infer<typeof statusInputSchema>;
 export type ProgressInput = z.infer<typeof progressInputSchema>;
 export type IdeaInput = z.infer<typeof ideaInputSchema>;
+export type ArtifactToolInput = z.infer<typeof artifactInputSchema>;
+export type ArtifactRemovalInput = z.infer<typeof artifactRemovalSchema>;

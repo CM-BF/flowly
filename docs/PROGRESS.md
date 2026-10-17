@@ -1,5 +1,15 @@
 # Implementation progress
 
+## Card artifacts — 2026-10-17
+
+- [x] Card request "设计一下任务卡片增加assets或者artifacts，用于记录和收集这个任务输入输出的文档、交付物等。由agent根据理解自行添加也可以由人手工添加". Drafted the [card artifacts spec](CARD-ARTIFACTS-SPEC.md): references (file in card scope / http(s) link) with role input/output/reference in `board.artifacts`; human RPCs; `kanban_add_artifact` / `kanban_remove_artifact` tools; drawer section, preview, cascade on delete.
+- [x] User decisions: references only; agents cannot remove human-added artifacts; nothing on the card face; each row shows input/output and human/agent; follow-up inheritance deferred. Roles reduced to input/output.
+- [x] Implemented (user: "开始"): `board.artifacts` + `shared/artifacts.ts`; `server/artifacts.ts` (scope check with realpath so symlinks can't escape, `./` workspace-relative storage, dedupe by target, `updatedAt` edit conflict, board revision only, `artifact_added`/`artifact_removed` events, batched missing check, preview re-checked on read: image ≤8 MB, text ≤256 KB, folder ≤200 entries). RPCs `artifacts.create/update/delete/status/preview`. Tools `kanban_add_artifact` / `kanban_remove_artifact` (+ CLI `artifact` / `artifact-remove`, receipts, `ARTIFACT_INVALID` / `ARTIFACT_FORBIDDEN` / `ARTIFACTS_DISABLED`), `get_task.artifacts`, inputs/outputs in session context, skill text. Drawer section with add/edit form and preview; setting Agent artifacts; tip `first-artifact`, tour feature, README; 9 catalogs. Card delete / project remove back up and drop artifacts. Dropped from v1 (spec §10): collect from session, file browse, Copy path, Undo.
+- [x] PASS: typecheck; `npm test` 66 files / 415 tests (new `server/artifacts.test.ts`, tip order, tool list, i18n).
+- [x] PASS (installed local build, this card's own session over MCP): `kanban_add_artifact` registered `docs/CARD-ARTIFACTS-SPEC.md` as output → stored `./docs/CARD-ARTIFACTS-SPEC.md`, `createdBy: agent`, `missing: false`, `artifact_added` event, task revision unchanged; `/etc/hosts` refused with `ARTIFACT_INVALID`.
+- [x] User report: the artifact preview did not scroll on phones. Cause: a nested ScrollView (maxHeight 520) inside the host modal's scrollable body took the pan. Fix: the text/markdown preview renders directly in the modal body, which scrolls. Typecheck and tests pass; plugin reloaded.
+- [ ] UNRUN: phone re-check of the fix; drawer UI (desktop/compact), human edit/remove, and the Luna 6 test session.
+
 ## Composer focus during a running session — 2026-10-16
 
 - [x] Card report "PC 上 session 运行中打字会被打断，内容更新时出现，打断后完全无法输入". Cause: the transcript ScrollView had `keyboardDismissMode="on-drag"` on web; RN Web's `_handleScroll` then blurs the focused input on every scroll event, and follow-tail scrolls on each output update. Web now uses `none` ([spec](SESSION-INPUT-SPEC.md)).
