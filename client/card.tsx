@@ -458,7 +458,8 @@ function CardSignals({
     items.push(<Signal key="fallback" icon="MessageSquare" text={running ? t("{running}/{sessions} running", { running, sessions }) : `${sessions}`} />);
   const priority = task.priority !== "normal";
   const accent = priorityAccent(colors, task.priority);
-  if (!task.type && !priority && !items.length && !ideas && !legacy && !task.archivedAt) return null;
+  const tags = task.tags || [];
+  if (!task.type && !priority && !tags.length && !items.length && !ideas && !legacy && !task.archivedAt) return null;
   return (
     <View style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "center", columnGap: space[3], rowGap: space[1] }}>
       {(!!task.type || priority) && (
@@ -477,10 +478,32 @@ function CardSignals({
           )}
         </View>
       )}
+      {!!tags.length && (
+        // Custom tags (CARD-TAGS-SPEC §6.2): the first two, then a count.
+        <View
+          accessibilityLabel={t("Tags: {tags}", { tags: tags.map((x) => x.tag).join(", ") })}
+          style={{ flexDirection: "row", alignItems: "center", gap: space[1], flexShrink: 1, minWidth: 0 }}
+        >
+          {tags.slice(0, 2).map((x) => (
+            <TagChip key={x.tag} text={x.tag} />
+          ))}
+          {tags.length > 2 && <Label size={font.xs} muted selectable={false}>{`+${tags.length - 2}`}</Label>}
+        </View>
+      )}
       {items}
       {!!ideas && <Signal icon="Lightbulb" color={colors.statusWarning} text={`${ideas}`} />}
       {!!task.archivedAt && <Badge>{t("Archived")}</Badge>}
       {legacy && <Badge>{t("Legacy")}</Badge>}
+    </View>
+  );
+}
+
+/** A neutral `#tag` chip, smaller than the priority/type pills. */
+function TagChip({ text }: { text: string }) {
+  const { colors } = useTheme();
+  return (
+    <View style={{ height: 18, paddingHorizontal: 5, justifyContent: "center", borderRadius: radius.sm, borderWidth: 1, borderColor: colors.border, flexShrink: 1, minWidth: 0 }}>
+      <Label size={font.xs} muted lines={1} selectable={false}>{`#${text}`}</Label>
     </View>
   );
 }

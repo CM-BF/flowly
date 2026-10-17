@@ -93,6 +93,7 @@ import { RemoveProjectDialog } from "./project-remove";
 import { boardOverview } from "./overview";
 import { enabledStatuses, laneName } from "../shared/lanes";
 import { boardSortText, boardSorts, sortTasks, type BoardSort } from "../shared/sort";
+import { projectTagStats, tagPrefixes, taskMatchesSearch, taskMatchesTagFilter } from "../shared/tags";
 import {
   parseSessionLink,
   resolveSessionLink,
@@ -121,6 +122,7 @@ const tipText: Record<TipId, () => string> = {
   "first-idea": () => t("An agent suggested follow-up work. Good idea starts a card or continues here; Not now dismisses it."),
   "first-done": () => t("Done cards can be wrapped up: their sessions and workspace are archived. Auto wrap up is in settings."),
   "first-artifact": () => t("Cards now collect artifacts: the files and links a task worked from and delivered. Agents add them as they work; you can add your own in the card."),
+  "first-tag": () => t("Agents tag their cards by module and direction. Open a card and tap a tag to filter the board by it, or search #tag."),
 };
 
 /** RN-Web forwards React keyboard events on View; React Native's types omit them. */
@@ -237,6 +239,7 @@ function BoardContent(
     [search, setSearchState] = useState(""),
     [priority, setPriorityState] = useState("all"),
     [taskType, setTaskTypeState] = useState("all"),
+    [tagFilter, setTagFilterState] = useState<string[]>([]),
     [archived, setArchivedState] = useState(false),
     [menu, setMenu] = useState<"projects" | "filters" | "status" | "attention" | "shortcuts" | "settings" | null>(null),
     // First-run welcome tour (ONBOARDING-SPEC): opened once automatically, or by hand.
@@ -272,6 +275,7 @@ function BoardContent(
     setSearchState(view.values.filterSearch);
     setPriorityState(view.values.filterPriority);
     setTaskTypeState(view.values.filterType);
+    setTagFilterState(view.values.filterTags);
     setArchivedState(view.values.showArchived);
   }, [!!view.values]);
   const searchSave = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -291,6 +295,15 @@ function BoardContent(
     setTaskTypeState(next);
     void view.update({ filterType: next as "all" });
   };
+  const setTagFilter = (next: string[]) => {
+    const value = next.slice(0, 20);
+    setTagFilterState(value);
+    void view.update({ filterTags: value });
+  };
+  // Clicking a tag in the drawer adds it to the filter (CARD-TAGS-SPEC §6.3).
+  const filterByTag = useStableCallback((tag: string) => {
+    if (!tagFilter.includes(tag)) setTagFilter([...tagFilter, tag]);
+  });
   const setArchived = (next: boolean | ((current: boolean) => boolean)) => {
     setArchivedState((current) => {
       const value = typeof next === "function" ? next(current) : next;
@@ -334,6 +347,7 @@ function BoardContent(
       setSearch("");
       setPriority("all");
       setTaskType("all");
+      setTagFilter([]);
       setArchived(
         (current) =>
           current || !!target.project.archivedAt || !!target.task.archivedAt,
@@ -430,11 +444,10 @@ function BoardContent(
   );
   const visible = tasks.filter(
     (t) =>
-      `${t.title}\n${t.description}`
-        .toLowerCase()
-        .includes(search.toLowerCase()) &&
+      taskMatchesSearch(t, search) &&
       (priority === "all" || t.priority === priority) &&
-      (taskType === "all" || t.type === taskType),
+      (taskType === "all" || t.type === taskType) &&
+      taskMatchesTagFilter(t, tagFilter),
   );
   // The project's lanes are its workflow: enabled lanes in their configured order.
   const shownStatuses = enabledStatuses(project);
@@ -534,10 +547,20 @@ function BoardContent(
         requestId: `attention-${Date.now()}`,
       });
   };
+  // The project's tag vocabulary, plus prefix options for hierarchical tags (CARD-TAGS-SPEC §6.4).
+  const projectTags = useMemo(
+    () => (project ? projectTagStats(board?.tasks || [], project.id).map((x) => x.tag) : []),
+    [board?.tasks, project?.id],
+  );
+  const tagFilterOptions = useMemo(() => {
+    const all = [...new Set([...tagPrefixes(projectTags), ...projectTags, ...tagFilter])];
+    return all;
+  }, [projectTags, tagFilter]);
   const filterCount =
     Number(!!search) +
     Number(priority !== "all") +
-    Number(taskType !== "all");
+    Number(taskType !== "all") +
+    Number(tagFilter.length > 0);
   const refresh = () => {
     void data.refetch();
     void resources.refetch();
@@ -698,6 +721,7 @@ function BoardContent(
         ),
         type: idea.type,
         priority: idea.priority,
+        tags: idea.tags,
       },
     }),
   );
@@ -774,6 +798,7 @@ function BoardContent(
           openIdea: ideasOn && projectOpenIdeas > 0,
           movedToFinished,
           hasArtifact: !task && board.artifacts.some((a) => a.projectId === project.id),
+          hasAgentTag: !task && projectTasks.some((x) => !x.archivedAt && !!x.tags?.some((tag) => tag.by === "agent")),
         },
         blocked: !onboarding.values || welcomeOpen || welcome === "show" || dialogOpen,
       });
@@ -963,6 +988,7 @@ function BoardContent(
         hostId={props.host.id}
         onClose={closeDrawer}
         onEdit={editDrawerTask}
+        onFilterTag={filterByTag}
         onDelete={deleteDrawerTask}
         onCreateFromIdea={ideasOn ? createFromIdea : undefined}
         onLink={linkFrom}
@@ -1270,7 +1296,7 @@ function BoardContent(
                     statuses={shownStatuses}
                     tasks={visible}
                     disabled={pending || !!project.archivedAt}
-                    cancelKey={`${project.id}|${search}|${priority}|${taskType}|${archived}|${shownStatuses.join(",")}|${taskId}|${menu}|${actionTask?.id}|${projectForm}|${!!taskForm}`}
+                    cancelKey={`${project.id}|${search}|${priority}|${taskType}|${tagFilter.join(",")}|${archived}|${shownStatuses.join(",")}|${taskId}|${menu}|${actionTask?.id}|${projectForm}|${!!taskForm}`}
                     sortColumn={sortColumn}
                     manualOrder={boardSort === "manual"}
                     collapsed={collapsedColumns}
@@ -1410,8 +1436,27 @@ function BoardContent(
                 onChange={setSearch}
                 // Filtering re-renders the whole board: keep it out of the keystroke path.
                 commitDelay={150}
-                placeholder={t("Title or description")}
+                placeholder={t("Title, description or #tag")}
               />
+              {!!(projectTags.length || tagFilter.length) && (
+                <View style={{ gap: space[1.5] }}>
+                  <Label medium size={font.sm} muted>
+                    {t("Tags")}
+                  </Label>
+                  <View style={{ flexDirection: "row", flexWrap: "wrap", gap: space[1] }}>
+                    {tagFilterOptions.map((tag) => (
+                      <TagToggle
+                        key={tag}
+                        tag={tag}
+                        selected={tagFilter.includes(tag)}
+                        onToggle={() =>
+                          setTagFilter(tagFilter.includes(tag) ? tagFilter.filter((x) => x !== tag) : [...tagFilter, tag])
+                        }
+                      />
+                    ))}
+                  </View>
+                </View>
+              )}
               <Choices
                 title={t("Type")}
                 value={taskType}
@@ -1438,6 +1483,7 @@ function BoardContent(
                     setSearch("");
                     setPriority("all");
                     setTaskType("all");
+                    setTagFilter([]);
                   }}
                 >
                   {t("Reset filters")}</Button>
@@ -2025,4 +2071,29 @@ function KeyHint({ children }: { children: string }) {
 
 export function WorkspaceBoard(props: PluginWorkspacePanelProps) {
   return <BoardScreen {...props} workspaceId={props.workspaceId} />;
+}
+
+/** A tag option in the board filter; "module/" options match by prefix. */
+function TagToggle({ tag, selected, onToggle }: { tag: string; selected: boolean; onToggle(): void }) {
+  const { colors } = useTheme();
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={tag.endsWith("/") ? t("Tags starting with {prefix}", { prefix: tag }) : t("Tag {tag}", { tag })}
+      accessibilityState={{ selected }}
+      onPress={onToggle}
+      style={(state) => ({
+        ...noFocusRing,
+        height: touch ? 32 : 26,
+        paddingHorizontal: space[2],
+        justifyContent: "center",
+        borderRadius: radius.md,
+        borderWidth: 1,
+        borderColor: selected ? colors.foregroundMuted : colors.border,
+        backgroundColor: selected ? colors.surface2 : (state as { hovered?: boolean }).hovered ? colors.surface1 : "transparent",
+      })}
+    >
+      <Label size={font.sm} medium={selected} muted={!selected} selectable={false}>{`#${tag}${tag.endsWith("/") ? "…" : ""}`}</Label>
+    </Pressable>
+  );
 }

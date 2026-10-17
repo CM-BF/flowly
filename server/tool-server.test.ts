@@ -81,6 +81,7 @@ test("MCP initialize/list can precede actor creation; live calls require SDK con
     "kanban_propose_idea",
     "kanban_add_artifact",
     "kanban_remove_artifact",
+    "kanban_set_tags",
   ]);
   const cold = await mcp("tools/call", {
     name: "kanban_get_task",
@@ -258,6 +259,12 @@ test("CLI runs a complete scoped flow; replay, wrong env, snapshots and flags", 
     "Ready for human review",
   );
   expect(finished.receipt.status).toBe("in_review");
+  await cli("current", "--save-request", snapshot);
+  const tagged = await cli("tags", "--request-file", snapshot, "--add", "Drawer, perf");
+  expect(tagged.current.task.tags.map((t: { tag: string }) => t.tag)).toEqual(["drawer", "perf"]);
+  await cli("current", "--save-request", snapshot);
+  const untagged = await cli("tags", "--request-file", snapshot, "--remove", "perf");
+  expect(untagged.current.task.tags.map((t: { tag: string }) => t.tag)).toEqual(["drawer"]);
   await cli("current", "--save-request", snapshot);
   const proposed = await cli(
     "idea",

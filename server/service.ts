@@ -15,6 +15,8 @@ import { readSnapshot, SnapshotInvalidError, type ProjectSnapshot } from "./proj
 import { linkLimits } from "../shared/model";
 import type { ProjectInput, TaskInput, Board, LinkedProjectInput, ProjectLinksEdit, Project, ProjectRemoval } from "../shared/model";
 import { effectiveRepos, sessionContext } from "../shared/scope";
+import { normalizeTags } from "../shared/tags";
+import { tagLimits } from "../shared/model";
 import { repoMatcher } from "./repos";
 import type { z } from "zod";
 import type { removeProject as removeProjectRpc, restoreProjectCheck as restoreProjectCheckRpc } from "../shared/rpc";
@@ -448,6 +450,9 @@ export class BoardService {
         throw new Error("Project is unavailable or archived.");
       const laneError = laneProblem(project, input.status);
       if (laneError) throw new Error(laneError);
+      // Validated before any workspace exists (CARD-TAGS-SPEC §3).
+      const tags = normalizeTags(input.tags || []);
+      if (tags.length > tagLimits.perTask) throw new Error(`A card can have at most ${tagLimits.perTask} tags.`);
       // Checked before any workspace exists, and again when the card is written (IDEAS-SPEC §6).
       if (input.ideaId) openIdea(board, input.ideaId, project.id);
       if (input.ideaId && input.followUpOf) throw new Error("A card comes from an idea or follows up a card, not both.");
@@ -536,6 +541,7 @@ export class BoardService {
             status: input.status,
             priority: input.priority,
             ...(input.type ? { type: input.type } : {}),
+            ...(tags.length ? { tags: tags.map((tag) => ({ tag, by: "human" as const, at: now })) } : {}),
             position: Math.max(
               -1,
               ...current.tasks

@@ -31,6 +31,7 @@ export function TaskMetadata({ task, project, open, onChange, disabled, summary,
   return <Disclosure title={t("Details & workspace")} summary={summary} open={open} disabled={disabled} onChange={onChange}>
     <MetaRow label={t("Type")} value={task.type ? taskTypeLabels[task.type] : "None"} />
     <MetaRow label={t("Priority")} value={priorityLabels[task.priority]} />
+    {!!task.tags?.length && <MetaRow label={t("Tags")} value={task.tags.map((x) => x.tag).join(", ")} />}
     <MetaRow label={t("Project")} value={project.title} />
     <MetaRow label={t("Project root")} value={project.primaryPath} mono />
     <MetaRow label={t("Workspace")} value={workspaceName || task.workspaceId} />

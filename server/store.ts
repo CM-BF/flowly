@@ -6,6 +6,7 @@ import { randomUUID } from "node:crypto";
 import { upgradeBoard } from "./migrate";
 import { ideaTitleKey } from "../shared/ideas";
 import { otherEnd, relationLabels, relationOf, touches } from "../shared/links";
+import { changeTags, mergeTagEdit, normalizeTags, tagChangeNote } from "../shared/tags";
 import type { FlowLog } from "./flow-log";
 import type { ProjectSnapshot } from "./project-folder";
 import {
@@ -17,6 +18,7 @@ import {
   type Project,
   type Task,
   type TaskEdit,
+  type TaskTagsEdit,
   type TaskPlacement,
   type ProjectEdit,
   type ProjectRemoval,
@@ -42,6 +44,12 @@ export function slotPosition(
   if (!next) return previous.position + 1;
   const middle = (previous.position + next.position) / 2;
   return previous.position < middle && middle < next.position ? middle : null;
+}
+
+/** Stores a card's tags; an empty list removes the field (cards without tags carry none). */
+export function setTags(task: Task, tags: Task["tags"]) {
+  if (tags?.length) task.tags = tags;
+  else delete task.tags;
 }
 
 export class BoardStore {
@@ -165,6 +173,8 @@ export class BoardStore {
         throw new Error("Duplicate task operation.");
       workspaces.add(t.workspaceId);
       operations.add(t.operationId);
+      if (t.tags && new Set(t.tags.map((x) => x.tag)).size !== t.tags.length)
+        throw new Error("Duplicate tag on a card.");
     }
   }
   async editTask(input: TaskEdit): Promise<Task> {
@@ -180,6 +190,13 @@ export class BoardStore {
         const laneError = laneProblem(board.projects.find((p) => p.id === task.projectId), input.status);
         if (laneError) throw new Error(laneError);
       }
+      if ((input.tags === undefined) !== (input.tagsBase === undefined))
+        throw new Error("Tags and the tags the form started from must be sent together.");
+      const tagChange =
+        input.tags !== undefined
+          ? mergeTagEdit(task.tags || [], normalizeTags(input.tagsBase!), normalizeTags(input.tags), new Date().toISOString())
+          : undefined;
+      if (tagChange) setTags(task, tagChange.tags);
       if (input.title !== undefined) task.title = input.title;
       if (input.description !== undefined) task.description = input.description;
       if (input.priority !== undefined) task.priority = input.priority;
@@ -204,7 +221,30 @@ export class BoardStore {
         to: previous !== task.status ? task.status : undefined,
         note: input.note,
       });
+      if (tagChange && (tagChange.added.length || tagChange.removed.length))
+        this.event(board, { taskId: task.id, actor: "human", action: "tags_changed", note: tagChangeNote(tagChange) });
       return task;
+    });
+  }
+  /**
+   * Single tag adds/removes from the drawer (CARD-TAGS-SPEC §3). Only the board revision
+   * changes, so open forms and agents' signed requests stay valid.
+   */
+  editTags(input: TaskTagsEdit): Promise<Task> {
+    return this.transaction((board) => {
+      const task = board.tasks.find((t) => t.id === input.taskId);
+      if (!task) throw new Error("Task not found.");
+      const project = board.projects.find((p) => p.id === task.projectId);
+      if (task.archivedAt || !project || project.archivedAt) throw new Error("Archived cards can't be changed.");
+      const change = changeTags(
+        task.tags || [],
+        { add: normalizeTags(input.add || []), remove: normalizeTags(input.remove || []) },
+        { actor: "human", at: new Date().toISOString() },
+      );
+      if (!change.added.length && !change.removed.length) return { value: task, changed: false };
+      setTags(task, change.tags);
+      this.event(board, { taskId: task.id, actor: "human", action: "tags_changed", note: tagChangeNote(change) });
+      return { value: task, changed: true };
     });
   }
   placeTask(input: TaskPlacement): Promise<Task> {

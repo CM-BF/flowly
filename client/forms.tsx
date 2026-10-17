@@ -1,7 +1,7 @@
 import { enabledStatuses, laneName, projectLanes } from "../shared/lanes";
 import { LaneEditor } from "./lane-editor";
 import { useBoardView } from "./board-view";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { View } from "react-native";
 import { Modal } from "./modal";
@@ -28,6 +28,11 @@ import { modelSettings, modelSettingsValues } from "../shared/settings";
 import { launchKanbanSession } from "./session";
 import { DirectoryChooser } from "./directory-picker";
 import { t, tn } from "../shared/i18n";
+import { projectTagStats, tagValues } from "../shared/tags";
+import { TagEditor } from "./tag-input";
+import { useStableCallback } from "./stable";
+
+const sameList = (a: readonly string[], b: readonly string[]) => a.length === b.length && a.every((v, i) => v === b[i]);
 
 export function ProjectForm({
   project: initialProject,
@@ -376,6 +381,7 @@ export type TaskSeed = {
   description: string;
   type?: TaskType;
   priority?: Task["priority"];
+  tags?: string[];
 };
 
 export function TaskForm({
@@ -407,6 +413,9 @@ export function TaskForm({
     [status, setStatus] = useState<Status>(task?.status || startStatus(project, defaultStatus)),
     [priority, setPriority] = useState(task?.priority || seed?.priority || "normal"),
     [type, setType] = useState<TaskType | "">(task?.type || seed?.type || ""),
+    // What the form opened with: a save applies only the difference (CARD-TAGS-SPEC §2.5).
+    [tagsBase] = useState(() => (task ? tagValues(task) : [])),
+    [tags, setTags] = useState<string[]>(() => (task ? tagValues(task) : seed?.tags || [])),
     [mode, setMode] = useState<"directory" | "worktree" | "existing">(
       "directory",
     ),
@@ -441,6 +450,16 @@ export function TaskForm({
   const eligible = (resources.data?.workspaces || []).filter((w) =>
     w.repoPaths.includes(project.primaryPath),
   );
+  const suggestions = useMemo(
+    () => projectTagStats(board.data?.tasks || [], project.id).map((s) => s.tag),
+    [board.data?.tasks, project.id],
+  );
+  const agentTags = useMemo(
+    () => new Set((task?.tags || []).filter((x) => x.by === "agent").map((x) => x.tag)),
+    [task],
+  );
+  const addTags = useStableCallback((values: string[]) => setTags((current) => [...current, ...values.filter((v) => !current.includes(v))]));
+  const removeTag = useStableCallback((tag: string) => setTags((current) => current.filter((x) => x !== tag)));
   async function save() {
     setPending(true);
     setError("");
@@ -454,6 +473,7 @@ export function TaskForm({
             status,
             priority,
             type: type || null,
+            ...(sameList(tags, tagsBase) ? {} : { tags, tagsBase }),
           })
         : await create({
             projectId: project.id,
@@ -463,6 +483,7 @@ export function TaskForm({
             status,
             priority,
             type: type || undefined,
+            ...(tags.length ? { tags } : {}),
             mode,
             workspaceId: mode === "existing" ? workspaceId : undefined,
             baseRef,
@@ -543,6 +564,18 @@ export function TaskForm({
             ]}
             onChange={setType}
           />
+          <View style={{ gap: space[1.5] }}>
+            <Label medium size={font.sm} muted>
+              {t("Tags")}
+            </Label>
+            <TagEditor
+              tags={tags}
+              agentTags={agentTags}
+              suggestions={suggestions}
+              onAdd={addTags}
+              onRemove={removeTag}
+            />
+          </View>
           <Label muted size={font.sm}>
             {t("Project root · {path}", { path: project.primaryPath })}
             {project.links ? ` · ${t("links {names}", { names: project.links.map((l) => l.name).join(", ") })}` : ""}

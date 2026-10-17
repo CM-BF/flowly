@@ -22,6 +22,7 @@ import {
   ideaInputSchema,
   artifactInputSchema,
   artifactRemovalSchema,
+  tagsInputSchema,
   progressInputSchema,
   statusInputSchema,
   toolContextSchema,
@@ -227,6 +228,17 @@ export class ToolServer {
           },
           (input) => wrap(() => this.agents.write(identity, "artifact_remove", input)),
         );
+        mcp.registerTool(
+          "kanban_set_tags",
+          {
+            description:
+              'Tag this card with the functional areas it touches and the improvement directions it serves (for example a module like "drawer" or "session-composer", or a direction like "performance", "a11y", "mobile"), so the user can filter and search cards later. Tags are not the task type, status or priority; do not repeat those. Reuse a tag from projectTags in get_task when one fits instead of inventing a synonym. Use 1-4 short lowercase tags, add them once you understand the scope, and adjust them if the scope changes. You can only remove tags an agent added. Does not change card status or task revision. Copy revisions/request from get_task.',
+            inputSchema: tagsInputSchema,
+            outputSchema: toolResultSchema,
+            annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+          },
+          (input) => wrap(() => this.agents.write(identity, "tags", input)),
+        );
         return mcp;
       },
       { responseMode: "json", maxRequestBodySize: 65536 },
@@ -311,7 +323,7 @@ export class ToolServer {
     }
     const body = z
       .strictObject({
-        action: z.enum(["get", "status", "progress", "idea", "artifact", "artifact_remove"]),
+        action: z.enum(["get", "status", "progress", "idea", "artifact", "artifact_remove", "tags"]),
         input: z.unknown(),
       })
       .parse(JSON.parse(Buffer.concat(chunks).toString("utf8")));

@@ -14,6 +14,8 @@ import {
   artifactKinds,
   prioritySchema,
   taskTypeSchema,
+  tagLimits,
+  tagInputList,
 } from "./model";
 
 export const agentStatuses = ["design", "development", "test", "blocked", "in_review"] as const;
@@ -67,12 +69,28 @@ export const ideaInputSchema = z.strictObject({
     .describe("Files, branches and findings the new task needs; its agent cannot see this conversation."),
   type: taskTypeSchema.optional(),
   priority: prioritySchema.optional(),
+  tags: tagInputList.optional().describe("Suggested module/direction tags for the follow-up card; reuse projectTags."),
   scope: z
     .enum(["here", "new"])
     .default("new")
     .describe(
       "here: an extension of this card's goal that this card's session can continue with its current context; new: divergent work that deserves its own card.",
     ),
+});
+/** kanban_set_tags (CARD-TAGS-SPEC §4.1): tag this card with modules and directions. */
+export const tagsInputSchema = z.strictObject({
+  expectedRevision: revisionSchema,
+  request: requestSchema,
+  add: z
+    .array(z.string().max(200))
+    .max(tagLimits.perCall)
+    .default([])
+    .describe('Tags to add, e.g. "drawer", "session-composer", "performance", "a11y". Lowercase letters, numbers, "-", "." and "/"; at most 32 characters.'),
+  remove: z
+    .array(z.string().max(200))
+    .max(tagLimits.perCall)
+    .default([])
+    .describe("Tags to remove. Only tags an agent added can be removed."),
 });
 /** kanban_add_artifact (CARD-ARTIFACTS-SPEC §4.1): register an input or a deliverable of this card. */
 export const artifactInputSchema = z.strictObject({
@@ -143,6 +161,8 @@ export const toolContextSchema = z.object({
       acceptedAgentId: z.string().optional(),
     }),
   ),
+  /** The project's most used tags (CARD-TAGS-SPEC §2.3); reuse one when it fits. */
+  projectTags: z.array(z.object({ tag: z.string(), count: z.number() })).optional(),
   /** The card's inputs and deliverables (CARD-ARTIFACTS-SPEC §4.2). `absolutePath` only for files. */
   artifacts: z.array(
     z.object({
@@ -209,5 +229,6 @@ export type ToolPreparation = z.infer<typeof preparationSchema>;
 export type StatusInput = z.infer<typeof statusInputSchema>;
 export type ProgressInput = z.infer<typeof progressInputSchema>;
 export type IdeaInput = z.infer<typeof ideaInputSchema>;
+export type TagsToolInput = z.infer<typeof tagsInputSchema>;
 export type ArtifactToolInput = z.infer<typeof artifactInputSchema>;
 export type ArtifactRemovalInput = z.infer<typeof artifactRemovalSchema>;

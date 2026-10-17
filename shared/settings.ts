@@ -23,6 +23,8 @@ export const boardViewSettings = defineSettings({
     filterSearch: z.string().max(200).default(""),
     filterPriority: z.enum(["all", ...priorities]).default("all"),
     filterType: z.enum(["all", ...taskTypes]).default("all"),
+    /** Tags shown (any matches); a value ending in "/" matches by prefix (CARD-TAGS-SPEC §6.4). */
+    filterTags: z.array(z.string().max(80)).max(20).default([]),
     showArchived: z.boolean().default(false),
   }),
 });

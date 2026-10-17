@@ -52,6 +52,24 @@ export const prioritySchema = z.enum(priorities);
 export const taskTypeSchema = z.enum(taskTypes);
 export type TaskType = z.infer<typeof taskTypeSchema>;
 const timestamp = z.string();
+/** Card tags: module / direction labels, free text in a normalized form (CARD-TAGS-SPEC §2). */
+export const tagLimits = { length: 32, perTask: 12, perCall: 12, suggestions: 50, filter: 20 } as const;
+/** A stored (already normalized) tag value; see `normalizeTag` in shared/tags.ts. */
+export const tagValueSchema = z
+  .string()
+  .min(1)
+  .max(tagLimits.length * 2)
+  .regex(/^[\p{L}\p{N}\-./]+$/u)
+  .refine((tag) => [...tag].length <= tagLimits.length && tag === tag.toLocaleLowerCase("en"));
+export const taskTagSchema = z.object({
+  tag: tagValueSchema,
+  by: z.enum(["human", "agent"]),
+  agentId: z.string().optional(),
+  at: timestamp,
+});
+export type TaskTag = z.infer<typeof taskTagSchema>;
+/** Raw tag input from people and agents; normalized by the daemon. */
+export const tagInputList = z.array(z.string().max(200)).max(tagLimits.perCall);
 /**
  * A project's lane configuration: the built-in statuses in display order, each
  * enabled or not, optionally renamed. Absent means every lane, default order and
@@ -103,6 +121,8 @@ export const taskSchema = z.object({
   priority: prioritySchema,
   /** Absent: no type (all cards created before task types). */
   type: taskTypeSchema.optional(),
+  /** Absent: no tags. Unique by `tag`, in the order they were added. */
+  tags: z.array(taskTagSchema).max(tagLimits.perTask).optional(),
   position: z.number(),
   revision: z.number().int().positive(),
   operationId: z.string(),
@@ -129,6 +149,8 @@ export const ideaSchema = z.object({
   context: z.string().max(ideaLimits.context),
   type: taskTypeSchema.optional(),
   priority: prioritySchema.optional(),
+  /** Suggested tags (normalized) for the new card. */
+  tags: z.array(tagValueSchema).max(tagLimits.perTask).optional(),
   /** The proposing agent's suggestion: continue in this card ("here") or start a new card ("new"). Absent reads as "new". */
   scope: z.enum(["here", "new"]).optional(),
   status: z.enum(ideaStatuses),
@@ -257,7 +279,7 @@ export const receiptSchema = z.object({
   agentId: z.string(),
   taskId: z.string(),
   payloadHash: z.string(),
-  action: z.enum(["status", "progress", "idea", "artifact", "artifact_remove"]),
+  action: z.enum(["status", "progress", "idea", "artifact", "artifact_remove", "tags"]),
   /** Empty when an artifact write changed nothing (same target already recorded). */
   eventId: z.string(),
   /** The artifact an artifact write added, updated or removed. */
@@ -347,6 +369,7 @@ export const taskInput = z.strictObject({
   status: statusSchema.default("todo"),
   priority: prioritySchema.default("normal"),
   type: taskTypeSchema.optional(),
+  tags: tagInputList.optional(),
   mode: z.enum(["existing", "directory", "worktree"]),
   workspaceId: z.string().optional(),
   baseRef: z.string().default(""),
@@ -365,11 +388,23 @@ export const taskEdit = z.strictObject({
   priority: prioritySchema.optional(),
   /** null clears the type. */
   type: taskTypeSchema.nullable().optional(),
+  /** The form's final tags; applied relative to `tagsBase`, what the form opened with (CARD-TAGS-SPEC §2.5). */
+  tags: tagInputList.optional(),
+  tagsBase: tagInputList.optional(),
   archived: z.boolean().optional(),
   note: z.string().max(10000).optional(),
   actor: z.enum(["human", "agent"]).default("human"),
   agentId: z.string().optional(),
 });
+/** Add or remove single tags from the drawer; no card revision (CARD-TAGS-SPEC §3). */
+export const taskTagsEdit = z
+  .strictObject({
+    taskId: z.string().min(1),
+    add: tagInputList.default([]),
+    remove: tagInputList.default([]),
+  })
+  .refine((input) => input.add.length || input.remove.length, { message: "Add or remove at least one tag." });
+export type TaskTagsEdit = z.input<typeof taskTagsEdit>;
 export type ProjectInput = z.infer<typeof projectInput>;
 export type TaskInput = z.infer<typeof taskInput>;
 export type TaskEdit = z.infer<typeof taskEdit>;

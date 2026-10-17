@@ -54,6 +54,7 @@ import { TaskUsage } from "./task-usage";
 import { TaskIdeas } from "./task-ideas";
 import { LinkOrigin, TaskLinks } from "./task-links";
 import { TaskArtifacts } from "./task-artifacts";
+import { TaskTags } from "./task-tags";
 import { ideaInstruction } from "../shared/ideas";
 import { getLocale, localizedLabels, msg, t, tn } from "../shared/i18n";
 
@@ -85,6 +86,7 @@ function TaskDrawerView({
   startRequest,
   startIdea,
   onAllIdeas,
+  onFilterTag,
   escapeRequest,
 }: {
   task: Task;
@@ -119,6 +121,8 @@ function TaskDrawerView({
   startIdea?: Idea;
   /** Opens the project Ideas page showing only this card (IDEAS-INBOX-SPEC §5). */
   onAllIdeas?(taskId: string): void;
+  /** Adds a tag to the board filter (CARD-TAGS-SPEC §6.3). */
+  onFilterTag?(tag: string): void;
   /** Changes on each board Esc shortcut: leave the session preview, else close. */
   escapeRequest?: string;
 }) {
@@ -580,6 +584,7 @@ function TaskDrawerView({
                 onPress={(at) => openMenu?.(at, t("Type"), typeEntries())}
               />
             </View>
+            <TaskTags task={task} active={active && !project.archivedAt} onFilterTag={onFilterTag} />
             {!!error && <Notice>{error}</Notice>}
           </View>
           <Divider />

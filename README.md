@@ -58,6 +58,8 @@ Work an agent discovers along the way (a bug it tripped over, a limitation, the 
 
 Each card has an **Artifacts** list: the documents, links and deliverables it worked from (inputs) and produced (outputs). Agents register them through the board tools as they work; you add, edit or remove your own from the card. Only references are stored; files stay where they are and open in a read-only preview. Every entry shows whether you or an agent added it, and agents can't remove the ones you added.
 
+Cards can carry **tags** for the modules and directions they touch (`drawer`, `performance`, `a11y`), separate from the fixed task type. Agents tag their own cards through the board tools and reuse the project's existing tags; you add or remove tags in the card or the form. Filter the board by tag, or search `#tag` (`#module/` matches a prefix). Agents can't remove tags you added.
+
 ### 6. Project insights
 
 One page for the day: cards done, new and reworked, turns, agent time, commits and tokens (with cache hit rate), the list of what is **waiting on you**, rule-based suggestions, an AI-written daily summary, per-card token use and a 7-day trend.

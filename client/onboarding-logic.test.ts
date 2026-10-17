@@ -32,16 +32,17 @@ test("tour paging stays inside the pages", () => {
 });
 
 describe("tips", () => {
-  const none: TipFacts = { hasCard: false, needsYou: false, openIdea: false, movedToFinished: false, hasArtifact: false };
+  const none: TipFacts = { hasCard: false, needsYou: false, openIdea: false, movedToFinished: false, hasArtifact: false, hasAgentTag: false };
   test("nothing to show without a fact", () => {
     expect(nextTip({ tipsSeen: [], facts: none, blocked: false })).toBeNull();
   });
   test("one tip at a time, waiting-for-you first", () => {
-    const facts = { hasCard: true, needsYou: true, openIdea: true, movedToFinished: false, hasArtifact: true };
+    const facts = { hasCard: true, needsYou: true, openIdea: true, movedToFinished: false, hasArtifact: true, hasAgentTag: true };
     expect(nextTip({ tipsSeen: [], facts, blocked: false })).toBe("needs-you");
     expect(nextTip({ tipsSeen: ["needs-you"], facts, blocked: false })).toBe("first-idea");
     expect(nextTip({ tipsSeen: ["needs-you", "first-idea"], facts, blocked: false })).toBe("first-artifact");
-    expect(nextTip({ tipsSeen: ["needs-you", "first-idea", "first-artifact"], facts, blocked: false })).toBe("first-card");
+    expect(nextTip({ tipsSeen: ["needs-you", "first-idea", "first-artifact"], facts, blocked: false })).toBe("first-tag");
+    expect(nextTip({ tipsSeen: ["needs-you", "first-idea", "first-artifact", "first-tag"], facts, blocked: false })).toBe("first-card");
   });
   test("a tip is shown once", () => {
     const facts = { ...none, movedToFinished: true };

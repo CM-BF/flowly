@@ -5,12 +5,15 @@ import { randomUUID } from "node:crypto";
 import { ideaTitleKey } from "../shared/ideas";
 import { isResolved, linksOf } from "../shared/links";
 import { absoluteTarget, artifactsOf } from "../shared/artifacts";
+import { changeTags, normalizeTags, projectTagStats, tagChangeNote } from "../shared/tags";
+import { setTags } from "./store";
 import { artifactRoots, dropArtifact, missingArtifacts, normalizeTarget, putArtifact } from "./artifacts";
 import {
   agentStatuses,
   ideaInputSchema,
   artifactInputSchema,
   artifactRemovalSchema,
+  tagsInputSchema,
   progressInputSchema,
   statusInputSchema,
   type ToolIdentity,
@@ -21,6 +24,7 @@ import {
   type IdeaInput,
   type ArtifactToolInput,
   type ArtifactRemovalInput,
+  type TagsToolInput,
 } from "../shared/tools";
 import { BoardStore } from "./store";
 import { BoardService } from "./service";
@@ -158,6 +162,7 @@ export class AgentService {
       sessions: { entries: entries.slice(0, 20), partial, unavailableReason },
       ...(await this.store.read().then(async (board) => ({
         activity: board.events.filter((e) => e.taskId === r.task.id).slice(-20),
+        projectTags: projectTagStats(board.tasks, r.project.id).map(({ tag, count }) => ({ tag, count })),
         ideas: board.ideas
           .filter((i) => i.taskId === r.task.id)
           .map((i) => ({
@@ -206,10 +211,10 @@ export class AgentService {
   }
   async write(
     identity: ToolIdentity,
-    action: "status" | "progress" | "idea" | "artifact" | "artifact_remove",
+    action: "status" | "progress" | "idea" | "artifact" | "artifact_remove" | "tags",
     raw: unknown,
   ): Promise<ToolResult> {
-    const input: StatusInput | ProgressInput | IdeaInput | ArtifactToolInput | ArtifactRemovalInput =
+    const input: StatusInput | ProgressInput | IdeaInput | ArtifactToolInput | ArtifactRemovalInput | TagsToolInput =
       action === "status"
         ? statusInputSchema.parse(raw)
         : action === "idea"
@@ -218,7 +223,9 @@ export class AgentService {
             ? artifactInputSchema.parse(raw)
             : action === "artifact_remove"
               ? artifactRemovalSchema.parse(raw)
-              : progressInputSchema.parse(raw);
+              : action === "tags"
+                ? tagsInputSchema.parse(raw)
+                : progressInputSchema.parse(raw);
     const signed = this.secrets.validateRequest(
       identity,
       input.request,
@@ -238,6 +245,8 @@ export class AgentService {
             throw new ToolError("ARTIFACT_INVALID", e instanceof Error ? e.message : String(e));
           })
         : undefined;
+    // Tags are normalized before the write; one invalid value refuses the whole call (CARD-TAGS-SPEC §4.1).
+    const tagEdit = action === "tags" || action === "idea" ? normalizeToolTags(action, input as TagsToolInput | IdeaInput) : undefined;
     const key = `${identity.agentId}:${digest(input.request.id)}`,
       payloadHash = digest(JSON.stringify({ action, input }));
     const result = await this.store.transaction((board) => {
@@ -343,8 +352,31 @@ export class AgentService {
             }
           })()
         : undefined;
+      const tagsEvent =
+        action === "tags"
+          ? (() => {
+              const at = new Date(this.clock()).toISOString();
+              let change;
+              try {
+                change = changeTags(task.tags || [], tagEdit!, { actor: "agent", agentId: identity.agentId, at });
+              } catch (e) {
+                const text = e instanceof Error ? e.message : String(e);
+                throw new ToolError(text.startsWith("Only the user") ? "TAG_FORBIDDEN" : "TAG_INVALID", text);
+              }
+              if (!change.added.length && !change.removed.length) return { id: "", at };
+              setTags(task, change.tags);
+              return this.store.event(board, {
+                taskId: task.id,
+                agentId: identity.agentId,
+                actor: "agent",
+                action: "tags_changed",
+                note: tagChangeNote(change),
+              });
+            })()
+          : undefined;
       const event =
         artifactEvent ??
+        tagsEvent ??
         (action === "idea"
           ? this.store.event(board, {
               taskId: task.id,
@@ -379,6 +411,7 @@ export class AgentService {
           context: idea.context,
           ...(idea.type ? { type: idea.type } : {}),
           ...(idea.priority ? { priority: idea.priority } : {}),
+          ...(tagEdit?.add.length ? { tags: tagEdit.add } : {}),
           scope: idea.scope,
           status: "open",
           createdAt: event.at,
@@ -432,6 +465,19 @@ export class AgentService {
 export function resolveAgentStatus(requested: StatusInput["status"], current: Status): Status {
   if (requested !== legacyStatus) return requested;
   return isWorkStatus(current) ? current : "development";
+}
+
+/** Normalized add/remove lists of a tags call, or an idea's suggested tags as `add`. */
+function normalizeToolTags(action: "tags" | "idea", input: TagsToolInput | IdeaInput) {
+  try {
+    if (action === "idea") return { add: normalizeTags((input as IdeaInput).tags || []), remove: [] };
+    const t = input as TagsToolInput;
+    const edit = { add: normalizeTags(t.add), remove: normalizeTags(t.remove) };
+    if (!edit.add.length && !edit.remove.length) throw new Error("Add or remove at least one tag.");
+    return edit;
+  } catch (e) {
+    throw new ToolError("TAG_INVALID", e instanceof Error ? e.message : String(e));
+  }
 }
 
 const ideaField = (ideaId: string | undefined) => (ideaId ? { ideaId } : {});

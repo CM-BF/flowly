@@ -18,6 +18,7 @@ import {
   taskInput,
   taskDeletion,
   taskEdit,
+  taskTagsEdit,
   taskPlacement,
   projectSchema,
   taskSchema,
@@ -164,6 +165,12 @@ export const createTask = defineRpc({
 export const updateTask = defineRpc({
   name: "tasks.update",
   input: taskEdit,
+  output: taskSchema,
+});
+/** Add or remove single tags without the card revision (CARD-TAGS-SPEC §3). */
+export const updateTaskTags = defineRpc({
+  name: "tasks.tags",
+  input: taskTagsEdit,
   output: taskSchema,
 });
 /** Dismiss or restore an idea (IDEAS-SPEC §7). */

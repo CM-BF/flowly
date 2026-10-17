@@ -2,8 +2,10 @@ export const cliSource = String.raw`#!/usr/bin/env node
 import {readFile, writeFile} from 'node:fs/promises';
 
 const args=process.argv.slice(2), opts={}, positional=[];
-const allowed=new Set(['context-file','save-request','request-file','task-revision','project-revision','note','kind','title','detail','rationale','context','type','priority','scope','role','target','id']);
-const ideaFlags=['detail','rationale','context','type','priority','scope'];
+const allowed=new Set(['context-file','save-request','request-file','task-revision','project-revision','note','kind','title','detail','rationale','context','type','priority','scope','role','target','id','add','remove','tags']);
+const ideaFlags=['detail','rationale','context','type','priority','scope','tags'];
+const tagFlags=['add','remove'];
+const list=v=>v===undefined?[]:v.split(',').map(x=>x.trim()).filter(Boolean);
 const artifactFlags=['role','target','id'];
 function fail(message){throw new Error(message);}
 try {
@@ -12,7 +14,7 @@ try {
     if(arg.startsWith('--')) {const key=arg.slice(2);if(!allowed.has(key)||Object.hasOwn(opts,key))fail('Unknown or duplicate flag: '+arg); const value=args[++i];if(value===undefined||value.startsWith('--'))fail('Missing value for '+arg);opts[key]=value;}
     else positional.push(arg);
   }
-  const command=positional[0];if(!['current','get','status','note','idea','artifact','artifact-remove'].includes(command))fail('Usage: current [--save-request path] | status <design|development|test|blocked|in_review> | note | idea --title --detail --rationale [--context --type --priority --scope here|new] | artifact --role input|output --target <path or link> [--title --note] | artifact-remove --id <artifact id>, with --context-file and --request-file.');
+  const command=positional[0];if(!['current','get','status','note','idea','artifact','artifact-remove','tags'].includes(command))fail('Usage: current [--save-request path] | status <design|development|test|blocked|in_review> | note | idea --title --detail --rationale [--context --type --priority --scope here|new] | artifact --role input|output --target <path or link> [--title --note] | artifact-remove --id <artifact id> | tags [--add a,b] [--remove c], with --context-file and --request-file.');
   if(positional.length!==(command==='status'?2:1))fail('Unexpected positional arguments.');
   const path=opts['context-file']||process.env.ULTRA_KANBAN_CONTEXT_FILE;if(!path)fail('No session context. Use the command supplied by the card drawer.');
   const context=JSON.parse(await readFile(path,'utf8'));
@@ -24,19 +26,22 @@ try {
   if(command!=='idea'&&ideaFlags.some(k=>opts[k]!==undefined))fail('--'+ideaFlags.find(k=>opts[k]!==undefined)+' is only valid for idea.');
   if(opts.title!==undefined&&!['idea','artifact'].includes(command))fail('--title is only valid for idea and artifact.');
   if(!['artifact','artifact-remove'].includes(command)&&artifactFlags.some(k=>opts[k]!==undefined))fail('--'+artifactFlags.find(k=>opts[k]!==undefined)+' is only valid for artifact commands.');
+  if(command!=='tags'&&tagFlags.some(k=>opts[k]!==undefined))fail('--'+tagFlags.find(k=>opts[k]!==undefined)+' is only valid for tags.');
   if(command==='get'||command==='current') {if(['request-file','task-revision','project-revision','note','kind','role','target','id'].some(k=>opts[k]!==undefined))fail('Write flags are not valid for current.');}
   else {
     if(opts['save-request'])fail('--save-request is only valid for current.');
     if(command==='idea'){if(!opts['request-file']||!opts.title?.trim()||!opts.detail?.trim()||!opts.rationale?.trim())fail('idea requires --request-file, --title, --detail and --rationale.');if(opts.note||opts.kind)fail('--note and --kind are not valid for idea.');}
     else if(command==='artifact'){if(!opts['request-file']||!opts.role||!opts.target?.trim())fail('artifact requires --request-file, --role and --target.');if(opts.kind||opts.id)fail('--kind and --id are not valid for artifact.');}
     else if(command==='artifact-remove'){if(!opts['request-file']||!opts.id)fail('artifact-remove requires --request-file and --id.');if(opts.note||opts.kind||opts.role||opts.target)fail('Only --id is valid for artifact-remove.');}
+    else if(command==='tags'){if(!opts['request-file']||(!list(opts.add).length&&!list(opts.remove).length))fail('tags requires --request-file and --add or --remove (comma-separated).');if(opts.note||opts.kind)fail('--note and --kind are not valid for tags.');}
     else if(!opts['request-file']||!opts.note?.trim())fail('Writes require --request-file and a nonempty --note.');
     const snapshot=JSON.parse(await readFile(opts['request-file'],'utf8'));
     if(snapshot.identity?.agentId!==context.identity.agentId||snapshot.identity?.taskId!==context.identity.taskId)fail('Snapshot belongs to another session/card.');
     if(!snapshot.request||!snapshot.revision)fail('Invalid request snapshot. Run current --save-request first.');
     for(const [key,part] of [['task-revision','task'],['project-revision','project']])if(opts[key]!==undefined&&(!/^[1-9][0-9]*$/.test(opts[key])||Number(opts[key])!==snapshot.revision[part]))fail('Explicit revision does not match the snapshot.');
     input={expectedRevision:snapshot.revision,request:snapshot.request,note:opts.note};
-    if(command==='idea'){action='idea';input={expectedRevision:snapshot.revision,request:snapshot.request,title:opts.title};for(const k of ideaFlags)if(opts[k]!==undefined)input[k]=opts[k];}
+    if(command==='idea'){action='idea';input={expectedRevision:snapshot.revision,request:snapshot.request,title:opts.title};for(const k of ideaFlags)if(opts[k]!==undefined)input[k]=k==='tags'?list(opts[k]):opts[k];}
+    else if(command==='tags'){action='tags';input={expectedRevision:snapshot.revision,request:snapshot.request,add:list(opts.add),remove:list(opts.remove)};}
     else if(command==='artifact'){action='artifact';input={expectedRevision:snapshot.revision,request:snapshot.request,role:opts.role,target:opts.target};for(const k of ['title','note'])if(opts[k]!==undefined)input[k]=opts[k];}
     else if(command==='artifact-remove'){action='artifact_remove';input={expectedRevision:snapshot.revision,request:snapshot.request,id:opts.id};}
     else if(command==='status'){if(opts.kind)fail('--kind is only valid for note.');action='status';input.status=positional[1];}

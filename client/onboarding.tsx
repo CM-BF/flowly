@@ -203,6 +203,7 @@ function FeaturesPage() {
     { icon: "Brain", color: colors.accent, title: t("Run summaries"), text: t("After every turn a cheap model keeps the card's state, recap and next step up to date.") },
     { icon: "Lightbulb", color: colors.statusSuccess, title: t("Follow-up ideas"), text: t("Work an agent finds along the way lands in the Ideas inbox. Good idea or Not now.") },
     { icon: "Package", color: colors.accent, title: t("Inputs and outputs"), text: t("Each card lists the files and links it worked from and delivered, added by agents or by you.") },
+    { icon: "Tags", color: colors.accent, title: t("Tags"), text: t("Tag cards by module or direction. Agents tag their own cards too; filter and search by #tag.") },
     { icon: "CircleGauge", color: colors.accent, title: t("Project insights"), text: t("Today's cards, turns, agent time, commits, tokens and what is waiting on you.") },
     { icon: "FolderGit2", color: colors.statusSuccess, title: t("Saved with your project"), text: t("Each project's board is also kept in its folder (.flowly, ignored by git). Add the folder again to restore it.") },
   ];

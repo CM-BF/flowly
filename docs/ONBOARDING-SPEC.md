@@ -66,7 +66,7 @@ Primary **Create project** (opens the existing project form after the tour close
 
 ### 5. One-time contextual tips (small, non-modal)
 
-A tip is a single dismissible banner row (icon, one sentence, **Got it**) under the overview bar; only **Got it** records it as seen. Priority when several apply: needs-you, first-done, first-idea, first-artifact, first-card. The empty-project hint takes the same slot and wins at the top of the relevant surface, using theme colours. At most one tip is visible at a time; a tip appears at most once per host (`tipsSeen`); dismissing or acting on the feature records it. Tips never block input, never move a focused input, and are not shown while the welcome tour is open.
+A tip is a single dismissible banner row (icon, one sentence, **Got it**) under the overview bar; only **Got it** records it as seen. Priority when several apply: needs-you, first-done, first-idea, first-artifact, first-tag, first-card. The empty-project hint takes the same slot and wins at the top of the relevant surface, using theme colours. At most one tip is visible at a time; a tip appears at most once per host (`tipsSeen`); dismissing or acting on the feature records it. Tips never block input, never move a focused input, and are not shown while the welcome tour is open.
 
 | Tip id | Shown when | Text |
 | --- | --- | --- |
@@ -74,6 +74,7 @@ A tip is a single dismissible banner row (icon, one sentence, **Got it**) under 
 | `needs-you` | the first time any card in the project is Needs you | "A card is waiting for you. Reply goes straight to the session." |
 | `first-idea` | the first time Ideas has an open item | "An agent suggested follow-up work. Good idea starts a card or continues here; Not now dismisses it." |
 | `first-artifact` | a card of the project has an artifact and no card is open | "Cards now collect artifacts: the files and links a task worked from and delivered. Agents add them as they work; you can add your own in the card." |
+| `first-tag` | a card of the project has a tag an agent added and no card is open | "Agents tag their cards by module and direction. Open a card and tap a tag to filter the board by it, or search #tag." |
 | `first-done` | the user first moves a card to Done/Cancelled | "Done cards can be wrapped up: archive their sessions and workspace. Auto wrap up is in settings." |
 
 Tips are the lowest-priority part of this feature and can ship after the tour (see Delivery).
