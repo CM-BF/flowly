@@ -71,6 +71,15 @@ The open card's content (its header included) sat offset to the left while the h
 - Shared transitions set their final value from JS when the native animation finishes, and an interrupted reveal resets to its rest value.
 - `MotionReveal` no longer animates on first mount (the surrounding card or board already brings it in); only identity changes animate.
 
+### Follow-up: Back from a session left the card half revealed (user report, phone)
+
+Occasionally, after Back from a session, the card details stayed faded and offset while still accepting touches. Two remaining paths could leave a stale value on screen:
+
+- The reveal range was keyed by direction (`[direction * distance, 0]`), and forward/Back flip the direction, so every Back swapped the view's animated props node in the same frame the reverse transition started. On Android's new architecture the old node's detach restores and disconnects values asynchronously, racing the new animation.
+- A stopped native animation reports its end asynchronously, and React Native then syncs the JS value to where the native animation stood and commits it, after the reveal had already reset to rest.
+
+`MotionReveal` now animates one signed offset (±1 → 0) through fixed interpolation nodes for both directions, and after every native end, unless a newer reveal is moving, sets the rest value again on both sides and commits it.
+
 ## 4. Constraints kept
 
 - No second Paseo connection: the subscription uses the supplied SDK. No new dependency, no DOM, no private host import.

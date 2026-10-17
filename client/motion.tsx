@@ -148,30 +148,57 @@ export function MotionReveal({
   ...props
 }: ViewProps & { transitionKey: string; direction?: number; distance?: number }) {
   const reduced = useContext(ReduceMotion);
-  const [progress] = useState(() => new Animated.Value(1));
+  // Signed offset: starts at ±1 (the side it comes from) and rests at 0, so
+  // one set of interpolation nodes serves both directions. A direction-keyed
+  // range swapped the props node on every forward/Back, which on Android's new
+  // architecture could restore stale values mid-transition (user report:
+  // returning from a session left the card half faded and offset).
+  const [offset] = useState(() => new Animated.Value(0));
+  const [, resync] = useState(0);
   const previous = useRef<string | undefined>(undefined);
+  const running = useRef(0);
+  const generation = useRef(0);
+  const alive = useRef(true);
+  useEffect(() => {
+    alive.current = true;
+    return () => { alive.current = false; };
+  }, []);
   useLayoutEffect(() => {
+    const run = ++generation.current;
     // First mount: the surrounding surface brings it in; only identity changes animate.
     if (previous.current === undefined || previous.current === transitionKey || reduced) {
       previous.current = transitionKey;
-      progress.setValue(1);
+      offset.setValue(0);
       return;
     }
     previous.current = transitionKey;
-    progress.setValue(0);
+    offset.setValue(direction < 0 ? -1 : 1);
     const native = Platform.OS !== "web";
-    const animation = timing(progress, 1, direction < 0 ? motionDuration.reverse : motionDuration.forward, native);
-    play(animation, progress, 1, native);
+    const animation = timing(offset, 0, direction < 0 ? motionDuration.reverse : motionDuration.forward, native);
+    running.current = run;
+    animation.start(() => {
+      if (running.current === run) running.current = 0;
+      if (!native) return;
+      // A native end (finished or stopped) syncs the JS value to where the
+      // native animation stood, after this callback and possibly after a newer
+      // setValue. Unless a newer reveal is moving, put the rest value back on
+      // both sides and commit it, so no stale offset can stay on screen.
+      queueMicrotask(() => {
+        if (running.current !== 0 || !alive.current) return;
+        offset.setValue(0);
+        resync((n) => n + 1);
+      });
+    });
     return () => {
       animation.stop();
       // An interrupted reveal never stays offset.
-      progress.setValue(1);
+      offset.setValue(0);
     };
-  }, [transitionKey, direction, reduced, progress]);
+  }, [transitionKey, direction, reduced, offset]);
   return (
     <Animated.View {...props} style={[style, {
-      opacity: lerp(progress, [0.65, 1]),
-      transform: [{ translateX: lerp(progress, [direction * distance, 0]) }],
+      opacity: lerp(offset, [0.65, 1, 0.65], [-1, 0, 1]),
+      transform: [{ translateX: lerp(offset, [-distance, 0, distance], [-1, 0, 1]) }],
     }]}>{children}</Animated.View>
   );
 }
