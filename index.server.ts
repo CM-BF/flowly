@@ -6,7 +6,7 @@ import { NativeDirectoryPicker, detectNativePicker, listDirectories } from "./se
 import * as rpc from "./shared/rpc";
 import { boardViewSettings, ideasSettings, languageSettings, modelSettings, onboardingSettings, ideasSettingsValues, statusSettings, statusSettingsValues, wrapupSettings, wrapupSettingsValues } from "./shared/settings";
 import { ToolServer } from "./server/tool-server";
-import { SessionReadStore, SessionReadService } from "./server/session-reads";
+import { SessionReadStore, SessionReadService, daemonNativeAttention } from "./server/session-reads";
 import { WrapupService } from "./server/wrapup";
 import { WorkspaceRestoreService } from "./server/workspace-restore";
 import { SessionImageService } from "./server/session-images";
@@ -93,7 +93,15 @@ export default function contribute(server: PluginServerContext) {
     return { path: snapshotPath(project.primaryPath), savedAt: state?.savedAt ?? "", error: state?.error ?? "" };
   });
   const sessionReads = new SessionReadStore(store.directory);
-  const readService = new SessionReadService(store, sessionReads);
+  const readService = new SessionReadService(store, sessionReads, daemonNativeAttention());
+  // Sessions read in Flowly before read state synced (or whose sync failed) are
+  // cleared in Paseo too; retried once if the daemon is not reachable yet.
+  const syncReads = (retry: boolean) =>
+    readService.syncNative().catch((e) => {
+      console.error("Flowly read-state sync failed:", e instanceof Error ? e.message : String(e));
+      if (retry) setTimeout(() => void syncReads(false), 30_000).unref?.();
+    });
+  void syncReads(true);
   server.handle(rpc.readSessionReceipts, () => sessionReads.read());
   server.handle(rpc.markSessionRead, (input, { paseo }) =>
     readService.mark(input, paseo),

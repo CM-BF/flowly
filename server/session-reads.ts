@@ -10,8 +10,11 @@ import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import type { PaseoApi } from "@getpaseo/client";
 import { BoardStore } from "./store";
+import { openLocalDaemon } from "./local-daemon";
+import { paseoHome } from "./service";
 import {
   nativeAttentionToken,
+  type AttentionAgent,
   sessionReadStateSchema,
   manualUnreadToken,
   markSessionReadInput,
@@ -151,10 +154,70 @@ export class SessionReadStore {
   }
 }
 
+/** One short-lived connection to Paseo's own (native) read state. */
+export interface NativeAttentionConnection {
+  /** Live (unarchived) sessions with their native attention fields. */
+  agents(): Promise<AttentionAgent[]>;
+  /** Clears Paseo's unread/attention flag, as reading the session in Paseo does. */
+  clear(agentIds: string[]): Promise<void>;
+  close(): Promise<void>;
+}
+export interface NativeAttention {
+  connect(): Promise<NativeAttentionConnection>;
+}
+
+/**
+ * COMPAT(sdk-local-daemon): `PaseoApi` cannot clear a session's attention in
+ * @getpaseo/client 0.11.2; the daemon serves `clear_agent_attention`. Use a
+ * short-lived local connection until the SDK exposes it (SESSION-ATTENTION-SPEC).
+ */
+export function daemonNativeAttention(home = paseoHome()): NativeAttention {
+  return {
+    async connect() {
+      const client = await openLocalDaemon(
+        home,
+        "flowly-session-reads",
+        ["clearAgentAttention", "fetchAgents"],
+        "This Paseo version cannot sync read state.",
+      );
+      return {
+        async agents() {
+          const found: AttentionAgent[] = [];
+          let cursor: string | undefined;
+          do {
+            const page = await client.fetchAgents({ page: { limit: 200, cursor } });
+            for (const { agent } of page.entries) found.push(agent as AttentionAgent);
+            cursor = page.pageInfo.nextCursor ?? undefined;
+          } while (cursor);
+          return found;
+        },
+        clear: (ids) => client.clearAgentAttention(ids),
+        close: () => client.close().catch(() => undefined),
+      };
+    },
+  };
+}
+
+/**
+ * Receipts whose token is still the session's current native attention: read in
+ * Flowly, still unread in Paseo. Manual unread marks never clear anything.
+ */
+export function unsyncedReads(receipts: readonly SessionReadReceipt[], agents: readonly AttentionAgent[]) {
+  const live = new Map(agents.filter((a) => !a.archivedAt).map((a) => [a.id, a]));
+  const ids = new Set<string>();
+  for (const r of receipts) {
+    if (r.token === manualUnreadToken) continue;
+    const agent = live.get(r.agentId);
+    if (agent && agent.workspaceId === r.workspaceId && nativeAttentionToken(agent) === r.token) ids.add(agent.id);
+  }
+  return [...ids];
+}
+
 export class SessionReadService {
   constructor(
     readonly board: BoardStore,
     readonly reads: SessionReadStore,
+    readonly native: NativeAttention | null = null,
   ) {}
   /** The task must be live and the session must belong to its workspace. */
   private async current(input: { taskId: string; agentId: string }, paseo: PaseoApi) {
@@ -186,8 +249,38 @@ export class SessionReadService {
       token: nativeAttentionToken(actor),
     };
   }
-  mark(input: MarkSessionReadInput, paseo: PaseoApi) {
-    return this.reads.mark(input, () => this.current(input, paseo));
+  async mark(input: MarkSessionReadInput, paseo: PaseoApi) {
+    const receipt = await this.reads.mark(input, () => this.current(input, paseo));
+    // The Flowly receipt is committed; Paseo's own unread flag follows. A failure
+    // keeps the receipt and is retried by `syncNative`.
+    if (receipt && receipt.token !== manualUnreadToken) await this.clearNative([receipt.agentId]);
+    return receipt;
+  }
+  private async clearNative(agentIds: string[]) {
+    if (!this.native || agentIds.length === 0) return true;
+    let connection: NativeAttentionConnection | null = null;
+    try {
+      connection = await this.native.connect();
+      await connection.clear(agentIds);
+      return true;
+    } catch (e) {
+      console.error("Flowly could not clear Paseo read state:", e instanceof Error ? e.message : String(e));
+      return false;
+    } finally {
+      await connection?.close();
+    }
+  }
+  /** Clears Paseo's unread flag for every session Flowly already marked read. Returns the cleared count. */
+  async syncNative(): Promise<number> {
+    if (!this.native) return 0;
+    const connection = await this.native.connect();
+    try {
+      const ids = unsyncedReads((await this.reads.read()).receipts, await connection.agents());
+      if (ids.length) await connection.clear(ids);
+      return ids.length;
+    } finally {
+      await connection.close();
+    }
   }
   markUnread(input: MarkSessionUnreadInput, paseo: PaseoApi) {
     return this.reads.markUnread(input, () => this.current(input, paseo));

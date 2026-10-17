@@ -1,6 +1,4 @@
-import { readFile } from "node:fs/promises";
-import { join } from "node:path";
-import { DaemonClient } from "@getpaseo/client/internal/daemon-client";
+import { openLocalDaemon } from "./local-daemon";
 import type { BoardStore } from "./store";
 import type { BoardEvent } from "../shared/model";
 import { paseoHome } from "./service";
@@ -30,36 +28,19 @@ export interface WorkspaceRecovery {
  * COMPAT(sdk-workspace-restore): the plugin SDK (`PaseoApi`) has no workspace
  * restore or session unarchive in @getpaseo/client 0.11.2, but the daemon
  * serves `workspace.recovery.inspect/restore` and agent refresh (which
- * unarchives). Until the SDK exposes them, open a short-lived local connection
- * the way the `paseo` CLI does: the address from `paseo.pid` and the local
- * credential file. The token is never logged. Replace with the SDK calls once
- * they exist (WORKSPACE-RESTORE-SPEC).
+ * unarchives). Until the SDK exposes them, use a short-lived local connection
+ * (`openLocalDaemon`). Replace with the SDK calls once they exist
+ * (WORKSPACE-RESTORE-SPEC).
  */
 export function daemonWorkspaceRecovery(home = paseoHome()): WorkspaceRecovery {
   return {
     async connect() {
-      const lock = JSON.parse(await readFile(join(home, "paseo.pid"), "utf8")) as { listen?: unknown };
-      const listen = typeof lock.listen === "string" ? lock.listen.trim().replace(/^tcp:\/\//, "") : "";
-      if (!/^[\w.-]+:\d+$|^\[[\da-f:]+\]:\d+$/i.test(listen))
-        throw new Error("The Paseo daemon address is not a local TCP endpoint.");
-      const token = (await readFile(join(home, "local-credential"), "utf8").catch(() => "")).trim();
-      if (!/^[A-Za-z0-9_-]{43}$/.test(token)) throw new Error("The Paseo local credential is unavailable.");
-      const client = new DaemonClient({
-        url: `ws://${listen}/ws`,
-        clientId: "paseo-ultra-kanban-restore",
-        clientType: "cli",
-        localCredential: () => token,
-        reconnect: { enabled: false },
-        connectTimeoutMs: 5000,
-      });
-      try {
-        await client.connect();
-        for (const method of ["inspectWorkspaceRecovery", "restoreWorkspace", "fetchAgents", "fetchAgent", "refreshAgent"] as const)
-          if (typeof client[method] !== "function") throw new Error("This Paseo version cannot restore workspaces.");
-      } catch (e) {
-        await client.close().catch(() => undefined);
-        throw e;
-      }
+      const client = await openLocalDaemon(
+        home,
+        "paseo-ultra-kanban-restore",
+        ["inspectWorkspaceRecovery", "restoreWorkspace", "fetchAgents", "fetchAgent", "refreshAgent"],
+        "This Paseo version cannot restore workspaces.",
+      );
       return {
         inspect: (id) => client.inspectWorkspaceRecovery(id) as Promise<RecoveryState>,
         restore: (id) => client.restoreWorkspace(id),
