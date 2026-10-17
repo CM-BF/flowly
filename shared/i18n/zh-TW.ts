@@ -208,6 +208,7 @@ const catalog: Catalog = {
   "Edited the task": "編輯了任務",
   "Changed status": "更改了狀態",
   "Changed archive state": "更改了封存狀態",
+  "Set the task type": "設定了任務類型",
   "Archived the workspace": "封存了工作區",
   "Kept the workspace": "保留了工作區",
   "Restored the workspace": "恢復了工作區",

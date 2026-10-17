@@ -14,6 +14,7 @@ import {
   artifactInputSchema,
   artifactRemovalSchema,
   tagsInputSchema,
+  typeInputSchema,
   progressInputSchema,
   statusInputSchema,
   type ToolIdentity,
@@ -25,6 +26,7 @@ import {
   type ArtifactToolInput,
   type ArtifactRemovalInput,
   type TagsToolInput,
+  type TypeToolInput,
 } from "../shared/tools";
 import { BoardStore } from "./store";
 import { BoardService } from "./service";
@@ -211,10 +213,10 @@ export class AgentService {
   }
   async write(
     identity: ToolIdentity,
-    action: "status" | "progress" | "idea" | "artifact" | "artifact_remove" | "tags",
+    action: "status" | "progress" | "idea" | "artifact" | "artifact_remove" | "tags" | "type",
     raw: unknown,
   ): Promise<ToolResult> {
-    const input: StatusInput | ProgressInput | IdeaInput | ArtifactToolInput | ArtifactRemovalInput | TagsToolInput =
+    const input: StatusInput | ProgressInput | IdeaInput | ArtifactToolInput | ArtifactRemovalInput | TagsToolInput | TypeToolInput =
       action === "status"
         ? statusInputSchema.parse(raw)
         : action === "idea"
@@ -225,7 +227,9 @@ export class AgentService {
               ? artifactRemovalSchema.parse(raw)
               : action === "tags"
                 ? tagsInputSchema.parse(raw)
-                : progressInputSchema.parse(raw);
+                : action === "type"
+                  ? typeInputSchema.parse(raw)
+                  : progressInputSchema.parse(raw);
     const signed = this.secrets.validateRequest(
       identity,
       input.request,
@@ -374,9 +378,33 @@ export class AgentService {
               });
             })()
           : undefined;
+      // An agent only fills in a missing type; any existing type stays (CARD-TYPE-SPEC §2).
+      const typeEvent =
+        action === "type"
+          ? (() => {
+              const type = (input as TypeToolInput).type;
+              if (task.type === type) return { id: "", at: new Date(this.clock()).toISOString() };
+              if (task.type)
+                throw new ToolError(
+                  "TYPE_ALREADY_SET",
+                  `This card already has type ${task.type}; only the user changes an existing type.`,
+                );
+              task.type = type;
+              task.revision++;
+              task.updatedAt = new Date(this.clock()).toISOString();
+              return this.store.event(board, {
+                taskId: task.id,
+                agentId: identity.agentId,
+                actor: "agent",
+                action: "type_set",
+                note: type,
+              });
+            })()
+          : undefined;
       const event =
         artifactEvent ??
         tagsEvent ??
+        typeEvent ??
         (action === "idea"
           ? this.store.event(board, {
               taskId: task.id,

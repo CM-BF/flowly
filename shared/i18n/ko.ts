@@ -208,6 +208,7 @@ const catalog: Catalog = {
   "Edited the task": "작업을 수정했습니다",
   "Changed status": "상태를 변경했습니다",
   "Changed archive state": "보관 상태를 변경했습니다",
+  "Set the task type": "작업 유형을 설정했습니다",
   "Archived the workspace": "워크스페이스를 보관했습니다",
   "Kept the workspace": "워크스페이스를 유지했습니다",
   "Restored the workspace": "워크스페이스를 복원했습니다",

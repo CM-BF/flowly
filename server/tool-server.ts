@@ -23,6 +23,7 @@ import {
   artifactInputSchema,
   artifactRemovalSchema,
   tagsInputSchema,
+  typeInputSchema,
   progressInputSchema,
   statusInputSchema,
   toolContextSchema,
@@ -239,6 +240,17 @@ export class ToolServer {
           },
           (input) => wrap(() => this.agents.write(identity, "tags", input)),
         );
+        mcp.registerTool(
+          "kanban_set_type",
+          {
+            description:
+              "Set this card's type (feature, bugfix, research, refactor, docs, chore) when it has none: task.type is missing in get_task. Choose it once you understand the work. A type the user or an agent already set is kept: the call returns TYPE_ALREADY_SET and changes nothing, so do not retry with another type. Increments the task revision. Copy revisions/request from get_task.",
+            inputSchema: typeInputSchema,
+            outputSchema: toolResultSchema,
+            annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+          },
+          (input) => wrap(() => this.agents.write(identity, "type", input)),
+        );
         return mcp;
       },
       { responseMode: "json", maxRequestBodySize: 65536 },
@@ -323,7 +335,7 @@ export class ToolServer {
     }
     const body = z
       .strictObject({
-        action: z.enum(["get", "status", "progress", "idea", "artifact", "artifact_remove", "tags"]),
+        action: z.enum(["get", "status", "progress", "idea", "artifact", "artifact_remove", "tags", "type"]),
         input: z.unknown(),
       })
       .parse(JSON.parse(Buffer.concat(chunks).toString("utf8")));

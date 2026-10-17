@@ -948,6 +948,7 @@ const activityText: Record<string, string> = localizedLabels({
   edited: msg("Edited the task"),
   status_changed: msg("Changed status"),
   archive_changed: msg("Changed archive state"),
+  type_set: msg("Set the task type"),
   workspace_auto_archived: msg("Archived the workspace"),
   workspace_auto_archive_skipped: msg("Kept the workspace"),
   workspace_restored: msg("Restored the workspace"),
@@ -1002,7 +1003,7 @@ function ActivityItem({
         )}
         {!!event.note && (
           <Label muted={!question} size={font.sm} lines={question ? 8 : 4}>
-            {event.note}
+            {event.action === "type_set" && (taskTypes as readonly string[]).includes(event.note) ? taskTypeLabels[event.note as Task["type"] & string] : event.note}
           </Label>
         )}
         <Label muted size={font.xs}>

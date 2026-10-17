@@ -350,3 +350,35 @@ test("the retired in_progress status is an alias: keeps the work stage, else Dev
   expect(result.receipt.status).toBe("test");
   expect((await x.store.read()).tasks[0].status).toBe("test");
 });
+test("an agent sets a missing type once; an existing type is kept", async () => {
+  const x = await setup();
+  expect((await x.store.read()).tasks[0].type).toBeUndefined();
+  let ctx = await x.service.get(x.identity);
+  const call = { expectedRevision: ctx.revision, request: ctx.request, type: "bugfix" };
+  const set = await x.service.write(x.identity, "type", call);
+  let task = (await x.store.read()).tasks[0];
+  expect(task.type).toBe("bugfix");
+  expect(task.revision).toBe(ctx.revision.task + 1);
+  expect((await x.store.read()).events.at(-1)).toMatchObject({ action: "type_set", actor: "agent", note: "bugfix" });
+  // A replay acknowledges the original write without another change.
+  expect((await x.service.write(x.identity, "type", call)).replayed).toBe(true);
+  ctx = await x.service.get(x.identity);
+  await expect(
+    x.service.write(x.identity, "type", { expectedRevision: ctx.revision, request: ctx.request, type: "feature" }),
+  ).rejects.toMatchObject({ code: "TYPE_ALREADY_SET" });
+  // The same type again changes nothing.
+  const same = await x.service.write(x.identity, "type", { expectedRevision: ctx.revision, request: ctx.request, type: "bugfix" });
+  expect(same.receipt.eventId).toBe("");
+  expect(same.receipt.taskRevision).toBe(set.receipt.taskRevision);
+  // A type the user chose is never replaced.
+  task = (await x.store.read()).tasks[0];
+  await x.store.editTask({ id: "t", revision: task.revision, type: "docs", actor: "human" });
+  ctx = await x.service.get(x.identity);
+  await expect(
+    x.service.write(x.identity, "type", { expectedRevision: ctx.revision, request: ctx.request, type: "chore" }),
+  ).rejects.toMatchObject({ code: "TYPE_ALREADY_SET" });
+  expect((await x.store.read()).tasks[0].type).toBe("docs");
+  await expect(
+    x.service.write(x.identity, "type", { expectedRevision: ctx.revision, request: ctx.request, type: "epic" }),
+  ).rejects.toThrow();
+});

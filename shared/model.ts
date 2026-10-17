@@ -279,7 +279,7 @@ export const receiptSchema = z.object({
   agentId: z.string(),
   taskId: z.string(),
   payloadHash: z.string(),
-  action: z.enum(["status", "progress", "idea", "artifact", "artifact_remove", "tags"]),
+  action: z.enum(["status", "progress", "idea", "artifact", "artifact_remove", "tags", "type"]),
   /** Empty when an artifact write changed nothing (same target already recorded). */
   eventId: z.string(),
   /** The artifact an artifact write added, updated or removed. */

@@ -208,6 +208,7 @@ const catalog: Catalog = {
   "Edited the task": "Hat die Aufgabe bearbeitet",
   "Changed status": "Hat den Status geändert",
   "Changed archive state": "Hat den Archivstatus geändert",
+  "Set the task type": "Hat den Aufgabentyp festgelegt",
   "Archived the workspace": "Hat den Workspace archiviert",
   "Kept the workspace": "Hat den Workspace behalten",
   "Restored the workspace": "Hat den Workspace wiederhergestellt",

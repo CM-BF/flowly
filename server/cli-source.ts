@@ -14,8 +14,8 @@ try {
     if(arg.startsWith('--')) {const key=arg.slice(2);if(!allowed.has(key)||Object.hasOwn(opts,key))fail('Unknown or duplicate flag: '+arg); const value=args[++i];if(value===undefined||value.startsWith('--'))fail('Missing value for '+arg);opts[key]=value;}
     else positional.push(arg);
   }
-  const command=positional[0];if(!['current','get','status','note','idea','artifact','artifact-remove','tags'].includes(command))fail('Usage: current [--save-request path] | status <design|development|test|blocked|in_review> | note | idea --title --detail --rationale [--context --type --priority --scope here|new] | artifact --role input|output --target <path or link> [--title --note] | artifact-remove --id <artifact id> | tags [--add a,b] [--remove c], with --context-file and --request-file.');
-  if(positional.length!==(command==='status'?2:1))fail('Unexpected positional arguments.');
+  const command=positional[0];if(!['current','get','status','note','idea','artifact','artifact-remove','tags','set-type'].includes(command))fail('Usage: current [--save-request path] | status <design|development|test|blocked|in_review> | note | idea --title --detail --rationale [--context --type --priority --scope here|new] | artifact --role input|output --target <path or link> [--title --note] | artifact-remove --id <artifact id> | tags [--add a,b] [--remove c] | set-type <feature|bugfix|research|refactor|docs|chore> (only when the card has no type), with --context-file and --request-file.');
+  if(positional.length!==(['status','set-type'].includes(command)?2:1))fail('Unexpected positional arguments.');
   const path=opts['context-file']||process.env.ULTRA_KANBAN_CONTEXT_FILE;if(!path)fail('No session context. Use the command supplied by the card drawer.');
   const context=JSON.parse(await readFile(path,'utf8'));
   if(context.version!==1||!context.identity||typeof context.credential!=='string'||typeof context.discoveryFile!=='string')fail('Invalid session context; ask the drawer to prepare it again.');
@@ -34,6 +34,7 @@ try {
     else if(command==='artifact'){if(!opts['request-file']||!opts.role||!opts.target?.trim())fail('artifact requires --request-file, --role and --target.');if(opts.kind||opts.id)fail('--kind and --id are not valid for artifact.');}
     else if(command==='artifact-remove'){if(!opts['request-file']||!opts.id)fail('artifact-remove requires --request-file and --id.');if(opts.note||opts.kind||opts.role||opts.target)fail('Only --id is valid for artifact-remove.');}
     else if(command==='tags'){if(!opts['request-file']||(!list(opts.add).length&&!list(opts.remove).length))fail('tags requires --request-file and --add or --remove (comma-separated).');if(opts.note||opts.kind)fail('--note and --kind are not valid for tags.');}
+    else if(command==='set-type'){if(!opts['request-file'])fail('set-type requires --request-file.');if(opts.note||opts.kind)fail('--note and --kind are not valid for set-type.');}
     else if(!opts['request-file']||!opts.note?.trim())fail('Writes require --request-file and a nonempty --note.');
     const snapshot=JSON.parse(await readFile(opts['request-file'],'utf8'));
     if(snapshot.identity?.agentId!==context.identity.agentId||snapshot.identity?.taskId!==context.identity.taskId)fail('Snapshot belongs to another session/card.');
@@ -42,6 +43,7 @@ try {
     input={expectedRevision:snapshot.revision,request:snapshot.request,note:opts.note};
     if(command==='idea'){action='idea';input={expectedRevision:snapshot.revision,request:snapshot.request,title:opts.title};for(const k of ideaFlags)if(opts[k]!==undefined)input[k]=k==='tags'?list(opts[k]):opts[k];}
     else if(command==='tags'){action='tags';input={expectedRevision:snapshot.revision,request:snapshot.request,add:list(opts.add),remove:list(opts.remove)};}
+    else if(command==='set-type'){action='type';input={expectedRevision:snapshot.revision,request:snapshot.request,type:positional[1]};}
     else if(command==='artifact'){action='artifact';input={expectedRevision:snapshot.revision,request:snapshot.request,role:opts.role,target:opts.target};for(const k of ['title','note'])if(opts[k]!==undefined)input[k]=opts[k];}
     else if(command==='artifact-remove'){action='artifact_remove';input={expectedRevision:snapshot.revision,request:snapshot.request,id:opts.id};}
     else if(command==='status'){if(opts.kind)fail('--kind is only valid for note.');action='status';input.status=positional[1];}

@@ -208,6 +208,7 @@ const catalog: Catalog = {
   "Edited the task": "Изменил(а) задачу",
   "Changed status": "Сменил(а) статус",
   "Changed archive state": "Изменил(а) состояние архива",
+  "Set the task type": "Задал(а) тип задачи",
   "Archived the workspace": "Архивировал(а) рабочее пространство",
   "Kept the workspace": "Сохранил(а) рабочее пространство",
   "Restored the workspace": "Восстановил(а) рабочее пространство",

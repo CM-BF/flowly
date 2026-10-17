@@ -92,6 +92,14 @@ export const tagsInputSchema = z.strictObject({
     .default([])
     .describe("Tags to remove. Only tags an agent added can be removed."),
 });
+/** kanban_set_type (CARD-TYPE-SPEC §2): classify a card that has no type yet. */
+export const typeInputSchema = z.strictObject({
+  expectedRevision: revisionSchema,
+  request: requestSchema,
+  type: taskTypeSchema.describe(
+    "feature: new behavior; bugfix: wrong behavior fixed; research: investigation or analysis without a shipped change; refactor: restructuring without behavior change; docs: documentation only; chore: build, tooling, dependencies, maintenance.",
+  ),
+});
 /** kanban_add_artifact (CARD-ARTIFACTS-SPEC §4.1): register an input or a deliverable of this card. */
 export const artifactInputSchema = z.strictObject({
   expectedRevision: revisionSchema,
@@ -230,5 +238,6 @@ export type StatusInput = z.infer<typeof statusInputSchema>;
 export type ProgressInput = z.infer<typeof progressInputSchema>;
 export type IdeaInput = z.infer<typeof ideaInputSchema>;
 export type TagsToolInput = z.infer<typeof tagsInputSchema>;
+export type TypeToolInput = z.infer<typeof typeInputSchema>;
 export type ArtifactToolInput = z.infer<typeof artifactInputSchema>;
 export type ArtifactRemovalInput = z.infer<typeof artifactRemovalSchema>;

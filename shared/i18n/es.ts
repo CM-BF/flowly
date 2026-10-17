@@ -208,6 +208,7 @@ const catalog: Catalog = {
   "Edited the task": "Editó la tarea",
   "Changed status": "Cambió el estado",
   "Changed archive state": "Cambió el estado de archivado",
+  "Set the task type": "Estableció el tipo de tarea",
   "Archived the workspace": "Archivó el espacio de trabajo",
   "Kept the workspace": "Conservó el espacio de trabajo",
   "Restored the workspace": "Restauró el espacio de trabajo",
