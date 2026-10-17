@@ -7,12 +7,14 @@ import { upgradeBoard } from "./migrate";
 import { ideaTitleKey } from "../shared/ideas";
 import { otherEnd, relationLabels, relationOf, touches } from "../shared/links";
 import type { FlowLog } from "./flow-log";
+import type { ProjectSnapshot } from "./project-folder";
 import {
   boardSchema,
   storageSchema,
   emptyBoard,
   type Board,
   type BoardEvent,
+  type Project,
   type Task,
   type TaskEdit,
   type TaskPlacement,
@@ -48,6 +50,8 @@ export class BoardStore {
   private pending: BoardEvent[] = [];
   /** Untrimmed event log for insights (PROJECT-INSIGHTS-SPEC §2). */
   flow: FlowLog | null = null;
+  /** Runs after each committed write (project folder snapshots, PROJECT-FOLDER-SPEC). */
+  onCommit: (() => void) | null = null;
   constructor(readonly directory: string) {}
   get path() {
     return join(this.directory, "board.json");
@@ -117,6 +121,7 @@ export class BoardStore {
         if ((e as NodeJS.ErrnoException).code !== "ENOENT") throw e;
       }
       await rename(temporary, this.path);
+      this.onCommit?.();
       if (this.flow && events.length)
         void this.flow.append(events, board).catch((e) =>
           console.error("Kanban flow log append failed:", e instanceof Error ? e.message : String(e)),
@@ -333,6 +338,64 @@ export class BoardStore {
       board.links = board.links.filter((l) => !removed.links.includes(l));
       board.artifacts = board.artifacts.filter((a) => !taskIds.has(a.taskId));
       return { id: project.id, removedTasks: taskIds.size, backup };
+    });
+  }
+  /**
+   * Puts a project saved in its folder back on the board (PROJECT-FOLDER-SPEC §3).
+   * Same IDs; cards whose workspace is bound elsewhere keep their record
+   * without it. Every restored record gets a new revision so stale tool writes re-read.
+   */
+  restoreProject(snapshot: ProjectSnapshot, at: { primaryPath: string; paseoProjectId: string }) {
+    return this.mutate((board) => {
+      const source = snapshot.project;
+      if (board.projects.some((p) => p.id === source.id)) throw new Error("This project is already on the board.");
+      if (board.projects.some((p) => p.paseoProjectId === at.paseoProjectId))
+        throw new Error("Paseo project is already linked; open or restore its board project.");
+      const taskIds = new Set(snapshot.tasks.map((t) => t.id));
+      if (board.tasks.some((t) => taskIds.has(t.id))) throw new Error("Some of these cards are already on the board.");
+      const bound = new Set(board.tasks.map((t) => t.workspaceId)),
+        operations = new Set(board.tasks.map((t) => t.operationId));
+      const now = new Date().toISOString();
+      const project: Project = {
+        ...source,
+        primaryPath: at.primaryPath,
+        paseoProjectId: at.paseoProjectId,
+        repos: source.repos.map((r) => (r === source.primaryPath ? at.primaryPath : r)),
+        position: board.projects.length,
+        revision: source.revision + 1,
+        updatedAt: now,
+      };
+      if (!project.repos.includes(at.primaryPath)) project.repos.unshift(at.primaryPath);
+      const move = (path: string) => (path === source.primaryPath ? at.primaryPath : path);
+      let unbound = 0;
+      const tasks = snapshot.tasks.map((t) => {
+        const task: Task = {
+          ...t,
+          sourcePath: move(t.sourcePath),
+          repoPaths: t.repoPaths.map(move),
+          revision: t.revision + 1,
+          updatedAt: now,
+          operationId: operations.has(t.operationId) ? `restored-${t.id}` : t.operationId,
+        };
+        if (bound.has(t.workspaceId)) {
+          // A placeholder that resolves to no workspace: the drawer shows it unavailable.
+          task.workspaceId = `unbound-${t.id}`;
+          delete task.ownsWorkspace;
+          unbound++;
+        }
+        return task;
+      });
+      board.projects.push(project);
+      board.tasks.push(...tasks);
+      board.events.push(...snapshot.events.filter((e) => taskIds.has(e.taskId)));
+      board.ideas.push(...snapshot.ideas.filter((i) => taskIds.has(i.taskId)));
+      const linkIds = new Set(board.links.map((l) => l.id));
+      board.links.push(...snapshot.links.filter((l) => taskIds.has(l.from) && taskIds.has(l.to) && !linkIds.has(l.id)));
+      const artifactIds = new Set(board.artifacts.map((a) => a.id));
+      board.artifacts.push(...snapshot.artifacts.filter((a) => taskIds.has(a.taskId) && !artifactIds.has(a.id)).map((a) => ({ ...a, projectId: project.id })));
+      for (const t of tasks)
+        this.event(board, { taskId: t.id, actor: "human", action: "restored", note: "Restored from project folder" });
+      return { project, cards: tasks.length, unbound };
     });
   }
   /**

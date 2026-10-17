@@ -113,6 +113,11 @@ export class FlowLog {
       return backup;
     });
   }
+  /** Project folder restore: its project and cards may be logged again. */
+  remember(projectId: string, taskIds: Iterable<string>) {
+    this.forgotten.delete(projectId);
+    for (const id of taskIds) this.forgotten.delete(id);
+  }
   /** Project Remove: the whole log moves to `removed/`. */
   removeProject(projectId: string, now = new Date()) {
     this.forgotten.add(projectId);

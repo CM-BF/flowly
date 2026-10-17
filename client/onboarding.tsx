@@ -204,6 +204,7 @@ function FeaturesPage() {
     { icon: "Lightbulb", color: colors.statusSuccess, title: t("Follow-up ideas"), text: t("Work an agent finds along the way lands in the Ideas inbox. Good idea or Not now.") },
     { icon: "Package", color: colors.accent, title: t("Inputs and outputs"), text: t("Each card lists the files and links it worked from and delivered, added by agents or by you.") },
     { icon: "CircleGauge", color: colors.accent, title: t("Project insights"), text: t("Today's cards, turns, agent time, commits, tokens and what is waiting on you.") },
+    { icon: "FolderGit2", color: colors.statusSuccess, title: t("Saved with your project"), text: t("Each project's board is also kept in its folder (.flowly, ignored by git). Add the folder again to restore it.") },
   ];
   return (
     <View style={{ gap: space[3] }}>

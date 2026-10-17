@@ -30,7 +30,13 @@ export function RemoveProjectDialog({
   onRemoved(result: RemoveResult, scope: Scope): void;
 }) {
   const remove = useRpc(rpc.removeProject),
-    checkRemove = useRpc(rpc.removeProjectCheck);
+    checkRemove = useRpc(rpc.removeProjectCheck),
+    readFolder = useRpc(rpc.projectFolderState);
+  const folder = useQuery({
+    queryKey: ["ultra", "folder-state", project.id],
+    queryFn: () => readFolder({ id: project.id }),
+    staleTime: 0,
+  });
   const check = useQuery({
     queryKey: ["ultra", "remove-check", project.id],
     queryFn: () => checkRemove({ id: project.id }),
@@ -87,6 +93,11 @@ export function RemoveProjectDialog({
                     ? tn(info.workspaces, "Paseo forgets the project and its {n} workspace, as when you remove it in Paseo. Nothing is deleted from disk: {path}, worktrees and branches stay. Add the folder in Paseo again to bring it back.", "Paseo forgets the project and its {n} workspaces, as when you remove it in Paseo. Nothing is deleted from disk: {path}, worktrees and branches stay. Add the folder in Paseo again to bring it back.", { path: project.primaryPath })
                     : t("Paseo forgets the project, as when you remove it in Paseo. Nothing is deleted from disk: {path}, worktrees and branches stay. Add the folder in Paseo again to bring it back.", { path: project.primaryPath })}
             </Label>
+            {folder.data?.savedAt && !folder.data.error && (
+              <Label muted size={font.sm}>
+                {t("Its board stays saved in {path}; add the folder again to restore it.", { path: `${project.primaryPath}/.flowly` })}
+              </Label>
+            )}
             {running > 0 && (
               <Notice tone="info">
                 {tn(running, "{n} session is still running in this Paseo project, so it can only be kept in Paseo. Stop it to remove it from Paseo too.", "{n} sessions are still running in this Paseo project, so it can only be kept in Paseo. Stop them to remove it from Paseo too.")}

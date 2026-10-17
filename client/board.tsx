@@ -1732,10 +1732,11 @@ function BoardContent(
             showArchived={archived}
             onShowArchived={setArchived}
             onClose={() => setProjectForm(null)}
-            onSaved={(id) => {
+            onSaved={(id, restored) => {
               chooseProject(id);
               setProjectForm(null);
               refresh();
+              if (restored) toast.show(tn(restored.restored, "Restored {title} with {n} card.", "Restored {title} with {n} cards.", { title: restored.title }), { variant: "success" });
             }}
           />
         )}

@@ -11,15 +11,17 @@ import { randomUUID, createHash } from "node:crypto";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { BoardStore } from "./store";
+import { readSnapshot, SnapshotInvalidError, type ProjectSnapshot } from "./project-folder";
 import { linkLimits } from "../shared/model";
 import type { ProjectInput, TaskInput, Board, LinkedProjectInput, ProjectLinksEdit, Project, ProjectRemoval } from "../shared/model";
 import { effectiveRepos, sessionContext } from "../shared/scope";
 import { repoMatcher } from "./repos";
 import type { z } from "zod";
-import type { removeProject as removeProjectRpc } from "../shared/rpc";
+import type { removeProject as removeProjectRpc, restoreProjectCheck as restoreProjectCheckRpc } from "../shared/rpc";
 
 const execute = promisify(execFile);
 type RemoveResult = z.infer<typeof removeProjectRpc.output>;
+type RestoreCheck = z.infer<typeof restoreProjectCheckRpc.output>;
 export async function resolveWorktreeBaseRef(
   sourcePath: string,
   requested: string,
@@ -333,6 +335,73 @@ export class BoardService {
       }
     });
   }
+  /** Finds the native project at a folder, or creates it as Add project does. */
+  private async nativeProject(primaryPath: string, paseo: PaseoApi, paseoProjectId?: string, onRegistered?: () => void) {
+    const findNative = async () => {
+      const projects = (await paseo.projects.list()).projects;
+      if (paseoProjectId) return projects.find((p) => p.projectId === paseoProjectId);
+      const paths = await Promise.all(projects.map((p) => directory(p.projectRootPath).catch(() => null)));
+      return projects.find((_, i) => paths[i] === primaryPath);
+    };
+    let native = await findNative();
+    if (paseoProjectId && !native) throw new Error("Paseo project not found.");
+    if (!native) {
+      // From here on the directory may be referenced by a native project; keep it on failure.
+      onRegistered?.();
+      await execute("paseo", ["project", "create", primaryPath, "--home", paseoHome(), "--json"], {
+        timeout: 30000,
+        maxBuffer: 1024 * 1024,
+      });
+      native = await findNative();
+    }
+    if (!native || (await directory(native.projectRootPath)) !== primaryPath)
+      throw new Error("Native project root does not match the selected primary directory.");
+    return native;
+  }
+  /** Read-only: whether a folder holds a saved Flowly project (PROJECT-FOLDER-SPEC §3). */
+  async restoreCheck(path: string): Promise<RestoreCheck> {
+    const root = await directory(path).catch(() => null);
+    if (!root) return { found: false };
+    let snapshot: ProjectSnapshot | null;
+    try {
+      snapshot = await readSnapshot(root);
+    } catch {
+      return { found: true, title: "", cards: 0, savedAt: "", conflict: "invalid", unbound: 0 };
+    }
+    if (!snapshot) return { found: false };
+    const board = await this.store.read();
+    const bound = new Set(board.tasks.map((t) => t.workspaceId));
+    const base = { found: true as const, title: snapshot.project.title, cards: snapshot.tasks.length, savedAt: snapshot.savedAt };
+    if (board.projects.some((p) => p.id === snapshot.project.id))
+      return { ...base, conflict: "on-board" as const, unbound: 0 };
+    return { ...base, conflict: "" as const, unbound: snapshot.tasks.filter((t) => bound.has(t.workspaceId)).length };
+  }
+  /** Puts a folder's saved project back on the board; the native project is found or created first. */
+  restoreProject(input: { path: string }, paseo: PaseoApi) {
+    return this.serialize(async () => {
+      const primaryPath = await directory(input.path);
+      const snapshot = await readSnapshot(primaryPath).catch((e) => {
+        throw new Error(e instanceof SnapshotInvalidError ? "The project file in this folder is invalid; it was left unchanged." : String(e));
+      });
+      if (!snapshot) throw new Error("This folder has no saved Flowly project.");
+      const board = await this.store.read();
+      if (board.projects.some((p) => p.id === snapshot.project.id)) throw new Error("This project is already on the board.");
+      const native = await this.nativeProject(primaryPath, paseo);
+      const restored = await this.store.restoreProject(snapshot, { primaryPath, paseoProjectId: native.projectId });
+      // Linked projects: drop recorded links whose symlink is gone.
+      if (restored.project.links?.length) {
+        const kept: NonNullable<Project["links"]> = [];
+        for (const link of restored.project.links)
+          if (await lstat(join(primaryPath, link.name)).then((s) => s.isSymbolicLink(), () => false)) kept.push(link);
+        if (kept.length !== restored.project.links.length)
+          await this.store.mutate((b) => {
+            const p = b.projects.find((x) => x.id === restored.project.id);
+            if (p) p.links = kept;
+          });
+      }
+      return { ...restored, snapshot };
+    });
+  }
   private async registerProject(
     input: ProjectInput,
     paseo: PaseoApi,
@@ -341,32 +410,7 @@ export class BoardService {
   ) {
     {
       const primaryPath = await directory(input.primaryPath);
-      const findNative = async () => {
-        const projects = (await paseo.projects.list()).projects;
-        if (input.paseoProjectId)
-          return projects.find((p) => p.projectId === input.paseoProjectId);
-        const paths = await Promise.all(
-          projects.map((p) => directory(p.projectRootPath).catch(() => null)),
-        );
-        return projects.find((_, i) => paths[i] === primaryPath);
-      };
-      let native = await findNative();
-      if (input.paseoProjectId && !native)
-        throw new Error("Paseo project not found.");
-      if (!native) {
-        // From here on the directory may be referenced by a native project; keep it on failure.
-        onRegistered?.();
-        await execute(
-          "paseo",
-          ["project", "create", primaryPath, "--home", paseoHome(), "--json"],
-          { timeout: 30000, maxBuffer: 1024 * 1024 },
-        );
-        native = await findNative();
-      }
-      if (!native || (await directory(native.projectRootPath)) !== primaryPath)
-        throw new Error(
-          "Native project root does not match the selected primary directory.",
-        );
+      const native = await this.nativeProject(primaryPath, paseo, input.paseoProjectId, onRegistered);
       const paseoProjectId = native.projectId;
       return this.store.mutate((board) => {
         if (board.projects.some((p) => p.paseoProjectId === paseoProjectId))

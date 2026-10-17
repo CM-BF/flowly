@@ -104,6 +104,35 @@ export const removeProjectCheck = defineRpc({
     runningSessions: z.number().int(),
   }),
 });
+/** A project saved in a folder's `.flowly/` (PROJECT-FOLDER-SPEC §3). */
+export const restoreProjectCheck = defineRpc({
+  name: "projects.restore-check",
+  input: z.object({ path: z.string().min(1).max(4096) }),
+  output: z.union([
+    z.object({ found: z.literal(false) }),
+    z.object({
+      found: z.literal(true),
+      title: z.string(),
+      cards: z.number().int(),
+      savedAt: z.string(),
+      /** Set: restore is refused (unreadable file, or the project is already on the board). */
+      conflict: z.enum(["", "invalid", "on-board"]),
+      /** Cards whose workspace is bound by another card; restored without it. */
+      unbound: z.number().int(),
+    }),
+  ]),
+});
+export const restoreProject = defineRpc({
+  name: "projects.restore",
+  input: z.object({ path: z.string().min(1).max(4096) }),
+  output: z.object({ project: projectSchema, cards: z.number().int(), unbound: z.number().int() }),
+});
+/** Where the project's board copy lives and whether its last write worked. */
+export const projectFolderState = defineRpc({
+  name: "projects.folder-state",
+  input: z.object({ id: z.string().min(1) }),
+  output: z.object({ path: z.string(), savedAt: z.string(), error: z.string() }),
+});
 export const nativePickers = ["finder", "explorer", "zenity", "kdialog"] as const;
 export const listDirectories = defineRpc({
   name: "fs.list-directories",

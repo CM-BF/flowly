@@ -1,5 +1,16 @@
 # Implementation progress
 
+## Project folder copy — 2026-10-17
+
+- [x] Card request "Flowly project保存在原始project目录". User chose A: each project's board is also saved in `<root>/.flowly/project.json`, restorable after the project is removed from Flowly, git-ignored by default. [Spec](PROJECT-FOLDER-SPEC.md).
+- [x] Daemon: `server/project-folder.ts` (snapshot writer debounced after each board commit, only changed projects; `.flowly/.gitignore` = `*` created with the folder only; foreign/invalid file kept as a dated copy; failures logged and never fail the board). `projects.restore-check`, `projects.restore` (native project found/created, same IDs, revisions + 1, `restored` event, bound workspaces cleared, summaries merged, flow log re-enabled), `projects.folder-state`. Snapshot includes card artifacts.
+- [x] Client: restore notice with Restore it / Start empty in Create project; *Saved in project folder* row in project settings; line in the Remove dialog; restore toast; tour feature line. Strings in all 9 catalogs.
+- [x] PASS: typecheck; `server/project-folder.test.ts` 7 tests (scope of records, gitignore, change detection, write failure isolation, remove → restore round trip, conflicts write nothing, unbound workspace, invalid/foreign file kept).
+- [x] User follow-up "老项目升级插件后自动迁移": explicit upgrade migration on each start (spec §1.1): every project (archived included) gets its folder copy, already-current copies untouched, failures retried; result in `folder-migration.json`. PASS: 2 more tests (9 total): pre-version board → all written, second start all current with no rewrite, board unchanged; unwritable folder failed then written on the next start.
+- [x] PASS: full `npm test` 417 passed / 63 skipped (after the parallel card-artifacts work settled).
+- [x] Installed the local checkout as `flowly` (user request "安装 我来测试"): the published plugins.paseo.sh install had to be removed first (`plugin install` refuses a configured ID); plugin data and settings were backed up to `~/.paseo/flowly-backup-20261018-001006/` beforehand. On start the migration logged `1 written, 0 current, 0 failed`; `/Users/claw/Dev/flowly/.flowly/project.json` holds the Flowly project (4 cards, 39 events); `git check-ignore` confirms `.flowly/.gitignore` ignores it. User checked the installed plugin: the project works normally.
+- [ ] UNRUN: Luna UI acceptance and the remove → restore flow on a fixture project through the UI. Luna session `1c921648-071b-4634-9efc-7f3d52ad3c31` (codex/gpt-6-luna, full-access) could not run commands: its shell tool failed twice, even on `pwd` ("timed out negotiating with the code-mode host"); no fixtures created, nothing changed.
+
 ## Card artifacts — 2026-10-17
 
 - [x] Card request "设计一下任务卡片增加assets或者artifacts，用于记录和收集这个任务输入输出的文档、交付物等。由agent根据理解自行添加也可以由人手工添加". Drafted the [card artifacts spec](CARD-ARTIFACTS-SPEC.md): references (file in card scope / http(s) link) with role input/output/reference in `board.artifacts`; human RPCs; `kanban_add_artifact` / `kanban_remove_artifact` tools; drawer section, preview, cascade on delete.

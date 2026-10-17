@@ -23,6 +23,7 @@ import { SummaryService, SummaryStore } from "./server/summaries";
 import { UsageService } from "./server/usage";
 import { summarySettings, summarySettingsValues } from "./shared/summary";
 import { FlowLog } from "./server/flow-log";
+import { ProjectFolders, snapshotPath } from "./server/project-folder";
 import { GitStats } from "./server/git-stats";
 import { DigestStore, InsightsService } from "./server/insights";
 
@@ -66,6 +67,31 @@ export default function contribute(server: PluginServerContext) {
   server.handle(rpc.taskUsage, (input, { paseo }) => usage.task(input.taskId, paseo));
   server.handle(rpc.summaryHistory, (input) => summaries.store.history(input.taskId));
   const service = new BoardService(store);
+  // Each project's board copy in `<root>/.flowly/` (PROJECT-FOLDER-SPEC).
+  const folders = new ProjectFolders(() => store.read(), async () => (await summaries.store.read()).entries);
+  store.onCommit = () => folders.schedule();
+  // Existing projects get their folder copy on the first start after the upgrade (and failed ones on every start).
+  void folders.migrate(store.directory).catch((e) =>
+    console.error("Flowly project folder migration failed:", e instanceof Error ? e.message : String(e)),
+  );
+  server.handle(rpc.restoreProjectCheck, (input) => service.restoreCheck(input.path));
+  server.handle(rpc.restoreProject, async (input, { paseo }) => {
+    const { snapshot, ...restored } = await service.restoreProject(input, paseo);
+    flow.remember(restored.project.id, snapshot.tasks.map((t) => t.id));
+    await summaries.store.restoreEntries(snapshot.summaries).catch((e) =>
+      console.error("Kanban summaries not restored:", e instanceof Error ? e.message : String(e)),
+    );
+    void insights.reconcile().catch(() => undefined);
+    folders.forget(restored.project.id);
+    folders.schedule();
+    return restored;
+  });
+  server.handle(rpc.projectFolderState, async (input) => {
+    const project = (await store.read()).projects.find((p) => p.id === input.id);
+    if (!project) throw new Error("Project not found.");
+    const state = folders.state(project.id);
+    return { path: snapshotPath(project.primaryPath), savedAt: state?.savedAt ?? "", error: state?.error ?? "" };
+  });
   const sessionReads = new SessionReadStore(store.directory);
   const readService = new SessionReadService(store, sessionReads);
   server.handle(rpc.readSessionReceipts, () => sessionReads.read());
@@ -331,5 +357,8 @@ export default function contribute(server: PluginServerContext) {
       );
     }
   });
-  return () => tools.stop();
+  return () => {
+    folders.stop();
+    tools.stop();
+  };
 }

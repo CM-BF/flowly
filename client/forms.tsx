@@ -1,7 +1,8 @@
 import { enabledStatuses, laneName, projectLanes } from "../shared/lanes";
 import { LaneEditor } from "./lane-editor";
 import { useBoardView } from "./board-view";
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { View } from "react-native";
 import { Modal } from "./modal";
 import { usePaseo, useRpc, useSettings } from "@getpaseo/plugin/client";
@@ -17,7 +18,7 @@ import {
   type Task,
   type Status,
 } from "../shared/model";
-import { Theme, useTheme, Button, IconButton, Field, Choices, Notice, Label, Row, Actions, Toggle, message, basename, font, radius, space } from "./ui";
+import { Theme, useTheme, Button, IconButton, Field, Choices, Notice, Label, Row, Actions, Toggle, message, basename, font, radius, space, relativeTime } from "./ui";
 import { priorityLabels } from "./status";
 import { isLegacyScope } from "../shared/scope";
 import { AgentPicker, useAgentChoice, type AgentDefaults } from "./agent-choice";
@@ -26,7 +27,7 @@ import { agentModelFromValues, type AgentModel } from "../shared/agent-defaults"
 import { modelSettings, modelSettingsValues } from "../shared/settings";
 import { launchKanbanSession } from "./session";
 import { DirectoryChooser } from "./directory-picker";
-import { t } from "../shared/i18n";
+import { t, tn } from "../shared/i18n";
 
 export function ProjectForm({
   project: initialProject,
@@ -43,14 +44,17 @@ export function ProjectForm({
   showArchived?: boolean;
   onShowArchived?: (next: boolean) => void;
   onClose: () => void;
-  onSaved: (id: string) => void;
+  /** `restored`: the project came back from its folder's saved board. */
+  onSaved: (id: string, restored?: { restored: number; title: string }) => void;
 }) {
   const theme = useTheme();
   const [project] = useState(initialProject);
   const create = useRpc(rpc.createProject),
     createLinked = useRpc(rpc.createLinkedProject),
     setLinks = useRpc(rpc.setProjectLinks),
-    update = useRpc(rpc.updateProject);
+    update = useRpc(rpc.updateProject),
+    checkRestore = useRpc(rpc.restoreProjectCheck),
+    restore = useRpc(rpc.restoreProject);
   const resources = useResourcesQuery();
   const modelPrefs = useSettings(modelSettings);
   const globalModel = agentModelFromValues(modelPrefs.status === "ready" ? modelSettingsValues(modelPrefs.values) : null);
@@ -65,7 +69,25 @@ export function ProjectForm({
     [archivedShown, setArchivedShown] = useState(!!showArchived),
     [lanes, setLanes] = useState<Lane[]>(() => projectLanes(project)),
     [pending, setPending] = useState(false),
-    [error, setError] = useState("");
+    [error, setError] = useState(""),
+    [startEmpty, setStartEmpty] = useState(false);
+  // A board saved in the chosen folder's .flowly can be restored (PROJECT-FOLDER-SPEC §3).
+  const restorePath = useDebounced(!project && source !== "linked" ? primaryPath.trim() : "", 400);
+  const saved = useQuery({
+    queryKey: ["ultra", "restore-check", restorePath],
+    queryFn: () => checkRestore({ path: restorePath }),
+    enabled: !!restorePath,
+    staleTime: 0,
+  });
+  const found = restorePath && saved.data?.found ? saved.data : null;
+  const readFolder = useRpc(rpc.projectFolderState);
+  const folder = useQuery({
+    queryKey: ["ultra", "folder-state", project?.id],
+    queryFn: () => readFolder({ id: project!.id }),
+    enabled: !!project,
+    staleTime: 0,
+  });
+  const restoring = !!found && !found.conflict && !startEmpty;
   async function save() {
     setPending(true);
     setError("");
@@ -84,6 +106,11 @@ export function ProjectForm({
           saved = await setLinks({ id: project.id, revision: saved.revision, links });
         if (onShowArchived && archivedShown !== !!showArchived) onShowArchived(archivedShown);
         onSaved(saved.id);
+        return;
+      }
+      if (restoring) {
+        const restored = await restore({ path: primaryPath });
+        onSaved(restored.project.id, { restored: restored.cards, title: restored.project.title });
         return;
       }
       const result =
@@ -113,13 +140,15 @@ export function ProjectForm({
       <Modal.Content>
         <Theme.Provider value={theme}>
         <View style={{ gap: 16 }}>
-          <Field title={t("Name")} value={title} onChange={setTitle} placeholder={t("Project name")} />
-          <Field
-            title={t("Description")}
-            value={description}
-            onChange={setDescription}
-            multiline
-          />
+          {!restoring && <Field title={t("Name")} value={title} onChange={setTitle} placeholder={t("Project name")} />}
+          {!restoring && (
+            <Field
+              title={t("Description")}
+              value={description}
+              onChange={setDescription}
+              multiline
+            />
+          )}
           {!project && (
             <Choices
               title={t("Project root")}
@@ -163,6 +192,31 @@ export function ProjectForm({
           {!project && source === "directory" && (
             <DirectoryChooser disabled={pending} onPick={(paths) => paths[0] && setPrimary(paths[0])} />
           )}
+          {found && (
+            <View style={{ gap: 8 }}>
+              <Notice tone={found.conflict ? "warning" : "info"}>
+                {found.conflict === "invalid"
+                  ? t("The project file in this folder is invalid; it was left unchanged. A new, empty project can still be created here.")
+                  : tn(found.cards, "This folder has a saved Flowly project: {title}, {n} card, saved {time}.", "This folder has a saved Flowly project: {title}, {n} cards, saved {time}.", { title: found.title, time: relativeTime(found.savedAt) })}
+                {found.conflict === "on-board" ? ` ${t("It is already on the board.")}` : ""}
+                {restoring && found.unbound
+                  ? ` ${tn(found.unbound, "{n} card uses a workspace already on the board; it is restored without one.", "{n} cards use workspaces already on the board; they are restored without one.")}`
+                  : ""}
+              </Notice>
+              {!found.conflict && (
+                <Choices
+                  title={t("Saved project")}
+                  hideTitle
+                  value={startEmpty ? "empty" : "restore"}
+                  options={[
+                    { value: "restore", label: t("Restore it") },
+                    { value: "empty", label: t("Start empty") },
+                  ]}
+                  onChange={(next) => setStartEmpty(next === "empty")}
+                />
+              )}
+            </View>
+          )}
           {(project ? !!project.links : source === "linked") && (
             <LinkList
               links={links}
@@ -182,6 +236,18 @@ export function ProjectForm({
               noneDetail={t("No override: the global default applies")}
               onChange={setAgentModel}
             />
+          )}
+          {project && folder.data && (
+            <View style={{ gap: 4 }}>
+              <Label size={font.sm}>{t("Saved in project folder")}</Label>
+              {folder.data.error ? (
+                <Notice tone="warning">{t("The board could not be saved in {path}: {message}", { path: folder.data.path, message: folder.data.error })}</Notice>
+              ) : (
+                <Label muted size={font.sm}>
+                  {folder.data.savedAt ? t("{path}, saved {time}. Git ignores it unless you change .flowly/.gitignore.", { path: folder.data.path, time: relativeTime(folder.data.savedAt) }) : folder.data.path}
+                </Label>
+              )}
+            </View>
           )}
           {project && (
             <Toggle
@@ -212,13 +278,14 @@ export function ProjectForm({
               primary
               disabled={
                 pending ||
-                !title.trim() ||
+                (!restoring && !title.trim()) ||
+                (!!restorePath && restorePath !== primaryPath.trim()) ||
                 ((project ? !!project.links : source === "linked") ? !links.length : !primaryPath.trim()) ||
                 (!project && source === "native" && !nativeId)
               }
               onPress={() => void save()}
             >
-              {pending ? t("Saving…") : project ? t("Save project") : t("Create project")}
+              {pending ? t("Saving…") : project ? t("Save project") : restoring ? t("Restore project") : t("Create project")}
             </Button>
           </Actions>
         </View>
@@ -608,4 +675,14 @@ export function TaskForm({
       </Modal.Content>
     </Modal>
   );
+}
+
+/** The value after it has been stable for `delay` ms. */
+function useDebounced<T>(value: T, delay: number) {
+  const [current, setCurrent] = useState(value);
+  useEffect(() => {
+    const timer = setTimeout(() => setCurrent(value), delay);
+    return () => clearTimeout(timer);
+  }, [value, delay]);
+  return current;
 }

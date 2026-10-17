@@ -105,6 +105,15 @@ export class SummaryStore {
     const mine = (await this.read()).entries.filter((e) => e.taskId === taskId);
     return mine[mine.length - 1] || null;
   }
+  /** Project folder restore: adds saved entries the store does not have (PROJECT-FOLDER-SPEC §3). */
+  restoreEntries(entries: readonly SummaryEntry[]) {
+    return this.update((state) => {
+      const known = new Set(state.entries.map((e) => e.id));
+      const fresh = entries.filter((e) => !known.has(e.id));
+      state.entries.push(...fresh);
+      return { value: fresh.length, changed: fresh.length > 0 };
+    });
+  }
   /** Project Remove: back up then drop the removed cards' summaries. */
   removeTasks(projectId: string, taskIds: ReadonlySet<string>, now = new Date()) {
     return this.update(async (state) => {
