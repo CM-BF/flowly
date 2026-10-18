@@ -81,17 +81,20 @@
 
 ### 4.2 读取
 
-- `kanban_get_task` 新增 `artifacts: [{ id, role, kind, target, absolutePath?, title, note, createdBy, missing }]`，最多返回 100 条。`absolutePath` 仅 file，按当前 workspace 目录解析。
-- 建 session 时注入的任务上下文（`sessionContext`）在描述后加一段，每种角色最多 10 条、超出写 `…and N more`，只列 input 与 output：
+- `kanban_get_task` 新增 `artifacts: [{ id, role, kind, target, absolutePath?, title, note, createdBy, missing, unread }]`，最多返回 100 条。`absolutePath` 仅 file，按当前 workspace 目录解析。
+- `unread`（2026-10-18 用户选 A+B）：该产物在本 session 上次调用 `kanban_get_task` 之后被添加或编辑（按 `updatedAt`），本 session 自己添加的永不算。本 session 从未读过时全部为 true。只有显式的 `kanban_get_task`（MCP 或 CLI `current`/`get`）会把读取时间推进到本次读取开始的时刻；写工具结果里附带的 `current` 只显示标记、不推进。读取时间按 session 存在插件数据目录的 `artifact-reads.json`（不写 board.json，不改看板 revision；原子替换；最多 2000 个 session，超出丢最旧的），重启后保留。
+- 建 session 时注入的任务上下文（`sessionContext`）在描述后加一段，每种角色最多 10 条、超出写 `…and N more`，只列 input 与 output；用户添加的排在前面，每条带来源与说明（说明压成一行，最长 200 字）：
 
   ```
   Inputs:
-  - <title>: <target>
+  - [user] <title>: <target> — <note>
+  - [agent] <title>: <target>
   Outputs so far:
-  - <title>: <target>
+  - [agent] <title>: <target> — <note>
   ```
 
-- Skill 新增一条：开始前读 `artifacts` 中的 inputs；交付时把交付物登记为 output（和 in_review 的交付说明一起）；不要把每个改动的源文件都登记。
+- Skill 新增一条：用户添加的 inputs 属于任务本身，开工前全部读完（文件用 `absolutePath`，链接在有联网工具时打开），其说明视为如何使用它的指令；每轮开始先读 `kanban_get_task`，优先处理 `unread` 的 inputs；读不了（Missing、链接打不开或需登录、没有联网工具）时在回复里说明，不要猜内容；交付时写明用了哪些 inputs，并把交付物登记为 output；不要把每个改动的源文件都登记。`kanban_get_task` 的工具描述同样提示每轮开始读取与 `unread`。
+- 不在用户发出的消息前自动附加“新增 input”提示（AGENTS.md：普通追问只发送用户原文）。
 
 ### 4.3 设置
 

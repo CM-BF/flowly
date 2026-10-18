@@ -48,7 +48,16 @@ export function artifactsOf(list: readonly Artifact[], taskId: string) {
 export const artifactNoteLine = (artifact: Pick<Artifact, "role" | "title">) =>
   `${artifact.role === "input" ? "Input" : "Output"}: ${artifact.title}`;
 
-/** Context lines for a new session (CARD-ARTIFACTS-SPEC §4.2); at most `limit` per role. */
+/** "- [user] Title: target — note"; the note is the user's word on how to use it, kept to one line. */
+function contextLine(a: Pick<Artifact, "title" | "target" | "note" | "createdBy">) {
+  const note = a.note.replace(/\s+/g, " ").trim();
+  return `- [${a.createdBy === "human" ? "user" : "agent"}] ${a.title}: ${a.target}${note ? ` — ${note.length > 200 ? `${note.slice(0, 199)}…` : note}` : ""}`;
+}
+
+/**
+ * Context lines for a new session (CARD-ARTIFACTS-SPEC §4.2); at most `limit` per
+ * role, the user's own first (`list` is newest first, and that order is kept within each source).
+ */
 export function artifactContextLines(list: readonly Artifact[], limit = 10): string[] {
   return (
     [
@@ -56,11 +65,13 @@ export function artifactContextLines(list: readonly Artifact[], limit = 10): str
       ["output", "Outputs so far:"],
     ] as const
   ).flatMap(([role, heading]) => {
-    const own = list.filter((a) => a.role === role);
+    const own = list
+      .filter((a) => a.role === role)
+      .sort((a, b) => Number(a.createdBy !== "human") - Number(b.createdBy !== "human"));
     if (!own.length) return [];
     return [
       heading,
-      ...own.slice(0, limit).map((a) => `- ${a.title}: ${a.target}`),
+      ...own.slice(0, limit).map(contextLine),
       ...(own.length > limit ? [`- …and ${own.length - limit} more`] : []),
     ];
   });

@@ -152,7 +152,7 @@ export class ToolServer {
           "kanban_get_task",
           {
             description:
-              "Read this session's current Kanban card, effective repo/worktree directories, both revisions and signed request. Read before work or any write.",
+              "Read this session's current Kanban card, effective repo/worktree directories, both revisions and signed request. Read before work or any write, and at the start of every turn: artifacts with unread=true were added or edited since your last read.",
             inputSchema: z.strictObject({}),
             outputSchema: toolContextSchema,
             annotations: { readOnlyHint: true, openWorldHint: false },

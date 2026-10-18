@@ -183,6 +183,8 @@ export const toolContextSchema = z.object({
       note: z.string(),
       createdBy: z.enum(["human", "agent"]),
       missing: z.boolean(),
+      /** Added or edited since this session last called kanban_get_task (never for its own additions). */
+      unread: z.boolean(),
     }),
   ),
   /** Linked cards, read-only (CARD-LINKS-SPEC §4). `resolved` only for blocked_by. */

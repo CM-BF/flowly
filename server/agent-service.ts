@@ -8,6 +8,7 @@ import { absoluteTarget, artifactsOf } from "../shared/artifacts";
 import { changeTags, normalizeTags, projectTagStats, tagChangeNote } from "../shared/tags";
 import { setTags } from "./store";
 import { artifactRoots, dropArtifact, missingArtifacts, normalizeTarget, putArtifact } from "./artifacts";
+import { ArtifactReadStore } from "./artifact-reads";
 import {
   agentStatuses,
   ideaInputSchema,
@@ -46,7 +47,11 @@ export class AgentService {
     readonly store: BoardStore,
     readonly secrets: ToolSecrets,
     readonly clock = () => Date.now(),
-  ) {}
+  ) {
+    this.artifactReads = new ArtifactReadStore(store.directory);
+  }
+  /** Per-session last read of the card's artifacts, for `unread` (CARD-ARTIFACTS-SPEC §4.2). */
+  readonly artifactReads: ArtifactReadStore;
   attach(paseo: PaseoApi) {
     this.paseo = paseo;
   }
@@ -102,7 +107,15 @@ export class AgentService {
       );
     return { paseo, task, project, workspace, context };
   }
-  async get(identity: ToolIdentity, recordAccess = true): Promise<ToolContext> {
+  /**
+   * `markArtifacts`: this call is the session reading its card (kanban_get_task),
+   * so artifacts it returns stop being unread for that session. The context
+   * returned after a write shows the flags without clearing them.
+   */
+  async get(identity: ToolIdentity, recordAccess = true, markArtifacts = recordAccess): Promise<ToolContext> {
+    // Taken before reading the board: an artifact added meanwhile stays unread.
+    const readAt = new Date(Math.max(Date.now(), this.clock())).toISOString();
+    const lastRead = await this.artifactReads.lastRead(identity.agentId).catch(() => undefined);
     const r = await this.resources(identity);
     const entries: { id: string; title: string; status: string }[] = [];
     let cursor: string | undefined,
@@ -189,6 +202,8 @@ export class AgentService {
             note: a.note,
             createdBy: a.createdBy,
             missing: missing.has(a.id),
+            // Added or edited since this session last read the card; its own additions never count.
+            unread: !(a.createdBy === "agent" && a.agentId === identity.agentId) && (!lastRead || a.updatedAt > lastRead),
           }));
         })(),
         links: linksOf(board, r.task.id)
@@ -209,6 +224,10 @@ export class AgentService {
         at: new Date(this.clock()).toISOString(),
         action: "get",
       });
+    if (markArtifacts && value.artifacts.length)
+      await this.artifactReads.mark(identity.agentId, readAt).catch((e) =>
+        console.error("Kanban artifact reads not saved:", e instanceof Error ? e.message : String(e)),
+      );
     return value;
   }
   async write(
@@ -471,7 +490,7 @@ export class AgentService {
       ...receipt
     } = result.receipt;
     try {
-      const current = await this.get(identity);
+      const current = await this.get(identity, true, false);
       this.accesses.set(identity.agentId, {
         at: new Date(this.clock()).toISOString(),
         action,

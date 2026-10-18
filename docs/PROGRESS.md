@@ -29,6 +29,11 @@
 - [x] PASS (installed local build, this card's own session over MCP): `kanban_add_artifact` registered `docs/CARD-ARTIFACTS-SPEC.md` as output → stored `./docs/CARD-ARTIFACTS-SPEC.md`, `createdBy: agent`, `missing: false`, `artifact_added` event, task revision unchanged; `/etc/hosts` refused with `ARTIFACT_INVALID`.
 - [x] User report: the artifact preview did not scroll on phones. Cause: a nested ScrollView (maxHeight 520) inside the host modal's scrollable body took the pan. Fix: the text/markdown preview renders directly in the modal body, which scrolls. Typecheck and tests pass; plugin reloaded.
 - [ ] UNRUN: phone re-check of the fix; drawer UI (desktop/compact), human edit/remove, and the Luna 6 test session.
+- [x] User question "用户自己添加的 artifacts，Agent 如何有效使用"; chose A+B. A: session context lists the user's inputs first with `[user]/[agent]` and the note; skill makes user inputs required reading (notes are instructions, say so when one can't be read, name the inputs used), `kanban_get_task` description asks for a read each turn. B: `get_task.artifacts[].unread` (added/edited since this session's last explicit get_task, never its own), per-session read times in `artifact-reads.json`, not the board.
+- [x] PASS: typecheck; `server/artifacts.test.ts` 6 tests (unread first read / own additions / write context does not mark / other session / edit re-flags / survives a new service). Full `npm test`: 445 passed; 2 failed outside this change (`tool-server` CLI flow timed out at 5 s under load, passes alone in ~4 s, same as HEAD; `session-attention` fixture fails on another session's uncommitted `shared/session-attention.ts`).
+- [x] PASS (reloaded local plugin, this session over MCP): `get_task` returns `unread: false` on this session's own artifact; `artifact-reads.json` written with this session's read time (mode 600).
+- [x] PASS (live): the user added an input link in the drawer; this session's next `get_task` showed it `createdBy: human, unread: true`, the following read `unread: false`; the agent opened the link as the skill asks. The context lines built from the live board put it first as `- [user] 我的个人博客: https://bofan.wang — <note>`.
+- [ ] UNRUN: a newly created session actually receiving those context lines.
 
 ## Composer focus during a running session — 2026-10-16
 

@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { agentFixture } from "./agent-fixture";
 import { ArtifactService, normalizeTarget } from "./artifacts";
 import { artifactContextLines } from "../shared/artifacts";
-import type { AgentService } from "./agent-service";
+import { AgentService } from "./agent-service";
 
 const roots: string[] = [];
 afterEach(async () => {
@@ -119,8 +119,43 @@ test("deleting a card drops and backs up its artifacts; session context lists in
   expect((await x.store.read()).artifacts).toEqual([]);
   expect(JSON.parse(await readFile(backup, "utf8")).artifacts).toHaveLength(1);
   const lines = artifactContextLines(
-    Array.from({ length: 12 }, (_, i) => ({ role: i ? "output" : "input", title: `T${i}`, target: `./f${i}` }) as never),
+    Array.from(
+      { length: 12 },
+      (_, i) => ({ role: i ? "output" : "input", title: `T${i}`, target: `./f${i}`, note: "", createdBy: i === 11 ? "human" : "agent" }) as never,
+    ),
   );
-  expect(lines.slice(0, 3)).toEqual(["Inputs:", "- T0: ./f0", "Outputs so far:"]);
+  expect(lines.slice(0, 4)).toEqual(["Inputs:", "- [agent] T0: ./f0", "Outputs so far:", "- [user] T11: ./f11"]);
   expect(lines.at(-1)).toBe("- …and 1 more");
+  // The user's inputs come first and carry their note on one line.
+  const inputs = artifactContextLines([
+    { role: "input", title: "Log", target: "./log.txt", note: "", createdBy: "agent" },
+    { role: "input", title: "API", target: "https://api.example/doc", note: "Follow this\nformat", createdBy: "human" },
+  ] as never);
+  expect(inputs).toEqual(["Inputs:", "- [user] API: https://api.example/doc — Follow this format", "- [agent] Log: ./log.txt"]);
+});
+
+test("unread: artifacts added or edited since the session's last get_task, never its own; survives a restart", async () => {
+  const x = await setup();
+  const human = await x.artifacts.create({ taskId: "t", role: "input", target: "docs/spec.md", note: "Follow it" }, x.paseo);
+  // First read: everything the session has not added itself is unread, then it is read.
+  expect((await x.service.get(x.identity)).artifacts.map((a) => a.unread)).toEqual([true]);
+  let ctx = await x.service.get(x.identity);
+  expect(ctx.artifacts.map((a) => a.unread)).toEqual([false]);
+  // The session's own addition is never unread; the write's context does not mark anything read.
+  const later = await x.artifacts.create({ taskId: "t", role: "input", target: "https://issue.example/2" }, x.paseo);
+  const own = await x.service.write(x.identity, "artifact", { ...input(ctx), role: "output", target: "docs" });
+  expect(own.current?.artifacts.find((a) => a.id === own.artifactId)?.unread).toBe(false);
+  expect(own.current?.artifacts.find((a) => a.id === later.id)?.unread).toBe(true);
+  // Another session sees all three as unread on its first read.
+  expect((await x.service.get({ ...x.identity, agentId: "second" })).artifacts.every((a) => a.unread)).toBe(true);
+  // An edit by the user makes it unread again, also for a fresh service reading the same data.
+  ctx = await x.service.get(x.identity);
+  expect(ctx.artifacts.filter((a) => a.unread).map((a) => a.id)).toEqual([later.id]);
+  expect((await x.service.get(x.identity)).artifacts.filter((a) => a.unread)).toEqual([]);
+  const stored = (await x.store.read()).artifacts.find((a) => a.id === human.id)!;
+  await new Promise((r) => setTimeout(r, 5));
+  await x.artifacts.update({ id: human.id, updatedAt: stored.updatedAt, note: "Use section 3" });
+  const restarted = new AgentService(x.store, x.secrets);
+  restarted.attach(x.paseo);
+  expect((await restarted.get(x.identity)).artifacts.filter((a) => a.unread).map((a) => a.id)).toEqual([human.id]);
 });
