@@ -134,6 +134,22 @@ test("one run per card; turns ending meanwhile merge into a single follow-up", a
   expect(x.service.running()).toEqual([]);
 });
 
+test("settled() resolves only after the card's queued runs have finished and archived", async () => {
+  const x = await setup();
+  await x.service.settled("t");
+  let release!: () => void;
+  x.replies.push({ text: x.json("one"), gate: new Promise<void>((r) => (release = r)) });
+  void x.service.enqueue("t", "a1", x.turn("first"), x.paseo);
+  let settledYet = false;
+  const waiting = x.service.settled("t").then(() => (settledYet = true));
+  await settle();
+  expect(settledYet).toBe(false);
+  release();
+  await waiting;
+  expect(x.archived()).toBe(1);
+  expect(x.service.running()).toEqual([]);
+});
+
 test("failures are recorded, the old summary kept, and the session still archived", async () => {
   const x = await setup();
   x.replies.push({ text: x.json("good") });

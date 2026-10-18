@@ -122,7 +122,7 @@ export default function contribute(server: PluginServerContext) {
   const archived = new ArchivedSessionsService(store);
   server.handle(rpc.archivedSessions, (input, { paseo }) => archived.list(input.taskId, paseo));
   server.handle(rpc.sessionTail, (input, { paseo }) => tails.tail(input, paseo));
-  const wrapups = new WrapupService(store);
+  const wrapups = new WrapupService(store, undefined, (taskId) => summaries.settled(taskId));
   const restores = new WorkspaceRestoreService(store);
   const sessionSettings = new SessionSettingsService(store);
   server.handle(rpc.configureSession, (input, { paseo }) => sessionSettings.apply(input, paseo));

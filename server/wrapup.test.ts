@@ -17,7 +17,7 @@ afterEach(async () => {
 async function setup(options: {
   kind?: string;
   status?: "done" | "cancelled" | "development";
-  agents?: { id: string; status: string }[];
+  agents?: { id: string; status: string; labels?: Record<string, string> }[];
   directory?: string;
   git?: (cwd: string, args: string[]) => Promise<string>;
   ownsWorkspace?: boolean;
@@ -71,7 +71,7 @@ async function setup(options: {
   } as unknown as PaseoApi;
   const git = options.git || (async (_cwd: string, args: string[]) =>
     args[0] === "rev-parse" ? "feature/x\n" : args[0] === "status" ? "" : "0\n");
-  return { store, paseo, service: new WrapupService(store, git), agentArchive, workspaceArchive, root };
+  return { store, paseo, git, service: new WrapupService(store, git), agentArchive, workspaceArchive, root };
 }
 
 test("clean worktree wraps up by archiving the workspace, then the card", async () => {
@@ -181,6 +181,29 @@ test("auto-archive skips and records why: running session, git warnings, linked 
   const open = await setup({ status: "development" });
   await open.service.autoArchive("t", open.paseo);
   expect(open.workspaceArchive).not.toHaveBeenCalled();
+});
+
+test("auto wrap-up waits for the card's summary run and does not count summarizer sessions", async () => {
+  const x = await setup({
+    kind: "directory",
+    ownsWorkspace: true,
+    agents: [
+      { id: "a1", status: "idle" },
+      { id: "s1", status: "running", labels: { "ultra-kanban": "summarizer", "ultra-kanban-task": "t" } },
+    ],
+  });
+  let finish!: () => void;
+  const summary = new Promise<void>((resolve) => (finish = resolve));
+  const service = new WrapupService(x.store, x.git, (id) => (id === "t" ? summary : Promise.resolve()));
+  const done = service.autoArchive("t", x.paseo);
+  await new Promise((r) => setTimeout(r, 20));
+  expect(x.workspaceArchive).not.toHaveBeenCalled();
+  finish();
+  await done;
+  expect(x.workspaceArchive).toHaveBeenCalledWith("w");
+  const event = (await x.store.read()).events.at(-1);
+  expect(event).toMatchObject({ action: "workspace_auto_archived" });
+  expect(event?.note).toMatch(/1 session\(s\)/);
 });
 
 test("auto wrap-up also covers Cancelled", async () => {

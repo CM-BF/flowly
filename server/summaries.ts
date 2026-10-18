@@ -142,6 +142,7 @@ export const SUMMARY_TIMEOUT_MS = 120_000;
  */
 export class SummaryService {
   private queues = new Map<string, Batch[]>();
+  private drains = new Map<string, Promise<void>>();
   constructor(
     readonly board: BoardStore,
     readonly store: SummaryStore,
@@ -171,7 +172,16 @@ export class SummaryService {
       return Promise.resolve();
     }
     this.queues.set(taskId, [batch]);
-    return this.drain(taskId, paseo);
+    const drain: Promise<void> = this.drain(taskId, paseo).finally(() => {
+      if (this.drains.get(taskId) === drain) this.drains.delete(taskId);
+    });
+    this.drains.set(taskId, drain);
+    return drain;
+  }
+
+  /** Resolves when the card has no summary run in flight (wrap-up waits for it). */
+  settled(taskId: string): Promise<void> {
+    return this.drains.get(taskId) ?? Promise.resolve();
   }
 
   private async drain(taskId: string, paseo: PaseoApi) {

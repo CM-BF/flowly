@@ -87,6 +87,7 @@
   - “Not now” 关闭，不动任何资源；之后仍可用侧栏 Wrap up。
   - 卡片已没有可归档内容（workspace 不可用，或 workspace 不归本卡且无 session）时不弹出。
 - **开启**：daemon 在状态写入后后台执行，不阻塞写入；同一卡片同时只跑一次。只有在没有阻止项、没有警告、workspace 归本卡所有时才归档 workspace（Paseo 同时归档其 session 和终端），卡片保留，记录 `workspace_auto_archived`；否则不动资源，记录 `workspace_auto_archive_skipped`（附原因），之后可手动 Wrap up。执行前再确认卡片仍为 Done/Cancelled 且 revision 未变。
+- 摘要会话：回合结束后插件会在卡片 workspace 中创建短时的 “Kanban summary” 子会话（标签 `ultra-kanban=summarizer`），结束后自动归档。它不算 “仍在运行” 的 session，也不计入归档数量；自动与手动 Wrap up 都先等待本卡进行中的摘要跑完（`SummaryService.settled`，受摘要自身超时限制）再做检查和归档，避免回合刚结束就移到 Done 时被误判跳过或截断摘要（2026-10-18 修复）。
 - 归属：新卡记录 `ownsWorkspace`（新建 directory/worktree 为 true，关联已有 workspace 为 false）。旧卡没有该字段时，Paseo workspace 标题与卡片标题一致才视为本卡创建（插件创建时用卡片标题命名）。归本卡所有的 workspace（含 directory 类）整体归档，directory 目录留在磁盘；worktree 目录可能被 Paseo 移除，分支保留。不归本卡的 directory workspace（如项目 main）从不归档，只归档其中的 session。
 - 已收尾状态：卡片最近一次 `wrapped_up` / `workspace_auto_archived` 之后没有 `workspace_restored`，也没有移回非 Done/Cancelled 状态时，视为已收尾（`shared/wrapup-state.ts`）。此时侧栏 “Finished” 区块改为 “Wrapped up”（显示归档了什么、何时归档，以及移出 Done/Cancelled 可恢复），不再显示 Wrap up 按钮和菜单项，也不再提示 “Workspace is unavailable or archived.”。
 - 侧栏手动 Wrap up 不变（仍会归档卡片），只是同样整体归档归本卡所有的 directory workspace。

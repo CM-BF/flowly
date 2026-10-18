@@ -3,12 +3,18 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import type { BoardStore } from "./store";
 import type { WrapupCheck, WrapupResult } from "../shared/rpc";
+import { isSummarizer } from "../shared/summary";
 
 const execute = promisify(execFile);
 type Git = (cwd: string, args: string[]) => Promise<string>;
 const defaultGit: Git = async (cwd, args) =>
   (await execute("git", ["-C", cwd, ...args], { timeout: 10000, maxBuffer: 1 << 20 })).stdout;
 
+/**
+ * The card workspace's user-facing sessions. The plugin's own short-lived
+ * summarizer children are left out: they are archived when they finish, and
+ * wrap-up waits for them first (`settle`), so they never block it.
+ */
 async function workspaceSessions(paseo: PaseoApi, workspaceId: string) {
   const sessions: { id: string; status: string }[] = [];
   let cursor: string | undefined;
@@ -18,7 +24,7 @@ async function workspaceSessions(paseo: PaseoApi, workspaceId: string) {
       page: { limit: 200, cursor },
     });
     for (const { agent } of page.entries)
-      if (agent.workspaceId === workspaceId && !agent.archivedAt)
+      if (agent.workspaceId === workspaceId && !agent.archivedAt && !isSummarizer(agent))
         sessions.push({ id: agent.id, status: agent.status });
     cursor = page.pageInfo.nextCursor ?? undefined;
   } while (cursor);
@@ -30,6 +36,8 @@ export class WrapupService {
   constructor(
     readonly store: BoardStore,
     readonly git: Git = defaultGit,
+    /** Resolves once the card's in-flight summary run has finished. */
+    readonly settle: (taskId: string) => Promise<void> = async () => undefined,
   ) {}
 
   /**
@@ -116,6 +124,7 @@ export class WrapupService {
     input: { id: string; revision: number; acknowledgeWarnings: boolean; keepCard?: boolean; purpose?: "wrapup" | "delete" },
     paseo: PaseoApi,
   ): Promise<WrapupResult> {
+    await this.settle(input.id).catch(() => undefined);
     const check = await this.check(input.id, paseo, input.purpose);
     if (check.revision !== input.revision)
       throw new Error("Revision conflict: this card changed. Review the wrap-up again.");
@@ -204,6 +213,9 @@ export class WrapupService {
         if (board.tasks.some((t) => t.id === id))
           this.store.event(board, { taskId: id, actor: "system", action, note });
       });
+    // A turn that just ended starts a summary run in this workspace; archiving
+    // the workspace now would cut it off.
+    await this.settle(id).catch(() => undefined);
     let check: WrapupCheck;
     try {
       check = await this.check(id, paseo);
