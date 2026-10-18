@@ -126,7 +126,6 @@ const catalog: Catalog = {
   "Collapse {name}": "Свернуть «{name}»",
   "Add task to {name}": "Добавить задачу в «{name}»",
   "Drop to move here": "Отпустите, чтобы переместить сюда",
-  "Empty": "Пусто",
   "Move to {name}": "Переместить в «{name}»",
   "Reorder in {name}": "Изменить порядок в «{name}»",
   "Drag to reorder or move": "Перетащите, чтобы изменить порядок или переместить",
@@ -898,5 +897,14 @@ const catalog: Catalog = {
   "The agent needs your approval": "Агенту нужно ваше подтверждение",
   "Open in Paseo for the full details.": "Откройте в Paseo, чтобы увидеть все подробности.",
   "Waiting for your answer": "Ждёт вашего ответа",
+  "No tasks": "Нет задач",
+  "No recent tasks": "Нет недавних задач",
+  "Hide older tasks": "Скрыть старые задачи",
+  "Show {n} older tasks": {"one": "Показать {n} старую задачу", "few": "Показать {n} старые задачи", "many": "Показать {n} старых задач", "other": "Показать {n} старой задачи"},
+  "After {n} days": {"one": "Через {n} день", "few": "Через {n} дня", "many": "Через {n} дней", "other": "Через {n} дня"},
+  "Hide old finished cards": "Скрывать давно завершённые карточки",
+  "Done and Cancelled cards that finished longer ago fold under “Show older” at the bottom of their lane. They are not archived.": "Давно завершённые и отменённые карточки сворачиваются в «Показать старые» внизу своей колонки. Они не архивируются.",
+  "Cards that finished a while ago fold under “Show older” at the bottom of Done and Cancelled. Settings → Workflow sets how long they stay.": "Давно завершённые карточки сворачиваются в «Показать старые» внизу колонок «Готово» и «Отменено». Срок задаётся в Настройки → Рабочий процесс.",
+  "Never": "Никогда",
 };
 export default catalog;

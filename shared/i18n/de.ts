@@ -126,7 +126,6 @@ const catalog: Catalog = {
   "Collapse {name}": "{name} zuklappen",
   "Add task to {name}": "Aufgabe zu {name} hinzufügen",
   "Drop to move here": "Zum Verschieben hierher ziehen",
-  "Empty": "Leer",
   "Move to {name}": "Nach {name} verschieben",
   "Reorder in {name}": "In {name} umordnen",
   "Drag to reorder or move": "Zum Umordnen oder Verschieben ziehen",
@@ -898,5 +897,14 @@ const catalog: Catalog = {
   "The agent needs your approval": "Der Agent braucht deine Freigabe",
   "Open in Paseo for the full details.": "In Paseo öffnen, um alle Details zu sehen.",
   "Waiting for your answer": "Wartet auf deine Antwort",
+  "No tasks": "Keine Aufgaben",
+  "No recent tasks": "Keine aktuellen Aufgaben",
+  "Hide older tasks": "Ältere Aufgaben ausblenden",
+  "Show {n} older tasks": {"one": "{n} ältere Aufgabe anzeigen", "other": "{n} ältere Aufgaben anzeigen"},
+  "After {n} days": {"one": "Nach {n} Tag", "other": "Nach {n} Tagen"},
+  "Hide old finished cards": "Länger abgeschlossene Karten ausblenden",
+  "Done and Cancelled cards that finished longer ago fold under “Show older” at the bottom of their lane. They are not archived.": "Erledigte und abgebrochene Karten, die länger zurückliegen, werden unten in ihrer Spalte unter „Ältere anzeigen“ eingeklappt. Sie werden nicht archiviert.",
+  "Cards that finished a while ago fold under “Show older” at the bottom of Done and Cancelled. Settings → Workflow sets how long they stay.": "Länger abgeschlossene Karten werden unten in Erledigt und Abgebrochen unter „Ältere anzeigen“ eingeklappt. Unter Einstellungen → Workflow legst du fest, wie lange sie sichtbar bleiben.",
+  "Never": "Nie",
 };
 export default catalog;

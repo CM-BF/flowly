@@ -32,12 +32,12 @@ test("tour paging stays inside the pages", () => {
 });
 
 describe("tips", () => {
-  const none: TipFacts = { hasCard: false, needsYou: false, openIdea: false, movedToFinished: false, hasArtifact: false, hasAgentTag: false, agentQuestion: false };
+  const none: TipFacts = { hasCard: false, needsYou: false, openIdea: false, movedToFinished: false, hasArtifact: false, hasAgentTag: false, agentQuestion: false, olderHidden: false };
   test("nothing to show without a fact", () => {
     expect(nextTip({ tipsSeen: [], facts: none, blocked: false })).toBeNull();
   });
   test("one tip at a time, waiting-for-you first", () => {
-    const facts = { hasCard: true, needsYou: true, openIdea: true, movedToFinished: false, hasArtifact: true, hasAgentTag: true, agentQuestion: false };
+    const facts = { hasCard: true, needsYou: true, openIdea: true, movedToFinished: false, hasArtifact: true, hasAgentTag: true, agentQuestion: false, olderHidden: false };
     expect(nextTip({ tipsSeen: [], facts, blocked: false })).toBe("needs-you");
     expect(nextTip({ tipsSeen: ["needs-you"], facts, blocked: false })).toBe("first-idea");
     expect(nextTip({ tipsSeen: ["needs-you", "first-idea"], facts, blocked: false })).toBe("first-artifact");
@@ -53,6 +53,12 @@ describe("tips", () => {
     const facts = { ...none, movedToFinished: true };
     expect(nextTip({ tipsSeen: [], facts, blocked: false })).toBe("first-done");
     expect(nextTip({ tipsSeen: ["first-done"], facts, blocked: false })).toBeNull();
+  });
+  test("folded finished cards are announced after the wrap-up tip, before ideas", () => {
+    const facts = { ...none, olderHidden: true, movedToFinished: true, openIdea: true };
+    expect(nextTip({ tipsSeen: [], facts, blocked: false })).toBe("first-done");
+    expect(nextTip({ tipsSeen: ["first-done"], facts, blocked: false })).toBe("older-finished");
+    expect(nextTip({ tipsSeen: ["first-done", "older-finished"], facts, blocked: false })).toBe("first-idea");
   });
   test("no tip while the tour or another dialog is open", () => {
     expect(nextTip({ tipsSeen: [], facts: { ...none, hasCard: true }, blocked: true })).toBeNull();

@@ -126,7 +126,6 @@ const catalog: Catalog = {
   "Collapse {name}": "Contraer {name}",
   "Add task to {name}": "Añadir tarea a {name}",
   "Drop to move here": "Suelta para mover aquí",
-  "Empty": "Vacío",
   "Move to {name}": "Mover a {name}",
   "Reorder in {name}": "Reordenar en {name}",
   "Drag to reorder or move": "Arrastra para reordenar o mover",
@@ -898,5 +897,14 @@ const catalog: Catalog = {
   "The agent needs your approval": "El agente necesita tu aprobación",
   "Open in Paseo for the full details.": "Ábrelo en Paseo para ver todos los detalles.",
   "Waiting for your answer": "Esperando tu respuesta",
+  "No tasks": "Sin tareas",
+  "No recent tasks": "No hay tareas recientes",
+  "Hide older tasks": "Ocultar tareas antiguas",
+  "Show {n} older tasks": {"one": "Mostrar {n} tarea antigua", "other": "Mostrar {n} tareas antiguas"},
+  "After {n} days": {"one": "Después de {n} día", "other": "Después de {n} días"},
+  "Hide old finished cards": "Ocultar tarjetas terminadas hace tiempo",
+  "Done and Cancelled cards that finished longer ago fold under “Show older” at the bottom of their lane. They are not archived.": "Las tarjetas Hecho y Cancelado terminadas hace más tiempo se pliegan bajo “Mostrar antiguas” al final de su columna. No se archivan.",
+  "Cards that finished a while ago fold under “Show older” at the bottom of Done and Cancelled. Settings → Workflow sets how long they stay.": "Las tarjetas terminadas hace tiempo se pliegan bajo “Mostrar antiguas” al final de Hecho y Cancelado. En Ajustes → Flujo de trabajo eliges cuánto tiempo se quedan.",
+  "Never": "Nunca",
 };
 export default catalog;

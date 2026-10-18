@@ -126,7 +126,6 @@ const catalog: Catalog = {
   "Collapse {name}": "Réduire {name}",
   "Add task to {name}": "Ajouter une tâche à {name}",
   "Drop to move here": "Déposer pour déplacer ici",
-  "Empty": "Vide",
   "Move to {name}": "Déplacer vers {name}",
   "Reorder in {name}": "Réordonner dans {name}",
   "Drag to reorder or move": "Glisser pour réordonner ou déplacer",
@@ -898,5 +897,14 @@ const catalog: Catalog = {
   "The agent needs your approval": "L'agent a besoin de votre validation",
   "Open in Paseo for the full details.": "Ouvrez dans Paseo pour tous les détails.",
   "Waiting for your answer": "En attente de votre réponse",
+  "No tasks": "Aucune tâche",
+  "No recent tasks": "Aucune tâche récente",
+  "Hide older tasks": "Masquer les tâches anciennes",
+  "Show {n} older tasks": {"one": "Afficher {n} tâche ancienne", "other": "Afficher {n} tâches anciennes"},
+  "After {n} days": {"one": "Après {n} jour", "other": "Après {n} jours"},
+  "Hide old finished cards": "Masquer les cartes terminées depuis longtemps",
+  "Done and Cancelled cards that finished longer ago fold under “Show older” at the bottom of their lane. They are not archived.": "Les cartes Terminé et Annulé terminées depuis plus longtemps se replient sous « Afficher les anciennes » en bas de leur colonne. Elles ne sont pas archivées.",
+  "Cards that finished a while ago fold under “Show older” at the bottom of Done and Cancelled. Settings → Workflow sets how long they stay.": "Les cartes terminées depuis un moment se replient sous « Afficher les anciennes » en bas de Terminé et Annulé. Réglages → Flux de travail fixe leur durée.",
+  "Never": "Jamais",
 };
 export default catalog;

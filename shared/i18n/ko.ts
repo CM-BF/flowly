@@ -126,7 +126,6 @@ const catalog: Catalog = {
   "Collapse {name}": "{name} 접기",
   "Add task to {name}": "{name}에 작업 추가",
   "Drop to move here": "여기에 놓아 이동",
-  "Empty": "비어 있음",
   "Move to {name}": "{name}(으)로 이동",
   "Reorder in {name}": "{name} 안에서 순서 변경",
   "Drag to reorder or move": "드래그하여 순서 변경 또는 이동",
@@ -898,5 +897,14 @@ const catalog: Catalog = {
   "The agent needs your approval": "에이전트가 승인을 요청합니다",
   "Open in Paseo for the full details.": "자세한 내용은 Paseo에서 여세요.",
   "Waiting for your answer": "답변 대기 중",
+  "No tasks": "작업 없음",
+  "No recent tasks": "최근 작업 없음",
+  "Hide older tasks": "이전 작업 숨기기",
+  "Show {n} older tasks": "이전 작업 {n}개 보기",
+  "After {n} days": "{n}일 후",
+  "Hide old finished cards": "오래전에 끝난 카드 숨기기",
+  "Done and Cancelled cards that finished longer ago fold under “Show older” at the bottom of their lane. They are not archived.": "오래전에 끝난 완료·취소 카드는 열 아래쪽의 “이전 항목 보기”로 접힙니다. 보관되지는 않습니다.",
+  "Cards that finished a while ago fold under “Show older” at the bottom of Done and Cancelled. Settings → Workflow sets how long they stay.": "오래전에 끝난 카드는 완료·취소 열 아래쪽의 “이전 항목 보기”로 접힙니다. 기간은 설정 → 워크플로에서 정합니다.",
+  "Never": "안 함",
 };
 export default catalog;

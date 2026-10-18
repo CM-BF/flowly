@@ -126,7 +126,6 @@ const catalog: Catalog = {
   "Collapse {name}": "收起 {name}",
   "Add task to {name}": "向 {name} 添加任务",
   "Drop to move here": "拖放到此处移动",
-  "Empty": "空",
   "Move to {name}": "移动到 {name}",
   "Reorder in {name}": "在 {name} 中调整顺序",
   "Drag to reorder or move": "拖动以排序或移动",
@@ -898,5 +897,14 @@ const catalog: Catalog = {
   "The agent needs your approval": "智能体需要你的授权",
   "Open in Paseo for the full details.": "在 Paseo 中打开查看完整详情。",
   "Waiting for your answer": "等待你的回答",
+  "No tasks": "暂无任务",
+  "No recent tasks": "近期没有任务",
+  "Hide older tasks": "收起较早的任务",
+  "Show {n} older tasks": "显示 {n} 个较早的任务",
+  "After {n} days": "{n} 天后",
+  "Hide old finished cards": "隐藏较早完成的卡片",
+  "Done and Cancelled cards that finished longer ago fold under “Show older” at the bottom of their lane. They are not archived.": "较早完成的“完成”和“已取消”卡片会收进所在列底部的“显示较早”中，不会被归档。",
+  "Cards that finished a while ago fold under “Show older” at the bottom of Done and Cancelled. Settings → Workflow sets how long they stay.": "较早完成的卡片会收进“完成”和“已取消”列底部的“显示较早”中。在 设置 → 工作流 中设置保留天数。",
+  "Never": "从不",
 };
 export default catalog;

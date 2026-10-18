@@ -31,13 +31,13 @@ Open **Flowly** from Paseo's sidebar. The daemon needs the `paseo` CLI on its pa
 
 ### 1. Automatic status flow
 
-Start a session from a card and the card follows the work: **Design → Development → Test → In review**. The agent sets its stage through scoped Kanban tools; the daemon also moves cards when a session starts or resumes a turn. A finished turn never marks a card Done. Done and Cancelled stay your decision. Cards show running, finished, unread and needs-attention session counts, and the latest agent output.
+Start a session from a card and the card follows the work: **Design → Development → Test → In review**. The agent sets its stage through scoped Kanban tools; the daemon also moves cards when a session starts or resumes a turn. A finished turn never marks a card Done. Done and Cancelled stay your decision. Cards show running, finished, unread and needs-attention session counts, and the latest agent output. Cards that finished more than 14 days ago (configurable in *Settings → Workflow*) fold under **Show older** at the bottom of Done and Cancelled, so the board stays about current work.
 
 Turn it off globally (*Settings → Moving cards*) or per project.
 
 ### 2. Needs-you reminders
 
-When an agent needs a decision it asks one clear question and stops. The card lights up **Needs you**, the **Attention** menu and the sidebar badge count it, and **Reply** jumps straight to that session. Approvals and errors are surfaced the same way. Questions an agent asks with its ask-user tool, and approvals, can be answered right in the Flowly session.
+When an agent needs a decision it asks one clear question and stops. The card lights up **Needs you**, the **Attention** dropdown and the sidebar badge count it, and **Reply** jumps straight to that session. Approvals and errors are surfaced the same way. Questions an agent asks with its ask-user tool, and approvals, can be answered right in the Flowly session.
 
 ![An agent's question on a card, with a Reply button](docs/promo/screenshots/02-needs-you-drawer.png)
 

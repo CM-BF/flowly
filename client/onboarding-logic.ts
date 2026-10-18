@@ -28,7 +28,7 @@ export function welcomeDecision(input: {
   return input.blocked ? "wait" : "show";
 }
 
-export const tipIds = ["first-card", "needs-you", "first-idea", "first-done", "first-artifact", "first-tag", "agent-question"] as const;
+export const tipIds = ["first-card", "needs-you", "first-idea", "first-done", "first-artifact", "first-tag", "agent-question", "older-finished"] as const;
 export type TipId = (typeof tipIds)[number];
 
 export interface TipFacts {
@@ -46,6 +46,8 @@ export interface TipFacts {
   hasAgentTag: boolean;
   /** A session of the current project is waiting on an agent question (SESSION-QUESTION-SPEC). */
   agentQuestion: boolean;
+  /** Old Done/Cancelled cards are folded under "Show older" in the current project. */
+  olderHidden: boolean;
 }
 
 const tipFact: Record<TipId, keyof TipFacts> = {
@@ -56,13 +58,14 @@ const tipFact: Record<TipId, keyof TipFacts> = {
   "first-artifact": "hasArtifact",
   "first-tag": "hasAgentTag",
   "agent-question": "agentQuestion",
+  "older-finished": "olderHidden",
 };
 
 /** The one tip to show now: first in priority order whose fact holds and that was not shown before. */
 export function nextTip(input: { tipsSeen: readonly string[]; facts: TipFacts; blocked: boolean }): TipId | null {
   if (input.blocked) return null;
   // Waiting for the user outranks introductions; the answer-in-session tip is the more specific one.
-  const order: TipId[] = ["agent-question", "needs-you", "first-done", "first-idea", "first-artifact", "first-tag", "first-card"];
+  const order: TipId[] = ["agent-question", "needs-you", "first-done", "older-finished", "first-idea", "first-artifact", "first-tag", "first-card"];
   return order.find((id) => input.facts[tipFact[id]] && !input.tipsSeen.includes(id)) ?? null;
 }
 

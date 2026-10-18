@@ -75,8 +75,10 @@ import { ideasSettings, ideasSettingsValues, modelSettings, modelSettingsValues,
 import { pickOutputSession } from "./card-output";
 import { cardQuestions } from "../shared/progress";
 import { statusChanges } from "./changes";
+import { Popover, type PopoverPlace } from "./popover";
 import { ContextMenuProvider, eventPoint, menuHandlers, suppressNativeMenu, useMenuOpener, type MenuEntry } from "./context-menu";
-import { DesktopColumns, type Placement } from "./columns";
+import { DesktopColumns, OlderToggle, type Placement } from "./columns";
+import { olderFinished } from "./finished-cards";
 import { ResizeGrip } from "./resize";
 import { drawerWidth, isCompactLayout } from "./geometry";
 import { useSessionReads } from "./session-reads";
@@ -124,6 +126,7 @@ const tipText: Record<TipId, () => string> = {
   "first-artifact": () => t("Cards now collect artifacts: the files and links a task worked from and delivered. Agents add them as they work; you can add your own in the card."),
   "agent-question": () => t("An agent is asking you something. Open the card's session to answer it right there, no need to switch to Paseo."),
   "first-tag": () => t("Agents tag their cards by module and direction. Open a card and tap a tag to filter the board by it, or search #tag."),
+  "older-finished": () => t("Cards that finished a while ago fold under “Show older” at the bottom of Done and Cancelled. Settings → Workflow sets how long they stay."),
 };
 
 /** RN-Web forwards React keyboard events on View; React Native's types omit them. */
@@ -323,7 +326,7 @@ function BoardContent(
   useEffect(() => {
     if (!attentionToken || appliedAttentionTokens.has(attentionToken)) return;
     appliedAttentionTokens.add(attentionToken);
-    setMenu("attention");
+    openAttentionMenu();
   }, [attentionToken]);
   useEffect(() => {
     const target = resolvedLink.data;
@@ -477,8 +480,32 @@ function BoardContent(
         byWorkspace.set(a.workspaceId, a.updatedAt);
     return new Map((board?.tasks || []).flatMap((t) => (byWorkspace.has(t.workspaceId) ? [[t.id, byWorkspace.get(t.workspaceId)!]] : [])));
   }, [agents.data, board?.tasks]);
-  const sortColumn = (column: Task[]) => sortTasks(column, boardSort, taskActivity);
-  const list = sortColumn(visible.filter((t) => t.status === mobileStatus));
+  // Old Done/Cancelled cards fold to the bottom of their lane (FINISHED-CARDS-SPEC); the open card always shows.
+  const hideFinishedDays = view.values?.hideFinishedAfterDays ?? 14;
+  const older = useMemo(
+    () =>
+      olderFinished(
+        (board?.tasks || []).filter((t) => t.projectId === project?.id),
+        board?.events || [],
+        hideFinishedDays,
+        Date.now(),
+        taskId,
+      ),
+    [board?.tasks, board?.events, project?.id, hideFinishedDays, taskId],
+  );
+  const [olderShown, setOlderShown] = useState<Status[]>([]);
+  useEffect(() => setOlderShown([]), [project?.id]);
+  const toggleOlder = (status: Status) =>
+    setOlderShown((shown) => (shown.includes(status) ? shown.filter((s) => s !== status) : [...shown, status]));
+  const onScreen = visible.filter((t) => !older.has(t.id) || olderShown.includes(t.status));
+  // Within a lane the older cards always come last, under their toggle.
+  const sortColumn = (column: Task[]) => {
+    const sorted = sortTasks(column, boardSort, taskActivity);
+    return older.size ? [...sorted.filter((t) => !older.has(t.id)), ...sorted.filter((t) => older.has(t.id))] : sorted;
+  };
+  const laneAll = sortColumn(visible.filter((t) => t.status === mobileStatus));
+  const list = laneAll.filter((t) => !older.has(t.id));
+  const listOlder = laneAll.filter((t) => older.has(t.id));
   // Status-change flash: remember the last snapshot, emphasize cards that moved.
   const statusMemory = useRef<Map<string, string> | null>(null);
   const [flashing, setFlashing] = useState<ReadonlySet<string>>(new Set());
@@ -536,6 +563,34 @@ function BoardContent(
       ),
     [agents.data, board?.tasks, defaultModelKey],
   );
+  // Desktop: Attention drops down under the header bell; phones keep the sheet.
+  const rootRef = useRef<View>(null),
+    attentionRef = useRef<View>(null);
+  const [attentionPlace, setAttentionPlace] = useState<PopoverPlace | null>(null);
+  const openAttentionMenu = () => {
+    const anchor = attentionRef.current,
+      root = rootRef.current;
+    if (compact || !anchor || !root) {
+      setAttentionPlace(null);
+      setMenu("attention");
+      return;
+    }
+    root.measureInWindow((cx, cy, cw, ch) =>
+      anchor.measureInWindow((x, y, w, h) => {
+        // Not laid out yet (e.g. opened from a notification): fall back to the dialog.
+        setAttentionPlace(w && cw ? { anchor: { x, y, width: w, height: h }, container: { x: cx, y: cy, width: cw, height: ch } } : null);
+        setMenu("attention");
+      }),
+    );
+  };
+  const toggleAttentionMenu = () => (menu === "attention" ? setMenu(null) : openAttentionMenu());
+  const attentionDropdown = menu === "attention" && !compact ? attentionPlace : null;
+  // A resized surface moves the bell; close the dropdown rather than float in the wrong place.
+  const dropdownOpen = useRef(false);
+  dropdownOpen.current = !!attentionDropdown;
+  useEffect(() => {
+    if (dropdownOpen.current) setMenu(null);
+  }, [surfaceWidth]);
   const openAttention = (item: AttentionItem) => {
     setMenu(null);
     setProject(item.project.id);
@@ -801,6 +856,7 @@ function BoardContent(
           movedToFinished,
           hasArtifact: !task && board.artifacts.some((a) => a.projectId === project.id),
           hasAgentTag: !task && projectTasks.some((x) => !x.archivedAt && !!x.tags?.some((tag) => tag.by === "agent")),
+          olderHidden: older.size > 0 && !(olderShown.includes("done") && olderShown.includes("cancelled")),
         },
         blocked: !onboarding.values || welcomeOpen || welcome === "show" || dialogOpen,
       });
@@ -877,6 +933,11 @@ function BoardContent(
   const withKey = (text: string, key: string) =>
     shortcutsOn ? `${text} (${key})` : text;
   function runIntent(intent: BoardIntent | Exclude<ShortcutAction, BoardIntent>) {
+    // The dropdown is not a dialog, so shortcuts still reach the board: any other one closes it.
+    if (attentionDropdown && intent !== "attention") {
+      setMenu(null);
+      if (intent === "escape") return true;
+    }
     switch (intent) {
       case "new-task":
         if (!project || project.archivedAt) return false;
@@ -886,8 +947,10 @@ function BoardContent(
         if (!project) return false;
         setMenu("filters");
         return true;
-      case "projects":
       case "attention":
+        toggleAttentionMenu();
+        return true;
+      case "projects":
       case "shortcuts":
         setMenu(intent);
         return true;
@@ -926,7 +989,7 @@ function BoardContent(
       default: {
         if (compact || page) return false;
         const expanded = shownStatuses.filter((s) => !collapsedColumns.includes(s));
-        const next = navigateGrid(taskGrid(expanded, visible, sortColumn), task?.id || "", intent);
+        const next = navigateGrid(taskGrid(expanded, onScreen, sortColumn), task?.id || "", intent);
         if (!next) return false;
         if (next !== task?.id) setTask(next);
         return true;
@@ -952,6 +1015,61 @@ function BoardContent(
     consumedIntents.add(parsed.key);
     runIntent(parsed.intent);
   }, [props.params?.intent, props.params?.at, data.isPending]);
+  const attentionList = (
+    <>
+      {readUnavailable && (
+        <View style={{ paddingBottom: space[2] }}>
+          <Notice tone="warning">
+            {t("Read state is unavailable, so finished-but-unread sessions are not listed. Approvals and errors still are.")}</Notice>
+        </View>
+      )}
+      {!attention.length ? (
+        <View style={{ paddingVertical: space[6], alignItems: "center", gap: space[2] }}>
+          <Icon name="BellOff" size={20} color={colors.foregroundMuted} />
+          <Label muted>{t("Nothing needs your attention.")}</Label>
+        </View>
+      ) : (
+        attention.map((item) => (
+          <Row
+            key={item.task.id}
+            title={item.task.title}
+            detail={`${item.project.title} · ${laneName(item.project, item.task.status)} · ${[
+              item.questions && tn(item.questions, "{n} question", "{n} questions"),
+              item.permissions && tn(item.permissions, "{n} approval", "{n} approvals"),
+              item.errors && tn(item.errors, "{n} error", "{n} errors"),
+              item.unread &&
+                (item.silent
+                  ? item.silent === item.unread
+                    ? t("{unread} unread (no report)", { unread: item.unread })
+                    : t("{unread} unread ({silent} no report)", { unread: item.unread, silent: item.silent })
+                  : t("{unread} unread", { unread: item.unread })),
+            ]
+              .filter(Boolean)
+              .join(" · ")}`}
+            label={t("Open {title}", { title: item.task.title })}
+            leading={
+              <Dot
+                size={8}
+                color={
+                  item.permissions || item.questions
+                    ? colors.statusWarning
+                    : item.errors
+                      ? colors.statusDanger
+                      : colors.statusSuccess
+                }
+              />
+            }
+            trailing={
+              <Label muted size={font.xs} selectable={false}>
+                {relativeTime(item.updatedAt)}
+              </Label>
+            }
+            onPress={() => openAttention(item)}
+          />
+        ))
+      )}
+    </>
+  );
   const drawerView = drawer.item && (
     <Animated.View
       testID="task-drawer-motion"
@@ -1017,6 +1135,7 @@ function BoardContent(
   return (
     <Theme.Provider value={props.theme}>
       <View
+        ref={rootRef}
         {...(keyboardProps as {})}
         {...({ onContextMenu: suppressNativeMenu } as object)}
         onLayout={(e) => setSurfaceWidth(e.nativeEvent.layout.width)}
@@ -1078,12 +1197,15 @@ function BoardContent(
                 onPress={() => setMenu("shortcuts")}
               />
             )}
-            <AttentionButton
-              count={attention.length}
-              compact={compact}
-              shortcut={shortcutsOn ? "A" : ""}
-              onPress={() => setMenu("attention")}
-            />
+            <View ref={attentionRef} collapsable={false}>
+              <AttentionButton
+                count={attention.length}
+                compact={compact}
+                open={!!attentionDropdown}
+                shortcut={shortcutsOn ? "A" : ""}
+                onPress={toggleAttentionMenu}
+              />
+            </View>
             <SortButton
               mode={boardSort}
               compact={compact}
@@ -1126,7 +1248,7 @@ function BoardContent(
           <OverviewBar
             overview={boardOverview(project, board.tasks, agents.data || [], attention)}
             nameOf={nameOf}
-            onAttention={() => setMenu("attention")}
+            onAttention={openAttentionMenu}
             onInsights={() => togglePage("insights")}
             insightsShortcut={shortcutsOn ? "I" : ""}
             openIdeas={ideasOn ? projectOpenIdeas : null}
@@ -1252,7 +1374,7 @@ function BoardContent(
                         leading={<StatusIcon status={mobileStatus} size={16} />}
                         trailing={
                           <View style={{ flexDirection: "row", alignItems: "center", gap: space[2] }}>
-                            <Label muted size={font.md} selectable={false}>{list.length}</Label>
+                            <Label muted size={font.md} selectable={false}>{laneAll.length}</Label>
                             <Icon name="ChevronsUpDown" size={14} color={colors.foregroundMuted} />
                           </View>
                         }
@@ -1274,7 +1396,7 @@ function BoardContent(
                       }}
                     >
                       {list.map((t) => renderCard(t))}
-                      {!list.length && (
+                      {!list.length && !listOlder.length && (
                         <View style={{ paddingVertical: space[6], gap: space[3], alignItems: "center" }}>
                           <Label muted selectable={false}>
                             {filterCount
@@ -1291,6 +1413,15 @@ function BoardContent(
                             {t("Add task")}</Button>
                         </View>
                       )}
+                      {!list.length && !!listOlder.length && (
+                        <View style={{ paddingVertical: space[4], alignItems: "center" }}>
+                          <Label muted selectable={false}>{t("No recent tasks")}</Label>
+                        </View>
+                      )}
+                      {!!listOlder.length && (
+                        <OlderToggle count={listOlder.length} shown={olderShown.includes(mobileStatus)} onPress={() => toggleOlder(mobileStatus)} />
+                      )}
+                      {olderShown.includes(mobileStatus) && listOlder.map((t) => renderCard(t))}
                     </ScrollView>
                   </>
                 ) : (
@@ -1302,6 +1433,9 @@ function BoardContent(
                     sortColumn={sortColumn}
                     manualOrder={boardSort === "manual"}
                     collapsed={collapsedColumns}
+                    older={older}
+                    olderShown={olderShown}
+                    onToggleOlder={toggleOlder}
                     nameOf={nameOf}
                     onToggleCollapse={toggleCollapse}
                     onReorderBlocked={() =>
@@ -1498,7 +1632,7 @@ function BoardContent(
           </Modal.Content>
         </Modal>
         <Modal
-          open={menu === "attention"}
+          open={menu === "attention" && !attentionDropdown}
           title={t("Needs attention")}
           onOpenChange={(open) => {
             if (!open) setMenu(null);
@@ -1506,57 +1640,7 @@ function BoardContent(
         >
           <Modal.Content contentContainerStyle={{ padding: space[3], gap: space[1] }}>
             <Theme.Provider value={props.theme}>
-              {readUnavailable && (
-                <View style={{ paddingBottom: space[2] }}>
-                  <Notice tone="warning">
-                    {t("Read state is unavailable, so finished-but-unread sessions are not listed. Approvals and errors still are.")}</Notice>
-                </View>
-              )}
-              {!attention.length ? (
-                <View style={{ paddingVertical: space[6], alignItems: "center", gap: space[2] }}>
-                  <Icon name="BellOff" size={20} color={colors.foregroundMuted} />
-                  <Label muted>{t("Nothing needs your attention.")}</Label>
-                </View>
-              ) : (
-                attention.map((item) => (
-                  <Row
-                    key={item.task.id}
-                    title={item.task.title}
-                    detail={`${item.project.title} · ${laneName(item.project, item.task.status)} · ${[
-                      item.questions && tn(item.questions, "{n} question", "{n} questions"),
-                      item.permissions && tn(item.permissions, "{n} approval", "{n} approvals"),
-                      item.errors && tn(item.errors, "{n} error", "{n} errors"),
-                      item.unread &&
-                        (item.silent
-                          ? item.silent === item.unread
-                            ? t("{unread} unread (no report)", { unread: item.unread })
-                            : t("{unread} unread ({silent} no report)", { unread: item.unread, silent: item.silent })
-                          : t("{unread} unread", { unread: item.unread })),
-                    ]
-                      .filter(Boolean)
-                      .join(" · ")}`}
-                    label={t("Open {title}", { title: item.task.title })}
-                    leading={
-                      <Dot
-                        size={8}
-                        color={
-                          item.permissions || item.questions
-                            ? colors.statusWarning
-                            : item.errors
-                              ? colors.statusDanger
-                              : colors.statusSuccess
-                        }
-                      />
-                    }
-                    trailing={
-                      <Label muted size={font.xs} selectable={false}>
-                        {relativeTime(item.updatedAt)}
-                      </Label>
-                    }
-                    onPress={() => openAttention(item)}
-                  />
-                ))
-              )}
+              {attentionList}
             </Theme.Provider>
           </Modal.Content>
         </Modal>
@@ -1852,6 +1936,20 @@ function BoardContent(
             }}
           />
         )}
+        <Popover
+          place={attentionDropdown}
+          title={t("Needs attention")}
+          trailing={
+            attention.length ? (
+              <Label muted size={font.sm} selectable={false}>
+                {tn(attention.length, "{n} card", "{n} cards")}
+              </Label>
+            ) : undefined
+          }
+          onClose={() => setMenu(null)}
+        >
+          {attentionList}
+        </Popover>
       </View>
     </Theme.Provider>
   );
@@ -1906,11 +2004,14 @@ function ProjectSwitcher({
 function AttentionButton({
   count,
   compact,
+  open,
   shortcut,
   onPress,
 }: {
   count: number;
   compact: boolean;
+  /** Its dropdown is showing. */
+  open: boolean;
   shortcut: string;
   onPress(): void;
 }) {
@@ -1919,6 +2020,7 @@ function AttentionButton({
     <Pressable
       accessibilityRole="button"
       accessibilityLabel={`${count ? tn(count, "Needs attention, {n} card", "Needs attention, {n} cards") : t("Needs attention")}${shortcut ? ` (${shortcut})` : ""}`}
+      accessibilityState={{ expanded: open }}
       onPress={onPress}
       style={(state) => {
         const { pressed, hovered: hover, focused } = state as typeof state & { hovered?: boolean; focused?: boolean };
@@ -1933,7 +2035,7 @@ function AttentionButton({
           justifyContent: "center",
           paddingHorizontal: compact ? 0 : space[2] + 2,
           borderRadius: radius.md,
-          backgroundColor: hovered || pressed ? colors.surface2 : "transparent",
+          backgroundColor: open || hovered || pressed ? colors.surface2 : "transparent",
         };
       }}
     >

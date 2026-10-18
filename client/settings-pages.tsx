@@ -4,6 +4,8 @@ import { usePaseo, useSettings } from "@getpaseo/plugin/client";
 import { useQuery } from "@tanstack/react-query";
 import { AUTO_MODELS, modelLabel, summarySettings, summarySettingsValues } from "../shared/summary";
 import {
+  boardViewSettings,
+  boardViewValues,
   ideasSettings,
   ideasSettingsValues,
   languageSettings,
@@ -16,7 +18,8 @@ import {
   wrapupSettingsValues,
 } from "../shared/settings";
 import { agentModelFromValues, type AgentModel } from "../shared/agent-defaults";
-import { deviceLocale, locales, t } from "../shared/i18n";
+import { deviceLocale, locales, t, tn } from "../shared/i18n";
+import { hideFinishedChoices } from "./finished-cards";
 import { modelOptions, providerOptions } from "./options";
 import { ModelDefaultGroup } from "./model-default";
 import { SettingRow, SettingSelect, SettingSwitch, SettingsGroup, SettingsPage } from "./settings-ui";
@@ -179,9 +182,15 @@ function SummaryModelGroup({ active }: { active: boolean }) {
 export function WorkflowPage() {
   const status = useStored(useSettings(statusSettings), statusSettingsValues);
   const wrapup = useStored(useSettings(wrapupSettings), wrapupSettingsValues);
+  const view = useStored(useSettings(boardViewSettings), boardViewValues);
+  const hideAfter = view.values?.hideFinishedAfterDays ?? 14;
+  const dayLabel = (days: number) => (days ? tn(days, "After {n} day", "After {n} days") : t("Never"));
+  const hideOptions = [...new Set<number>([...hideFinishedChoices, hideAfter])]
+    .sort((a, b) => a - b)
+    .map((days) => ({ value: String(days), label: dayLabel(days) }));
   return (
     <SettingsPage title={t("Workflow")} description={t("How cards move through the board and what happens when they are done.")}>
-      <Problem text={status.problem || wrapup.problem} />
+      <Problem text={status.problem || wrapup.problem || view.problem} />
       <SettingsGroup title={t("Moving cards")} description={t("Agents always set their own work stage and deliver to review. These rules react to session activity on top of that.")}>
         <SettingSwitch
           title={t("Auto-update status from sessions")}
@@ -205,6 +214,15 @@ export function WorkflowPage() {
           value={wrapup.values?.archiveOnDelete ?? false}
           disabled={wrapup.busy}
           onChange={(archiveOnDelete) => wrapup.save({ archiveOnDelete })}
+        />
+        <SettingSelect
+          title={t("Hide old finished cards")}
+          detail={t("Done and Cancelled cards that finished longer ago fold under “Show older” at the bottom of their lane. They are not archived.")}
+          value={String(hideAfter)}
+          placeholder={dayLabel(hideAfter)}
+          disabled={view.busy}
+          options={hideOptions}
+          onChange={(next) => view.save({ hideFinishedAfterDays: Number(next) })}
         />
       </SettingsGroup>
     </SettingsPage>

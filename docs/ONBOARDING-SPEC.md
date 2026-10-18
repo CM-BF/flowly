@@ -66,7 +66,7 @@ Primary **Create project** (opens the existing project form after the tour close
 
 ### 5. One-time contextual tips (small, non-modal)
 
-A tip is a single dismissible banner row (icon, one sentence, **Got it**) under the overview bar; only **Got it** records it as seen. Priority when several apply: agent-question, needs-you, first-done, first-idea, first-artifact, first-tag, first-card. The empty-project hint takes the same slot and wins at the top of the relevant surface, using theme colours. At most one tip is visible at a time; a tip appears at most once per host (`tipsSeen`); dismissing or acting on the feature records it. Tips never block input, never move a focused input, and are not shown while the welcome tour is open.
+A tip is a single dismissible banner row (icon, one sentence, **Got it**) under the overview bar; only **Got it** records it as seen. Priority when several apply: agent-question, needs-you, first-done, older-finished, first-idea, first-artifact, first-tag, first-card. The empty-project hint takes the same slot and wins at the top of the relevant surface, using theme colours. At most one tip is visible at a time; a tip appears at most once per host (`tipsSeen`); dismissing or acting on the feature records it. Tips never block input, never move a focused input, and are not shown while the welcome tour is open.
 
 | Tip id | Shown when | Text |
 | --- | --- | --- |
@@ -77,6 +77,7 @@ A tip is a single dismissible banner row (icon, one sentence, **Got it**) under 
 | `first-artifact` | a card of the project has an artifact and no card is open | "Cards now collect artifacts: the files and links a task worked from and delivered. Agents add them as they work; you can add your own in the card." |
 | `first-tag` | a card of the project has a tag an agent added and no card is open | "Agents tag their cards by module and direction. Open a card and tap a tag to filter the board by it, or search #tag." |
 | `first-done` | the user first moves a card to Done/Cancelled | "Done cards can be wrapped up: archive their sessions and workspace. Auto wrap up is in settings." |
+| `older-finished` | the current project has old Done/Cancelled cards folded under "Show older" (and at least one of those lanes still folds them) | "Cards that finished a while ago fold under “Show older” at the bottom of Done and Cancelled. Settings → Workflow sets how long they stay." (FINISHED-CARDS-SPEC) |
 
 Tips are the lowest-priority part of this feature and can ship after the tour (see Delivery).
 

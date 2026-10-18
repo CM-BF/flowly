@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { sortTasks } from "../shared/sort";
 import { Animated, Pressable, View, type ScrollView as NativeScrollView } from "react-native";
-import { ScrollView } from "@getpaseo/plugin/client/react-native";
+import { Icon, ScrollView } from "@getpaseo/plugin/client/react-native";
 import type { Status, Task } from "../shared/model";
 import { statusLabels } from "../shared/model";
 import { IconButton, Label, font, noFocusRing, radius, space, touch, useTheme, verticalScroll, verticalContent } from "./ui";
@@ -55,6 +55,37 @@ function LaneFrame({ status, collapsed, onLayout, frameRef, children }: { status
   );
 }
 const collapsedWidth = 44;
+const noOlder: ReadonlySet<string> = new Set();
+
+/** "Show N older" / "Hide older" row closing a Done/Cancelled lane (also used by the phone list). */
+export function OlderToggle({ count, shown, onPress }: { count: number; shown: boolean; onPress(): void }) {
+  const { colors } = useTheme();
+  const text = shown ? t("Hide older tasks") : tn(count, "Show {n} older task", "Show {n} older tasks");
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={text}
+      accessibilityState={{ expanded: shown }}
+      onPress={onPress}
+      style={(state) => {
+        const { pressed, hovered, focused } = state as typeof state & { hovered?: boolean; focused?: boolean };
+        return {
+          ...noFocusRing,
+          flexDirection: "row",
+          alignItems: "center",
+          justifyContent: "center",
+          gap: space[1.5],
+          minHeight: touch ? 40 : 30,
+          borderRadius: radius.md,
+          backgroundColor: hovered || focused || pressed ? colors.surface2 : "transparent",
+        };
+      }}
+    >
+      <Icon name="Clock" size={13} color={colors.foregroundMuted} />
+      <Label muted size={font.sm} selectable={false}>{text}</Label>
+    </Pressable>
+  );
+}
 
 /** Insertion line positioned absolutely in the column content, so showing it never shifts cards. */
 function InsertLine({ y }: { y: number | null }) {
@@ -87,6 +118,9 @@ export function DesktopColumns({
   collapsed = [],
   onToggleCollapse,
   nameOf = (status) => statusLabels[status],
+  older = noOlder,
+  olderShown = [],
+  onToggleOlder,
   renderCard,
   onAdd,
   onDrop,
@@ -106,6 +140,11 @@ export function DesktopColumns({
   /** The project's lane name for a status. */
   nameOf?(status: Status): string;
   cancelKey: string;
+  /** Old Done/Cancelled cards: tucked under a "Show older" row at the bottom of their lane. */
+  older?: ReadonlySet<string>;
+  /** Lanes whose older cards are shown. */
+  olderShown?: readonly Status[];
+  onToggleOlder?(status: Status): void;
   renderCard(task: Task, drag: CardDrag, dragging: boolean): ReactNode;
   onAdd(status: Status): void;
   onDrop(input: Placement): void;
@@ -281,7 +320,12 @@ export function DesktopColumns({
       >
         {statuses.map((status) => {
           const column = sortColumn(tasks.filter((t) => t.status === status));
-          order.current[status] = column.map((t) => t.id);
+          const recent = column.filter((t) => !older.has(t.id)),
+            past = column.filter((t) => older.has(t.id)),
+            pastShown = olderShown.includes(status);
+          const shown = pastShown ? [...recent, ...past] : recent;
+          // Drop slots follow the cards actually on screen.
+          order.current[status] = shown.map((t) => t.id);
           const highlighted =
             dragging?.target === status && dragging.task.status !== status;
           const line =
@@ -295,6 +339,17 @@ export function DesktopColumns({
               ? [{ id: "collapse", label: collapsed.includes(status) ? t("Expand column") : t("Collapse column"), icon: collapsed.includes(status) ? "ChevronsLeftRight" : "ChevronsRightLeft", onPress: () => onToggleCollapse(status) }]
               : []),
           ]);
+          const cardSlot = (t: Task) => (
+            <View
+              key={t.id}
+              onLayout={(e) => {
+                const { y, height } = e.nativeEvent.layout;
+                cards.current[t.id] = { y, height };
+              }}
+            >
+              {renderCard(t, stableDrag, dragging?.task.id === t.id)}
+            </View>
+          );
           const frameRef = (node: View | null) => {
             frames.current[status] = node;
           };
@@ -417,18 +472,9 @@ export function DesktopColumns({
                   gap: cardGap,
                 }}
               >
-                {column.map((t) => (
-                  <View
-                    key={t.id}
-                    onLayout={(e) => {
-                      const { y, height } = e.nativeEvent.layout;
-                      cards.current[t.id] = { y, height };
-                    }}
-                  >
-                    {renderCard(t, stableDrag, dragging?.task.id === t.id)}
-                  </View>
-                ))}
-                {!column.length && !!dragging && (
+                {recent.map(cardSlot)}
+                {!recent.length && (
+                  // Same box idle and while dragging, so starting a drag never shifts the lane.
                   <View
                     style={{
                       height: 72,
@@ -437,14 +483,18 @@ export function DesktopColumns({
                       borderRadius: radius.lg,
                       borderWidth: 1,
                       borderStyle: "dashed",
-                      borderColor: highlighted ? colors.accent : colors.border,
+                      borderColor: highlighted ? colors.accent : dragging ? colors.border : "transparent",
                     }}
                   >
                     <Label muted size={font.sm} selectable={false}>
-                      {highlighted ? t("Drop to move here") : t("Empty")}
+                      {highlighted ? t("Drop to move here") : past.length ? t("No recent tasks") : t("No tasks")}
                     </Label>
                   </View>
                 )}
+                {past.length > 0 && (
+                  <OlderToggle count={past.length} shown={pastShown} onPress={() => onToggleOlder?.(status)} />
+                )}
+                {pastShown && past.map(cardSlot)}
                 <InsertLine y={line} />
               </ScrollView>
               </View>

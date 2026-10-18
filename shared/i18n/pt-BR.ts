@@ -126,7 +126,6 @@ const catalog: Catalog = {
   "Collapse {name}": "Recolher {name}",
   "Add task to {name}": "Adicionar tarefa a {name}",
   "Drop to move here": "Solte para mover para cá",
-  "Empty": "Vazio",
   "Move to {name}": "Mover para {name}",
   "Reorder in {name}": "Reordenar em {name}",
   "Drag to reorder or move": "Arraste para reordenar ou mover",
@@ -898,5 +897,14 @@ const catalog: Catalog = {
   "The agent needs your approval": "O agente precisa da sua aprovação",
   "Open in Paseo for the full details.": "Abra no Paseo para ver todos os detalhes.",
   "Waiting for your answer": "Aguardando sua resposta",
+  "No tasks": "Sem tarefas",
+  "No recent tasks": "Nenhuma tarefa recente",
+  "Hide older tasks": "Ocultar tarefas antigas",
+  "Show {n} older tasks": {"one": "Mostrar {n} tarefa antiga", "other": "Mostrar {n} tarefas antigas"},
+  "After {n} days": {"one": "Depois de {n} dia", "other": "Depois de {n} dias"},
+  "Hide old finished cards": "Ocultar cards concluídos há tempo",
+  "Done and Cancelled cards that finished longer ago fold under “Show older” at the bottom of their lane. They are not archived.": "Cards Concluído e Cancelado finalizados há mais tempo ficam recolhidos em “Mostrar antigos” no fim da coluna. Eles não são arquivados.",
+  "Cards that finished a while ago fold under “Show older” at the bottom of Done and Cancelled. Settings → Workflow sets how long they stay.": "Cards finalizados há algum tempo ficam recolhidos em “Mostrar antigos” no fim de Concluído e Cancelado. Em Configurações → Fluxo de trabalho você define por quanto tempo ficam.",
+  "Never": "Nunca",
 };
 export default catalog;

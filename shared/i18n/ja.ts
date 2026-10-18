@@ -126,7 +126,6 @@ const catalog: Catalog = {
   "Collapse {name}": "{name} を折りたたむ",
   "Add task to {name}": "{name} にタスクを追加",
   "Drop to move here": "ここにドロップして移動",
-  "Empty": "空",
   "Move to {name}": "{name} に移動",
   "Reorder in {name}": "{name} 内で並べ替え",
   "Drag to reorder or move": "ドラッグして並べ替え・移動",
@@ -898,5 +897,14 @@ const catalog: Catalog = {
   "The agent needs your approval": "エージェントが承認を求めています",
   "Open in Paseo for the full details.": "詳細は Paseo で開いて確認してください。",
   "Waiting for your answer": "回答待ち",
+  "No tasks": "タスクはありません",
+  "No recent tasks": "最近のタスクはありません",
+  "Hide older tasks": "古いタスクを隠す",
+  "Show {n} older tasks": "古いタスクを {n} 件表示",
+  "After {n} days": "{n} 日後",
+  "Hide old finished cards": "完了から時間が経ったカードを隠す",
+  "Done and Cancelled cards that finished longer ago fold under “Show older” at the bottom of their lane. They are not archived.": "完了・キャンセルから時間が経ったカードは、列の下部の「古いものを表示」にまとめられます。アーカイブはされません。",
+  "Cards that finished a while ago fold under “Show older” at the bottom of Done and Cancelled. Settings → Workflow sets how long they stay.": "完了から時間が経ったカードは、完了・キャンセル列の下部の「古いものを表示」にまとめられます。日数は 設定 → ワークフロー で変更できます。",
+  "Never": "しない",
 };
 export default catalog;
