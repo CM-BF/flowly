@@ -16,6 +16,8 @@ export type AttentionItem = {
   unread: number;
   /** Open agent questions awaiting your reply (AUTO-STATUS M1). */
   questions: number;
+  /** Sessions waiting on an agent question (AskUserQuestion), answerable in the session. */
+  asks: number;
   /** Unread sessions whose last turn ended without any Kanban report (M2). */
   silent: number;
   /** Set when exactly one session needs attention, so it can be opened directly. */
@@ -46,9 +48,10 @@ export function attentionItems(
         const unread = !readUnavailable && state.unread && !state.permission && !state.error;
         return {
           agent,
-          permission: state.permission,
+          permission: state.permission && !state.question,
           error: state.error,
-          question: !!openQuestion(own, agent.id),
+          question: state.question || !!openQuestion(own, agent.id),
+          asks: state.question,
           unread,
           silent: unread && silentTurn(task, own, agent.id),
         };
@@ -62,6 +65,7 @@ export function attentionItems(
       errors: flagged.filter((s) => s.error).length,
       unread: flagged.filter((s) => s.unread && !s.question).length,
       questions: flagged.filter((s) => s.question).length,
+      asks: flagged.filter((s) => s.asks).length,
       silent: flagged.filter((s) => s.silent && !s.question).length,
       sessionId: flagged.length === 1 ? flagged[0].agent.id : null,
       updatedAt: flagged

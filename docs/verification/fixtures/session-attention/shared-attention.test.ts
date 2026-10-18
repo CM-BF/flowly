@@ -56,7 +56,7 @@ describe("session attention pure contract", () => {
     ] as any;
     expect(sessionAttentionSummary(active, { id: "task", workspaceId: "workspace-a" }, [], events)).toEqual({
       total: 4, running: 1, starting: 1, finished: 0, unread: 4, attention: 4,
-      permissions: 1, errors: 1, unknownRead: 0,
+      permissions: 1, questions: 0, errors: 1, unknownRead: 0,
     });
   });
 

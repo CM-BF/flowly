@@ -71,10 +71,10 @@ export function TypeIcon({ type, size = 14, always = false }: { type?: TaskType;
 /** Session visual tone derived from the shared sessionState label set. */
 export function sessionTone(
   colors: Colors,
-  state: { label: string; active: boolean },
+  state: { label: string; active: boolean; waiting?: boolean },
   unread = false,
 ) {
-  if (state.label === "Waiting for approval") return colors.statusWarning;
+  if (state.waiting) return colors.statusWarning;
   if (state.label === "Error") return colors.statusDanger;
   if (state.active) return colors.accent;
   if (unread) return colors.statusSuccess;

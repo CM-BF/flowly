@@ -1,5 +1,14 @@
 # Implementation progress
 
+## Answer agent questions in the session — 2026-10-18
+
+- [x] Card request "提问能力接入": an agent's ask-user-question lit up the card but the question was only visible in the native Paseo session. [Spec](SESSION-QUESTION-SPEC.md).
+- [x] Capability check: the public SDK already carries `pendingPermissions` on agent snapshots and `agent.respondToPermission`; the answer encoding was read from the installed Paseo 0.11.2 app (answers keyed by header, `", "` joins, dismiss = deny "Dismissed by user") and the Claude provider (maps headers back to question text).
+- [x] Implemented: `shared/permission-question.ts` (pure form logic), `client/session-question.tsx` (question form; Allow/Deny or provider actions for other requests) above the session composer; respond re-checks membership and that the request is still pending. "Waiting for your answer" session label; agent questions count as Needs you / questions, not approvals. Tip `agent-question`, tour feature line, 19 strings in all 9 catalogs.
+- [x] PASS: typecheck; full `npm test` (a `server/tool-server.test.ts` failure seen mid-way came from a parallel session's in-progress edit and passed once it settled). The session-attention verification fixture now expects the new `questions` count.
+- [x] PASS (live, user, desktop): single select, multi select + Other, Other-only text, Dismiss, tool approval (always-ask mode, file create/delete). User feedback "输入框回车不能直接提交" fixed: web Enter submits the form, Shift+Enter new line.
+- [ ] UNRUN: phone layout, plan approval, Luna 6 test session.
+
 ## Project folder copy — 2026-10-17
 
 - [x] Card request "Flowly project保存在原始project目录". User chose A: each project's board is also saved in `<root>/.flowly/project.json`, restorable after the project is removed from Flowly, git-ignored by default. [Spec](PROJECT-FOLDER-SPEC.md).

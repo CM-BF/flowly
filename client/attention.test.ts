@@ -54,6 +54,21 @@ test("several flagged sessions open the card; read receipts and unavailable read
   expect(attentionItems(board, [agent("s1", "wa", { pendingPermissions: [{}] })], [], true)[0]).toMatchObject({ permissions: 1 });
 });
 
+test("an agent question counts as a question you can answer, not an approval", () => {
+  const board = { projects: [project("p")], tasks: [task("a", "wa")], events: [] };
+  const ask = { id: "permission-1", kind: "question", input: { questions: [] } };
+  expect(attentionItems(board, [agent("s1", "wa", { pendingPermissions: [ask] })], [], false)[0]).toMatchObject({
+    permissions: 0,
+    questions: 1,
+    asks: 1,
+  });
+  expect(attentionItems(board, [agent("s1", "wa", { pendingPermissions: [{ id: "p", kind: "tool" }] })], [], false)[0]).toMatchObject({
+    permissions: 1,
+    questions: 0,
+    asks: 0,
+  });
+});
+
 test("last session settings come from the newest active session in a card workspace", () => {
   const base = { archivedAt: null, provider: "codex", model: "m1", currentModeId: "full-access" };
   expect(lastSessionSettings([

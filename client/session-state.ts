@@ -2,6 +2,7 @@ import type { PaseoAgent } from "@getpaseo/client";
 import type { PluginSurfaceProps } from "@getpaseo/plugin/client";
 import type { BoardEvent } from "../shared/model";
 import { msg, t, tn } from "../shared/i18n";
+import { asksQuestion } from "../shared/permission-question";
 
 export function sessionState(
   agent: Pick<
@@ -21,7 +22,9 @@ export function sessionState(
     agent.pendingPermissions?.length ||
     agent.attentionReason === "permission"
   )
-    return { label: msg("Waiting for approval"), icon: "CircleHelp", active: false };
+    return asksQuestion(agent)
+      ? { label: msg("Waiting for your answer"), icon: "MessageCircleQuestion", active: false, waiting: true }
+      : { label: msg("Waiting for approval"), icon: "CircleHelp", active: false, waiting: true };
   if (agent.status === "error" || agent.attentionReason === "error")
     return { label: msg("Error"), icon: "CircleAlert", active: false };
   if (agent.status === "initializing")

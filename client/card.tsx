@@ -421,7 +421,7 @@ function CardSignals({
 }) {
   const { colors } = useTheme();
   const items: ReactNode[] = [];
-  if (questions)
+  if (questions || (available && summary?.questions))
     items.push(<Signal key="question" icon="MessageCircleQuestion" color={colors.statusWarning} text={t("Needs you")} />);
   if (waiting) items.push(<Signal key="waiting" icon="Hourglass" text={t("Waiting on {waiting}", { waiting })} />);
   if (!available && wrapped)
@@ -447,7 +447,7 @@ function CardSignals({
         />,
       );
     // A session with an open question is already shown as "Needs you".
-    const unread = Math.max(0, summary.unread - questions);
+    const unread = Math.max(0, summary.unread - questions - summary.questions);
     if (unread)
       items.push(<Signal key="unread" color={colors.statusSuccess} text={t("{n} unread", { n: unread })} />);
     if (!items.length && summary.total)

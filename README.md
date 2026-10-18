@@ -37,7 +37,7 @@ Turn it off globally (*Settings → Moving cards*) or per project.
 
 ### 2. Needs-you reminders
 
-When an agent needs a decision it asks one clear question and stops. The card lights up **Needs you**, the **Attention** menu and the sidebar badge count it, and **Reply** jumps straight to that session. Approvals and errors are surfaced the same way.
+When an agent needs a decision it asks one clear question and stops. The card lights up **Needs you**, the **Attention** menu and the sidebar badge count it, and **Reply** jumps straight to that session. Approvals and errors are surfaced the same way. Questions an agent asks with its ask-user tool, and approvals, can be answered right in the Flowly session.
 
 ![An agent's question on a card, with a Reply button](docs/promo/screenshots/02-needs-you-drawer.png)
 

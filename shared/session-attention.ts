@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { BoardEvent } from "./model";
+import { asksQuestion } from "./permission-question";
 
 export const sessionReadReceiptSchema = z.strictObject({
   taskId: z.string().min(1).max(200),
@@ -129,6 +130,8 @@ export function sessionAttention(
     unread,
     manualUnread: !archived && manualUnread,
     permission,
+    /** The pending request is an agent question (AskUserQuestion), not a tool approval. */
+    question: permission && asksQuestion(agent),
     error,
     finished,
     running: !archived && agent.status === "running",
@@ -161,7 +164,8 @@ export function sessionAttentionSummary(
     finished: states.filter((s) => s.finished).length,
     unread: states.filter((s) => s.unread).length,
     attention: states.filter((s) => s.needsAttention).length,
-    permissions: states.filter((s) => s.permission).length,
+    permissions: states.filter((s) => s.permission && !s.question).length,
+    questions: states.filter((s) => s.question).length,
     errors: states.filter((s) => s.error).length,
     unknownRead: states.filter((s) => !s.readKnown).length,
   };

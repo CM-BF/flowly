@@ -122,6 +122,7 @@ const tipText: Record<TipId, () => string> = {
   "first-idea": () => t("An agent suggested follow-up work. Good idea starts a card or continues here; Not now dismisses it."),
   "first-done": () => t("Done cards can be wrapped up: their sessions and workspace are archived. Auto wrap up is in settings."),
   "first-artifact": () => t("Cards now collect artifacts: the files and links a task worked from and delivered. Agents add them as they work; you can add your own in the card."),
+  "agent-question": () => t("An agent is asking you something. Open the card's session to answer it right there, no need to switch to Paseo."),
   "first-tag": () => t("Agents tag their cards by module and direction. Open a card and tap a tag to filter the board by it, or search #tag."),
 };
 
@@ -795,6 +796,7 @@ function BoardContent(
         facts: {
           hasCard: !task && projectTasks.some((x) => !x.archivedAt),
           needsYou: projectAttention.length > 0,
+          agentQuestion: projectAttention.some((i) => i.asks > 0),
           openIdea: ideasOn && projectOpenIdeas > 0,
           movedToFinished,
           hasArtifact: !task && board.artifacts.some((a) => a.projectId === project.id),

@@ -83,7 +83,7 @@ export function SessionCard({
             color={state.label === "Idle" || state.label === "Ready" || state.label === "Archived" || state.label === "Closed" ? colors.foregroundMuted : tone}
             selectable={false}
           >
-            {unread && !state.active && state.label !== "Error" && state.label !== "Waiting for approval" ? `${t(state.label)} · ${t("Unread")}` : t(state.label)}
+            {unread && !state.active && state.label !== "Error" && !("waiting" in state) ? `${t(state.label)} · ${t("Unread")}` : t(state.label)}
           </Label>
           {model ? ` · ${model}` : ""}
           {readText ? ` · ${readText}` : ""}

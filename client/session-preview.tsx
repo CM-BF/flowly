@@ -66,7 +66,10 @@ import {
   type TranscriptBlock,
 } from "./session-state";
 import { sendCardInstruction, workspaceSession } from "./session";
+import { useStableCallback } from "./stable";
 import { SessionMarkdown } from "./session-content";
+import { PendingRequests } from "./session-question";
+import { pendingRequests, type PendingRequest, type PermissionReply } from "../shared/permission-question";
 import { coalescedRefresh, useSessionFollowTail } from "./session-follow";
 import { useSessionReads } from "./session-reads";
 import { sessionAttention } from "../shared/session-attention";
@@ -472,6 +475,22 @@ export function SessionPreview({
       void timeline.refetch();
     });
   }
+  // Open agent questions and approvals, answered here instead of in Paseo (SESSION-QUESTION-SPEC).
+  const requestsKey = JSON.stringify(active?.pendingPermissions ?? []);
+  const requests = useMemo(() => pendingRequests(active), [requestsKey]);
+  const respond = useStableCallback((request: PendingRequest, reply: PermissionReply) => {
+    noteInteraction();
+    void perform(async () => {
+      const latest = await workspaceSession(paseo, sessionId, task.workspaceId, true);
+      if (!pendingRequests(latest).some((r) => r.id === request.id))
+        throw new Error(t("This request was already answered or withdrawn."));
+      await agent.respondToPermission({ requestId: request.id, response: reply });
+      toast.show(reply.behavior === "allow" && request.kind === "question" ? t("Answer sent") : t("Response sent"), { variant: "success" });
+      if (mounted.current) tail.jumpToLatest();
+      await current.refetch();
+      void timeline.refetch();
+    });
+  });
   const tone = state ? sessionTone(colors, state, !!attention?.unread) : colors.foregroundMuted;
   const canSend = canWrite && (!!draft.trim() || attachments.length > 0);
   // Paseo parity: a running session with an empty composer shows Stop.
@@ -792,7 +811,7 @@ export function SessionPreview({
               <PulseDot color={tone} size={7} active={state.active} />
               <View style={{ flexShrink: 1, minWidth: 0 }}>
                 <Label muted size={font.sm} lines={1} selectable={false}>
-                  <Label size={font.sm} medium color={state.active || state.label === "Error" || state.label === "Waiting for approval" ? tone : colors.foregroundMuted} selectable={false}>
+                  <Label size={font.sm} medium color={state.active || state.label === "Error" || "waiting" in state ? tone : colors.foregroundMuted} selectable={false}>
                     {t(state.label)}
                   </Label>
                   {reads.query.isPending
@@ -1062,6 +1081,7 @@ export function SessionPreview({
               </Pressable>
             </Animated.View>
           )}
+          <PendingRequests requests={requests} disabled={!canWrite || busy} compact={compact} onRespond={respond} />
           {renderComposer()}
           {(keyHints || running || queued.length > 0) && (
             <View style={{ flexDirection: "row", alignItems: "center", gap: space[2], minHeight: 20 }}>
