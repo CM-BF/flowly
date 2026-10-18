@@ -80,6 +80,15 @@ Occasionally, after Back from a session, the card details stayed faded and offse
 
 `MotionReveal` now animates one signed offset (±1 → 0) through fixed interpolation nodes for both directions, and after every native end, unless a newer reveal is moving, sets the rest value again on both sides and commits it.
 
+### Follow-up: typing on a phone interrupted when a card changes lane (user report, 2026-10-18)
+
+Report: while typing in a card's session on a phone, an agent's stage update (or the status rule after a send) interrupts input. Not reproduced on a device (no phone mirror available); two load sources were found and removed:
+
+- **Session view re-render.** Every board change re-rendered the drawer and, through inline callbacks, the whole `SessionPreview` (transcript, Markdown, composer): a long JS frame mid-typing. `SessionPreview` is now `memo`ized. It compares only the card fields it reads (`samePreviewTask`: id, workspace, archived, title) and this session's latest turn event (`turnEventKey`). The drawer passes stable callbacks (`useStableCallback`). A lane/revision change alone no longer re-renders it. A new turn, a rename or an archive still does.
+- **Native session chip poll** (`registerSessionChips`, runs on every client while Paseo's own composer is in use). Every 5 s it re-downloaded the full board, paged every agent on the host including archived ones, and pushed `chip.update` into the host composer even when nothing changed. Now the board is read by etag (`board.read-changed`), only live sessions are listed each round, archived ones are rescanned only when the board changed, a chipped session vanished, or once a minute, and a pill is updated only when its text changed.
+
+Unit: `client/session-chips.test.ts`, `client/session-state.test.ts` (memo keys); session-chip fixture updated to the new reads. Device check: UNRUN.
+
 ## 4. Constraints kept
 
 - No second Paseo connection: the subscription uses the supplied SDK. No new dependency, no DOM, no private host import.

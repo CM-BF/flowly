@@ -1,6 +1,8 @@
-import { expect, test, vi } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 import {
   sessionState,
+  samePreviewTask,
+  turnEventKey,
   openNativeSession,
   recentSessionOutput,
   groupTranscript,
@@ -102,4 +104,22 @@ test("consecutive thinking and tool calls merge into one activity block", () => 
   expect(first.items.map((i) => i.key)).toEqual(["t1", "c1", "c2"]);
   expect(activitySummary(first)).toBe("Thought · 2 tool calls");
   expect(activitySummary({ thoughts: 0, tools: 1 })).toBe("1 tool call");
+});
+
+describe("session view memo keys", () => {
+  const ev = (id: string, agentId: string, action: string) => ({ id, taskId: "t", actor: "system" as const, agentId, action, at: `2026-10-18T00:00:0${id.length}.000Z` });
+  test("a lane change by the agent does not change the turn key; a new turn does", () => {
+    const base = [ev("1", "a", "agent.turn_started")];
+    const moved = [...base, { ...ev("22", "a", "status_changed"), from: "design" as const, to: "development" as const }];
+    expect(turnEventKey(moved, "a")).toBe(turnEventKey(base, "a"));
+    expect(turnEventKey([...moved, ev("333", "a", "agent.turn_ended")], "a")).not.toBe(turnEventKey(base, "a"));
+    // Another session's turn is not this view's business.
+    expect(turnEventKey([...base, ev("4444", "b", "agent.turn_ended")], "a")).toBe(turnEventKey(base, "a"));
+  });
+  test("only the card fields the view reads count", () => {
+    const card = { id: "t", workspaceId: "w", archivedAt: null, title: "x" };
+    expect(samePreviewTask(card, { ...card })).toBe(true);
+    expect(samePreviewTask(card, { ...card, title: "y" })).toBe(false);
+    expect(samePreviewTask(card, { ...card, archivedAt: "2026-10-18T00:00:00.000Z" })).toBe(false);
+  });
 });

@@ -32,7 +32,7 @@ import {
   verticalContent, noFocusRing } from "./ui";
 import { PriorityIcon, StatusIcon, TypeIcon, priorityLabels } from "./status";
 import { useLiveAgents } from "./queries";
-import { shallowEqual } from "./stable";
+import { shallowEqual, useStableCallback } from "./stable";
 import { isLegacyScope } from "../shared/scope";
 import { SessionCard } from "./session-card";
 import { SessionCreate } from "./session-create";
@@ -277,6 +277,34 @@ function TaskDrawerView({
       ? message(scope.error)
       : scope.data?.reason || (!workspace.isPending && !workspace.data ? t("Workspace unavailable.") : "");
   const statusDisabled = !active || sending || !!task.archivedAt || !!project.archivedAt;
+  // Stable, so a board refresh (e.g. the card changing lane) does not re-render
+  // the memoized session view and its composer (SessionPreview is memoized).
+  const beginOperation = useStableCallback((id: string) => {
+    if (sessionLocks.current.has(id)) return false;
+    sessionLocks.current.add(id);
+    setPendingSessions((current) => ({ ...current, [id]: true }));
+    return true;
+  });
+  const endOperation = useStableCallback((id: string) => {
+    sessionLocks.current.delete(id);
+    setPendingSessions((current) => ({ ...current, [id]: false }));
+  });
+  const composerFocus = useStableCallback((id: string) => {
+    // A late daemon restore must not replace (remount) an input the user is in.
+    seeded.current.add(id);
+  });
+  const draftChange = useStableCallback((id: string, text: string, expected?: string) => {
+    seeded.current.add(id);
+    setDrafts((current) =>
+      expected !== undefined && current[id] !== expected
+        ? current
+        : { ...current, [id]: text },
+    );
+    // Persist on the daemon (debounced; immediate when a send clears it).
+    composer.saveDraft(task.id, id, text, expected !== undefined);
+  });
+  const backToTask = useStableCallback(() => setSelected(""));
+  const stableRefreshAll = useStableCallback(() => refreshAll());
   const refreshAll = () => {
     refresh();
     void sessions.refetch();
@@ -506,33 +534,13 @@ function TaskDrawerView({
           navigation={navigation}
           draft={drafts[selected] || ""}
           pending={!!pendingSessions[selected]}
-          beginOperation={(id) => {
-            if (sessionLocks.current.has(id)) return false;
-            sessionLocks.current.add(id);
-            setPendingSessions((current) => ({ ...current, [id]: true }));
-            return true;
-          }}
-          endOperation={(id) => {
-            sessionLocks.current.delete(id);
-            setPendingSessions((current) => ({ ...current, [id]: false }));
-          }}
-          onComposerFocus={(id) => {
-            // A late daemon restore must not replace (remount) an input the user is in.
-            seeded.current.add(id);
-          }}
-          onDraftChange={(id, text, expected) => {
-            seeded.current.add(id);
-            setDrafts((current) =>
-              expected !== undefined && current[id] !== expected
-                ? current
-                : { ...current, [id]: text },
-            );
-            // Persist on the daemon (debounced; immediate when a send clears it).
-            composer.saveDraft(task.id, id, text, expected !== undefined);
-          }}
-          onBack={() => setSelected("")}
+          beginOperation={beginOperation}
+          endOperation={endOperation}
+          onComposerFocus={composerFocus}
+          onDraftChange={draftChange}
+          onBack={backToTask}
           onClose={onClose}
-          refresh={refreshAll}
+          refresh={stableRefreshAll}
         />
       ) : (
         <>

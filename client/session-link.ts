@@ -1,12 +1,12 @@
 import { z } from "zod";
-import type { PaseoApi } from "@getpaseo/client";
+import type { PaseoAgent, PaseoApi } from "@getpaseo/client";
 import type {
   PluginClientContext,
   PluginButtonRegistration,
   PluginScreenParams,
 } from "@getpaseo/plugin/client";
 import type { RpcOutput } from "@getpaseo/plugin";
-import { readBoard } from "../shared/rpc";
+import { readBoard, readBoardChanged } from "../shared/rpc";
 import { listAgents } from "./resources";
 import { t } from "../shared/i18n";
 
@@ -98,8 +98,18 @@ export function registerSessionChips(
 ) {
   const registrations = new Map<
     string,
-    { binding: string; chip: PluginButtonRegistration }
+    { binding: string; label: string; chip: PluginButtonRegistration }
   >();
+  // This poll runs on every client, phones included, where each response is
+  // decoded on the JS thread while the user may be typing in a composer
+  // (PERFORMANCE-SPEC). So: the board is re-read only when its etag changed,
+  // live sessions are listed each round, and the archived scan (every agent on
+  // the host) only when the board changed or once a minute.
+  let board: LinkBoard | null = null,
+    etag = "",
+    archived: PaseoAgent[] = [],
+    archivedAt = 0;
+  const archivedEvery = 60_000;
   const opening = new Set<string>();
   let disposed = false,
     timer: ReturnType<typeof setTimeout> | undefined,
@@ -138,24 +148,36 @@ export function registerSessionChips(
   }
   async function refresh() {
     try {
-      const results = await Promise.allSettled([
-        client.rpc(readBoard, {}),
-        listAgents(client.paseo, undefined, true),
+      const [boardResult, liveResult] = await Promise.allSettled([
+        client.rpc(readBoardChanged, etag && board ? { etag } : {}),
+        listAgents(client.paseo, undefined, false),
       ]);
       if (disposed) return;
-      const [boardResult, agentsResult] = results;
-      if (
-        boardResult.status !== "fulfilled" ||
-        agentsResult.status !== "fulfilled"
-      ) {
+      if (boardResult.status !== "fulfilled" || liveResult.status !== "fulfilled" || (!boardResult.value.value && !board)) {
+        board = null;
+        etag = "";
         clear();
         return;
       }
-      const board = boardResult.value,
-        agents = agentsResult.value;
+      const changed = !!boardResult.value.value;
+      if (boardResult.value.value) board = boardResult.value.value;
+      etag = boardResult.value.etag;
+      const live = liveResult.value;
+      const liveIds = new Set(live.map((a) => a.id));
+      const archivedIds = new Set(archived.map((a) => a.id));
+      // A chipped session that left the live list was probably just archived.
+      const vanished = [...registrations.keys()].some((id) => !liveIds.has(id) && !archivedIds.has(id));
+      if (changed || vanished || Date.now() - archivedAt >= archivedEvery) {
+        const all = await listAgents(client.paseo, undefined, true);
+        if (disposed) return;
+        archived = all.filter((a) => !!a.archivedAt);
+        archivedAt = Date.now();
+      }
+      const agents = [...live, ...archived.filter((a) => !liveIds.has(a.id))];
+      const current = board!;
       const tasks = new Map(
-        board.tasks
-          .filter((t) => board.projects.some((p) => p.id === t.projectId))
+        current.tasks
+          .filter((t) => current.projects.some((p) => p.id === t.projectId))
           .map((t) => [t.workspaceId, t]),
       );
       const found = new Set<string>();
@@ -173,10 +195,17 @@ export function registerSessionChips(
           existing = undefined;
         }
         const button = chipButton(task, actor.id);
-        if (existing) existing.chip.update(button);
-        else
+        // Updating a pill re-renders the host composer next to the user's input: only when its text changed.
+        const label = `${button.label}\n${button.title}`;
+        if (existing) {
+          if (existing.label !== label) {
+            existing.chip.update(button);
+            existing.label = label;
+          }
+        } else
           registrations.set(actor.id, {
             binding,
+            label,
             chip: client.addComposerPill({
               id: "kanban-task",
               workspaceId: task.workspaceId,

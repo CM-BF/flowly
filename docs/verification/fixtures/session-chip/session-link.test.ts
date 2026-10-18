@@ -1,5 +1,8 @@
 import { afterEach, describe, expect, test, vi } from "vitest";
-import { readBoard } from "../../../../shared/rpc";
+import { readBoardChanged } from "../../../../shared/rpc";
+
+/** board.read-changed response carrying a full board (the chip poll reads by etag since 2026-10-18). */
+const changed = (value: unknown) => ({ etag: "e1", value });
 import {
   parseSessionLink,
   registerSessionChips,
@@ -65,14 +68,17 @@ describe("session chip links", () => {
     const first = { ...actor, id: "session-a" };
     const second = { ...actor, id: "session-b" };
     const unrelated = { ...actor, id: "session-unlinked", workspaceId: "elsewhere" };
-    const list = vi.fn()
-      .mockResolvedValueOnce(page([first, unrelated], "next"))
-      .mockResolvedValueOnce(page([second]))
-      .mockResolvedValueOnce(page([second]))
-      .mockResolvedValueOnce(page([]));
+    // Live sessions are listed each round (paginated); the archived scan finds none here.
+    let liveRounds = 0;
+    const list = vi.fn(async ({ filter, page: { cursor } }: any) => {
+      if (filter.includeArchived) return page([]);
+      if (!cursor) liveRounds++;
+      if (liveRounds > 1) return page([second]);
+      return cursor ? page([second]) : page([first, unrelated], "next");
+    });
     const rpc = vi.fn(async (schema: unknown) => {
-      expect(schema).toBe(readBoard);
-      return board;
+      expect(schema).toBe(readBoardChanged);
+      return changed(board);
     });
     const pills = new Map<string, any>();
     const openScreen = vi.fn();
@@ -92,8 +98,8 @@ describe("session chip links", () => {
     };
     const dispose = registerSessionChips(client, 100);
     await vi.waitFor(() => expect(pills.size).toBe(2));
-    expect(list).toHaveBeenNthCalledWith(1, { filter: { includeArchived: true }, page: { limit: 200, cursor: undefined } });
-    expect(list).toHaveBeenNthCalledWith(2, { filter: { includeArchived: true }, page: { limit: 200, cursor: "next" } });
+    expect(list).toHaveBeenCalledWith({ filter: { includeArchived: false }, page: { limit: 200, cursor: undefined } });
+    expect(list).toHaveBeenCalledWith({ filter: { includeArchived: false }, page: { limit: 200, cursor: "next" } });
     expect([...pills.keys()].sort()).toEqual(["session-a", "session-b"]);
     const chip = pills.get("session-a");
     expect(chip.registration).toMatchObject({ workspaceId: link.workspaceId, agentId: "session-a" });
@@ -116,7 +122,7 @@ describe("session chip links", () => {
     const registrations = new Map<string, any>();
     const client: any = {
       paseo: { agents: { list: vi.fn().mockResolvedValue(page([actor])) } },
-      rpc: vi.fn().mockResolvedValue(titledBoard),
+      rpc: vi.fn().mockResolvedValue(changed(titledBoard)),
       openScreen: vi.fn(),
       addComposerPill: vi.fn((item: any) => {
         const registration = { item, update: vi.fn(), remove: vi.fn() };
@@ -137,7 +143,7 @@ describe("session chip links", () => {
     let finishBoard!: (value: any) => void;
     const boardRead = vi.fn()
       .mockImplementationOnce(() => new Promise((resolve) => { finishBoard = resolve; }))
-      .mockResolvedValueOnce(board);
+      .mockResolvedValueOnce(changed(board));
     const list = vi.fn().mockResolvedValue(page([actor]));
     const client: any = {
       paseo: { agents: { list, ref: vi.fn() } },
@@ -149,7 +155,7 @@ describe("session chip links", () => {
     await Promise.resolve();
     await vi.advanceTimersByTimeAsync(100);
     expect(boardRead).toHaveBeenCalledTimes(1);
-    finishBoard(board);
+    finishBoard(changed(board));
     await Promise.resolve();
     await Promise.resolve();
     expect(boardRead).toHaveBeenCalledTimes(1);
@@ -161,7 +167,7 @@ describe("session chip links", () => {
     const chipRemove = vi.fn();
     const failureClient: any = {
       paseo: { agents: { list: vi.fn().mockResolvedValue(page([actor])) } },
-      rpc: vi.fn().mockResolvedValueOnce(board).mockRejectedValueOnce(new Error("offline")),
+      rpc: vi.fn().mockResolvedValueOnce(changed(board)).mockRejectedValueOnce(new Error("offline")),
       openScreen: vi.fn(),
       addComposerPill: vi.fn(() => ({ update: vi.fn(), remove: chipRemove })),
     };
@@ -180,7 +186,7 @@ describe("session chip links", () => {
     const list = vi.fn().mockResolvedValue(page([actor, { ...actor, id: "session-b" }]));
     const client: any = {
       paseo: { agents: { list, ref: (id: string) => refreshActor(id) } },
-      rpc: vi.fn().mockResolvedValue(board),
+      rpc: vi.fn().mockResolvedValue(changed(board)),
       openScreen: vi.fn((route: any) => opened.push(route)),
       addComposerPill: vi.fn((item: any) => {
         const reg = { item, update: vi.fn(), remove: vi.fn() };
@@ -224,7 +230,7 @@ describe("session chip links", () => {
     };
     const dispose = registerSessionChips(client, 10);
     dispose();
-    resolveBoard(board);
+    resolveBoard(changed(board));
     await Promise.resolve();
     await Promise.resolve();
     expect(client.addComposerPill).not.toHaveBeenCalled();

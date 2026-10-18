@@ -1,6 +1,6 @@
 import type { PaseoAgent } from "@getpaseo/client";
 import type { PluginSurfaceProps } from "@getpaseo/plugin/client";
-import type { BoardEvent } from "../shared/model";
+import type { BoardEvent, Task } from "../shared/model";
 import { msg, t, tn } from "../shared/i18n";
 import { asksQuestion } from "../shared/permission-question";
 
@@ -156,4 +156,21 @@ export function activitySummary(block: { thoughts: number; tools: number }) {
   if (block.thoughts) parts.push(t("Thought"));
   if (block.tools) parts.push(tn(block.tools, "{n} tool call", "{n} tool calls"));
   return parts.join(" · ");
+}
+
+/** The card fields the session view reads; a lane/revision change alone leaves it as is. */
+export function samePreviewTask(
+  a: Pick<Task, "id" | "workspaceId" | "archivedAt" | "title">,
+  b: Pick<Task, "id" | "workspaceId" | "archivedAt" | "title">,
+) {
+  return a.id === b.id && a.workspaceId === b.workspaceId && a.archivedAt === b.archivedAt && a.title === b.title;
+}
+
+/** The only events the session view uses: this session's latest turn start/end (sessionState, sessionAttention). */
+export function turnEventKey(events: readonly BoardEvent[], agentId: string) {
+  for (let i = events.length - 1; i >= 0; i--) {
+    const e = events[i];
+    if (e.agentId === agentId && (e.action === "agent.turn_started" || e.action === "agent.turn_ended")) return `${e.id}|${e.taskId}`;
+  }
+  return "";
 }

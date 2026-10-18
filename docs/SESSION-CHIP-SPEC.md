@@ -12,6 +12,10 @@ Root cause of the Android toast above: Hermes gives a loop body's `const` one bi
 
 User decision: the chip opens the **task**, not the session it was tapped in. The board still validates the full link (card, workspace and the session's membership) and then opens the card's overview. A card that is already open on a session preview returns to its details (a one-time entry with an empty session ID). This supersedes "select the exact session preview" below; Back/Close/re-click rules apply to the overview the same way.
 
+## 2026-10-18 amendment — cheaper poll
+
+Phones decode every response on the JS thread, and this poll ran while the user typed in Paseo's composer. The 5 s round now reads the board by etag (`board.read-changed`; unchanged rounds transfer no board) and lists live sessions only. Archived sessions are rescanned when the board changed, when a chipped session left the live list, or at most once a minute. A chip is updated only when its label/title changed. This supersedes "polls the host board and paginated agent directory every five seconds, including archived actors" below (PERFORMANCE-SPEC, follow-up 2026-10-18).
+
 ## Capability and placement
 
 Pinned public SDK 0.11.2 supports `PluginClientContext.addComposerPill({id,workspaceId,agentId,button})`, asynchronous action behavior, `openScreen({screenId,params})`, and string-valued `PluginScreenProps.params`. Use a native composer-track chip next to Paseo's Tasks/Subagents controls. Its icon, hit target, pending/error state and compact layout are host-owned. No private pane import or native app change.

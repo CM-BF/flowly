@@ -62,7 +62,9 @@ import {
   groupTranscript,
   openNativeSession,
   recentSessionOutput,
+  samePreviewTask,
   sessionState,
+  turnEventKey,
   type TranscriptBlock,
 } from "./session-state";
 import { sendCardInstruction, workspaceSession } from "./session";
@@ -82,7 +84,30 @@ import { t, tn } from "../shared/i18n";
 const inputPad = 4;
 const inputMin = 20 + 2 * inputPad;
 
-export function SessionPreview({
+type SessionPreviewProps = Parameters<typeof SessionPreviewView>[0];
+
+/**
+ * Memoized: the drawer re-renders on every board change, and a card moving
+ * lane (an agent's stage update, a status rule after a send) used to re-render
+ * the whole session view, transcript and composer while the user typed, a long
+ * JS frame on a phone. Only what this view reads is compared: the card's
+ * identity fields and this session's turn events.
+ */
+export const SessionPreview = memo(SessionPreviewView, sameSessionPreviewProps);
+
+export function sameSessionPreviewProps(a: SessionPreviewProps, b: SessionPreviewProps) {
+  const keys = new Set([...Object.keys(a), ...Object.keys(b)]) as Set<keyof SessionPreviewProps>;
+  for (const key of keys) {
+    if (key === "task") {
+      if (!samePreviewTask(a.task, b.task)) return false;
+    } else if (key === "events") {
+      if (turnEventKey(a.events, a.sessionId) !== turnEventKey(b.events, b.sessionId)) return false;
+    } else if (!Object.is(a[key], b[key])) return false;
+  }
+  return true;
+}
+
+function SessionPreviewView({
   task,
   sessionId,
   compact = false,
