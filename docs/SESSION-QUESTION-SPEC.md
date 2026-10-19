@@ -17,6 +17,12 @@ Status: implemented 2026-10-18 (card "提问能力接入"). User request: when a
 - The form is keyed by request ID, so a new request starts empty and a request answered elsewhere (Paseo, another client) disappears on the next agent update.
 - Sending a message while a request is pending keeps the existing behavior (a queue becomes interrupt, as in Paseo).
 
+### 2.1 Card Needs-you area (2026-10-19, card "提问框接入need you")
+
+- The card drawer's top area, where Kanban `kind=question` reports show as "{agent} needs you" with **Reply**, also lists every live session of the card with pending requests: a "{agent} needs you" heading with **Open** (opens that session) and the same `PendingRequests` form as the session view. The user answers a question or approval without opening the session.
+- Same rules as the session view: fresh membership check (`workspaceSession(..., true)`), "This request was already answered or withdrawn." when it is gone, `respondToPermission`, toast **Answer sent** / **Response sent**, sessions refetched. The per-session operation lock is shared with the session view, so a send and an answer on the same session cannot overlap. Errors show in the drawer's error notice. Controls are disabled while the drawer is busy, the session is locked, its provider is unavailable or the card is archived.
+- The forms are memoized on the pending requests' content, so board refreshes do not reset a half-filled answer. No new strings.
+
 ## 3. Status and attention
 
 - A session whose pending request is a question shows **Waiting for your answer** (MessageCircleQuestion) instead of **Waiting for approval**; both use the warning tone and suppress the "· Unread" suffix.
@@ -25,13 +31,14 @@ Status: implemented 2026-10-18 (card "提问能力接入"). User request: when a
 ## 4. Onboarding
 
 - New one-time tip `agent-question` (highest priority, before `needs-you`): shown the first time a session in the current project waits on an agent question — "An agent is asking you something. Open the card's session to answer it right there, no need to switch to Paseo." As a new tip id it is shown once to existing users too.
-- Tour feature "Needs-you reminders" adds "Answer questions and approvals right in the session."
+- Tour feature "Needs-you reminders" adds "Answer questions and approvals right on the card or in the session." (2026-10-19: "on the card" added with §2.1; the `agent-question` tip is kept as is, by the user's choice.)
 
 ## 5. Architecture
 
 - `shared/permission-question.ts`: pure parsing, draft transitions (choose / type other), answered checks, answer and dismiss replies, `pendingRequests`, `asksQuestion`. Unit tests in `shared/permission-question.test.ts`.
 - `client/session-question.tsx`: `PendingRequests` (memoized; RN primitives, `TextBox` for typed answers, shortcut block while focused).
 - `client/session-preview.tsx`: renders it above the composer and owns the respond action.
+- `client/drawer.tsx`: `CardRequests` renders it per session in the Needs-you area (§2.1) with its own respond action.
 - `client/session-state.ts`, `shared/session-attention.ts`, `client/attention.ts`, `client/card.tsx`: labels and counts above.
 
 ## 6. Verification
@@ -39,4 +46,5 @@ Status: implemented 2026-10-18 (card "提问能力接入"). User request: when a
 - PASS: typecheck; unit tests for parsing, single/multi selection, Other text, Paseo-compatible answers, dismiss rules, malformed host data; attention question-vs-approval counts; tip priority; i18n catalogs (19 new strings, 9 languages).
 - PASS (live, user, 2026-10-18): single select "C", multi select "A, B, Z" (two options + Other), Other-only free text, and Dismiss (agent received "Dismissed by user"). User feedback: Enter in the Other box did not submit → fixed (above).
 - PASS (live, user, 2026-10-18): tool approval (create and delete a file) shown and answered from the Flowly session after the user switched the session to an always-ask mode. A read-only command right after the switch ran without an approval request.
+- PASS (live, user, 2026-10-19): a two-question AskUserQuestion, and tool approvals Allow/Deny, answered from the card drawer's Needs-you area (§2.1).
 - UNRUN: phone layout, a plan approval from the session, and the Luna 6 test session. See `docs/PROGRESS.md`.

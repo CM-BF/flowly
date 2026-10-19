@@ -770,7 +770,7 @@ const catalog: Catalog = {
   "Automatic status": "Statut automatique",
   "Cards follow the agent's work through the lanes. Done stays yours.": "Les cartes suivent le travail de l'agent à travers les colonnes. Terminé reste votre décision.",
   "Needs-you reminders": "Rappels « Vous êtes attendu »",
-  "Questions, approvals and errors light up the card, the Attention menu and the sidebar badge. Answer questions and approvals right in the session.": "Les questions, validations et erreurs s'affichent sur la carte, dans le menu À traiter et sur le badge de la barre latérale. Répondez aux questions et validations directement dans la session.",
+  "Questions, approvals and errors light up the card, the Attention menu and the sidebar badge. Answer questions and approvals right on the card or in the session.": "Les questions, validations et erreurs s'affichent sur la carte, dans le menu À traiter et sur le badge de la barre latérale. Répondez aux questions et validations directement sur la carte ou dans la session.",
   "Run summaries": "Résumés d'exécution",
   "After every turn a cheap model keeps the card's state, recap and next step up to date.": "Après chaque tour, un modèle économique tient à jour l'état, le récapitulatif et la prochaine étape de la carte.",
   "Follow-up ideas": "Idées de suivi",

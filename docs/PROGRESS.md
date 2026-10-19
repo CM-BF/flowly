@@ -428,3 +428,11 @@ Phase 2 spec: [PHASE-02-SPEC.md](PHASE-02-SPEC.md). Three current-card tools; au
 - Revised card session: `6c18d210-afa6-4b36-9550-60301a87767c`, `codex/gpt-6-luna`; actual writes in both repos under default scope and only repo-two after a scope edit were verified.
 - Duplicate directory workspaces observed after stale CUA element actions are not yet attributed to product provisioning; preserve evidence and test controlled same-operation retries separately.
 - Project-local npm registry is public npm; SDK 0.11.2 was missing from the mirror used by the first install attempt.
+
+## 2026-10-19 Needs-you inline answers (card "提问框接入need you")
+
+- Done: the card drawer's Needs-you area renders each live session's pending agent questions/approvals with the session view's form (`CardRequests`, SESSION-QUESTION-SPEC §2.1). Tour feature copy and README updated; the `agent-question` tip kept as is (user's choice). Board Attention menu and the board card itself stay unchanged (user's choice).
+- PASS: typecheck, `npm test` (493 passed), plugin reloaded.
+- PASS (live, user, 2026-10-19): a two-question AskUserQuestion (single select + multi select) answered by the user; the agent received both answers.
+- PASS (live, user, 2026-10-19): tool approvals answered from the card drawer's Needs-you area with the session in Always Ask mode: Allow (create `/tmp/flowly-approval-test.txt`, ran) and Deny (delete it, agent received "Denied by user"); session switched back to bypassPermissions.
+- UNRUN: phone layout, plan approval from the drawer, Luna 6 test session.

@@ -37,7 +37,7 @@ Turn it off globally (*Settings → Moving cards*) or per project.
 
 ### 2. Needs-you reminders
 
-When an agent needs a decision it asks one clear question and stops. The card lights up **Needs you**, the **Attention** dropdown and the sidebar badge count it, and **Reply** jumps straight to that session. Approvals and errors are surfaced the same way. Questions an agent asks with its ask-user tool, and approvals, can be answered right in the Flowly session.
+When an agent needs a decision it asks one clear question and stops. The card lights up **Needs you**, the **Attention** dropdown and the sidebar badge count it, and **Reply** jumps straight to that session. Approvals and errors are surfaced the same way. Questions an agent asks with its ask-user tool, and approvals, can be answered right on the card's detail page or in the Flowly session.
 
 When a turn ends, the agent can leave its **suggested next steps** ("Verify with Luna", "Commit and push") above the session's message box. Tapping one only fills the box; you edit it or send it yourself. Once the work is committed and pushed, an agent can also offer **Move to Done**: that one doesn't fill the box, tapping it moves the card (Done stays your decision). They disappear once your next message starts a new turn.
 

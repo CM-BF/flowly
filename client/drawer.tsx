@@ -50,6 +50,9 @@ import { useComposer } from "./composer";
 import { eventPoint, menuHandlers, useMenuOpener, type MenuEntry, type Point } from "./context-menu";
 import { openNativeSession } from "./session-state";
 import { cardQuestions } from "../shared/progress";
+import { PendingRequests } from "./session-question";
+import { pendingRequests, type PendingRequest, type PermissionReply } from "../shared/permission-question";
+import { workspaceSession } from "./session";
 import { TaskProgress } from "./task-progress";
 import { TaskUsage } from "./task-usage";
 import { TaskIdeas } from "./task-ideas";
@@ -317,6 +320,41 @@ function TaskDrawerView({
     (a, b) => b.createdAt.localeCompare(a.createdAt) || a.id.localeCompare(b.id),
   );
   const liveSessions = ordered.filter((a) => !a.archivedAt);
+  // Agent questions and approvals waiting in this card's sessions, answered
+  // right in the Needs-you area (SESSION-QUESTION-SPEC §2.1). Keyed by content
+  // so a board refresh does not re-render the forms (or reset their drafts).
+  const askingKey = JSON.stringify(
+    liveSessions
+      .filter((a) => a.pendingPermissions?.length)
+      .map((a) => [a.id, a.title || "", !!a.providerUnavailable, a.pendingPermissions]),
+  );
+  const asking = useMemo(
+    () =>
+      liveSessions
+        .map((a) => ({ id: a.id, title: a.title || "", providerUnavailable: !!a.providerUnavailable, requests: pendingRequests(a) }))
+        .filter((a) => a.requests.length),
+    [askingKey],
+  );
+  const respondInCard = useStableCallback((agentId: string, request: PendingRequest, reply: PermissionReply) => {
+    if (!detailActive.current || lock.current || !beginOperation(agentId)) return;
+    void perform(
+      async () => {
+        try {
+          const latest = await workspaceSession(paseo, agentId, task.workspaceId, true);
+          if (!pendingRequests(latest).some((r) => r.id === request.id))
+            throw new Error(t("This request was already answered or withdrawn."));
+          await paseo.agents.ref(agentId).respondToPermission({ requestId: request.id, response: reply });
+        } finally {
+          endOperation(agentId);
+        }
+      },
+      reply.behavior === "allow" && request.kind === "question" ? t("Answer sent") : t("Response sent"),
+    );
+  });
+  const openSession = useStableCallback((agentId: string) => {
+    setSelected(agentId);
+    setError("");
+  });
   const archivedSessions = ordered.filter((a) => !!a.archivedAt);
   const openMenu = useMenuOpener();
   const finished = task.status === "done" || task.status === "cancelled";
@@ -664,6 +702,18 @@ function TaskDrawerView({
               </View>
               </Enter>
             ))}
+            {asking.map((a) => (
+              <CardRequests
+                key={a.id}
+                agentId={a.id}
+                title={a.title}
+                requests={a.requests}
+                compact={compact}
+                disabled={!active || sending || !!pendingSessions[a.id] || a.providerUnavailable || !!task.archivedAt}
+                onRespond={respondInCard}
+                onOpen={openSession}
+              />
+            ))}
             {(task.status === "done" || task.status === "cancelled") && !task.archivedAt && !project.archivedAt && (
               <View
                 style={{
@@ -898,6 +948,46 @@ function TaskDrawerView({
  * re-renders often (live agents, polls); its session defaults are a fresh
  * object each time (PERFORMANCE-SPEC §3).
  */
+/** One session's pending questions/approvals in the drawer's Needs-you area. */
+const CardRequests = memo(function CardRequests({
+  agentId,
+  title,
+  requests,
+  compact,
+  disabled,
+  onRespond,
+  onOpen,
+}: {
+  agentId: string;
+  title: string;
+  requests: readonly PendingRequest[];
+  compact: boolean;
+  disabled: boolean;
+  onRespond(agentId: string, request: PendingRequest, reply: PermissionReply): void;
+  onOpen(agentId: string): void;
+}) {
+  const { colors } = useTheme();
+  const respond = useCallback(
+    (request: PendingRequest, reply: PermissionReply) => onRespond(agentId, request, reply),
+    [agentId, onRespond],
+  );
+  const name = title || t("Agent");
+  return (
+    <View style={{ gap: space[2] }} testID="drawer-pending-requests">
+      <View style={{ flexDirection: "row", alignItems: "center", gap: space[2] }}>
+        <Icon name="MessageCircleQuestion" size={15} color={colors.statusWarning} />
+        <View style={{ flex: 1, minWidth: 0 }}>
+          <Label medium size={font.sm} lines={1} selectable={false}>
+            {t("{agent} needs you", { agent: name })}
+          </Label>
+        </View>
+        <Button quiet icon="MessageSquare" onPress={() => onOpen(agentId)}>{t("Open")}</Button>
+      </View>
+      <PendingRequests requests={requests} disabled={disabled} compact={compact} onRespond={respond} />
+    </View>
+  );
+});
+
 function sameDrawerProps(a: TaskDrawerProps, b: TaskDrawerProps) {
   const keys = new Set([...Object.keys(a), ...Object.keys(b)]) as Set<keyof TaskDrawerProps>;
   for (const key of keys)

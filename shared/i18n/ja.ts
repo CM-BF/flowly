@@ -770,7 +770,7 @@ const catalog: Catalog = {
   "Automatic status": "自動ステータス",
   "Cards follow the agent's work through the lanes. Done stays yours.": "カードはエージェントの作業に合わせてレーンを移動します。完了にするのはあなたです。",
   "Needs-you reminders": "要対応のリマインダー",
-  "Questions, approvals and errors light up the card, the Attention menu and the sidebar badge. Answer questions and approvals right in the session.": "質問・承認・エラーがカード、要対応メニュー、サイドバーのバッジに表示されます。質問と承認にはセッション内で直接答えられます。",
+  "Questions, approvals and errors light up the card, the Attention menu and the sidebar badge. Answer questions and approvals right on the card or in the session.": "質問・承認・エラーがカード、要対応メニュー、サイドバーのバッジに表示されます。質問と承認にはカード上またはセッション内で直接答えられます。",
   "Run summaries": "実行サマリー",
   "After every turn a cheap model keeps the card's state, recap and next step up to date.": "ターンごとに低コストのモデルが、カードの状態・振り返り・次のステップを更新します。",
   "Follow-up ideas": "フォローアップのアイデア",

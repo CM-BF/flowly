@@ -770,7 +770,7 @@ const catalog: Catalog = {
   "Automatic status": "自動狀態流轉",
   "Cards follow the agent's work through the lanes. Done stays yours.": "卡片跟隨 agent 的工作在各泳道間移動。「已完成」仍由你決定。",
   "Needs-you reminders": "「需要你處理」提醒",
-  "Questions, approvals and errors light up the card, the Attention menu and the sidebar badge. Answer questions and approvals right in the session.": "問題、核准和錯誤會點亮卡片、關注選單和側邊欄角標。可直接在會話中回答問題和核准。",
+  "Questions, approvals and errors light up the card, the Attention menu and the sidebar badge. Answer questions and approvals right on the card or in the session.": "問題、核准和錯誤會點亮卡片、關注選單和側邊欄角標。可直接在卡片或會話中回答問題和核准。",
   "Run summaries": "執行摘要",
   "After every turn a cheap model keeps the card's state, recap and next step up to date.": "每輪結束後，一個低成本模型會更新卡片的狀態、回顧和下一步。",
   "Follow-up ideas": "後續想法",

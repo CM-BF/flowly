@@ -770,7 +770,7 @@ const catalog: Catalog = {
   "Automatic status": "Автоматический статус",
   "Cards follow the agent's work through the lanes. Done stays yours.": "Карточки следуют за работой агента по колонкам. «Готово» остаётся за вами.",
   "Needs-you reminders": "Напоминания «Нужны вы»",
-  "Questions, approvals and errors light up the card, the Attention menu and the sidebar badge. Answer questions and approvals right in the session.": "Вопросы, подтверждения и ошибки подсвечивают карточку, меню «Внимание» и значок в боковой панели. На вопросы и подтверждения можно отвечать прямо в сессии.",
+  "Questions, approvals and errors light up the card, the Attention menu and the sidebar badge. Answer questions and approvals right on the card or in the session.": "Вопросы, подтверждения и ошибки подсвечивают карточку, меню «Внимание» и значок в боковой панели. На вопросы и подтверждения можно отвечать прямо в карточке или в сессии.",
   "Run summaries": "Сводки по запускам",
   "After every turn a cheap model keeps the card's state, recap and next step up to date.": "После каждого хода недорогая модель обновляет состояние, итоги и следующий шаг карточки.",
   "Follow-up ideas": "Идеи для продолжения",

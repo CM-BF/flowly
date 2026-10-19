@@ -45,7 +45,7 @@ Five numbered steps, one line each, with the lane names the user will actually s
 **Page 3: What makes it different** — five feature rows (icon, name, one sentence), the same five as the README so promo and product agree:
 The page title has the detail line "Anything marked with the sparkle was written or suggested by AI." ([AI-MARK-SPEC](AI-MARK-SPEC.md)).
 - *Automatic status*: cards follow the agent's work through the lanes. Done stays yours.
-- *Needs-you reminders*: questions, approvals and errors light the card, the Attention menu and the sidebar badge.
+- *Needs-you reminders*: questions, approvals and errors light the card, the Attention menu and the sidebar badge; questions and approvals are answered right on the card or in the session.
 - *Run summaries*: after every turn a cheap model keeps state / target / recap / next on the card.
 - *Follow-up ideas*: work an agent finds on the way lands in the Ideas inbox; Good idea or Not now.
 - *Inputs and outputs*: each card lists the files and links it worked from and delivered, added by agents or by you ([CARD-ARTIFACTS-SPEC](CARD-ARTIFACTS-SPEC.md)).

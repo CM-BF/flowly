@@ -770,7 +770,7 @@ const catalog: Catalog = {
   "Automatic status": "자동 상태 전환",
   "Cards follow the agent's work through the lanes. Done stays yours.": "카드는 에이전트의 작업을 따라 레인 사이를 이동합니다. 완료 처리는 당신의 몫입니다.",
   "Needs-you reminders": "확인 필요 알림",
-  "Questions, approvals and errors light up the card, the Attention menu and the sidebar badge. Answer questions and approvals right in the session.": "질문, 승인, 오류가 카드, 확인 필요 메뉴, 사이드바 배지에 표시됩니다. 질문과 승인은 세션에서 바로 답할 수 있습니다.",
+  "Questions, approvals and errors light up the card, the Attention menu and the sidebar badge. Answer questions and approvals right on the card or in the session.": "질문, 승인, 오류가 카드, 확인 필요 메뉴, 사이드바 배지에 표시됩니다. 질문과 승인은 카드나 세션에서 바로 답할 수 있습니다.",
   "Run summaries": "실행 요약",
   "After every turn a cheap model keeps the card's state, recap and next step up to date.": "매 턴이 끝나면 저비용 모델이 카드의 상태, 요약, 다음 단계를 최신으로 유지합니다.",
   "Follow-up ideas": "후속 아이디어",
