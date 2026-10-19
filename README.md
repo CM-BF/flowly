@@ -101,7 +101,7 @@ The interface follows your device language, or pick one in **Flowly settings →
 - **One card = one workspace**, with any number of sessions in it. You choose which session receives an instruction; ordinary follow-ups send exactly what you type.
 - **Agent tools.** Sessions created from a card get scoped MCP tools: `kanban_get_task`, `kanban_update_status`, `kanban_report_progress`, `kanban_propose_idea`, `kanban_suggest_next_moves`, `kanban_set_tags`, `kanban_set_type`, `kanban_add_artifact`, `kanban_update_workpad` and `kanban_read_ticket`, plus a skill that explains them. An agent can move its card between the work stages and In review; a person decides Done and Cancelled. A CLI fallback is provided for sessions without MCP.
 - **Card status and session status are independent.** A turn ending never completes a card.
-- **Also included:** drag and drop (including within a column), card links (follow-up, blocks, related), task types and priorities, wrap-up of Done cards (archive their sessions and own workspace, after a preflight), keyboard shortcuts (`?`), per-card token usage, and a compact phone layout.
+- **Also included:** drag and drop (including within a column), card links (follow-up, blocks, related), task types and priorities, wrap-up of Done cards (archive their sessions and own workspace, after a preflight), keyboard shortcuts (`?`), per-card token usage, a compact phone layout, and *Settings → Cards* to choose what board cards show (with a live preview).
 
 ### Models
 

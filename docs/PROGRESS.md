@@ -1,5 +1,16 @@
 # Implementation progress
 
+## Card display: calmer layout and user-chosen fields — 2026-10-19
+
+- [x] Card request "任务卡片布局调整": cards had too many kinds of information. [Spec](CARD-DISPLAY-SPEC.md).
+- [x] Layout (`client/card.tsx`): meta row above the title (priority Urgent/High/Low, type, ticket key, first two tags as plain `#tag`), no pills or chips; one activity line by default (progress summary, else latest output, now with its time); status row ordered asks-first (Needs you, waiting, approvals, errors, workspace, sessions, workpad, ideas, Archived, Legacy). The output tail is not fetched when the activity line cannot show it.
+- [x] Options: host-scoped `cardActivity` (auto/progress/output/both/none) and `cardHidden` (priority, type, ticket, tags, sessions, workpad, ideas) in `board-view`; each falls back on its own (`.catch`) so a bad value never resets other board preferences, unknown hidden ids are kept. Pure helpers `shared/card-display.ts`. Settings → Cards (`client/card-settings.tsx`) with a live preview drawn by the real `TaskCard` and Reset to defaults; Sort menu → *Card display…* opens it.
+- [x] Onboarding: tip `card-display` (≥6 active cards, after `first-card`, before `project-menu`), ONBOARDING-SPEC table, README (both) "Also included". Tour unchanged: a view preference, not a new concept. 33 strings in all 9 catalogs.
+- [x] PASS: `npm run typecheck`; `npm test` 526 passed / 63 skipped (new `shared/card-display.test.ts`, settings and tip-order tests). One run hit a 5 s timeout in `server/tool-server.test.ts` (CLI flow, unrelated); it passes alone and on the next full run.
+- [x] PASS (headless web, Tinylink, user setting restored): layout, Sort menu → Card display…, live toggles on preview and board, Reset. [Verification](verification/card-display.md).
+- [ ] UNRUN: compact phone/native rendering; Luna 6 test session.
+
+
 ## Card workpad and soft delivery gate — 2026-10-19
 
 - [x] Card request "卡片 Workpad：结构化计划/验收/验证清单 + 交付门槛" (from the Symphony research). Evaluated first; the user chose the slim version and settled the three open points (no gate without a workpad, hide summary Target when acceptance exists, people may mark a check pass). [Spec](WORKPAD-SPEC.md).

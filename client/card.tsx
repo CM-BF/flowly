@@ -12,6 +12,7 @@ import { menuHandlers, useMenuOpener, type MenuEntry } from "./context-menu";
 import { shallowEqual } from "./stable";
 import { t, tn } from "../shared/i18n";
 import type { WorkpadSignal } from "../shared/workpad";
+import { activityLines, defaultCardDisplay, type CardDisplay } from "../shared/card-display";
 
 export type CardDrag = {
   start(task: Task, point: Point): void;
@@ -31,7 +32,7 @@ type LiveTaskCardProps = Omit<TaskCardProps, "output" | "menu" | "onOpen" | "onA
 };
 
 /** Derived props arrive as fresh objects each board render; compare their content. */
-const contentProps = new Set(["summary", "progress", "outputSession", "workpad"]);
+const contentProps = new Set(["summary", "progress", "outputSession", "workpad", "display"]);
 function sameLiveCard(a: LiveTaskCardProps, b: LiveTaskCardProps) {
   const keys = new Set([...Object.keys(a), ...Object.keys(b)]) as Set<keyof LiveTaskCardProps>;
   for (const key of keys) {
@@ -55,7 +56,9 @@ export const LiveTaskCard = memo(function LiveTaskCard({
   ...props
 }: LiveTaskCardProps) {
   const { task } = props;
-  const output = useCardOutput(props.available ? outputSession : null, task.id);
+  // Only fetch the output when the activity line can show it (CARD-DISPLAY-SPEC §3).
+  const wantsOutput = activityLines(props.display?.activity ?? "auto", !!props.progress?.state, true).output;
+  const output = useCardOutput(props.available && wantsOutput ? outputSession : null, task.id);
   const openMenu = useMenuOpener();
   const menu = useMemo(
     () => (menuFor ? menuHandlers(openMenu, task.title, () => menuFor(task)) : undefined),
@@ -84,6 +87,7 @@ export function TaskCard({
   workpad = null,
   waiting = 0,
   waitingTitles = "",
+  display = defaultCardDisplay,
   flash = false,
   dragging,
   disabled,
@@ -116,6 +120,8 @@ export function TaskCard({
   /** Unresolved cards this one is blocked by, and their titles (CARD-LINKS-SPEC §5.1). */
   waiting?: number;
   waitingTitles?: string;
+  /** Which fields show (CARD-DISPLAY-SPEC); the accessibility label always lists everything. */
+  display?: CardDisplay;
   /** Briefly emphasize a card whose status just changed (often an automatic move). */
   flash?: boolean;
   dragging?: boolean;
@@ -194,7 +200,8 @@ export function TaskCard({
   );
   const signals = summaryState === "ready" || summaryState === "stale" ? summary : undefined;
   const showActions = !drag || touch || hovered || selected;
-  const accent = priorityAccent(colors, task.priority);
+  const accent = display.priority ? priorityAccent(colors, task.priority) : null;
+  const lines = activityLines(display.activity, !!progress?.state, !!output);
   return (
     <Animated.View
       {...(drag && !disabled ? pan.panHandlers : {})}
@@ -278,19 +285,12 @@ export function TaskCard({
           outlineStyle: "none",
         }) as never}
       >
-        {!!ticketKey && (
-          <View style={{ flexDirection: "row", alignItems: "center", gap: space[1] }}>
-            <Icon name="Ticket" size={12} color={colors.foregroundMuted} />
-            <Label muted size={font.xs} medium lines={1} selectable={false}>
-              {ticketKey}
-            </Label>
-          </View>
-        )}
+        <CardMeta task={task} ticketKey={ticketKey} display={display} />
         <Label medium size={font.base} lines={3} selectable={false}>
           {task.title}
         </Label>
-        {!!progress?.state && <ProgressLine state={progress.state} />}
-        {output && <OutputLine output={output} time={outputTime} />}
+        {lines.progress && !!progress && <ProgressLine state={progress.state} time={relativeTime(progress.at)} />}
+        {lines.output && output && <OutputLine output={output} time={outputTime} />}
         <CardSignals
           task={task}
           legacy={legacy}
@@ -304,6 +304,7 @@ export function TaskCard({
           ideas={ideas}
           workpad={workpad}
           waiting={waiting}
+          display={display}
         />
       </Pressable>
       {accent && (
@@ -361,7 +362,7 @@ export function TaskCard({
   );
 }
 
-function ProgressLine({ state }: { state: string }) {
+function ProgressLine({ state, time }: { state: string; time: string }) {
   return (
     // One line on the board; the drawer's Progress section shows it in full. The AI mark: a model wrote it.
     <View style={{ flexDirection: "row", alignItems: "center", gap: space[1.5], minWidth: 0 }}>
@@ -371,6 +372,13 @@ function ProgressLine({ state }: { state: string }) {
           {state}
         </Label>
       </View>
+      {!!time && (
+        <View style={{ flexShrink: 0 }}>
+          <Label muted size={font.sm} lines={1} selectable={false}>
+            {time}
+          </Label>
+        </View>
+      )}
     </View>
   );
 }
@@ -423,6 +431,7 @@ function CardSignals({
   ideas,
   workpad,
   waiting,
+  display,
 }: {
   task: Task;
   legacy: boolean;
@@ -436,13 +445,50 @@ function CardSignals({
   ideas: number;
   workpad: WorkpadSignal | null;
   waiting: number;
+  display: CardDisplay;
 }) {
   const { colors } = useTheme();
+  // Asks for the user first, then what is happening (CARD-DISPLAY-SPEC §2).
   const items: ReactNode[] = [];
   if (questions || (available && summary?.questions))
     items.push(<Signal key="question" icon="MessageCircleQuestion" color={colors.statusWarning} text={t("Needs you")} />);
   if (waiting) items.push(<Signal key="waiting" icon="Hourglass" text={t("Waiting on {waiting}", { waiting })} />);
-  if (workpad)
+  if (!available && wrapped)
+    items.push(<Signal key="wrapped" icon="CircleCheck" text={t("Wrapped up")} />);
+  else if (!available)
+    items.push(<Signal key="ws" icon="TriangleAlert" color={colors.statusWarning} text={t("Workspace unavailable")} />);
+  else if (summaryState === "loading") {
+    if (display.sessions) items.push(<Signal key="load" icon="Loader" text={t("Loading…")} />);
+  } else if (summaryState === "unavailable") {
+    if (display.sessions) items.push(<Signal key="na" icon="CircleHelp" text={t("Session state unavailable")} />);
+  } else if (summary) {
+    // Approvals and errors ask for the user, so they show whatever the session switch says.
+    if (summary.permissions)
+      items.push(<Signal key="perm" color={colors.statusWarning} text={tn(summary.permissions, "{n} approval", "{n} approvals")} />);
+    if (summary.errors)
+      items.push(<Signal key="err" color={colors.statusDanger} text={tn(summary.errors, "{n} error", "{n} errors")} />);
+    if (display.sessions) {
+      if (summary.running || summary.starting)
+        items.push(
+          <Signal
+            key="run"
+            pulse
+            color={colors.accent}
+            text={summary.starting && !summary.running ? t("{n} starting", { n: summary.starting }) : t("{n} running", { n: summary.running + summary.starting })}
+          />,
+        );
+      // A session with an open question is already shown as "Needs you".
+      const unread = Math.max(0, summary.unread - questions - summary.questions);
+      if (unread)
+        items.push(<Signal key="unread" color={colors.statusSuccess} text={t("{n} unread", { n: unread })} />);
+      if (!items.length && summary.total)
+        items.push(<Signal key="total" icon="MessageSquare" text={`${summary.total}`} />);
+      if (summaryState === "stale")
+        items.push(<Signal key="stale" icon="Clock" text={t("Last known")} />);
+    }
+  } else if (sessions && display.sessions)
+    items.push(<Signal key="fallback" icon="MessageSquare" text={running ? t("{running}/{sessions} running", { running, sessions }) : `${sessions}`} />);
+  if (workpad && display.workpad)
     items.push(
       <Signal
         key="workpad"
@@ -451,76 +497,57 @@ function CardSignals({
         text={workpadText(workpad)}
       />,
     );
-  if (!available && wrapped)
-    items.push(<Signal key="wrapped" icon="CircleCheck" text={t("Wrapped up")} />);
-  else if (!available)
-    items.push(<Signal key="ws" icon="TriangleAlert" color={colors.statusWarning} text={t("Workspace unavailable")} />);
-  else if (summaryState === "loading")
-    items.push(<Signal key="load" icon="Loader" text={t("Loading…")} />);
-  else if (summaryState === "unavailable")
-    items.push(<Signal key="na" icon="CircleHelp" text={t("Session state unavailable")} />);
-  else if (summary) {
-    if (summary.permissions)
-      items.push(<Signal key="perm" color={colors.statusWarning} text={tn(summary.permissions, "{n} approval", "{n} approvals")} />);
-    if (summary.errors)
-      items.push(<Signal key="err" color={colors.statusDanger} text={tn(summary.errors, "{n} error", "{n} errors")} />);
-    if (summary.running || summary.starting)
-      items.push(
-        <Signal
-          key="run"
-          pulse
-          color={colors.accent}
-          text={summary.starting && !summary.running ? t("{n} starting", { n: summary.starting }) : t("{n} running", { n: summary.running + summary.starting })}
-        />,
-      );
-    // A session with an open question is already shown as "Needs you".
-    const unread = Math.max(0, summary.unread - questions - summary.questions);
-    if (unread)
-      items.push(<Signal key="unread" color={colors.statusSuccess} text={t("{n} unread", { n: unread })} />);
-    if (!items.length && summary.total)
-      items.push(<Signal key="total" icon="MessageSquare" text={`${summary.total}`} />);
-    if (summaryState === "stale")
-      items.push(<Signal key="stale" icon="Clock" text={t("Last known")} />);
-  } else if (sessions)
-    items.push(<Signal key="fallback" icon="MessageSquare" text={running ? t("{running}/{sessions} running", { running, sessions }) : `${sessions}`} />);
-  const priority = task.priority !== "normal";
+  if (ideas && display.ideas) items.push(<Signal key="ideas" icon="Lightbulb" color={colors.statusWarning} text={`${ideas}`} />);
+  if (task.archivedAt) items.push(<Badge key="archived">{t("Archived")}</Badge>);
+  if (legacy) items.push(<Badge key="legacy">{t("Legacy")}</Badge>);
+  if (!items.length) return null;
+  return <View style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "center", columnGap: space[3], rowGap: space[1] }}>{items}</View>;
+}
+
+/**
+ * What the card is: priority, type, ticket and tags as one quiet row above the
+ * title (CARD-DISPLAY-SPEC §2). Plain text with icons; only Urgent/High keep colour.
+ */
+function CardMeta({ task, ticketKey, display }: { task: Task; ticketKey: string; display: CardDisplay }) {
+  const { colors } = useTheme();
+  const priority = display.priority && task.priority !== "normal";
   const accent = priorityAccent(colors, task.priority);
-  const tags = task.tags || [];
-  if (!task.type && !priority && !tags.length && !items.length && !ideas && !legacy && !task.archivedAt) return null;
+  const type = display.type && !!task.type;
+  const ticket = display.ticket && !!ticketKey;
+  const tags = display.tags ? task.tags || [] : [];
+  if (!priority && !type && !ticket && !tags.length) return null;
   return (
-    <View style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "center", columnGap: space[3], rowGap: space[1] }}>
-      {(!!task.type || priority) && (
-        // Tags share one pill shape; Urgent/High keep their emphasis colour.
-        <View style={{ flexDirection: "row", alignItems: "center", gap: space[1.5] }}>
-          {priority && (
-            <Tag
-              label={t("{priority} priority", { priority: priorityLabels[task.priority] })}
-              icon={<PriorityIcon priority={task.priority} size={12} />}
-              text={priorityLabels[task.priority]}
-              accent={accent}
-            />
-          )}
-          {!!task.type && (
-            <Tag label={t("Type: {type}", { type: taskTypeLabels[task.type] })} icon={<TypeIcon type={task.type} size={12} />} text={taskTypeLabels[task.type]} />
-          )}
-        </View>
+    <View style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "center", columnGap: space[2]+2, rowGap: 2, minWidth: 0 }}>
+      {priority && (
+        <Meta label={t("{priority} priority", { priority: priorityLabels[task.priority] })} icon={<PriorityIcon priority={task.priority} size={12} />} text={priorityLabels[task.priority]} color={accent} />
       )}
+      {type && <Meta label={t("Type: {type}", { type: taskTypeLabels[task.type!] })} icon={<TypeIcon type={task.type!} size={12} />} text={taskTypeLabels[task.type!]} />}
+      {ticket && <Meta label={ticketKey} icon={<Icon name="Ticket" size={12} color={colors.foregroundMuted} />} text={ticketKey} />}
       {!!tags.length && (
         // Custom tags (CARD-TAGS-SPEC §6.2): the first two, then a count.
         <View
           accessibilityLabel={t("Tags: {tags}", { tags: tags.map((x) => x.tag).join(", ") })}
-          style={{ flexDirection: "row", alignItems: "center", gap: space[1], flexShrink: 1, minWidth: 0 }}
+          style={{ flexDirection: "row", alignItems: "center", gap: space[1.5], flexShrink: 1, minWidth: 0 }}
         >
           {tags.slice(0, 2).map((x) => (
-            <TagChip key={x.tag} text={x.tag} />
+            <View key={x.tag} style={{ flexShrink: 1, minWidth: 0 }}>
+              <Label size={font.xs} muted lines={1} selectable={false}>{`#${x.tag}`}</Label>
+            </View>
           ))}
           {tags.length > 2 && <Label size={font.xs} muted selectable={false}>{`+${tags.length - 2}`}</Label>}
         </View>
       )}
-      {items}
-      {!!ideas && <Signal icon="Lightbulb" color={colors.statusWarning} text={`${ideas}`} />}
-      {!!task.archivedAt && <Badge>{t("Archived")}</Badge>}
-      {legacy && <Badge>{t("Legacy")}</Badge>}
+    </View>
+  );
+}
+
+function Meta({ label, icon, text, color }: { label: string; icon: ReactNode; text: string; color?: string | null }) {
+  return (
+    <View accessibilityLabel={label} style={{ flexDirection: "row", alignItems: "center", gap: 3, flexShrink: 0 }}>
+      {icon}
+      <Label size={font.xs} medium={!!color} muted={!color} color={color || undefined} lines={1} selectable={false}>
+        {text}
+      </Label>
     </View>
   );
 }
@@ -539,38 +566,4 @@ function workpadText(signal: WorkpadSignal) {
     case "acceptance":
       return t("Acceptance {done}/{total}", { done: signal.done, total: signal.total });
   }
-}
-
-/** A neutral `#tag` chip, smaller than the priority/type pills. */
-function TagChip({ text }: { text: string }) {
-  const { colors } = useTheme();
-  return (
-    <View style={{ height: 18, paddingHorizontal: 5, justifyContent: "center", borderRadius: radius.sm, borderWidth: 1, borderColor: colors.border, flexShrink: 1, minWidth: 0 }}>
-      <Label size={font.xs} muted lines={1} selectable={false}>{`#${text}`}</Label>
-    </View>
-  );
-}
-
-function Tag({ label, icon, text, accent }: { label: string; icon: ReactNode; text: string; accent?: string | null }) {
-  const { colors } = useTheme();
-  return (
-    <View
-      accessibilityLabel={label}
-      style={{
-        flexDirection: "row",
-        alignItems: "center",
-        gap: 3,
-        height: 20,
-        paddingLeft: 5,
-        paddingRight: 7,
-        borderRadius: radius.md,
-        backgroundColor: tint(accent || colors.foregroundMuted, accent ? 0.14 : 0.1),
-      }}
-    >
-      {icon}
-      <Label size={font.xs} bold={!!accent} muted={!accent} color={accent || undefined} selectable={false}>
-        {text}
-      </Label>
-    </View>
-  );
 }

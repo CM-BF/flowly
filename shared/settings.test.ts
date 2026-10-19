@@ -2,8 +2,8 @@ import { expect, test } from "vitest";
 import { boardViewValues, statusSettingsValues } from "./settings";
 
 test("older stored settings get defaults for newer fields; invalid values fall back", () => {
-  expect(boardViewValues({ lastProjectId: "p" })).toEqual({ lastProjectId: "p", sendBehavior: "steer", startAgentOnCreate: true, boardSort: "manual", collapsedColumns: [], filterSearch: "", filterPriority: "all", filterType: "all", filterTags: [], showArchived: false, hideFinishedAfterDays: 14, lastTicketConnection: "" });
-  expect(boardViewValues(undefined)).toEqual({ lastProjectId: "", sendBehavior: "steer", startAgentOnCreate: true, boardSort: "manual", collapsedColumns: [], filterSearch: "", filterPriority: "all", filterType: "all", filterTags: [], showArchived: false, hideFinishedAfterDays: 14, lastTicketConnection: "" });
+  expect(boardViewValues({ lastProjectId: "p" })).toEqual({ lastProjectId: "p", sendBehavior: "steer", startAgentOnCreate: true, boardSort: "manual", collapsedColumns: [], filterSearch: "", filterPriority: "all", filterType: "all", filterTags: [], showArchived: false, hideFinishedAfterDays: 14, lastTicketConnection: "", cardActivity: "auto", cardHidden: [] });
+  expect(boardViewValues(undefined)).toEqual({ lastProjectId: "", sendBehavior: "steer", startAgentOnCreate: true, boardSort: "manual", collapsedColumns: [], filterSearch: "", filterPriority: "all", filterType: "all", filterTags: [], showArchived: false, hideFinishedAfterDays: 14, lastTicketConnection: "", cardActivity: "auto", cardHidden: [] });
   expect(boardViewValues({ sendBehavior: "bogus" }).sendBehavior).toBe("steer");
   expect(boardViewValues({ sendBehavior: "queue", startAgentOnCreate: false })).toMatchObject({ sendBehavior: "queue", startAgentOnCreate: false });
 });
@@ -36,4 +36,11 @@ test("old finished cards fold after 14 days by default; 0 turns it off", () => {
   expect(boardViewValues({}).hideFinishedAfterDays).toBe(14);
   expect(boardViewValues({ hideFinishedAfterDays: 0 }).hideFinishedAfterDays).toBe(0);
   expect(boardViewValues({ hideFinishedAfterDays: 7 }).hideFinishedAfterDays).toBe(7);
+});
+
+test("card display options default to auto and all shown; a bad value does not reset other preferences", () => {
+  expect(boardViewValues({}).cardActivity).toBe("auto");
+  expect(boardViewValues({}).cardHidden).toEqual([]);
+  expect(boardViewValues({ cardActivity: "both", cardHidden: ["tags", "future-field"] })).toMatchObject({ cardActivity: "both", cardHidden: ["tags", "future-field"] });
+  expect(boardViewValues({ boardSort: "priority", cardActivity: "bogus", cardHidden: "tags" })).toMatchObject({ boardSort: "priority", cardActivity: "auto", cardHidden: [] });
 });

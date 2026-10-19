@@ -119,6 +119,7 @@ import { ConceptStrip, GuideBanner, WelcomeTour, useOnboarding } from "./onboard
 import { nextTip, welcomeDecision, type TipId } from "./onboarding-logic";
 import { t, tn } from "../shared/i18n";
 import { workpadEnabled, workpadSignal } from "../shared/workpad";
+import { cardDisplay } from "../shared/card-display";
 import { parentOf } from "../shared/subagents";
 
 /** One-time tip texts (ONBOARDING-SPEC §5). */
@@ -136,6 +137,7 @@ const tipText: Record<TipId, () => string> = {
   "jira-connect": () => t("Work from Jira tickets: connect Jira in Settings → Connections, then start a card with From Jira. Flowly only reads tickets."),
   "project-menu": () => t("Drag a project tab to reorder it. Right-click it for its settings, a new task, Insights, Ideas or Remove."),
   subagents: () => t("When a session starts subagents, a Subagents chip appears above its message box. Click it to see their status and open one in Paseo."),
+  "card-display": () => t("Cards too busy? Choose what they show in Settings → Cards, or from the Sort menu → Card display."),
   "first-workpad": () => t("This card has a workpad: the agent's acceptance criteria and checks. The card shows how many checks passed; open it to see which ran on which commit, and tick items yourself."),
 };
 
@@ -418,6 +420,10 @@ function BoardContent(
     ? serverProjects.slice().sort((a, b) => projectOrderOverride.indexOf(a.id) - projectOrderOverride.indexOf(b.id))
     : serverProjects;
   const boardSort: BoardSort = view.values?.boardSort || "manual";
+  // What cards show (CARD-DISPLAY-SPEC); one object for all cards so memoized cards stay put.
+  const cardActivity = view.values?.cardActivity, cardHiddenKey = (view.values?.cardHidden || []).join(",");
+  const display = useMemo(() => cardDisplay({ cardActivity, cardHidden: cardHiddenKey.split(",") }), [cardActivity, cardHiddenKey]);
+  const [settingsSection, setSettingsSection] = useState<"cards" | undefined>(undefined);
   const collapsedColumns = view.values?.collapsedColumns || [];
   const toggleCollapse = (status: Status) => {
     if (!view.values) return;
@@ -896,6 +902,7 @@ function BoardContent(
           noConnection: !task && projectTasks.some((x) => !x.archivedAt) && connections.data?.connections.length === 0,
           projectTabs: !task && !compact && projects.length > 1,
           hasWorkpad: !task && workpadEnabled(project) && board.workpads.some((w) => w.projectId === project.id),
+          busyBoard: !task && projectTasks.filter((x) => !x.archivedAt).length >= 6,
           hasSubagent: projectHasSubagent,
         },
         blocked: !onboarding.values || welcomeOpen || welcome === "show" || dialogOpen,
@@ -950,6 +957,7 @@ function BoardContent(
         workpad={project && workpadEnabled(project) ? workpadSignal(t, workpadIndex.get(t.id), events) : null}
         waiting={waitingIndex.get(t.id)?.count || 0}
         waitingTitles={waitingIndex.get(t.id)?.titles || ""}
+        display={display}
         flash={flashing.has(t.id)}
         drag={drag}
         dragging={dragging}
@@ -1297,6 +1305,16 @@ function BoardContent(
                     checked: mode === boardSort,
                     onPress: () => chooseSort(mode),
                   })),
+                  { kind: "separator", id: "display" },
+                  {
+                    id: "card-display",
+                    label: t("Card display…"),
+                    icon: "LayoutList",
+                    onPress: () => {
+                      setSettingsSection("cards");
+                      setMenu("settings");
+                    },
+                  },
                 ])
               }
             />
@@ -1970,9 +1988,18 @@ function BoardContent(
           />
         )}
         {compact && drawerView}
-        {!(compact && task) && <SettingsFab open={menu === "settings"} onPress={() => setMenu("settings")} />}
+        {!(compact && task) && (
+          <SettingsFab
+            open={menu === "settings"}
+            onPress={() => {
+              setSettingsSection(undefined);
+              setMenu("settings");
+            }}
+          />
+        )}
         <SettingsModal
           open={menu === "settings"}
+          section={settingsSection}
           theme={props.theme}
           onClose={() => setMenu(null)}
           onTour={() => {

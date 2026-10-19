@@ -3,6 +3,7 @@ import { z } from "zod";
 import { boardSorts } from "./sort";
 import { priorities, statusSchema, taskTypes } from "./model";
 import { languageChoices } from "./i18n";
+import { cardActivityModes } from "./card-display";
 
 /** Host-scoped board view preferences (not board data). */
 export const boardViewSettings = defineSettings({
@@ -30,6 +31,10 @@ export const boardViewSettings = defineSettings({
     hideFinishedAfterDays: z.number().int().min(0).max(365).default(14),
     /** The ticket picker's connection, when there are several (EXTERNAL-TRACKER-SPEC §5.2). */
     lastTicketConnection: z.string().max(200).default(""),
+    /** The card's activity line (CARD-DISPLAY-SPEC §3). */
+    cardActivity: z.enum(cardActivityModes).catch("auto").default("auto"),
+    /** Card fields the user hid; unknown ids are kept and ignored (CARD-DISPLAY-SPEC §4). */
+    cardHidden: z.array(z.string().max(40)).max(20).catch([]).default([]),
   }),
 });
 

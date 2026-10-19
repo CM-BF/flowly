@@ -1,10 +1,11 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Animated, Modal as RNModal, Pressable, StyleSheet, View, useWindowDimensions } from "react-native";
 import { Icon, ScrollView } from "@getpaseo/plugin/client/react-native";
 import { Enter, motionDuration, useMotionValue, lerp } from "./motion";
 import type { PluginTheme } from "@getpaseo/plugin";
 import { useShortcutBlock } from "./shortcuts";
 import { AiPage, GeneralPage, ModelsPage, WorkflowPage } from "./settings-pages";
+import { CardsPage } from "./card-settings";
 import { ConnectionsPage } from "./tickets";
 import { IconButton, Label, Theme, font, noFocusRing, radius, space, tint, touch, useTheme } from "./ui";
 import { msg, t } from "../shared/i18n";
@@ -75,10 +76,11 @@ export function SettingsFab({ open = false, onPress }: { open?: boolean; onPress
   );
 }
 
-type SettingsSection = "general" | "models" | "workflow" | "ai" | "connections";
+export type SettingsSection = "general" | "cards" | "models" | "workflow" | "ai" | "connections";
 /** Settings grouped by what they are for; each group is one page of the two-column layout. */
 const settingsSections: { id: SettingsSection; icon: string; label: string }[] = [
   { id: "general", icon: "SlidersHorizontal", label: msg("General") },
+  { id: "cards", icon: "LayoutList", label: msg("Cards") },
   { id: "models", icon: "Cpu", label: msg("Models") },
   { id: "workflow", icon: "Workflow", label: msg("Workflow") },
   { id: "ai", icon: "Sparkles", label: msg("AI features") },
@@ -119,15 +121,21 @@ function SettingsNavRow({ icon, label, selected, stacked, onPress }: { icon: str
 }
 
 /** Left column of sections, right column with the selected section's settings; the sections become a strip on top in narrow windows. */
-function SettingsPanes({ open, onTour }: { open: boolean; onTour(): void }) {
+function SettingsPanes({ open, initial, onTour }: { open: boolean; initial?: SettingsSection; onTour(): void }) {
   const { colors } = useTheme();
   const { width, height } = useWindowDimensions();
   const stacked = Math.min(modalMaxWidth, width - 32) < 560;
-  const [section, setSection] = useState<SettingsSection>("general");
+  const [section, setSection] = useState<SettingsSection>(initial || "general");
+  // Opened for a section (Sort menu → Card display…): show it, also when the panes stayed mounted.
+  useEffect(() => {
+    if (open && initial) setSection(initial);
+  }, [open, initial]);
   const bodyHeight = Math.min(560, Math.max(340, height - 200));
   const pane =
     section === "general" ? (
       <GeneralPage onTour={onTour} />
+    ) : section === "cards" ? (
+      <CardsPage />
     ) : section === "models" ? (
       <ModelsPage active={open} />
     ) : section === "workflow" ? (
@@ -171,19 +179,19 @@ function SettingsPanes({ open, onTour }: { open: boolean; onTour(): void }) {
 }
 
 /** Flowly settings, in two columns: sections on the left (language and guide, card workflow, AI summaries, ideas), their settings on the right. */
-export function SettingsModal({ open, theme, onClose, onTour }: { open: boolean; theme: PluginTheme; onClose(): void; onTour(): void }) {
+export function SettingsModal({ open, section, theme, onClose, onTour }: { open: boolean; section?: SettingsSection; theme: PluginTheme; onClose(): void; onTour(): void }) {
   useShortcutBlock(open);
   return (
     <RNModal visible={open} transparent animationType="fade" onRequestClose={onClose} statusBarTranslucent>
       <Theme.Provider value={theme}>
-        <SettingsWindow open={open} onClose={onClose} onTour={onTour} />
+        <SettingsWindow open={open} section={section} onClose={onClose} onTour={onTour} />
       </Theme.Provider>
     </RNModal>
   );
 }
 
 /** Own window instead of the host Modal, whose width is fixed: backdrop, title bar and the two-column body. */
-function SettingsWindow({ open, onClose, onTour }: { open: boolean; onClose(): void; onTour(): void }) {
+function SettingsWindow({ open, section, onClose, onTour }: { open: boolean; section?: SettingsSection; onClose(): void; onTour(): void }) {
   const { colors } = useTheme();
   const { width } = useWindowDimensions();
   return (
@@ -212,7 +220,7 @@ function SettingsWindow({ open, onClose, onTour }: { open: boolean; onClose(): v
           </Label>
           <IconButton icon="X" label={t("Close")} onPress={onClose} />
         </View>
-        <SettingsPanes open={open} onTour={onTour} />
+        <SettingsPanes open={open} initial={section} onTour={onTour} />
       </View>
     </View>
   );
