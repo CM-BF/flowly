@@ -56,3 +56,56 @@ Agent 完成一段工作后常在回复末尾写“接下来要不要……或�
 - `client/onboarding-logic.test.ts`：`next-move` 提示规则与优先级。
 - Skill 文本（`server/skill-source.ts` 与 `skills/paseo-ultra-kanban/SKILL.md` 一致）。
 - 人工/Luna：真实会话调用工具后输入框上方出现建议；点按只预填不发送、可编辑；已有文字时追加；发送后建议消失；关闭后不再显示；手机紧凑布局可用。
+
+## 7. “移至 Done”建议（设计，待实现）
+
+### 7.1 目标与边界
+
+任务完成、已提交并推送后，agent 最自然的下一步是“把卡片放到 Done”。但 Done 是**用户的决定**（`allowedStatuses` 不含 done，agent 不能自己移）。所以它不是一条预填的消息，而是一种**动作型建议**：agent 只提出，用户点一下才移动；点按本身就是用户的决定。
+
+不做：agent 直接把卡移到 Done；点按之外的自动移动；在 Flowly 里自行判断“已推送”（git 状态由 agent 判断，见 7.5）。
+
+### 7.2 数据契约
+
+`NextMove` 增加可选字段 `moveTo: "done"`（枚举预留，现在只允许 `done`）。
+
+- 普通建议：`{label, prompt}`，行为不变。
+- 动作建议：`{label, moveTo:"done"}`，`prompt` 可省略（省略即不预填任何内容；如给出则忽略）。
+- 校验（`nextMovesInputSchema` 与 `nextMoveSchema`，`prompt` 改为可选，非动作建议仍必须有非空 `prompt`）：一组里最多 1 条动作建议；动作建议与普通建议可混排，总数仍 1–3；未知 `moveTo` 为 `INVALID_INPUT`。
+- 事件 `next_moves_suggested` 的 `moves` 原样保存新字段；有效期、重放、Done/Cancelled 拒绝、revision 规则不变。旧事件无该字段，照常工作。
+- CLI：`--moves '[{"label":"移至 Done","moveTo":"done"}]'`。
+
+### 7.3 界面
+
+- 动作建议的胶囊前加 `Check` 图标，边框用成功色，与消息型胶囊区分；仍在同一行，沿用 3 条上限与横向滚动。
+- 显示条件在 §4 基础上再加：卡片当前不在 Done/Cancelled（已完成则隐藏该胶囊），且用户有权限移动卡片。
+- 点按：
+  1. 不动输入框内容，不发送任何消息。
+  2. 走与拖拽到 Done 相同的移动路径（`rpc.moveTask`），再进入 `askWrapup`：未开 *Auto wrap up* 时弹出“是否收尾（归档会话与自有工作区）”，开了则由守护进程处理，规则不变（`docs/MULTITASK-SPEC.md`）。
+  3. 成功用原生 toast“Moved to Done”；失败（revision 过期等）用现有错误提示，建议行保留，用户可重试。
+  4. 移动成功后卡片已是 Done，该胶囊自然消失；其余消息型建议保留到本轮结束或关闭。
+- 不额外弹确认框：点一个标明“Move to Done”的按钮已是明确意图；移出 Done 可恢复（`WORKSPACE-RESTORE-SPEC.md`）。
+- 无障碍：按钮名“Suggested next step: {label}”，提示“Moves this card to Done.”（消息型仍用原提示）。
+- 实现点：`session-preview.tsx` 新增 `onMoveToDone` 属性，由 `board.tsx` 提供（复用 `reorder` + `askWrapup`，无新 RPC）；`NextMoves` 按 `move.moveTo` 分支渲染并调用 `onPick` / `onAction`；传入的回调用 `useStableCallback`，保持 `React.memo`。
+
+### 7.4 对其它规则的影响
+
+- 规则 A1r（只回了句谢谢回退 In review）、活动时间线、flow log：不变。
+- “agent 不能设 Done”不变：工具只是提出建议，状态变更由用户点按触发，事件记录 actor=human。
+
+### 7.5 Skill 文本（`server/skill-source.ts` 与 `skills/paseo-ultra-kanban/SKILL.md` 同步）
+
+在 next moves 一条后补：整张卡的工作已完成、已交付到 In review、改动已提交并推送（或确认无需提交）、没有遗留问题时，可在 moves 中加入一条 `moveTo:"done"` 的建议（label 用用户语言，如“移至 Done”），通常放在“提交并推送”之后的下一轮、或与其它收尾项并列；还有未提交/未推送改动、未验证项或待用户决定的问题时不要加。每组最多一条。
+
+### 7.6 新手引导
+
+- 欢迎页 “Suggested next steps” 一条补半句：“…including moving the card to Done once the work is pushed.”
+- 现有 `next-move` 提示文案补一句“Some steps move the card, like Done.”，不新增 tip id（不重复向所有人弹出）。README Highlights 同步。所有新文案加入全部语言包。
+
+### 7.7 验收
+
+- `shared/next-moves.test.ts`：动作建议随有效期失效；卡已 Done 时过滤掉动作建议。
+- `server/agent-service.test.ts`：接受 `moveTo:"done"` 且无 prompt；同组两条动作建议、未知 `moveTo`、非动作建议缺 prompt 均 `INVALID_INPUT`；事件保存 `moveTo`；不改 revision。
+- `server/tool-server.test.ts`：工具 schema 含 `moveTo`。
+- `client/onboarding-logic.test.ts`：无新 tip，现有规则不回归。
+- 人工/Luna：agent 提交推送后建议出现“移至 Done”；点按不改输入框、卡片进入 Done 并按设置弹出/自动收尾；revision 冲突时报错且建议保留；已 Done 卡片不显示；手机紧凑布局可点。

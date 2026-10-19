@@ -908,11 +908,12 @@ const catalog: Catalog = {
   "Never": "Nunca",
   "Suggested next step: {label}": "Siguiente paso sugerido: {label}",
   "Fills the message box. Nothing is sent until you send it.": "Rellena el cuadro de mensaje. No se envía nada hasta que lo envíes.",
+  "Moves this card to Done.": "Mueve esta tarjeta a Done.",
   "Hide suggestions": "Ocultar sugerencias",
-  "When an agent finishes a turn, its suggested next steps sit above the message box. Tap one to fill it in; nothing is sent until you press Send.": "Cuando un agente termina un turno, sus siguientes pasos sugeridos aparecen sobre el cuadro de mensaje. Toca uno para rellenarlo; no se envía nada hasta que pulses Enviar.",
+  "When an agent finishes a turn, its suggested next steps sit above the message box. Tap one to fill it in; nothing is sent until you press Send. Some steps act on the card, like Move to Done.": "Cuando un agente termina un turno, sus siguientes pasos sugeridos aparecen sobre el cuadro de mensaje. Toca uno para rellenarlo; no se envía nada hasta que pulses Enviar. Algunos pasos actúan sobre la tarjeta, como «Mover a Done».",
   "Suggested next steps": "Siguientes pasos sugeridos",
   "AI generated": "Generado por IA",
   "Anything marked with the sparkle was written or suggested by AI.": "Todo lo que lleva el icono de destello lo escribió o sugirió una IA.",
-  "When a turn ends, the agent's next steps sit above the message box. Tap one to fill it in, then send it yourself.": "Al terminar un turno, los siguientes pasos del agente aparecen sobre el cuadro de mensaje. Toca uno para rellenarlo y envíalo tú.",
+  "When a turn ends, the agent's next steps sit above the message box. Tap one to fill it in, then send it yourself. Once the work is pushed, it can offer Move to Done.": "Al terminar un turno, los siguientes pasos del agente aparecen sobre el cuadro de mensaje. Toca uno para rellenarlo y envíalo tú. Cuando el trabajo esté subido, puede ofrecer «Mover a Done».",
 };
 export default catalog;

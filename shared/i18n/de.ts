@@ -908,11 +908,12 @@ const catalog: Catalog = {
   "Never": "Nie",
   "Suggested next step: {label}": "Vorgeschlagener nächster Schritt: {label}",
   "Fills the message box. Nothing is sent until you send it.": "Füllt das Nachrichtenfeld. Nichts wird gesendet, bevor du es sendest.",
+  "Moves this card to Done.": "Verschiebt diese Karte nach Done.",
   "Hide suggestions": "Vorschläge ausblenden",
-  "When an agent finishes a turn, its suggested next steps sit above the message box. Tap one to fill it in; nothing is sent until you press Send.": "Wenn ein Agent einen Durchgang beendet, stehen seine vorgeschlagenen nächsten Schritte über dem Nachrichtenfeld. Tippe auf einen, um ihn einzufügen; gesendet wird erst, wenn du auf Senden drückst.",
+  "When an agent finishes a turn, its suggested next steps sit above the message box. Tap one to fill it in; nothing is sent until you press Send. Some steps act on the card, like Move to Done.": "Wenn ein Agent einen Durchgang beendet, stehen seine vorgeschlagenen nächsten Schritte über dem Nachrichtenfeld. Tippe auf einen, um ihn einzufügen; gesendet wird erst, wenn du auf Senden drückst. Manche Schritte betreffen die Karte, etwa „Nach Done verschieben“.",
   "Suggested next steps": "Vorgeschlagene nächste Schritte",
   "AI generated": "KI-generiert",
   "Anything marked with the sparkle was written or suggested by AI.": "Alles mit dem Funkeln-Symbol hat eine KI geschrieben oder vorgeschlagen.",
-  "When a turn ends, the agent's next steps sit above the message box. Tap one to fill it in, then send it yourself.": "Nach einem Durchgang stehen die nächsten Schritte des Agenten über dem Nachrichtenfeld. Tippe auf einen, um ihn einzufügen, und sende ihn selbst.",
+  "When a turn ends, the agent's next steps sit above the message box. Tap one to fill it in, then send it yourself. Once the work is pushed, it can offer Move to Done.": "Nach einem Durchgang stehen die nächsten Schritte des Agenten über dem Nachrichtenfeld. Tippe auf einen, um ihn einzufügen, und sende ihn selbst. Nach dem Push kann er „Nach Done verschieben“ anbieten.",
 };
 export default catalog;

@@ -72,7 +72,7 @@ import { useStableCallback } from "./stable";
 import { SessionMarkdown } from "./session-content";
 import { PendingRequests } from "./session-question";
 import { NextMoves } from "./next-moves";
-import { nextMoveDraft, openNextMoves } from "../shared/next-moves";
+import { nextMoveDraft, openNextMoves, shownMoves } from "../shared/next-moves";
 import type { NextMove } from "../shared/model";
 import { pendingRequests, type PendingRequest, type PermissionReply } from "../shared/permission-question";
 import { coalescedRefresh, useSessionFollowTail } from "./session-follow";
@@ -129,6 +129,8 @@ function SessionPreviewView({
   onClose,
   refresh,
   visible = true,
+  cardFinished = false,
+  onMoveToDone,
 }: {
   task: Task;
   sessionId: string;
@@ -150,6 +152,10 @@ function SessionPreviewView({
   onClose?(): void;
   refresh(): void;
   visible?: boolean;
+  /** The card is in Done/Cancelled or archived: action next moves go (NEXT-MOVES-SPEC §7). */
+  cardFinished?: boolean;
+  /** Move the card to Done (an action next move); the drawer owns revision and wrap-up. */
+  onMoveToDone?(): void;
 }) {
   const theme = useTheme(),
     { colors } = theme,
@@ -525,8 +531,10 @@ function SessionPreviewView({
   // This turn's suggested next messages (NEXT-MOVES-SPEC §3-4); × hides one set until the next.
   const suggestion = openNextMoves(events, sessionId);
   const [hiddenMoves, setHiddenMoves] = useState("");
+  const moves = suggestion ? shownMoves(suggestion.moves, cardFinished) : [];
   const showMoves =
     !!suggestion &&
+    moves.length > 0 &&
     !!active &&
     !running &&
     !requests.length &&
@@ -534,6 +542,11 @@ function SessionPreviewView({
     !(active.lastUserMessageAt && Date.parse(active.lastUserMessageAt) > Date.parse(suggestion.at));
   const pickMove = useStableCallback((move: NextMove) => {
     noteInteraction();
+    if (move.moveTo) {
+      onMoveToDone?.();
+      return;
+    }
+    if (!move.prompt) return;
     flushReport();
     const next = nextMoveDraft(move.prompt, draftBuffer.read());
     if (ownInput) focusNextMount.current = true;
@@ -1135,7 +1148,7 @@ function SessionPreviewView({
           )}
           <PendingRequests requests={requests} disabled={!canWrite || busy} compact={compact} onRespond={respond} />
           {showMoves && (
-            <NextMoves key={suggestion.id} moves={suggestion.moves} disabled={!canWrite} onPick={pickMove} onDismiss={hideMoves} />
+            <NextMoves key={suggestion.id} moves={moves} disabled={!canWrite} onPick={pickMove} onDismiss={hideMoves} />
           )}
           {renderComposer()}
           {(keyHints || running || queued.length > 0) && (

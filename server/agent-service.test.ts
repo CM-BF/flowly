@@ -417,6 +417,14 @@ test("next moves: recorded per session without a revision change; the latest win
   await expect(bad([{ label: "  ", prompt: "p" }])).rejects.toThrow();
   await expect(bad([{ label: "x".repeat(61), prompt: "p" }])).rejects.toThrow();
   await expect(bad([{ label: "ok", prompt: "p".repeat(2001) }])).rejects.toThrow();
+  await expect(bad([{ label: "Done", moveTo: "done" }, { label: "Done 2", moveTo: "done" }])).rejects.toThrow();
+  await expect(bad([{ label: "Done", moveTo: "review" }])).rejects.toThrow();
+  await expect(bad([{ label: "No prompt" }])).rejects.toThrow();
+  await x.service.write(x.identity, "next_moves", { expectedRevision: ctx.revision, request: ctx.request, moves: [{ label: "Commit", prompt: "Commit and push." }, { label: "Move to Done", moveTo: "done" }] });
+  board = await x.store.read();
+  expect(board.events.at(-1)?.moves).toEqual([{ label: "Commit", prompt: "Commit and push." }, { label: "Move to Done", moveTo: "done" }]);
+  expect(board.tasks[0].revision).toBe(ctx.revision.task);
+  ctx = await x.service.get(x.identity);
   const task = (await x.store.read()).tasks[0];
   await x.store.editTask({ id: "t", revision: task.revision, status: "done", actor: "human" });
   ctx = await x.service.get(x.identity);

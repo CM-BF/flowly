@@ -17,6 +17,7 @@ import {
   tagLimits,
   tagInputList,
   nextMoveLimits,
+  nextMoveTargets,
 } from "./model";
 
 export const agentStatuses = ["design", "development", "test", "blocked", "in_review"] as const;
@@ -119,12 +120,24 @@ export const nextMovesInputSchema = z.strictObject({
           .trim()
           .min(1)
           .max(nextMoveLimits.prompt)
-          .describe("The message pre-filled into the user's message box when they pick it, written as the user's instruction to you and understandable on its own."),
+          .optional()
+          .describe("The message pre-filled into the user's message box when they pick it, written as the user's instruction to you and understandable on its own. Required unless moveTo is set."),
+        moveTo: z
+          .enum(nextMoveTargets)
+          .optional()
+          .describe("\"done\": picking it moves the card to Done (the user's decision; nothing is sent, no prompt). Only when all work is delivered and committed and pushed. At most one per call."),
       }),
     )
     .min(1)
     .max(nextMoveLimits.count)
-    .describe("1-3 next steps, the one you recommend first."),
+    .describe("1-3 next steps, the one you recommend first.")
+    .superRefine((moves, ctx) => {
+      moves.forEach((m, i) => {
+        if (!m.moveTo && !m.prompt) ctx.addIssue({ code: "custom", path: [i, "prompt"], message: "prompt is required unless moveTo is set" });
+        if (m.moveTo && moves.findIndex((x) => x.moveTo === m.moveTo) !== i)
+          ctx.addIssue({ code: "custom", path: [i, "moveTo"], message: "at most one move per moveTo target" });
+      });
+    }),
 });
 /** kanban_add_artifact (CARD-ARTIFACTS-SPEC §4.1): register an input or a deliverable of this card. */
 export const artifactInputSchema = z.strictObject({

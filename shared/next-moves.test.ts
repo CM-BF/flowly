@@ -1,6 +1,6 @@
 import { expect, test } from "vitest";
 import type { BoardEvent } from "./model";
-import { hasOpenNextMoves, nextMoveDraft, openNextMoves } from "./next-moves";
+import { hasOpenNextMoves, nextMoveDraft, openNextMoves, shownMoves } from "./next-moves";
 
 const ev = (id: string, action: string, agentId = "a", extra: Partial<BoardEvent> = {}): BoardEvent => ({
   id, taskId: "t", actor: action.startsWith("agent.") ? "system" : "agent", action, agentId,
@@ -30,4 +30,11 @@ test("picking a move fills an empty composer and never overwrites typed text", (
   expect(nextMoveDraft("Commit and push.", "")).toBe("Commit and push.");
   expect(nextMoveDraft("Commit and push.", "  \n")).toBe("Commit and push.");
   expect(nextMoveDraft("Commit and push.", "Also update the docs.\n")).toBe("Also update the docs.\n\nCommit and push.");
+});
+
+test("action moves go once the card is finished; message moves stay", () => {
+  const list = [{ label: "Commit", prompt: "Commit." }, { label: "Move to Done", moveTo: "done" as const }];
+  expect(shownMoves(list, false)).toEqual(list);
+  expect(shownMoves(list, true)).toEqual([list[0]]);
+  expect(shownMoves([list[1]], true)).toEqual([]);
 });

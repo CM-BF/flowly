@@ -908,11 +908,12 @@ const catalog: Catalog = {
   "Never": "Никогда",
   "Suggested next step: {label}": "Предлагаемый следующий шаг: {label}",
   "Fills the message box. Nothing is sent until you send it.": "Заполняет поле сообщения. Ничего не отправится, пока вы не отправите.",
+  "Moves this card to Done.": "Перемещает эту карточку в Done.",
   "Hide suggestions": "Скрыть предложения",
-  "When an agent finishes a turn, its suggested next steps sit above the message box. Tap one to fill it in; nothing is sent until you press Send.": "Когда агент завершает ход, предложенные им следующие шаги появляются над полем сообщения. Нажмите на шаг, чтобы вставить его; ничего не отправится, пока вы не нажмёте «Отправить».",
+  "When an agent finishes a turn, its suggested next steps sit above the message box. Tap one to fill it in; nothing is sent until you press Send. Some steps act on the card, like Move to Done.": "Когда агент завершает ход, предложенные им следующие шаги появляются над полем сообщения. Нажмите на шаг, чтобы вставить его; ничего не отправится, пока вы не нажмёте «Отправить». Некоторые шаги действуют на карточку, например «Переместить в Done».",
   "Suggested next steps": "Предлагаемые следующие шаги",
   "AI generated": "Создано ИИ",
   "Anything marked with the sparkle was written or suggested by AI.": "Всё, что отмечено значком искр, написал или предложил ИИ.",
-  "When a turn ends, the agent's next steps sit above the message box. Tap one to fill it in, then send it yourself.": "После хода следующие шаги агента появляются над полем сообщения. Нажмите на шаг, чтобы вставить его, и отправьте сами.",
+  "When a turn ends, the agent's next steps sit above the message box. Tap one to fill it in, then send it yourself. Once the work is pushed, it can offer Move to Done.": "После хода следующие шаги агента появляются над полем сообщения. Нажмите на шаг, чтобы вставить его, и отправьте сами. После пуша он может предложить «Переместить в Done».",
 };
 export default catalog;

@@ -19,6 +19,11 @@ export function openNextMoves(events: readonly BoardEvent[], agentId: string): N
   return null;
 }
 
+/** The moves to show: action moves (NEXT-MOVES-SPEC §7) go once the card is Done/Cancelled. */
+export function shownMoves(moves: readonly NextMove[], cardFinished: boolean) {
+  return cardFinished ? moves.filter((m) => !m.moveTo) : moves;
+}
+
 /** Composer text after picking a move: the prompt, after anything already typed (NEXT-MOVES-SPEC §4). */
 export function nextMoveDraft(prompt: string, typed: string) {
   return typed.trim() ? `${typed.replace(/\s+$/, "")}\n\n${prompt}` : prompt;

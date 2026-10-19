@@ -306,6 +306,8 @@ function TaskDrawerView({
   });
   const backToTask = useStableCallback(() => setSelected(""));
   const stableRefreshAll = useStableCallback(() => refreshAll());
+  // An action next move (NEXT-MOVES-SPEC §7): same path as picking Done in the status menu.
+  const moveToDone = useStableCallback(() => changeStatus("done"));
   const refreshAll = () => {
     refresh();
     void sessions.refetch();
@@ -544,6 +546,8 @@ function TaskDrawerView({
           onBack={backToTask}
           onClose={onClose}
           refresh={stableRefreshAll}
+          cardFinished={task.status === "done" || task.status === "cancelled" || !!task.archivedAt || !!project.archivedAt}
+          onMoveToDone={moveToDone}
         />
       ) : (
         <>

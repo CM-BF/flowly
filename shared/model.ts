@@ -241,9 +241,13 @@ export const ideaAdoption = z.strictObject({
 export type IdeaAdoption = z.input<typeof ideaAdoption>;
 /** One suggested next message for a session (NEXT-MOVES-SPEC §2). */
 export const nextMoveLimits = { count: 3, label: 60, prompt: 2000 } as const;
+/** Action moves (NEXT-MOVES-SPEC §7): picking one acts on the card instead of filling the composer. */
+export const nextMoveTargets = ["done"] as const;
 export const nextMoveSchema = z.object({
   label: z.string().trim().min(1).max(nextMoveLimits.label),
-  prompt: z.string().trim().min(1).max(nextMoveLimits.prompt),
+  /** Required for a message move; an action move (`moveTo`) has none. */
+  prompt: z.string().trim().min(1).max(nextMoveLimits.prompt).optional(),
+  moveTo: z.enum(nextMoveTargets).optional(),
 });
 export type NextMove = z.infer<typeof nextMoveSchema>;
 export const eventSchema = z.object({

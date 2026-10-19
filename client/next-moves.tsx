@@ -18,6 +18,7 @@ export const NextMoves = memo(function NextMoves({
 }: {
   moves: readonly NextMove[];
   disabled: boolean;
+  /** Called for message moves (fill the composer) and action moves (`moveTo`) alike. */
   onPick(move: NextMove): void;
   onDismiss(): void;
 }) {
@@ -35,12 +36,14 @@ export const NextMoves = memo(function NextMoves({
           style={{ flex: 1, minWidth: 0 }}
           contentContainerStyle={{ gap: space[1.5], alignItems: "center" }}
         >
-          {moves.map((move, index) => (
+          {moves.map((move, index) => {
+            const action = !!move.moveTo;
+            return (
             <Pressable
               key={`${index}:${move.label}`}
               accessibilityRole="button"
               accessibilityLabel={t("Suggested next step: {label}", { label: move.label })}
-              accessibilityHint={t("Fills the message box. Nothing is sent until you send it.")}
+              accessibilityHint={action ? t("Moves this card to Done.") : t("Fills the message box. Nothing is sent until you send it.")}
               accessibilityState={{ disabled }}
               disabled={disabled}
               onPress={() => onPick(move)}
@@ -55,17 +58,23 @@ export const NextMoves = memo(function NextMoves({
                   paddingHorizontal: space[2] + 2,
                   borderRadius: height / 2,
                   borderWidth: 1,
-                  borderColor: index === 0 ? tint(colors.accent, 0.5) : colors.border,
+                  borderColor: action ? tint(colors.statusSuccess, 0.55) : index === 0 ? tint(colors.accent, 0.5) : colors.border,
                   backgroundColor: pressed || hovered || focused ? colors.surface2 : index === 0 ? tint(colors.accent, 0.08) : colors.surface0,
                   opacity: disabled ? 0.45 : 1,
                 };
               }}
             >
+              {action && (
+                <View style={{ marginRight: space[1] }}>
+                  <Icon name="Check" size={13} color={colors.statusSuccess} />
+                </View>
+              )}
               <Label size={font.sm} medium lines={1} selectable={false}>
                 {move.label}
               </Label>
             </Pressable>
-          ))}
+            );
+          })}
         </ScrollView>
         <IconButton icon="X" size={height} label={t("Hide suggestions")} onPress={onDismiss} />
       </View>

@@ -908,11 +908,12 @@ const catalog: Catalog = {
   "Never": "从不",
   "Suggested next step: {label}": "建议的下一步：{label}",
   "Fills the message box. Nothing is sent until you send it.": "填入输入框。你发送前不会发出任何内容。",
+  "Moves this card to Done.": "把这张卡片移到“完成”。",
   "Hide suggestions": "隐藏建议",
-  "When an agent finishes a turn, its suggested next steps sit above the message box. Tap one to fill it in; nothing is sent until you press Send.": "agent 完成一轮后，它建议的下一步会显示在输入框上方。点一下即可填入；在你按“发送”之前不会发出。",
+  "When an agent finishes a turn, its suggested next steps sit above the message box. Tap one to fill it in; nothing is sent until you press Send. Some steps act on the card, like Move to Done.": "agent 完成一轮后，它建议的下一步会显示在输入框上方。点一下即可填入；在你按“发送”之前不会发出。部分步骤会操作卡片，例如“移至 Done”。",
   "Suggested next steps": "建议的下一步",
   "AI generated": "AI 生成",
   "Anything marked with the sparkle was written or suggested by AI.": "带星星图标的内容由 AI 撰写或建议。",
-  "When a turn ends, the agent's next steps sit above the message box. Tap one to fill it in, then send it yourself.": "一轮结束后，agent 建议的下一步会显示在输入框上方。点一下填入，再由你自己发送。",
+  "When a turn ends, the agent's next steps sit above the message box. Tap one to fill it in, then send it yourself. Once the work is pushed, it can offer Move to Done.": "一轮结束后，agent 建议的下一步会显示在输入框上方。点一下填入，再由你自己发送。工作推送后，它还可以提供“移至 Done”。",
 };
 export default catalog;

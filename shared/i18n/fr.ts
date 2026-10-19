@@ -908,11 +908,12 @@ const catalog: Catalog = {
   "Never": "Jamais",
   "Suggested next step: {label}": "Étape suivante suggérée : {label}",
   "Fills the message box. Nothing is sent until you send it.": "Remplit la zone de message. Rien n’est envoyé avant que vous l’envoyiez.",
+  "Moves this card to Done.": "Déplace cette carte vers Done.",
   "Hide suggestions": "Masquer les suggestions",
-  "When an agent finishes a turn, its suggested next steps sit above the message box. Tap one to fill it in; nothing is sent until you press Send.": "Quand un agent termine un tour, les étapes suivantes qu’il suggère apparaissent au-dessus de la zone de message. Touchez-en une pour la remplir ; rien n’est envoyé avant que vous appuyiez sur Envoyer.",
+  "When an agent finishes a turn, its suggested next steps sit above the message box. Tap one to fill it in; nothing is sent until you press Send. Some steps act on the card, like Move to Done.": "Quand un agent termine un tour, les étapes suivantes qu’il suggère apparaissent au-dessus de la zone de message. Touchez-en une pour la remplir ; rien n’est envoyé avant que vous appuyiez sur Envoyer. Certaines étapes agissent sur la carte, comme « Déplacer vers Done ».",
   "Suggested next steps": "Étapes suivantes suggérées",
   "AI generated": "Généré par l’IA",
   "Anything marked with the sparkle was written or suggested by AI.": "Tout ce qui porte l’icône étincelle a été écrit ou suggéré par une IA.",
-  "When a turn ends, the agent's next steps sit above the message box. Tap one to fill it in, then send it yourself.": "À la fin d’un tour, les étapes suivantes de l’agent apparaissent au-dessus de la zone de message. Touchez-en une pour la remplir, puis envoyez-la vous-même.",
+  "When a turn ends, the agent's next steps sit above the message box. Tap one to fill it in, then send it yourself. Once the work is pushed, it can offer Move to Done.": "À la fin d’un tour, les étapes suivantes de l’agent apparaissent au-dessus de la zone de message. Touchez-en une pour la remplir, puis envoyez-la vous-même. Une fois le travail poussé, il peut proposer « Déplacer vers Done ».",
 };
 export default catalog;

@@ -908,11 +908,12 @@ const catalog: Catalog = {
   "Never": "안 함",
   "Suggested next step: {label}": "제안된 다음 단계: {label}",
   "Fills the message box. Nothing is sent until you send it.": "입력란에 채웁니다. 직접 보내기 전에는 아무것도 전송되지 않습니다.",
+  "Moves this card to Done.": "이 카드를 Done으로 이동합니다.",
   "Hide suggestions": "제안 숨기기",
-  "When an agent finishes a turn, its suggested next steps sit above the message box. Tap one to fill it in; nothing is sent until you press Send.": "에이전트가 턴을 마치면 제안한 다음 단계가 입력란 위에 표시됩니다. 탭하면 입력란에 채워지며, 보내기를 누르기 전에는 전송되지 않습니다.",
+  "When an agent finishes a turn, its suggested next steps sit above the message box. Tap one to fill it in; nothing is sent until you press Send. Some steps act on the card, like Move to Done.": "에이전트가 턴을 마치면 제안한 다음 단계가 입력란 위에 표시됩니다. 탭하면 입력란에 채워지며, 보내기를 누르기 전에는 전송되지 않습니다. 일부 단계는 「Done으로 이동」처럼 카드를 직접 조작합니다.",
   "Suggested next steps": "제안된 다음 단계",
   "AI generated": "AI 생성",
   "Anything marked with the sparkle was written or suggested by AI.": "반짝임 아이콘이 붙은 항목은 AI가 작성하거나 제안한 것입니다.",
-  "When a turn ends, the agent's next steps sit above the message box. Tap one to fill it in, then send it yourself.": "턴이 끝나면 에이전트가 제안한 다음 단계가 입력란 위에 표시됩니다. 탭해서 채운 뒤 직접 보내세요.",
+  "When a turn ends, the agent's next steps sit above the message box. Tap one to fill it in, then send it yourself. Once the work is pushed, it can offer Move to Done.": "턴이 끝나면 에이전트가 제안한 다음 단계가 입력란 위에 표시됩니다. 탭해서 채운 뒤 직접 보내세요. 작업을 푸시하면 「Done으로 이동」을 제안할 수도 있습니다.",
 };
 export default catalog;
