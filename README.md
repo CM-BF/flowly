@@ -41,6 +41,8 @@ When an agent needs a decision it asks one clear question and stops. The card li
 
 When a turn ends, the agent can leave its **suggested next steps** ("Verify with Luna", "Commit and push") above the session's message box. Tapping one only fills the box; you edit it or send it yourself. Once the work is committed and pushed, an agent can also offer **Move to Done**: that one doesn't fill the box, tapping it moves the card (Done stays your decision). They disappear once your next message starts a new turn.
 
+![Suggested next steps above the message box: Verify with Luna, Commit and push, Add 429 tests](docs/promo/screenshots/06-next-moves.png)
+
 ![An agent's question on a card, with a Reply button](docs/promo/screenshots/02-needs-you-drawer.png)
 
 ### 3. Run summaries
@@ -60,7 +62,7 @@ Work an agent discovers along the way (a bug it tripped over, a limitation, the 
 
 Each card has an **Artifacts** list: the documents, links and deliverables it worked from (inputs) and produced (outputs). Agents register them through the board tools as they work; you add, edit or remove your own from the card. Only references are stored; files stay where they are and open in a read-only preview. Every entry shows whether you or an agent added it, and agents can't remove the ones you added.
 
-Cards can carry **tags** for the modules and directions they touch (`drawer`, `performance`, `a11y`), separate from the fixed task type. Agents tag their own cards through the board tools and reuse the project's existing tags; you add or remove tags in the card or the form. Filter the board by tag, or search `#tag` (`#module/` matches a prefix). Agents can't remove tags you added.
+Once an agent understands the work it fills in the card's metadata itself. It sets the **task type** (feature, bugfix, research, refactor, docs, chore) when the card has none, never overriding one you chose. It also adds **tags** for the modules and directions the card touches (`drawer`, `performance`, `a11y`), separate from the fixed task type. Agents reuse the project's existing tags rather than inventing synonyms; you add or remove tags in the card or the form. Filter the board by tag, or search `#tag` (`#module/` matches a prefix). Agents can't remove tags you added.
 
 ### 6. Project insights
 
@@ -93,7 +95,7 @@ The interface follows your device language, or pick one in **Flowly settings →
 
 - **One board project = one native Paseo project root.** To work across repositories, put them under one directory and register it, or let the plugin create a linked root with one symlink per repository (removing a link never touches the target).
 - **One card = one workspace**, with any number of sessions in it. You choose which session receives an instruction; ordinary follow-ups send exactly what you type.
-- **Agent tools.** Sessions created from a card get scoped MCP tools: `kanban_get_task`, `kanban_update_status`, `kanban_report_progress`, `kanban_propose_idea` and `kanban_suggest_next_moves`, plus a skill that explains them. An agent can move its card between the work stages and In review; a person decides Done and Cancelled. A CLI fallback is provided for sessions without MCP.
+- **Agent tools.** Sessions created from a card get scoped MCP tools: `kanban_get_task`, `kanban_update_status`, `kanban_report_progress`, `kanban_propose_idea`, `kanban_suggest_next_moves`, `kanban_set_tags`, `kanban_set_type` and `kanban_add_artifact`, plus a skill that explains them. An agent can move its card between the work stages and In review; a person decides Done and Cancelled. A CLI fallback is provided for sessions without MCP.
 - **Card status and session status are independent.** A turn ending never completes a card.
 - **Also included:** drag and drop (including within a column), card links (follow-up, blocks, related), task types and priorities, wrap-up of Done cards (archive their sessions and own workspace, after a preflight), keyboard shortcuts (`?`), per-card token usage, and a compact phone layout.
 

@@ -39,6 +39,10 @@ paseo plugin add jasprw/flowly
 
 agent 需要你拍板时，会提出一个明确的问题并停下。卡片亮起 **Needs you**，顶部 **Attention** 菜单和侧边栏角标都会计数，点 **Reply** 直达对应 session。授权请求和报错也以同样方式提示。
 
+回合结束时，agent 可以在 session 输入框上方留下**建议的下一步**（如“用 Luna 验证”“提交并推送”）。点一下只会把内容填进输入框，由你修改或自行发送。工作提交并推送后，agent 还可以给出 **Move to Done**：它不填输入框，点击即移动卡片（Done 仍由你决定）。你发出下一条消息、开始新一轮后，这些建议就会消失。
+
+![会话输入框上方的下一步建议：Verify with Luna、Commit and push、Add 429 tests](docs/promo/screenshots/06-next-moves.png)
+
 ![卡片上 agent 的提问与 Reply 按钮](docs/promo/screenshots/02-needs-you-drawer.png)
 
 ### 3. 任务运行 summary
@@ -54,7 +58,13 @@ agent 工作时发现的后续事项（顺带发现的 bug、现有方案的局�
 ![Ideas 收件箱，标明来源卡片](docs/promo/screenshots/04-ideas-inbox.png)
 ![Good idea：新建任务、在原 session 继续，或开新 session](docs/promo/screenshots/04b-good-idea-two-paths.png)
 
-### 5. Project insights
+### 5. 输入与产出
+
+每张卡有一个 **Artifacts** 列表：它依据的文档、链接（输入）和产出的交付物（输出）。agent 工作时通过看板工具登记，你也可以在卡片上添加、编辑或删除自己的条目。只保存引用，文件留在原处，以只读预览打开。每条都标明是你还是 agent 添加的，agent 不能删除你添加的条目。
+
+agent 理解任务后会自己补全卡片元数据：卡片没有**任务类型**时设置类型（feature、bugfix、research、refactor、docs、chore），不会覆盖你已选的类型；同时添加描述所涉模块和方向的**标签**（`drawer`、`performance`、`a11y`），与固定的任务类型分开。agent 会复用项目已有标签而不是另造同义词；你可在卡片或表单里添加、删除标签。可按标签筛选看板，或搜索 `#tag`（`#module/` 匹配前缀）。agent 不能删除你添加的标签。
+
+### 6. Project insights
 
 一页看完当天：完成 / 新建 / 返工的卡片数、回合数、agent 时长、commits、token（含缓存命中率）；**等你处理**的列表、基于规则的建议、AI 生成的日报、每张卡的 token 用量和 7 日趋势。
 
@@ -85,7 +95,7 @@ agent 工作时发现的后续事项（顺带发现的 bug、现有方案的局�
 
 - **一个看板 project 对应一个原生 Paseo project 根目录。** 要跨多个仓库工作，可以把它们放进同一个父目录并注册该目录；也可以让插件建一个“链接根目录”，里面为每个仓库放一个软链接（移除链接不会动目标目录）。
 - **一张卡对应一个 workspace**，workspace 里可以有多个 session。由你选择哪个 session 接收指令；普通追问只发送你输入的原文。
-- **Agent 工具。** 从卡片创建的 session 会获得四个受限 MCP 工具：`kanban_get_task`、`kanban_update_status`、`kanban_report_progress`、`kanban_propose_idea`，以及说明它们用法的 skill。agent 可以在工作阶段之间和 In review 之间移动自己的卡片；Done 与 Cancelled 由人决定。没有 MCP 的 session 可使用 CLI 兜底。
+- **Agent 工具。** 从卡片创建的 session 会获得受限 MCP 工具：`kanban_get_task`、`kanban_update_status`、`kanban_report_progress`、`kanban_propose_idea`、`kanban_suggest_next_moves`、`kanban_set_tags`、`kanban_set_type` 和 `kanban_add_artifact`，以及说明它们用法的 skill。agent 可以在工作阶段之间和 In review 之间移动自己的卡片；Done 与 Cancelled 由人决定。没有 MCP 的 session 可使用 CLI 兜底。
 - **卡片业务状态与 session 执行状态相互独立。** 一轮结束不代表卡片完成。
 - **其他能力：** 拖拽（含列内排序）、卡片关联（follow-up、blocks、related）、任务类型与优先级、Done 卡片收尾（预检后归档其 session 和自有 workspace）、键盘快捷键（`?`）、按卡片统计 token、手机紧凑布局。
 

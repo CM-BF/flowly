@@ -1,8 +1,9 @@
+// Persistent test fixture (kept on purpose, not removed after use; directory: $TINYLINK_DIR or ~/Developer/personal/flowly-test/tinylink).
 // Promo fixture: a realistic "Tinylink" repo + Ultra Kanban project + cards + Haiku sessions.
 import { randomUUID } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
-import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { mkdir, writeFile } from 'node:fs/promises';
+import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { DaemonClient } from '@getpaseo/client/internal/daemon-client';
 import { createPaseoApi } from '@getpaseo/client';
@@ -27,7 +28,8 @@ const files = {
 
 try {
   await client.connect();
-  fx.directory = await mkdtemp(join(tmpdir(), 'tinylink-'));
+  fx.directory = process.env.TINYLINK_DIR ?? join(homedir(), 'Developer/personal/flowly-test/tinylink');
+  await mkdir(fx.directory, { recursive: true });
   const d = fx.directory;
   git(['init', '-q', '-b', 'main'], d);
   git(['config', 'user.name', 'Alex Chen'], d); git(['config', 'user.email', 'alex@tinylink.example'], d);
@@ -58,7 +60,7 @@ try {
 
   const common = 'You are working on the Tinylink repo in your working directory (Node, zero dependencies, `npm test` uses node:test). Keep the change small and focused. Use the Kanban tools to set your stage (design while planning, development while editing, test while verifying), report progress once at each checkpoint, commit your work with git (clear message), and when finished deliver the card to in_review with a short note. ';
   const prompts = {
-    rate: common + 'Task: implement the rate limiting described in the card. Plan briefly first, then implement in a new src/limiter.js wired into src/server.js, add test/limiter.test.js, run npm test. After delivering, propose exactly two ideas with kanban_propose_idea: one scope=here (e.g. make the limit configurable via env vars) and one scope=new (e.g. Redis-backed limiter for multi-instance deploys), each with concrete detail/rationale/context.',
+    rate: common + 'Task: implement the rate limiting described in the card. Plan briefly first, then implement in a new src/limiter.js wired into src/server.js, add test/limiter.test.js, run npm test. After delivering, propose exactly two ideas with kanban_propose_idea: one scope=here (e.g. make the limit configurable via env vars) and one scope=new (e.g. Redis-backed limiter for multi-instance deploys), each with concrete detail/rationale/context. As your very last action call kanban_suggest_next_moves once with three moves, recommended first: "Verify with Luna", "Commit and push", "Add 429 tests" (each prompt written as the user\'s instruction to you).',
     expired: common + 'Task: investigate the expired-link bug described in the card. Read the code and reproduce it, then BEFORE changing anything, ask the user ONE question with kanban_report_progress kind=question: should expired links return 410 Gone (and be deleted from the store) or 404 Not Found? Offer both options, then end your turn and wait for the answer. Do not edit files until answered.',
     stats: common + 'Task: implement the click counter and /stats/:code endpoint described in the card, with tests and a short README section. Run npm test, commit, deliver to in_review. After delivering, propose one idea with scope=new via kanban_propose_idea (e.g. a bug or refactor you noticed in src/server.js such as JSON.parse errors returning 500 on invalid bodies).'
   };
