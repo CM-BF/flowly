@@ -436,3 +436,12 @@ Phase 2 spec: [PHASE-02-SPEC.md](PHASE-02-SPEC.md). Three current-card tools; au
 - PASS (live, user, 2026-10-19): a two-question AskUserQuestion (single select + multi select) answered by the user; the agent received both answers.
 - PASS (live, user, 2026-10-19): tool approvals answered from the card drawer's Needs-you area with the session in Always Ask mode: Allow (create `/tmp/flowly-approval-test.txt`, ran) and Deny (delete it, agent received "Denied by user"); session switched back to bypassPermissions.
 - UNRUN: phone layout, plan approval from the drawer, Luna 6 test session.
+
+## 2026-10-19 Ideas card UI (card "ideas UI优化")
+
+- Done: Ideas card actions are right-aligned at the standard button size (Not now, then Good idea at the far right). The card body is clamped with the same fade as Progress via the shared `client/clamped.tsx`: Show more / Show less in the bottom-left, the timestamp on the right. Progress swapped its toggle and timestamp to match. The tap-to-expand chevron is gone; three strings only it used were removed from all catalogs. Specs updated (IDEAS-SPEC §5.2, TASK-SUMMARY-SPEC §7). Onboarding: layout change only, no new tour copy or tip.
+- PASS: typecheck, `npm test` (494 passed).
+- PASS: `paseo plugin reload flowly` (status running, store ready, no errors in logs; 2026-10-19).
+- UNRUN: visual check of the Ideas and Progress cards on desktop and compact (this session has no desktop-window control tool; the daemon serves no web client and react-native-web is not installed, so no screenshot was possible); Luna 6 session. Restore in the Closed group keeps the compact size.
+- Follow-up (2026-10-19): the Ideas card's Show more and its two action buttons share one footer row (Show more left, Not now / Good idea right); the timestamp is back in the meta row; the Ideas page source line moved below that row. PASS: typecheck, `npm test`, plugin reload. UNRUN: visual check (no window-control tool).
+- Follow-up (2026-10-19): the Progress card's style is now a shared resource, `client/content-card.tsx` (`ContentCard` surface + clamp + footer row, `CardBody`, `CardHeadline`, `CardText`, `CardField`, `CardMetaRow`/`CardMeta`, `CardFootnote`); Progress and Ideas both render through it (`client/clamped.tsx` removed). PASS: typecheck (also clean under --noUnusedLocals for the touched files), `npm test` (494), plugin reload. UNRUN: visual check.

@@ -94,9 +94,9 @@ idea 不是任务卡：不进泳道、不占 workspace、不改来源卡状态�
 
 - 标题 `Ideas`，计数为 open 数。
 - 每个 open idea 一张小卡片（2026-10-16 用户要求优化设计、交互与动效，接受按钮改为 Good idea）：
-  - 标题（加粗）；一行元信息：类型、优先级（仅非 Normal；High/Urgent 带箭头图标，Low 显示为不带图标的 “Low priority”）、提出时间（相对时间）；理由最多 2 行。
-  - 有更多内容时点击卡片展开 “What to do”（detail）与 “Context”，不截断；右上角 chevron 随展开旋转 180°，高度与透明度一起过渡（展开 220 ms 减速、收起 160 ms 加速）。
-  - 左下角按钮（2026-10-16 用户反馈改为左对齐，主操作在前）：**Good idea**（主操作，`ThumbsUp` 图标，打开选择菜单，见 §6）、**Not now**（安静按钮，忽略）。按钮使用紧凑尺寸（2026-10-16 用户反馈移动端过大）：手机 32 pt 高、桌面 28 px，12 号字，触控区域仍通过 hitSlop 保持 44 pt；Closed 分组的 Restore 同样紧凑。无障碍名称分别为 “Not now: dismiss …”、“Good idea: … Choose to do it in this task or start a new task.”。
+  - 标题（加粗）；一行元信息：类型、优先级（仅非 Normal；High/Urgent 带箭头图标，Low 显示为不带图标的 “Low priority”）、提出时间（相对时间）；理由；What to do（detail）与 Context 不截断地排在其后。字体与 Progress 卡片一致：标题 base 中等字重（同 State），理由与字段正文 md，字段名与元信息 xs 弱化色。
+  - 截断渐隐（2026-10-19 用户反馈，与 Progress 卡片一致，共用 `client/content-card.tsx` 的 `ContentCard` 通用卡片样式）：整块内容（标题、元信息、理由、What to do、Context）超过约 5 行（104 pt）时整体收起到该高度，底部渐隐；底部同一行左侧为 Show more / Show less 展开或收起，右侧为操作按钮（高度过渡 220 ms 减速 / 160 ms 加速，可打断，遵循 Reduce Motion）。内容未超出时完整显示且不出现 Show more。Show more 的图标与文字贴齐正文左边缘（静止时与上方文字对齐），悬停高亮向外只多出 6 pt，不贴卡片边框；标题与元信息一组，其后的块（理由、What to do、Context）之间间距与 Progress 一致（8 pt）。点击卡片本身不再展开，文字可直接选择。
+  - 右下角按钮（2026-10-19 用户反馈：右对齐，恢复标准尺寸，不再使用紧凑尺寸；与 Show more 并排在同一行以节省空间。Ideas 页的来源行 “From …” 位于该行之下）：**Not now**（安静按钮，忽略）、**Good idea**（主操作，`ThumbsUp` 图标，打开选择菜单，见 §6，位于最右）。无障碍名称分别为 “Not now: dismiss …”、“Good idea: … Choose to do it in this task or start a new task.”。Closed 分组的 Restore 仍使用紧凑尺寸。
   - 元信息行最前面显示 agent 的建议：`CornerDownRight` “Continues this task” 或 `SquarePlus` “New task”。
   - Not now 为乐观更新：卡片立即在原位收起（高度、透明度与轻微缩放一起过渡 160 ms），保存失败时恢复并弹 error toast。“在本卡继续”同样乐观收起，成功后弹 success toast “Sent to <session>”；idea 被转成卡片后同样收起离开列表。
   - 抽屉打开时已有的 idea 不播放进场；打开期间新到达（agent 提出）或被 Restore 的 idea 上浮淡入。

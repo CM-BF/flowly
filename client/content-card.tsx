@@ -1,0 +1,167 @@
+import { useState, type ReactNode } from "react";
+import { Animated, Pressable, View } from "react-native";
+import { Icon } from "@getpaseo/plugin/client/react-native";
+import { useMotionHeight, useMotionValue } from "./motion";
+import { Label, font, noFocusRing, radius, space, tint, touch, useTheme } from "./ui";
+import { t } from "../shared/i18n";
+
+/**
+ * The content card style first built for the drawer's Progress card, shared so
+ * Progress, Ideas and later cards read the same: one bordered surface, 12 pt
+ * padding, a body clamped to about five lines with a fade, and one footer row
+ * with Show more / Show less on the left and `footer` (a timestamp or the
+ * card's actions) on the right. `after` renders below the padded area, full
+ * width (e.g. the Ideas page's source line).
+ */
+export function ContentCard({ footer, after, children }: { footer?: ReactNode; after?: ReactNode; children: ReactNode }) {
+  const { colors } = useTheme();
+  return (
+    <View style={{ borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface1 }}>
+      <View style={{ padding: space[3], paddingBottom: after ? space[1] : space[3] }}>
+        <Clamped background={colors.surface1} footer={footer}>
+          {children}
+        </Clamped>
+      </View>
+      {after}
+    </View>
+  );
+}
+
+/** Stacks a card's blocks (headline, text, fields) with the card's block spacing. */
+export function CardBody({ children }: { children: ReactNode }) {
+  return <View style={{ gap: space[2] }}>{children}</View>;
+}
+
+/** The card's lead line (Progress state, idea title). */
+export function CardHeadline({ children, selectable = true }: { children: ReactNode; selectable?: boolean }) {
+  return (
+    <Label medium size={font.base} selectable={selectable}>
+      {children}
+    </Label>
+  );
+}
+
+/** A paragraph of card body text. */
+export function CardText({ children }: { children: ReactNode }) {
+  return (
+    <Label size={font.md} selectable>
+      {children}
+    </Label>
+  );
+}
+
+/** A titled block (Target, Recap, What to do…). Renders nothing for empty text. */
+export function CardField({ title, text }: { title: string; text: string }) {
+  if (!text.trim()) return null;
+  return (
+    <View style={{ gap: 2 }}>
+      <Label muted size={font.xs} selectable={false}>
+        {title}
+      </Label>
+      <CardText>{text}</CardText>
+    </View>
+  );
+}
+
+/** A wrapping row of small muted facts under the headline. */
+export function CardMetaRow({ children }: { children: ReactNode }) {
+  return <View style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "center", columnGap: space[3], rowGap: 2 }}>{children}</View>;
+}
+
+/** One fact in a CardMetaRow, with an optional 12 pt icon. */
+export function CardMeta({ icon, text }: { icon?: ReactNode; text: string }) {
+  return (
+    <View style={{ flexDirection: "row", alignItems: "center", gap: 3 }}>
+      {icon}
+      <Label muted size={font.xs} selectable={false}>{text}</Label>
+    </View>
+  );
+}
+
+/** Small muted footer text (a timestamp line). */
+export function CardFootnote({ children }: { children: ReactNode }) {
+  return (
+    <Label muted size={font.xs} selectable={false}>
+      {children}
+    </Label>
+  );
+}
+
+/** About five lines of content; longer content collapses as a whole to this height. */
+const CLAMP_HEIGHT = 104;
+
+/**
+ * Clamps its children as one block to CLAMP_HEIGHT with a fade, and offers
+ * Show more / Show less with an animated height (TASK-SUMMARY-SPEC §7).
+ * Content that fits shows in full without a toggle. The toggle sits in the
+ * bottom-left corner and `footer` on the right of the same row.
+ * `background` is the surface the fade blends into.
+ */
+function Clamped({ background, footer, children }: { background: string; footer?: ReactNode; children: ReactNode }) {
+  const [natural, setNatural] = useState(0);
+  const [open, setOpen] = useState(false);
+  const overflows = natural > CLAMP_HEIGHT + 8;
+  const target = natural ? (open || !overflows ? natural : CLAMP_HEIGHT) : null;
+  const height = useMotionHeight(target);
+  const fade = useMotionValue(overflows && !open ? 1 : 0);
+  return (
+    <View style={{ gap: space[2] }}>
+      <Animated.View
+        style={{
+          overflow: "hidden",
+          // Until measured, cap without animating so long content never flashes open.
+          ...(target === null ? { maxHeight: CLAMP_HEIGHT } : { height }),
+        }}
+      >
+        <View onLayout={(e) => setNatural(Math.ceil(e.nativeEvent.layout.height))}>{children}</View>
+        {overflows && (
+          <Animated.View pointerEvents="none" style={{ position: "absolute", left: 0, right: 0, bottom: 0, height: 32, opacity: fade }}>
+            {[0.15, 0.45, 0.75, 0.95].map((alpha) => (
+              <View key={alpha} style={{ flex: 1, backgroundColor: tint(background, alpha) }} />
+            ))}
+          </Animated.View>
+        )}
+      </Animated.View>
+      {/* Footer row: the toggle in the bottom-left corner, `footer` on the right. */}
+      <View style={{ flexDirection: "row", alignItems: "center", gap: space[2], minHeight: 24 }}>
+        {overflows && <Toggle open={open} onPress={() => setOpen(!open)} />}
+        <View style={{ flex: 1, minWidth: 0, alignItems: "flex-end" }}>{footer}</View>
+      </View>
+    </View>
+  );
+}
+
+/**
+ * Show more / Show less. Its icon and label sit on the content's left edge so
+ * it lines up with the text above while idle; the hover highlight pads out
+ * past that edge by a few points but stays well inside the card's own padding.
+ */
+function Toggle({ open, onPress }: { open: boolean; onPress(): void }) {
+  const { colors } = useTheme();
+  const label = open ? t("Show less") : t("Show more");
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      accessibilityState={{ expanded: open }}
+      onPress={onPress}
+      style={(state) => {
+        const { pressed, hovered, focused } = state as typeof state & { hovered?: boolean; focused?: boolean };
+        return {
+          ...noFocusRing,
+          flexDirection: "row",
+          alignItems: "center",
+          gap: space[1.5],
+          height: touch ? 44 : 32,
+          paddingHorizontal: space[1.5],
+          marginLeft: -space[1.5],
+          borderRadius: radius.md,
+          backgroundColor: pressed || hovered || focused ? colors.surface2 : "transparent",
+        };
+      }}
+    >
+      <Icon name={open ? "ChevronUp" : "ChevronDown"} size={14} color={colors.foreground} />
+      <Label medium size={font.md} selectable={false}>{label}</Label>
+    </Pressable>
+  );
+}

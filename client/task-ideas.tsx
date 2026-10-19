@@ -7,13 +7,14 @@ import * as rpc from "../shared/rpc";
 import { taskTypeLabels, type Idea } from "../shared/model";
 import { continuesInCard } from "../shared/ideas";
 import { eventPoint, useMenuOpener, type MenuEntry, type Point } from "./context-menu";
+import { CardBody, CardField, CardHeadline, CardMeta, CardMetaRow, CardText, ContentCard } from "./content-card";
 import { Disclosure } from "./disclosure";
 import { Enter, lerp, motionDuration, useMotionPresence } from "./motion";
 import { exitRows } from "./idea-rows";
 import { boardKey, useBoardQuery } from "./queries";
 import { useStableCallback } from "./stable";
 import { PriorityIcon, TypeIcon, priorityLabels } from "./status";
-import { Button, Label, SectionHeader, font, message, radius, relativeTime, space, touch, useTheme } from "./ui";
+import { Button, Label, SectionHeader, font, message, relativeTime, space, touch, useTheme } from "./ui";
 import { t } from "../shared/i18n";
 
 export type IdeaSession = { id: string; title?: string | null; archivedAt?: string | null };
@@ -315,22 +316,18 @@ export const IdeaCard = memo(function IdeaCard({
   onDismiss(idea: Idea): void;
 }) {
   const { colors } = useTheme();
-  const [expanded, setExpanded] = useState(false);
-  const [contentHeight, setContentHeight] = useState(0);
-  const details = useMotionPresence(expanded ? true : undefined, expanded ? "details" : "", false);
-  const hasMore = !!(idea.detail.trim() || idea.context.trim()) || idea.rationale.length > 90;
   const meta = [
-    <Meta
+    <CardMeta
       key="scope"
       icon={<Icon name={idea.scope === "here" ? "CornerDownRight" : "SquarePlus"} size={12} color={colors.foregroundMuted} />}
       text={idea.scope === "here" ? t("Continues this task") : t("New task")}
     />,
     idea.type && (
-      <Meta key="type" icon={<TypeIcon type={idea.type} size={12} />} text={taskTypeLabels[idea.type]} />
+      <CardMeta key="type" icon={<TypeIcon type={idea.type} size={12} />} text={taskTypeLabels[idea.type]} />
     ),
     idea.priority && idea.priority !== "normal" && (
       // Low's single-bar glyph reads as stray punctuation at this size; only the High/Urgent arrows add meaning.
-      <Meta
+      <CardMeta
         key="priority"
         icon={idea.priority === "low" ? null : <PriorityIcon priority={idea.priority} size={12} />}
         text={idea.priority === "low" ? t("Low priority") : priorityLabels[idea.priority]}
@@ -338,112 +335,39 @@ export const IdeaCard = memo(function IdeaCard({
     ),
   ].filter(Boolean);
   return (
-    <View
-      style={{
-        borderRadius: radius.lg,
-        borderWidth: 1,
-        borderColor: colors.border,
-        backgroundColor: colors.surface1,
-      }}
-    >
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel={t("Idea: {title}", { title: idea.title })}
-        accessibilityState={{ expanded, disabled: !hasMore }}
-        accessibilityHint={hasMore ? (expanded ? t("Hides the details") : t("Shows what to do, why, and the context")) : undefined}
-        disabled={!hasMore}
-        onPress={() => setExpanded(!expanded)}
-        style={({ pressed }) => ({
-          gap: space[1.5],
-          paddingHorizontal: space[3],
-          paddingTop: space[3],
-          paddingBottom: space[2],
-          opacity: pressed ? 0.75 : 1,
-        })}
-      >
-        <View style={{ flexDirection: "row", alignItems: "flex-start", gap: space[2] }}>
-          <View style={{ flex: 1, minWidth: 0 }}>
-            <Label bold size={font.md} selectable={false}>{idea.title}</Label>
-          </View>
-          {hasMore && (
-            <Animated.View
-              style={{ paddingTop: 2, transform: [{ rotate: lerp(details.progress, ["0deg", "180deg"]) }] }}
-            >
-              <Icon name="ChevronDown" size={14} color={colors.foregroundMuted} />
-            </Animated.View>
-          )}
-        </View>
-        <View style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "center", columnGap: space[3], rowGap: 2 }}>
-          {meta}
-          <Label muted size={font.xs} selectable={false}>{relativeTime(idea.createdAt)}</Label>
-        </View>
-        {!!idea.rationale.trim() && (
-          <Label muted size={font.sm} lines={expanded ? undefined : 2} selectable={expanded}>
-            {idea.rationale}
-          </Label>
-        )}
-        {details.item && (
-          <Animated.View
-            pointerEvents={details.active ? "auto" : "none"}
-            accessibilityElementsHidden={!details.active}
-            importantForAccessibility={details.active ? "auto" : "no-hide-descendants"}
-            style={{ overflow: "hidden", height: lerp(details.progress, [0, contentHeight]), opacity: details.progress }}
+    <ContentCard
+      after={source}
+      footer={
+        <View style={{ flexShrink: 1, flexDirection: "row", justifyContent: "flex-end", gap: space[2] }}>
+          <Button quiet disabled={disabled} label={t("Not now: dismiss {title}", { title: idea.title })} onPress={() => onDismiss(idea)}>
+            {t("Not now")}</Button>
+          <Button
+            primary
+            icon="ThumbsUp"
+            disabled={disabled}
+            label={t("Good idea: {title}. Choose to do it in this task or start a new task.", { title: idea.title })}
+            onPress={(event) => onGood(idea, eventPoint(event))}
           >
-            <View
-              onLayout={(e) => setContentHeight(e.nativeEvent.layout.height)}
-              style={{ position: "absolute", top: 0, left: 0, right: 0, gap: space[2], paddingTop: space[1.5] }}
-            >
-              <IdeaField title={t("What to do")} text={idea.detail} />
-              <IdeaField title={t("Context")} text={idea.context} />
-            </View>
-          </Animated.View>
-        )}
-      </Pressable>
-      {source}
-      <View
-        style={{
-          flexDirection: "row",
-          flexWrap: "wrap",
-          // The quiet button carries its own padding, so a small gap reads as even spacing.
-          gap: space[1],
-          paddingHorizontal: space[3],
-          paddingBottom: space[2] + 2,
-        }}
-      >
-        <Button
-          small
-          primary
-          icon="ThumbsUp"
-          disabled={disabled}
-          label={t("Good idea: {title}. Choose to do it in this task or start a new task.", { title: idea.title })}
-          onPress={(event) => onGood(idea, eventPoint(event))}
-        >
-          {t("Good idea")}</Button>
-        <Button small quiet disabled={disabled} label={t("Not now: dismiss {title}", { title: idea.title })} onPress={() => onDismiss(idea)}>
-          {t("Not now")}</Button>
-      </View>
-    </View>
+            {t("Good idea")}</Button>
+        </View>
+      }
+    >
+      <CardBody>
+        {/* Title and meta stay together. */}
+        <View style={{ gap: space[1.5] }}>
+          <CardHeadline selectable={false}>{idea.title}</CardHeadline>
+          <CardMetaRow>
+            {meta}
+            <CardMeta text={relativeTime(idea.createdAt)} />
+          </CardMetaRow>
+        </View>
+        {!!idea.rationale.trim() && <CardText>{idea.rationale}</CardText>}
+        <CardField title={t("What to do")} text={idea.detail} />
+        <CardField title={t("Context")} text={idea.context} />
+      </CardBody>
+    </ContentCard>
   );
 });
-
-function Meta({ icon, text }: { icon: ReactNode; text: string }) {
-  return (
-    <View style={{ flexDirection: "row", alignItems: "center", gap: 3 }}>
-      {icon}
-      <Label muted size={font.xs} selectable={false}>{text}</Label>
-    </View>
-  );
-}
-
-function IdeaField({ title, text }: { title: string; text: string }) {
-  if (!text.trim()) return null;
-  return (
-    <View style={{ gap: 2 }}>
-      <Label muted size={font.xs} bold selectable={false}>{title}</Label>
-      <Label size={font.sm} selectable>{text}</Label>
-    </View>
-  );
-}
 
 export function ClosedIdea({
   idea,
