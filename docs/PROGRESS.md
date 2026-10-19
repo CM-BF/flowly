@@ -19,6 +19,7 @@
 - [x] Follow-up: subagent rows open and close with the shared `Collapse` (height + fade) and a rotating chevron. PASS: typecheck, `npm test` 615 / 63 skipped, reload; headless web on Tinylink with 2 temporary child agents: group height eases 93→193 px on open and 197→93 px on close; fixtures `c0749534`, `44013a5b` deleted.
 - [x] Follow-up: one type scale across the sidebar (DRAWER-SPEC, Type scale): list body text 13 (was 12 in Workpad, Artifacts, Links, History), secondary lines 12 (was 11), group labels stay 11.
 - [x] Follow-up: the session view's Subagents chip opens a subagent in the side bar when it is one of the card's sessions (drawer `onOpenSession`), else in a Paseo agent pane; row label `Open {title}` (stale `Open {title} in Paseo` removed from 9 catalogs).
+- [x] Follow-up: list rows (`Row` in `client/ui.tsx`, e.g. the Needs attention list) keep their trailing value ("just now", counts) at full width; titles and details truncate instead. PASS: typecheck, `npm test` 615 / 63 skipped, reload; headless web Needs attention at 1400 px and 360 px: times one line, not clipped.
 - [ ] UNRUN: native apps, compact web, Luna 6 test session.
 
 

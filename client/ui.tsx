@@ -673,7 +673,8 @@ export function Row({
       </View>
       {/* The check sits before the trailing value so trailing values stay in one column. */}
       {selected && <Icon name="Check" size={16} color={colors.foreground} />}
-      {trailing}
+      {/* Never squeezed by a long title or detail ("just now", counts): the text truncates instead. */}
+      {!!trailing && <View style={{ flexShrink: 0 }}>{trailing}</View>}
     </Pressable>
   );
 }
