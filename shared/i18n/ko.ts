@@ -952,7 +952,6 @@ const catalog: Catalog = {
   "Subagents: {summary}": "하위 에이전트: {summary}",
   "Open subagents from the Paseo session pane.": "하위 에이전트는 Paseo 세션 창에서 여세요.",
   "Untitled agent": "제목 없는 에이전트",
-  "Open {title} in Paseo": "Paseo에서 {title} 열기",
   "When a session starts subagents, a Subagents chip appears above its message box. Click it to see their status and open one in Paseo.": "세션이 하위 에이전트를 시작하면 메시지 상자 위에 하위 에이전트 칩이 나타납니다. 클릭하면 상태를 보고 Paseo에서 열 수 있습니다.",
   "A card has a Jira ticket as an input. Agents read it every turn and see when it changes. Flowly never changes the ticket, and its status doesn't move the card.": "카드에 Jira 티켓이 입력으로 붙어 있습니다. 에이전트는 매 턴 이를 읽고 변경도 알아챕니다. Flowly는 티켓을 바꾸지 않으며, 티켓 상태가 카드를 옮기지도 않습니다.",
   "Work from Jira tickets: connect Jira in Settings → Connections, then start a card with From Jira. Flowly only reads tickets.": "Jira 티켓으로 작업하기: 설정 → 연결에서 Jira를 연결한 뒤 'Jira에서'로 카드를 만드세요. Flowly는 티켓을 읽기만 합니다.",

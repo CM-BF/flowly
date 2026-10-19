@@ -337,6 +337,13 @@ function TaskDrawerView({
     composer.saveDraft(task.id, id, text, expected !== undefined);
   });
   const backToTask = useStableCallback(() => setSelected(""));
+  // A subagent picked from the session view's chip opens here when it is one of this card's sessions.
+  const openCardSession = useStableCallback((sessionId: string) => {
+    if (!sessions.data?.some((a) => a.id === sessionId)) return false;
+    setSelected(sessionId);
+    setError("");
+    return true;
+  });
   const stableRefreshAll = useStableCallback(() => refreshAll());
   // An action next move (NEXT-MOVES-SPEC §7): same path as picking Done in the status menu.
   const moveToDone = useStableCallback(() => changeStatus("done", true));
@@ -808,6 +815,7 @@ function TaskDrawerView({
           onComposerFocus={composerFocus}
           onDraftChange={draftChange}
           onBack={backToTask}
+          onOpenSession={openCardSession}
           onClose={onClose}
           refresh={stableRefreshAll}
           cardFinished={task.status === "done" || task.status === "cancelled" || !!task.archivedAt || !!project.archivedAt}

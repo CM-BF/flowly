@@ -952,7 +952,6 @@ const catalog: Catalog = {
   "Subagents: {summary}": "子智能体：{summary}",
   "Open subagents from the Paseo session pane.": "请从 Paseo 的会话面板打开子智能体。",
   "Untitled agent": "未命名智能体",
-  "Open {title} in Paseo": "在 Paseo 中打开 {title}",
   "When a session starts subagents, a Subagents chip appears above its message box. Click it to see their status and open one in Paseo.": "会话启动子智能体后，消息框上方会出现“子智能体”标签。点击可查看它们的状态，并在 Paseo 中打开其中一个。",
   "A card has a Jira ticket as an input. Agents read it every turn and see when it changes. Flowly never changes the ticket, and its status doesn't move the card.": "一张卡片带有 Jira 工单作为输入。agent 每轮都会读取它，并能看到它的变化。Flowly 从不修改工单，工单状态也不会移动卡片。",
   "Work from Jira tickets: connect Jira in Settings → Connections, then start a card with From Jira. Flowly only reads tickets.": "从 Jira 工单开始工作：在 设置 → 连接 中连接 Jira，然后用“从 Jira 创建”新建卡片。Flowly 只读取工单。",

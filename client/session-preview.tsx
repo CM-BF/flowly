@@ -127,6 +127,7 @@ function SessionPreviewView({
   onDraftChange,
   onComposerFocus,
   onBack,
+  onOpenSession,
   onClose,
   refresh,
   visible = true,
@@ -149,6 +150,11 @@ function SessionPreviewView({
   /** The composer got focus (the drawer stops restoring a saved draft into it). */
   onComposerFocus?(sessionId: string): void;
   onBack(): void;
+  /**
+   * Show another session of this card in the sidebar (a subagent picked from the chip).
+   * Returns false when it is not one of the card's sessions; the chip then opens it in Paseo.
+   */
+  onOpenSession?(sessionId: string): boolean;
   /** Close the whole side bar (from any level). */
   onClose?(): void;
   refresh(): void;
@@ -570,9 +576,11 @@ function SessionPreviewView({
     setInputHeight((current) => (current === next ? current : next));
   };
   const toggleSubagents = useStableCallback(() => setChipMenu((m) => (m === "subagents" ? null : "subagents")));
+  // In the sidebar when the subagent is one of this card's sessions, else in a Paseo agent pane.
   const openSubagent = useStableCallback((agentId: string) => {
     setChipMenu(null);
-    openNativeSession(navigation, agentId, hostId);
+    if (onOpenSession?.(agentId)) return;
+    if (typeof navigation?.openAgent === "function") openNativeSession(navigation, agentId, hostId);
   });
   const renderComposer = () => {
     if (!active) return null;
@@ -1161,7 +1169,7 @@ function SessionPreviewView({
               sessionId={sessionId}
               open={chipMenu === "subagents"}
               onToggle={toggleSubagents}
-              onOpenAgent={typeof navigation?.openAgent === "function" ? openSubagent : undefined}
+              onOpenAgent={onOpenSession || typeof navigation?.openAgent === "function" ? openSubagent : undefined}
             />
           )}
           {renderComposer()}

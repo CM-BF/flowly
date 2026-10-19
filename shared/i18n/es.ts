@@ -952,7 +952,6 @@ const catalog: Catalog = {
   "Subagents: {summary}": "Subagentes: {summary}",
   "Open subagents from the Paseo session pane.": "Abre los subagentes desde el panel de sesión de Paseo.",
   "Untitled agent": "Agente sin título",
-  "Open {title} in Paseo": "Abrir {title} en Paseo",
   "When a session starts subagents, a Subagents chip appears above its message box. Click it to see their status and open one in Paseo.": "Cuando una sesión inicia subagentes, aparece un chip de Subagentes encima de su cuadro de mensaje. Haz clic para ver su estado y abrir uno en Paseo.",
   "A card has a Jira ticket as an input. Agents read it every turn and see when it changes. Flowly never changes the ticket, and its status doesn't move the card.": "Una tarjeta tiene un ticket de Jira como entrada. Los agentes lo leen en cada turno y ven cuándo cambia. Flowly nunca cambia el ticket y su estado no mueve la tarjeta.",
   "Work from Jira tickets: connect Jira in Settings → Connections, then start a card with From Jira. Flowly only reads tickets.": "Trabaja desde tickets de Jira: conecta Jira en Ajustes → Conexiones y crea una tarjeta con Desde Jira. Flowly solo lee los tickets.",

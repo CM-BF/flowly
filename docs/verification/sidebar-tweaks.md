@@ -33,6 +33,15 @@ Date: 2026-10-19. Session: 82ea8335-9348-4ab6-a64e-953f8bba84d9 (Claude, impleme
 - Finding: `paseo agent run` from inside an agent sets the parent to the calling agent and ignores `--label paseo.parent-agent-id`; the first two fixtures therefore became children of this implementation session and correctly stayed main sessions on the Tinylink card. Recreated with `PASEO_AGENT_ID` unset.
 - Cleanup: all four fixture agents (`5609b214`, `1e1b81eb`, `12f8bfd5`, `57e1dd39`) archived and deleted; `paseo agent ls --all` shows none; the Tinylink session and card are unchanged.
 
+## Follow-up: Subagents chip opens in the side bar (2026-10-19)
+
+- PASS: typecheck; `npm test` 615 passed / 63 skipped (stale `Open {title} in Paseo` removed from 9 catalogs); `paseo plugin reload flowly` running.
+- Headless web, Tinylink *Add rate limiting* card, session `402bf42e…` opened in the side bar, Subagents chip list:
+  - `flowly-subagent-fixture-in-card` (child in the card's workspace `wks_ba6ff18c509f409e`): the side bar switches to it (same page URL, its title in the header, Back to task). PASS.
+  - `flowly-subagent-fixture-elsewhere` (child in another workspace): falls back to Paseo (`/workspace/wks_d25095f29647c824`). PASS. No page errors.
+- Cleanup: agents `550ce1b8`, `f7f29e17` archived and deleted. `paseo agent run --new-workspace local` had created workspace `wks_d25095f29647c824` (`main`, local checkout, created 15:29:35.303Z by the fixture's creation request, 38 ms before the agent): archived; the Tinylink directory and its 5 card workspaces are unchanged.
+- Observation: Kanban summary agents carry `paseo.parent-agent-id` (their card's session), so in *Archived* they now nest under that session.
+
 ## UNRUN
 
 - Native iOS/Android apps (arrow buttons instead of drag, collapse animation on native, keyboard with the tag input now inside the scroll view on phones). Phone layout was checked on mobile web only.

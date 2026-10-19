@@ -4,7 +4,7 @@ Card: "side bar session关联subagent" (2026-10-19). Scope chosen by the user: *
 
 ## 1. Goal
 
-When a session started subagents, the side bar's session view shows a **Subagents** chip above the message box, styled like the Paseo session pane's own Subagents pill. The chip shows the subagents' state at a glance; clicking it opens the list; clicking a row opens that agent in a Paseo agent pane.
+When a session started subagents, the side bar's session view shows a **Subagents** chip above the message box, styled like the Paseo session pane's own Subagents pill. The chip shows the subagents' state at a glance; clicking it opens the list; clicking a row opens that agent in the side bar when it is one of this card's sessions, else in a Paseo agent pane.
 
 ## 2. What counts as a subagent
 
@@ -37,7 +37,7 @@ Out of scope (user decision): **provider subagents** (Claude Code Task/Agent, Co
 
 - Opens upward from the chip (same popup surface and transition as the composer's model/reasoning chips, `ChipMenu`), title **Subagents**, min width 260, max width 360, max height 320 (scrolls).
 - A row: 8 px status dot (pulsing while running; colors as the session list), the title (`Untitled agent` when none), and a muted subtitle: the state label (`Running`, `Waiting for approval`, `Error`, `Finished turn`, `Idle`, ...) and provider · model.
-- Clicking a row closes the list and opens that agent in a Paseo agent pane (`navigation.openAgent`, same as **Open in Paseo**). When the host offers no `openAgent`, rows are shown but not pressable and the list footer says `Open subagents from the Paseo session pane.`.
+- Clicking a row closes the list and opens that agent in the side bar's session view when it is one of this card's sessions (same workspace; the drawer's `onOpenSession`, 2026-10-19 user request). Otherwise it opens in a Paseo agent pane (`navigation.openAgent`, same as **Open in Paseo**). Rows are pressable when either is possible; when neither is (no `openAgent`, and the drawer cannot show it), the list footer says `Open subagents from the Paseo session pane.`. The row's accessible name is `Open {title}`.
 - Tapping outside closes it (the composer chips' dismiss layer).
 
 ## 6. Not changed
@@ -53,6 +53,6 @@ New one-time tip `subagents`: shown once when a session of the current project h
 
 1. A session with live child agents shows the chip above its message box; a session without them shows nothing extra.
 2. The chip summarises the buckets of §3 with the texts of §4; it updates as children start, finish, fail or ask for approval (live stream, no reopen).
-3. Clicking the chip opens the list; each row shows status, title and subtitle; clicking a row opens that agent in a Paseo agent pane and closes the list.
+3. Clicking the chip opens the list; each row shows status, title and subtitle; clicking a row opens that agent in the side bar (one of the card's sessions) or else in a Paseo agent pane, and closes the list.
 4. Archived children disappear from the chip and list.
 5. Every new string is in all catalogs; `npm test` and `npm run typecheck` pass.

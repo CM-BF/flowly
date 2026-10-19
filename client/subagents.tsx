@@ -152,7 +152,7 @@ function SubagentRow({ agent, onOpen }: { agent: PaseoAgent; onOpen?: (agentId: 
   return (
     <Pressable
       accessibilityRole="button"
-      accessibilityLabel={t("Open {title} in Paseo", { title })}
+      accessibilityLabel={t("Open {title}", { title })}
       disabled={!onOpen}
       onPress={() => onOpen?.(agent.id)}
       style={(s) => {

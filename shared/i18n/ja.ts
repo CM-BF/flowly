@@ -952,7 +952,6 @@ const catalog: Catalog = {
   "Subagents: {summary}": "サブエージェント: {summary}",
   "Open subagents from the Paseo session pane.": "サブエージェントは Paseo のセッションペインから開いてください。",
   "Untitled agent": "無題のエージェント",
-  "Open {title} in Paseo": "{title} を Paseo で開く",
   "When a session starts subagents, a Subagents chip appears above its message box. Click it to see their status and open one in Paseo.": "セッションがサブエージェントを起動すると、メッセージ欄の上に「サブエージェント」チップが表示されます。クリックすると状態を確認でき、Paseo で開けます。",
   "A card has a Jira ticket as an input. Agents read it every turn and see when it changes. Flowly never changes the ticket, and its status doesn't move the card.": "カードに Jira チケットが入力として付いています。エージェントは毎ターン読み、変更にも気づきます。Flowly はチケットを変更せず、チケットのステータスでカードが動くこともありません。",
   "Work from Jira tickets: connect Jira in Settings → Connections, then start a card with From Jira. Flowly only reads tickets.": "Jira チケットから作業：設定 → 接続 で Jira を接続し、「Jira から」でカードを作成します。Flowly はチケットを読むだけです。",
