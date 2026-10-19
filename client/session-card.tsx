@@ -17,6 +17,7 @@ export function SessionCard({
   attention,
   readStateUnavailable,
   first = true,
+  nested = false,
   onPress,
   menu,
 }: {
@@ -26,6 +27,8 @@ export function SessionCard({
   attention?: ReturnType<typeof sessionAttention>;
   readStateUnavailable?: boolean;
   first?: boolean;
+  /** A subagent under its main session: indented, a little shorter. */
+  nested?: boolean;
   onPress(): void;
   /** Context-menu handlers (right-click / long-press). */
   menu?: object;
@@ -54,9 +57,9 @@ export function SessionCard({
           flexDirection: "row",
           alignItems: "center",
           gap: space[3],
-          minHeight: touch ? 64 : 56,
-          paddingVertical: space[2] + 2,
-          paddingLeft: space[3],
+          minHeight: nested ? (touch ? 52 : 44) : touch ? 64 : 56,
+          paddingVertical: nested ? space[1.5] : space[2] + 2,
+          paddingLeft: nested ? space[3] + 22 : space[3],
           paddingRight: space[2],
           borderTopWidth: first ? 0 : 1,
           borderColor: colors.border,
@@ -90,10 +93,12 @@ export function SessionCard({
           {agent.providerUnavailable ? ` · ${t("Provider unavailable")}` : ""}
         </Label>
       </View>
-      {/* Last activity, centered on the whole row (beside the chevron). */}
-      <Label muted size={font.xs} selectable={false}>
-        {relativeTime(agent.updatedAt)}
-      </Label>
+      {/* Last activity, centered on the whole row (beside the chevron); never squeezed by a long title. */}
+      <View style={{ flexShrink: 0 }}>
+        <Label muted size={font.xs} lines={1} selectable={false}>
+          {relativeTime(agent.updatedAt)}
+        </Label>
+      </View>
       <Icon name="ChevronRight" size={16} color={colors.foregroundMuted} />
     </Pressable>
   );

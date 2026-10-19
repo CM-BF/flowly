@@ -37,6 +37,8 @@ import { useLiveAgents } from "./queries";
 import { shallowEqual, useStableCallback } from "./stable";
 import { isLegacyScope } from "../shared/scope";
 import { SessionCard } from "./session-card";
+import { subagentSummary } from "./subagents";
+import { sessionTree, subagentBucket, type SessionNode } from "../shared/subagents";
 import { SessionCreate } from "./session-create";
 import { SessionPreview } from "./session-preview";
 import { useSessionReads } from "./session-reads";
@@ -44,7 +46,7 @@ import { sessionAttention } from "../shared/session-attention";
 import type { SessionEntry } from "./session-link";
 import { Enter, MotionReveal, useSettled } from "./motion";
 import { TaskMetadata } from "./task-metadata";
-import { Disclosure, Section, type SectionState } from "./disclosure";
+import { Chevron, Collapse, Disclosure, Section, type SectionState } from "./disclosure";
 import { WrapupModal } from "./wrapup";
 import { currentWrapup } from "../shared/wrapup-state";
 import { useComposer } from "./composer";
@@ -161,6 +163,8 @@ function TaskDrawerView({
     [ideaSession, setIdeaSession] = useState<Idea | null>(null),
     [showWrapup, setShowWrapup] = useState(false),
     [showArchived, setShowArchived] = useState(false),
+    // Subagent rows the user opened or closed, by main session; otherwise they follow `urgent`.
+    [subagentsOpen, setSubagentsOpen] = useState<Record<string, boolean>>({}),
     [sending, setSending] = useState(false),
     [error, setError] = useState(""),
     [drafts, setDrafts] = useState<Record<string, string>>({}),
@@ -345,6 +349,8 @@ function TaskDrawerView({
     (a, b) => b.createdAt.localeCompare(a.createdAt) || a.id.localeCompare(b.id),
   );
   const liveSessions = ordered.filter((a) => !a.archivedAt);
+  // Main sessions with their Paseo subagents nested under them (DRAWER-SPEC, Main and sub sessions).
+  const liveTree = sessionTree(liveSessions);
   const runningSessions = liveSessions.filter((a) => a.status === "running" || a.status === "initializing").length;
   const sessionSummary = runningSessions ? t("{n} running", { n: runningSessions }) : undefined;
   // Agent questions and approvals waiting in this card's sessions, answered
@@ -484,12 +490,13 @@ function TaskDrawerView({
         : []),
     ];
   };
-  const renderSession = (a: (typeof ordered)[number], index: number) => (
+  const renderSession = (a: (typeof ordered)[number], index: number, nested = false) => (
     <SessionCard
       key={a.id}
       agent={a}
       events={events}
       first={index === 0}
+      nested={nested}
       highlighted={highlighted === a.id}
       attention={sessionAttention(a, task.id, receipts, events)}
       readStateUnavailable={readState.isPending || readState.isError}
@@ -500,6 +507,31 @@ function TaskDrawerView({
       menu={menuHandlers(openMenu, a.title || t("Session"), () => sessionMenu(a))}
     />
   );
+  // A main session, then its subagents behind one row: folded unless one needs you or is selected.
+  const renderNode = (node: SessionNode<(typeof ordered)[number]>, index: number) => {
+    const kids = node.children;
+    const urgent = kids.some((c) => { const b = subagentBucket(c); return b === "needs_input" || b === "failed"; }) || kids.some((c) => c.id === highlighted);
+    const open = subagentsOpen[node.agent.id] ?? urgent;
+    return (
+      <Fragment key={node.agent.id}>
+        {renderSession(node.agent, index)}
+        {kids.length > 0 && (
+          <SubagentToggle
+            id={node.agent.id}
+            summary={subagentSummary(kids)}
+            open={open}
+            onPress={() => setSubagentsOpen((current) => ({ ...current, [node.agent.id]: !open }))}
+          />
+        )}
+        {kids.length > 0 && (
+          // Same measured-height reveal as the sections (DRAWER-SPEC, Motion).
+          <Collapse open={open} id={node.agent.id}>
+            {kids.map((child) => renderSession(child, 1, true))}
+          </Collapse>
+        )}
+      </Fragment>
+    );
+  };
   // Routine turn start/end records drive rules and markers, and next-move
   // suggestions live above the session composer; the timeline shows what
   // changed or needs a person (failed turns, permission requests stay).
@@ -633,7 +665,7 @@ function TaskDrawerView({
           <Section
             id={task.id}
             title={t("Sessions")}
-            count={liveSessions.length}
+            count={liveTree.length}
             open={sectionStates.sessions.open}
             onToggle={sectionStates.sessions.onToggle}
             summary={sessionSummary}
@@ -683,7 +715,7 @@ function TaskDrawerView({
                 </View>
               </View>
             ) : (
-              <SessionGroup list={liveSessions} render={renderSession} />
+              <SessionGroup list={liveTree} render={renderNode} />
             )}
             {archivedSessions.length > 0 && (
               <Disclosure
@@ -693,7 +725,7 @@ function TaskDrawerView({
               >
                 <Label muted size={font.sm}>
                   {t("Open one and send a message to restore it.")}</Label>
-                <SessionGroup list={archivedSessions} render={renderSession} />
+                <SessionGroup list={sessionTree(archivedSessions)} render={renderNode} />
               </Disclosure>
             )}
           </Section>
@@ -1076,6 +1108,36 @@ const CardRequests = memo(function CardRequests({
     </View>
   );
 });
+
+/** The row under a main session that shows or hides its subagents, lined up with the subagent rows. */
+function SubagentToggle({ id, summary, open, onPress }: { id: string; summary: string; open: boolean; onPress(): void }) {
+  const { colors } = useTheme();
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={t("Subagents: {summary}", { summary })}
+      accessibilityState={{ expanded: open }}
+      onPress={onPress}
+      style={({ pressed }) => ({
+        flexDirection: "row",
+        alignItems: "center",
+        gap: space[1.5],
+        minHeight: touch ? 40 : 32,
+        paddingLeft: space[3] + 22,
+        paddingRight: space[3],
+        borderTopWidth: 1,
+        borderColor: colors.border,
+        backgroundColor: pressed ? colors.surface1 : colors.surface0,
+      })}
+    >
+      <Icon name="CornerDownRight" size={13} color={colors.foregroundMuted} />
+      <View style={{ flex: 1, minWidth: 0 }}>
+        <Label muted size={font.sm} lines={1} selectable={false}>{summary}</Label>
+      </View>
+      <Chevron open={open} title={id} color={colors.foregroundMuted} size={14} />
+    </Pressable>
+  );
+}
 
 /** A section's open state and a toggle that only flips that section. */
 function sectionStateOf(id: AnyDrawerSection, open: boolean, set: (update: (current: Record<AnyDrawerSection, boolean>) => Record<AnyDrawerSection, boolean>) => void): SectionState {

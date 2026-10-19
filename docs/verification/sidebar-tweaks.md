@@ -26,6 +26,13 @@ Date: 2026-10-19. Session: 82ea8335-9348-4ab6-a64e-953f8bba84d9 (Claude, impleme
   - Settings → Cards → Card sidebar: Workpad *Starts open* off and Activity on → reopening the card shows Workpad collapsed with `Acceptance 20/20 · Checks 20/20` and Activity open; tapping Workpad expands it; *Reset sidebar layout* restores the defaults (note "The sidebar uses the default layout"). The setting was left at the default.
   - Earlier paging/collapse/reopen script rerun: PASS. No page errors.
 
+## Follow-up: main and sub sessions (2026-10-19)
+
+- PASS: `npm run typecheck`; `npm test` 615 passed / 63 skipped (new `sessionTree` tests: nesting, grandchildren, orphans, parent loops); HEAD plus only this card's files: 558 passed / 63 skipped; `paseo plugin reload flowly` running.
+- Headless web, Tinylink card *Add rate limiting to POST /shorten* (fixture use allowed by AGENTS.md): two temporary Haiku agents created in its workspace with `paseo.parent-agent-id` = its session `402bf42e…`. The sidebar shows *Sessions 1* with `↳ 2 ready to review` under the main session, folded; tapping it shows both subagents indented. No page errors.
+- Finding: `paseo agent run` from inside an agent sets the parent to the calling agent and ignores `--label paseo.parent-agent-id`; the first two fixtures therefore became children of this implementation session and correctly stayed main sessions on the Tinylink card. Recreated with `PASEO_AGENT_ID` unset.
+- Cleanup: all four fixture agents (`5609b214`, `1e1b81eb`, `12f8bfd5`, `57e1dd39`) archived and deleted; `paseo agent ls --all` shows none; the Tinylink session and card are unchanged.
+
 ## UNRUN
 
 - Native iOS/Android apps (arrow buttons instead of drag, collapse animation on native, keyboard with the tag input now inside the scroll view on phones). Phone layout was checked on mobile web only.

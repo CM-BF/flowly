@@ -190,8 +190,8 @@ const ArtifactRow = memo(function ArtifactRow({
       >
         <Icon name={icon} size={14} color={missing ? colors.foregroundMuted : colors.foreground} />
         <View style={{ flex: 1, minWidth: 0 }}>
-          <Label size={font.sm} muted={missing} lines={1} selectable={false}>{artifact.title}</Label>
-          <Label size={font.xs} muted lines={1} selectable={false}>{missing ? `${t("Missing")} · ${detail}` : detail}</Label>
+          <Label size={font.md} muted={missing} lines={1} selectable={false}>{artifact.title}</Label>
+          <Label size={font.sm} muted lines={1} selectable={false}>{missing ? `${t("Missing")} · ${detail}` : detail}</Label>
         </View>
         {agent ? <AiMark size={12} /> : <Icon name="User" size={12} color={colors.foregroundMuted} />}
       </Pressable>

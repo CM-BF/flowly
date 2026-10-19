@@ -11,6 +11,7 @@ import { summariesKey, useBoardQuery, useSummariesQuery } from "./queries";
 import { workpadEnabled, workpadOf } from "../shared/workpad";
 import { Button, Label, font, message, radius, relativeTime, space, useTheme } from "./ui";
 import { formatLocale, t, tn } from "../shared/i18n";
+import { compactDateTime } from "../shared/compact-time";
 
 export { summariesKey };
 
@@ -147,12 +148,12 @@ function HistoryItem({ entry }: { entry: SummaryEntry }) {
       >
         <Icon name={open ? "ChevronDown" : "ChevronRight"} size={14} color={colors.foregroundMuted} />
         <View style={{ flex: 1, minWidth: 0 }}>
-          <Label size={font.sm} selectable={false}>
+          <Label size={font.md} selectable={false}>
             {entry.state}
           </Label>
         </View>
-        <Label muted size={font.xs} selectable={false}>
-          {new Date(entry.at).toLocaleString(formatLocale())}
+        <Label muted size={font.sm} selectable={false}>
+          {compactDateTime(entry.at, formatLocale())}
         </Label>
       </Pressable>
       {open && (

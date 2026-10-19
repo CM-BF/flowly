@@ -19,6 +19,12 @@ const segmentText = (bucket: SubagentBucket, n: number) =>
         ? t("{n} failed", { n })
         : t("{n} ready to review", { n });
 
+/** "2 working, 1 needs input", else "3 subagents": the chip text, also used by the sidebar's subagent rows. */
+export function subagentSummary(children: readonly Parameters<typeof subagentBucket>[0][]) {
+  const segments = chipSegments(subagentCounts(children));
+  return segments.length ? segments.map((s) => segmentText(s.bucket, s.count)).join(", ") : tn(children.length, "{n} subagent", "{n} subagents");
+}
+
 /**
  * The session's Paseo-native child agents as a chip above the message box, with
  * an upward list; a row opens that agent in a Paseo agent pane (SUBAGENTS-SPEC).
@@ -45,9 +51,7 @@ export const SubagentsChip = memo(function SubagentsChip({
   if (!children?.length) return null;
   const counts = subagentCounts(children);
   const segments = chipSegments(counts);
-  const summary = segments.length
-    ? segments.map((s) => segmentText(s.bucket, s.count)).join(", ")
-    : tn(children.length, "{n} subagent", "{n} subagents");
+  const summary = subagentSummary(children);
   const segmentDot = (bucket: SubagentBucket) =>
     bucket === "running" ? (
       <PulseDot color={colors.accent} size={7} />

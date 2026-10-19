@@ -117,11 +117,11 @@ export const TaskWorkpad = memo(function TaskWorkpad({ task, disabled, active, s
         {!!workpad && (
           <View>
             {!!stamp && (
-              <Label size={font.xs} muted mono selectable lines={1}>
+              <Label size={font.sm} muted mono selectable lines={1}>
                 {stamp}
               </Label>
             )}
-            <Label size={font.xs} muted selectable={false}>
+            <Label size={font.sm} muted selectable={false}>
               {updatedBy}
             </Label>
           </View>
@@ -228,7 +228,7 @@ function Box({ checked }: { checked: boolean }) {
 
 function ByYou({ by }: { by: "agent" | "human" }) {
   return by === "human" ? (
-    <Label size={font.xs} muted selectable={false}>
+    <Label size={font.sm} muted selectable={false}>
       {t("by you")}
     </Label>
   ) : null;
@@ -247,7 +247,7 @@ function AcceptanceRow({ item, disabled, onToggle }: { item: AcceptanceItem; dis
     >
       <Box checked={item.done} />
       <View style={{ flex: 1, minWidth: 0 }}>
-        <Label size={font.sm}>{item.text}</Label>
+        <Label size={font.md}>{item.text}</Label>
       </View>
       <ByYou by={item.by} />
     </Pressable>
@@ -290,11 +290,11 @@ function CheckRow({ item, workpad, disabled, onCycle }: { item: ValidationItem; 
         <Icon name={icon.name} size={16} color={icon.color} />
       </Pressable>
       <View style={{ flex: 1, minWidth: 0, gap: 1 }}>
-        <Label size={font.sm}>{item.text}</Label>
+        <Label size={font.md}>{item.text}</Label>
         {!!item.command && (
           // One line until the output is shown (or the command is tapped), so long commands don't fill the sidebar.
           <Pressable accessibilityRole="button" accessibilityState={{ expanded: open }} onPress={() => setOpen(!open)}>
-            <Label size={font.xs} muted mono selectable lines={open ? undefined : 1}>
+            <Label size={font.sm} muted mono selectable lines={open ? undefined : 1}>
               {item.command}
             </Label>
           </Pressable>
@@ -302,12 +302,12 @@ function CheckRow({ item, workpad, disabled, onCycle }: { item: ValidationItem; 
         {(details.length > 0 || stale) && (
           <View style={{ flexDirection: "row", flexWrap: "wrap", columnGap: space[1.5] }}>
             {stale && (
-              <Label size={font.xs} color={colors.statusWarning} selectable={false}>
+              <Label size={font.sm} color={colors.statusWarning} selectable={false}>
                 {t("out of date")}
               </Label>
             )}
             {details.length > 0 && (
-              <Label size={font.xs} muted selectable={false}>
+              <Label size={font.sm} muted selectable={false}>
                 {details.join(" · ")}
               </Label>
             )}
@@ -316,12 +316,12 @@ function CheckRow({ item, workpad, disabled, onCycle }: { item: ValidationItem; 
         {!!item.evidence && (
           <>
             <Pressable accessibilityRole="button" accessibilityState={{ expanded: open }} onPress={() => setOpen(!open)}>
-              <Label size={font.xs} color={colors.accent} selectable={false}>
+              <Label size={font.sm} color={colors.accent} selectable={false}>
                 {open ? t("Hide output") : t("Show output")}
               </Label>
             </Pressable>
             {open && (
-              <Label size={font.xs} muted mono selectable>
+              <Label size={font.sm} muted mono selectable>
                 {item.evidence}
               </Label>
             )}
@@ -355,7 +355,7 @@ function PlanList({ plan, title }: { plan: PlanSnapshot; title: string }) {
             />
           </View>
           <View style={{ flex: 1, minWidth: 0 }}>
-            <Label size={font.sm} muted={item.status === "completed"}>
+            <Label size={font.md} muted={item.status === "completed"}>
               {item.text}
             </Label>
           </View>
@@ -371,7 +371,7 @@ function ConfusionRow({ item, disabled, onResolve }: { item: ConfusionItem; disa
     <View style={{ ...rowStyle(), alignItems: "center" }}>
       <Icon name="CircleHelp" size={14} color={colors.statusWarning} />
       <View style={{ flex: 1, minWidth: 0 }}>
-        <Label size={font.sm}>{item.text}</Label>
+        <Label size={font.md}>{item.text}</Label>
       </View>
       <IconButton icon="Check" size={touch ? 36 : 24} label={t("Mark resolved: {text}", { text: item.text })} disabled={disabled} onPress={onResolve} />
     </View>

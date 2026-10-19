@@ -138,9 +138,9 @@ const LinkRow = memo(function LinkRow({
       >
         <TypeIcon type={other.type} size={13} always />
         <View style={{ flexShrink: 1, minWidth: 0 }}>
-          <Label size={font.sm} muted={archived} lines={1} selectable={false}>{other.title}</Label>
+          <Label size={font.md} muted={archived} lines={1} selectable={false}>{other.title}</Label>
         </View>
-        <Label muted size={font.xs} selectable={false}>{archived ? t("Archived") : lane}</Label>
+        <Label muted size={font.sm} selectable={false}>{archived ? t("Archived") : lane}</Label>
         {!!view.link.ideaId && <Icon name="Lightbulb" size={11} color={colors.foregroundMuted} />}
       </Pressable>
       <IconButton

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { chipSegments, childAgents, subagentBucket, subagentCounts, type SubagentSource } from "./subagents";
+import { chipSegments, childAgents, parentAgentLabel, sessionTree, subagentBucket, subagentCounts, type SubagentSource } from "./subagents";
 
 const agent = (over: Partial<SubagentSource> & { id: string }): SubagentSource => ({
   createdAt: "2026-10-19T08:00:00.000Z",
@@ -55,5 +55,36 @@ describe("chipSegments", () => {
   });
   it("is empty when every child is done", () => {
     expect(chipSegments(subagentCounts([agent({ id: "1" })]))).toEqual([]);
+  });
+});
+
+describe("sessionTree", () => {
+  const agent = (id: string, createdAt: string, parent?: string): SubagentSource => ({
+    id,
+    createdAt,
+    status: "idle",
+    labels: parent ? { [parentAgentLabel]: parent } : {},
+  });
+
+  it("nests children under their parent, oldest first, and keeps main sessions in order", () => {
+    const list = [agent("main-b", "2026-10-19T03:00:00Z"), agent("c2", "2026-10-19T02:30:00Z", "main-a"), agent("main-a", "2026-10-19T01:00:00Z"), agent("c1", "2026-10-19T02:00:00Z", "main-a")];
+    expect(sessionTree(list).map((n) => [n.agent.id, n.children.map((c) => c.id)])).toEqual([
+      ["main-b", []],
+      ["main-a", ["c1", "c2"]],
+    ]);
+  });
+
+  it("a grandchild goes under the top-most ancestor on the card", () => {
+    const list = [agent("main", "1"), agent("child", "2", "main"), agent("grandchild", "3", "child")];
+    expect(sessionTree(list)).toEqual([{ agent: list[0], children: [list[1], list[2]] }]);
+  });
+
+  it("a child whose parent is not on the card, and a cycle, stay main sessions", () => {
+    const orphan = agent("orphan", "1", "elsewhere");
+    const a = agent("a", "2", "b");
+    const b = agent("b", "3", "a");
+    expect(sessionTree([orphan]).map((n) => n.agent.id)).toEqual(["orphan"]);
+    const tree = sessionTree([a, b]);
+    expect(tree.map((n) => [n.agent.id, n.children.length])).toEqual([["a", 0], ["b", 0]]);
   });
 });

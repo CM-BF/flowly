@@ -40,4 +40,25 @@ Status: implemented 2026-10-19. Card: UI/UX 调整. Title kept for links; covers
 3. **Open state per opening.** The drawer owns which sections are open. Each time the sidebar opens (or the defaults change) it starts from the user's defaults; toggles last until it closes.
 4. **Long lists page by 5.** Artifacts (per role) and the Workpad's Acceptance, Checks and Confusions show 5 rows, then *Show N more* (N = the next batch, at most 5) adds 5 more to the same list at the rows' left edge. No *Show less*; closing and reopening the sidebar, or another card, starts over. Checks are listed failed, out of date, not run, then passed (stable within each), so what needs a look is on the first page. A check's command shows one line until its output is shown or the command is tapped.
 5. **Phones.** On compact layouts only the action row (Back, project, Edit, More) stays fixed; the title, Status/Priority/Type and tags scroll with the sections, so the content gets the screen.
-6. A `Collapse` mounted open stays in normal layout until it is measured, so an expanded section does not flash at zero height. Progress → History rows start at the section's left edge (`Disclosure` `flush`) and an opened version's fields line up with its title.
+6. A `Collapse` mounted open stays in normal layout until it is measured, so an expanded section does not flash at zero height. Progress → History rows start at the section's left edge (`Disclosure` `flush`) and an opened version's fields line up with its title. Each version shows a compact time (`shared/compact-time.ts`): today the time only, this year month, day and time, earlier years the date with its year; no seconds.
+
+## Type scale
+
+Status: implemented 2026-10-19. Card: UI/UX 调整. One scale for every sidebar section (`font` in `client/ui.tsx`):
+
+| Role | Size | Examples |
+| --- | --- | --- |
+| Card title | `xl` 18 bold | task title |
+| Description, session titles, idea headlines | `base` 14 | |
+| Section titles; body text of lists and cards | `md` 13 | Progress text, Workpad criteria/checks/plan/confusions, artifact and link titles, History versions, Details values, Usage values |
+| Secondary lines | `sm` 12 | content-card footnotes (`Updated … · model`) and meta rows (Ideas), artifact notes, check commands and run info, `Updated … by …`, environment stamp, link lane, History dates, Details labels, empty states, Show more |
+| Group labels and field titles | `xs` 11 bold/muted | Acceptance, Checks, Outputs, Inputs, Target, Recap |
+
+## Main and sub sessions
+
+Status: implemented 2026-10-19 (user choice: automatic by parent, option 1). Card: UI/UX 调整.
+
+1. The Sessions list shows **main sessions** (no parent, or a parent that is not one of this card's sessions) newest first. A Paseo child agent (`paseo.parent-agent-id`, SUBAGENTS-SPEC) whose parent is on the card goes under its top-most ancestor on the card; grandchildren are flattened under that main session, oldest first. Parent loops and missing parents fall back to main sessions, so no session is hidden (`sessionTree` in `shared/subagents.ts`).
+2. Under a main session with subagents, one row (`↳`, the Subagents chip's summary such as "2 working, 1 needs input", a chevron) shows or hides them. The rows reveal and hide with the shared measured-height `Collapse` and the chevron turns with the same progress (Motion: Reduce Motion honoured, interruptible). It is folded unless a subagent needs input or failed, or the selected session is one of them; the user's toggle wins until the sidebar closes.
+3. Subagent rows are the normal session rows, indented and slightly shorter; opening, unread state, attention and the menu are unchanged. The section count is the number of main sessions; the collapsed summary (`n running`) still counts every session. Archived sessions use the same grouping.
+4. No data or setting changes; the subagent chip above the composer is unchanged.

@@ -42,7 +42,7 @@ export function TaskUsage({ taskId, active, section }: { taskId: string; active:
           <View style={{ padding: space[3], gap: space[1], borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface1 }}>
             <Breakdown tokens={data.total} />
             {(data.turns > 0 || data.activeMs > 0) && (
-              <Label muted size={font.xs} selectable={false}>
+              <Label muted size={font.sm} selectable={false}>
                 {tn(data.turns, "{n} turn", "{n} turns")} · {t("{time} running", { time: compactDuration(data.activeMs) })}
               </Label>
             )}
@@ -61,7 +61,7 @@ export function TaskUsage({ taskId, active, section }: { taskId: string; active:
               value={compactNumber(totalTokens(data.summarizer))}
             />
           )}
-          <Label muted size={font.xs} selectable={false}>
+          <Label muted size={font.sm} selectable={false}>
             {t("From local Claude Code / Codex logs; tokens only. Output includes reasoning.")}</Label>
         </View>
       )}
@@ -114,7 +114,7 @@ function Line({ title, value, hint, strong = false, muted = false }: { title: st
         </Label>
       </View>
       <View style={{ flexShrink: 1, maxWidth: "60%" }}>
-        <Label size={font.sm} muted={muted} medium={strong} lines={2} selectable>
+        <Label size={font.md} muted={muted} medium={strong} lines={2} selectable>
           {value}
         </Label>
       </View>

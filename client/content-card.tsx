@@ -73,7 +73,7 @@ export function CardMeta({ icon, text }: { icon?: ReactNode; text: string }) {
   return (
     <View style={{ flexDirection: "row", alignItems: "center", gap: 3 }}>
       {icon}
-      <Label muted size={font.xs} selectable={false}>{text}</Label>
+      <Label muted size={font.sm} selectable={false}>{text}</Label>
     </View>
   );
 }
@@ -81,7 +81,7 @@ export function CardMeta({ icon, text }: { icon?: ReactNode; text: string }) {
 /** Small muted footer text (a timestamp line). */
 export function CardFootnote({ children }: { children: ReactNode }) {
   return (
-    <Label muted size={font.xs} selectable={false}>
+    <Label muted size={font.sm} selectable={false}>
       {children}
     </Label>
   );
