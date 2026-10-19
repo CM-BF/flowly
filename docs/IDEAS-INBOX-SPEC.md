@@ -23,7 +23,7 @@
 | 来源卡的情况 | idea 状态 | 可做的操作 |
 | --- | --- | --- |
 | 工作中（Backlog … In review） | 保持 | 全部（IDEAS-SPEC §6） |
-| Done / Cancelled | **保持**，仍计入 open 数 | Start a new task、Not now、Restore；“在本卡继续”的三项不提供（§2.3） |
+| Done / Cancelled | **保持**，仍计入 open 数 | Start a new task、Dismiss、Restore；“在本卡继续”的三项不提供（§2.3） |
 | 已归档（含收尾后归档） | **保持** | 同 Done / Cancelled（以前全部禁用，本次放开） |
 | 从 Done / Cancelled 移回、或取消归档 | 保持 | 回到“工作中”的规则 |
 | 永久删除 | 删除，写入 `removed/` 备份（已有行为） | — |
@@ -70,7 +70,7 @@ Done/Cancelled 是人的决定；把 idea 发回这类卡的 session，agent 会
  ● Restore 已忽略的 idea 时拒绝…   ↳ Continues this task · Bugfix · 2h
    Why: …(2 行)
    From  ✓ ideas卡片 · Done                              ›
-   [👍 Good idea]  [Not now]
+   [👍 Good idea]  [Dismiss]
  ● …
 ```
 
@@ -87,7 +87,7 @@ Done/Cancelled 是人的决定；把 idea 发回这类卡的 session，agent 会
 
 复用侧栏的 `IdeaCard`（从 `client/task-ideas.tsx` 提出为共享组件），在理由与按钮之间多一行 **From**：来源卡状态图标、标题、列名（归档卡显示 “Archived”），点击打开来源卡侧栏；来源卡不可见（例如归档且看板未显示归档）时同样能打开（侧栏以归档只读方式显示卡片）。
 
-- Open 分段：Good idea / Not now，与侧栏相同；Good idea 菜单按 §2.3 和 IDEAS-SPEC §6 生成，session 列表来自共享的实时 agent 列表（`useLiveAgents`，按来源卡 workspace 过滤，不新增轮询）。
+- Open 分段：Good idea / Dismiss，与侧栏相同；Good idea 菜单按 §2.3 和 IDEAS-SPEC §6 生成，session 列表来自共享的实时 agent 列表（`useLiveAgents`，按来源卡 workspace 过滤，不新增轮询）。
 - Accepted 分段：显示 “→ 新卡标题”（点击打开新卡）或 “→ Sent to <session>”，与侧栏 Closed 分组相同。
 - Dismissed 分段：**Restore**，规则同 IDEAS-SPEC §7（同卡同标题、10 个上限）。
 - “Do it in a new session”：打开来源卡的侧栏（叠在 Ideas 页上）并直接弹出同一个预填的 Start session 弹窗，成功后 `ideas.adopt … send:false`，与侧栏相同。
@@ -120,7 +120,7 @@ Done/Cancelled 是人的决定；把 idea 发回这类卡的 session，agent 会
 
 ## 7. 不做
 
-- 跨项目 Ideas 汇总；idea 编辑、合并、投票；批量操作（批量 Not now 可后续作为 idea）。
+- 跨项目 Ideas 汇总；idea 编辑、合并、投票；批量操作（批量 Dismiss 可后续作为 idea）。
 - 让 agent 读取本项目其他卡的 ideas 以避免跨卡重复（后续 idea：`kanban_get_task` 增加项目级 open idea 标题）。
 - idea 自动过期。
 - “Reopen and continue”（见 §8）。

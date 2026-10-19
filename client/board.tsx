@@ -122,7 +122,7 @@ import { t, tn } from "../shared/i18n";
 const tipText: Record<TipId, () => string> = {
   "first-card": () => t("Your card moves by itself as the agent works. Open it any time to see its sessions, output and summary."),
   "needs-you": () => t("A card is waiting for you. Reply goes straight to the session."),
-  "first-idea": () => t("An agent suggested follow-up work. Good idea starts a card or continues here; Not now dismisses it."),
+  "first-idea": () => t("An agent suggested follow-up work. Good idea starts a card or continues here; Dismiss removes it."),
   "first-done": () => t("Done cards can be wrapped up: their sessions and workspace are archived. Auto wrap up is in settings."),
   "first-artifact": () => t("Cards now collect artifacts: the files and links a task worked from and delivered. Agents add them as they work; you can add your own in the card."),
   "agent-question": () => t("An agent is asking you something. Open the card's session to answer it right there, no need to switch to Paseo."),

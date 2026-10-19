@@ -1,5 +1,5 @@
 import { memo, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { Animated, Pressable, View } from "react-native";
+import { Animated, Easing, Pressable, View } from "react-native";
 import { Icon, useToast } from "@getpaseo/plugin/client/react-native";
 import { useRpc } from "@getpaseo/plugin/client";
 import { useQueryClient } from "@tanstack/react-query";
@@ -9,7 +9,7 @@ import { continuesInCard } from "../shared/ideas";
 import { eventPoint, useMenuOpener, type MenuEntry, type Point } from "./context-menu";
 import { CardBody, CardField, CardHeadline, CardMeta, CardMetaRow, CardText, ContentCard } from "./content-card";
 import { Disclosure } from "./disclosure";
-import { Enter, lerp, motionDuration, useMotionPresence } from "./motion";
+import { Enter, lerp, motionDuration, useMotionPresence, useReducedMotion } from "./motion";
 import { exitRows } from "./idea-rows";
 import { boardKey, useBoardQuery } from "./queries";
 import { useStableCallback } from "./stable";
@@ -23,7 +23,7 @@ export type IdeaSession = { id: string; title?: string | null; archivedAt?: stri
  * Drawer "Ideas": next steps agents proposed on this card (IDEAS-SPEC §5.2).
  * Renders nothing without ideas. "Good idea" offers two paths (§6): continue
  * in this card (sent to one of its sessions) or start a new card. Closing an
- * idea (Not now, Do it here) is optimistic: the card collapses away at once and
+ * idea (Dismiss, Do it here) is optimistic: the card collapses away at once and
  * comes back with an error toast if the save fails.
  */
 export function TaskIdeas({
@@ -67,7 +67,7 @@ export function TaskIdeas({
       {rows.length ? (
         <View>
           {rows.map((row) => (
-            <IdeaRow key={row.item.id} leaving={row.leaving} entering={row.entering}>
+            <IdeaRow key={row.item.id} leaving={row.leaving} entering={row.entering} swipe={actions.swiped.has(row.item.id)}>
               <IdeaCard idea={row.item} disabled={disabled || row.leaving} onGood={actions.choose} onDismiss={actions.dismiss} />
             </IdeaRow>
           ))}
@@ -100,7 +100,7 @@ export const sessionName = (sessions: readonly IdeaSession[], id: string) => ses
 
 /**
  * What both idea lists share (IDEAS-INBOX-SPEC §2.1): the Good idea menu,
- * Not now and Restore, with optimistic hiding. `hidden` holds ideas closed
+ * Dismiss and Restore, with optimistic hiding. `hidden` holds ideas closed
  * here but not yet closed on the board.
  */
 export function useIdeaActions({
@@ -121,6 +121,8 @@ export function useIdeaActions({
   const adoptIdea = useRpc(rpc.adoptIdea);
   const [hidden, setHidden] = useState<ReadonlySet<string>>(() => new Set());
   const [restoring, setRestoring] = useState("");
+  // Ideas dismissed here on desktop: their row swipes out instead of collapsing in place.
+  const swiped = useRef(new Set<string>()).current;
   const ideas = board.data?.ideas;
   // A closing is settled once the board shows it; drop it from the optimistic set.
   useEffect(() => {
@@ -185,16 +187,19 @@ export function useIdeaActions({
     openMenu(at, t("Good idea"), here ? [...continueEntries, divider, cardEntry] : [cardEntry, divider, ...continueEntries]);
   });
   const dismiss = useStableCallback(async (idea: Idea) => {
+    if (!touch) swiped.add(idea.id);
     setHidden((current) => new Set(current).add(idea.id));
     try {
       await updateIdea({ id: idea.id, status: "dismissed" });
       await queryClient.invalidateQueries({ queryKey: boardKey });
     } catch (e) {
+      swiped.delete(idea.id);
       setHidden((current) => without(current, [idea.id]));
       toast.show(message(e), { variant: "error" });
     }
   });
   const restore = useStableCallback(async (idea: Idea) => {
+    swiped.delete(idea.id);
     setRestoring(idea.id);
     try {
       await updateIdea({ id: idea.id, status: "open" });
@@ -205,7 +210,7 @@ export function useIdeaActions({
       setRestoring("");
     }
   });
-  return { hidden, restoring, choose, dismiss, restore };
+  return { hidden, restoring, swiped: swiped as ReadonlySet<string>, choose, dismiss, restore };
 }
 
 const without = (set: ReadonlySet<string>, ids: readonly string[]) => {
@@ -251,7 +256,7 @@ export function useExitList<T extends { id: string }>(items: readonly T[]) {
             next.delete(item.id);
             return next;
           });
-        }, motionDuration.reverse + 40),
+        }, rowExitMs + 40),
       );
     });
     // `leaving` is read, not tracked: only a change of the open list starts or cancels exits.
@@ -261,27 +266,39 @@ export function useExitList<T extends { id: string }>(items: readonly T[]) {
 }
 
 
-/** Holds one idea's slot: rises in when it arrives, collapses its height and fades when it leaves. */
+/** Dismiss on desktop: the card slides out to the right, then its slot closes. */
+const swipeMs = 180;
+/** The longest row exit (swipe, then collapse); rows that left are held this long. */
+const rowExitMs = swipeMs + motionDuration.reverse;
+
+/**
+ * Holds one idea's slot: rises in when it arrives, collapses its height and
+ * fades when it leaves, or with `swipe` (a desktop dismiss) slides out to the
+ * right first.
+ */
 export function IdeaRow({
   leaving,
   entering,
+  swipe = false,
   spacing = space[2],
   children,
 }: {
   leaving: boolean;
   entering: boolean;
+  swipe?: boolean;
   /** Space below the row, inside the collapsing slot. */
   spacing?: number;
   children: ReactNode;
 }) {
-  const [height, setHeight] = useState(0);
+  const [size, setSize] = useState({ width: 0, height: 0 });
   // Height is a layout property, so this value runs on the JS driver.
   const presence = useMotionPresence(leaving ? undefined : true, leaving ? "" : "row", false);
   const body = (
-    <View onLayout={(e) => setHeight(e.nativeEvent.layout.height)} style={{ paddingBottom: spacing }}>
+    <View onLayout={(e) => setSize({ width: e.nativeEvent.layout.width, height: e.nativeEvent.layout.height })} style={{ paddingBottom: spacing }}>
       {children}
     </View>
   );
+  if (leaving && swipe) return <SwipeOut width={size.width} height={size.height}>{body}</SwipeOut>;
   if (leaving)
     return (
       <Animated.View
@@ -290,7 +307,7 @@ export function IdeaRow({
         importantForAccessibility="no-hide-descendants"
         style={{
           overflow: "hidden",
-          height: height ? lerp(presence.progress, [0, height]) : undefined,
+          height: size.height ? lerp(presence.progress, [0, size.height]) : undefined,
           opacity: presence.progress,
           transform: [{ scale: lerp(presence.progress, [0.97, 1]) }],
         }}
@@ -299,6 +316,38 @@ export function IdeaRow({
       </Animated.View>
     );
   return entering ? <Enter distance={8}>{body}</Enter> : body;
+}
+
+/** Slides its child out to the right while fading, then closes the slot. JS driver: desktop only, and height is layout. */
+function SwipeOut({ width, height, children }: { width: number; height: number; children: ReactNode }) {
+  const reduced = useReducedMotion();
+  const [slide] = useState(() => new Animated.Value(0));
+  const [close] = useState(() => new Animated.Value(0));
+  useEffect(() => {
+    if (reduced) {
+      slide.setValue(1);
+      close.setValue(1);
+      return;
+    }
+    const animation = Animated.sequence([
+      Animated.timing(slide, { toValue: 1, duration: swipeMs, easing: Easing.in(Easing.cubic), useNativeDriver: false }),
+      Animated.timing(close, { toValue: 1, duration: motionDuration.reverse, easing: Easing.inOut(Easing.quad), useNativeDriver: false }),
+    ]);
+    animation.start();
+    return () => animation.stop();
+  }, [slide, close, reduced]);
+  return (
+    <Animated.View
+      pointerEvents="none"
+      accessibilityElementsHidden
+      importantForAccessibility="no-hide-descendants"
+      style={{ overflow: "hidden", height: height ? lerp(close, [height, 0]) : undefined }}
+    >
+      <Animated.View style={{ opacity: lerp(slide, [1, 0]), transform: [{ translateX: lerp(slide, [0, Math.max(width, 1)]) }] }}>
+        {children}
+      </Animated.View>
+    </Animated.View>
+  );
 }
 
 export const IdeaCard = memo(function IdeaCard({
@@ -339,8 +388,8 @@ export const IdeaCard = memo(function IdeaCard({
       after={source}
       footer={
         <View style={{ flexShrink: 1, flexDirection: "row", justifyContent: "flex-end", gap: space[2] }}>
-          <Button quiet disabled={disabled} label={t("Not now: dismiss {title}", { title: idea.title })} onPress={() => onDismiss(idea)}>
-            {t("Not now")}</Button>
+          <Button quiet disabled={disabled} label={t("Dismiss {title}", { title: idea.title })} onPress={() => onDismiss(idea)}>
+            {t("Dismiss")}</Button>
           <Button
             primary
             icon="ThumbsUp"

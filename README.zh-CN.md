@@ -49,7 +49,7 @@ agent 需要你拍板时，会提出一个明确的问题并停下。卡片亮�
 
 ### 4. 任务延伸 ideas
 
-agent 工作时发现的后续事项（顺带发现的 bug、现有方案的局限、下一步）会进入项目的 **Ideas** 收件箱，而不是淹没在对话里。点 **Good idea** 有两条路：在原 session 里继续，或者带着预填好的上下文新建卡片 / 新开 session；**Not now** 则忽略。agent 不会自己建卡或开工。
+agent 工作时发现的后续事项（顺带发现的 bug、现有方案的局限、下一步）会进入项目的 **Ideas** 收件箱，而不是淹没在对话里。点 **Good idea** 有两条路：在原 session 里继续，或者带着预填好的上下文新建卡片 / 新开 session；**Dismiss** 则忽略。agent 不会自己建卡或开工。
 
 ![Ideas 收件箱，标明来源卡片](docs/promo/screenshots/04-ideas-inbox.png)
 ![Good idea：新建任务、在原 session 继续，或开新 session](docs/promo/screenshots/04b-good-idea-two-paths.png)

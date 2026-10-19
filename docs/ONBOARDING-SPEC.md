@@ -47,7 +47,7 @@ The page title has the detail line "Anything marked with the sparkle was written
 - *Automatic status*: cards follow the agent's work through the lanes. Done stays yours.
 - *Needs-you reminders*: questions, approvals and errors light the card, the Attention menu and the sidebar badge; questions and approvals are answered right on the card or in the session.
 - *Run summaries*: after every turn a cheap model keeps state / target / recap / next on the card.
-- *Follow-up ideas*: work an agent finds on the way lands in the Ideas inbox; Good idea or Not now.
+- *Follow-up ideas*: work an agent finds on the way lands in the Ideas inbox; Good idea or Dismiss.
 - *Inputs and outputs*: each card lists the files and links it worked from and delivered, added by agents or by you ([CARD-ARTIFACTS-SPEC](CARD-ARTIFACTS-SPEC.md)).
 - *Project insights*: today's cards, turns, agent time, commits, tokens and what is waiting on you.
 
@@ -75,7 +75,7 @@ A tip is a single dismissible banner row (icon, one sentence, **Got it**) under 
 | `agent-question` | the first time a session in the project waits on an agent question (SESSION-QUESTION-SPEC) | "An agent is asking you something. Open the card's session to answer it right there, no need to switch to Paseo." |
 | `needs-you` | the first time any card in the project is Needs you | "A card is waiting for you. Reply goes straight to the session." |
 | `next-move` | a session of the project has suggested next steps for its current turn (NEXT-MOVES-SPEC) | "When an agent finishes a turn, its suggested next steps sit above the message box. Tap one to fill it in; nothing is sent until you press Send." |
-| `first-idea` | the first time Ideas has an open item | "An agent suggested follow-up work. Good idea starts a card or continues here; Not now dismisses it." |
+| `first-idea` | the first time Ideas has an open item | "An agent suggested follow-up work. Good idea starts a card or continues here; Dismiss removes it." |
 | `first-artifact` | a card of the project has an artifact and no card is open | "Cards now collect artifacts: the files and links a task worked from and delivered. Agents add them as they work; you can add your own in the card." |
 | `first-tag` | a card of the project has a tag an agent added and no card is open | "Agents tag their cards by module and direction. Open a card and tap a tag to filter the board by it, or search #tag." |
 | `first-done` | the user first moves a card to Done/Cancelled | "Done cards can be wrapped up: archive their sessions and workspace. Auto wrap up is in settings." |

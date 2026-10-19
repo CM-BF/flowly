@@ -96,9 +96,9 @@ idea 不是任务卡：不进泳道、不占 workspace、不改来源卡状态�
 - 每个 open idea 一张小卡片（2026-10-16 用户要求优化设计、交互与动效，接受按钮改为 Good idea）：
   - 标题（加粗）；一行元信息：类型、优先级（仅非 Normal；High/Urgent 带箭头图标，Low 显示为不带图标的 “Low priority”）、提出时间（相对时间）；理由；What to do（detail）与 Context 不截断地排在其后。字体与 Progress 卡片一致：标题 base 中等字重（同 State），理由与字段正文 md，字段名与元信息 xs 弱化色。
   - 截断渐隐（2026-10-19 用户反馈，与 Progress 卡片一致，共用 `client/content-card.tsx` 的 `ContentCard` 通用卡片样式）：整块内容（标题、元信息、理由、What to do、Context）超过约 5 行（104 pt）时整体收起到该高度，底部渐隐；底部同一行左侧为 Show more / Show less 展开或收起，右侧为操作按钮（高度过渡 220 ms 减速 / 160 ms 加速，可打断，遵循 Reduce Motion）。内容未超出时完整显示且不出现 Show more。Show more 的图标与文字贴齐正文左边缘（静止时与上方文字对齐），悬停高亮向外只多出 6 pt，不贴卡片边框；标题与元信息一组，其后的块（理由、What to do、Context）之间间距与 Progress 一致（8 pt）。点击卡片本身不再展开，文字可直接选择。
-  - 右下角按钮（2026-10-19 用户反馈：右对齐，恢复标准尺寸，不再使用紧凑尺寸；与 Show more 并排在同一行以节省空间。Ideas 页的来源行 “From …” 位于该行之下）：**Not now**（安静按钮，忽略）、**Good idea**（主操作，`ThumbsUp` 图标，打开选择菜单，见 §6，位于最右）。无障碍名称分别为 “Not now: dismiss …”、“Good idea: … Choose to do it in this task or start a new task.”。Closed 分组的 Restore 仍使用紧凑尺寸。
+  - 右下角按钮（2026-10-19 用户反馈：右对齐，恢复标准尺寸，不再使用紧凑尺寸；与 Show more 并排在同一行以节省空间。Ideas 页的来源行 “From …” 位于该行之下）：**Dismiss**（安静按钮，忽略；2026-10-19 由 Not now 改名）、**Good idea**（主操作，`ThumbsUp` 图标，打开选择菜单，见 §6，位于最右）。无障碍名称分别为 “Dismiss …”、“Good idea: … Choose to do it in this task or start a new task.”。Closed 分组的 Restore 仍使用紧凑尺寸。
   - 元信息行最前面显示 agent 的建议：`CornerDownRight` “Continues this task” 或 `SquarePlus` “New task”。
-  - Not now 为乐观更新：卡片立即在原位收起（高度、透明度与轻微缩放一起过渡 160 ms），保存失败时恢复并弹 error toast。“在本卡继续”同样乐观收起，成功后弹 success toast “Sent to <session>”；idea 被转成卡片后同样收起离开列表。
+  - Dismiss 为乐观更新：卡片立即离开。桌面版（非触屏）先向右滑出并淡出（180 ms 加速），再收起所在行高度（160 ms）；手机上在原位收起（高度、透明度与轻微缩放一起过渡 160 ms）。Reduce Motion 下直接移除。保存失败时恢复并弹 error toast。“在本卡继续”同样乐观收起，成功后弹 success toast “Sent to <session>”；idea 被转成卡片后同样收起离开列表。
   - 抽屉打开时已有的 idea 不播放进场；打开期间新到达（agent 提出）或被 Restore 的 idea 上浮淡入。
   - 所有动效使用 `client/motion.tsx` 原语，遵循 Reduce Motion、可打断；收起中的卡片不可交互、对读屏隐藏。
 - 没有 open idea 但有已关闭的 idea 时显示 “No open ideas. Agents add them when they see a worthwhile next step.”
@@ -106,7 +106,7 @@ idea 不是任务卡：不进泳道、不占 workspace、不改来源卡状态�
   - accepted（`ThumbsUp` 图标）：新建卡片时显示 “→ 新卡标题”，点击打开该卡，新卡已删除时显示 “→ deleted card”；在本卡继续时显示 “→ Sent to <session 标题>”。
   - dismissed：显示弱化标题与 **Restore**。
 - 项目已归档时按钮禁用。卡片 Done/Cancelled 或已归档时 idea 保持 open，只能新建卡片或忽略（2026-10-16 起，见 [IDEAS-INBOX-SPEC](IDEAS-INBOX-SPEC.md) §2）。
-- Not now / Restore 成功不弹 toast（列表本身即反馈），失败用 error toast。
+- Dismiss / Restore 成功不弹 toast（列表本身即反馈），失败用 error toast。
 
 ### 5.3 新卡侧栏
 

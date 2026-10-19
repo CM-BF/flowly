@@ -202,7 +202,7 @@ function FeaturesPage() {
     { icon: "Bell", color: colors.statusWarning, title: t("Needs-you reminders"), text: t("Questions, approvals and errors light up the card, the Attention menu and the sidebar badge. Answer questions and approvals right on the card or in the session.") },
     { icon: "Brain", color: colors.accent, title: t("Run summaries"), text: t("After every turn a cheap model keeps the card's state, recap and next step up to date.") },
     { icon: "Sparkles", color: colors.accent, title: t("Suggested next steps"), text: t("When a turn ends, the agent's next steps sit above the message box. Tap one to fill it in, then send it yourself. Once the work is pushed, it can offer Move to Done.") },
-    { icon: "Lightbulb", color: colors.statusSuccess, title: t("Follow-up ideas"), text: t("Work an agent finds along the way lands in the Ideas inbox. Good idea or Not now.") },
+    { icon: "Lightbulb", color: colors.statusSuccess, title: t("Follow-up ideas"), text: t("Work an agent finds along the way lands in the Ideas inbox. Good idea or Dismiss.") },
     { icon: "Package", color: colors.accent, title: t("Inputs and outputs"), text: t("Each card lists the files and links it worked from and delivered, added by agents or by you.") },
     { icon: "Tags", color: colors.accent, title: t("Tags"), text: t("Tag cards by module or direction. Agents tag their own cards too; filter and search by #tag.") },
     { icon: "CircleGauge", color: colors.accent, title: t("Project insights"), text: t("Today's cards, turns, agent time, commits, tokens and what is waiting on you.") },

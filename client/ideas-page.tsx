@@ -93,7 +93,7 @@ export const IdeasPage = memo(function IdeasPage({
   const cardTitle = (id: string) => cards.get(id)?.title;
   const renderOpen = (rows: ExitRows) =>
     rows.map((row) => (
-      <IdeaRow key={row.item.id} leaving={row.leaving} entering={row.entering} spacing={space[3]}>
+      <IdeaRow key={row.item.id} leaving={row.leaving} entering={row.entering} swipe={actions.swiped.has(row.item.id)} spacing={space[3]}>
         <IdeaCard
           idea={row.item}
           disabled={!!project.archivedAt || row.leaving}
