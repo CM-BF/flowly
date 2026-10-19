@@ -28,7 +28,7 @@ export function welcomeDecision(input: {
   return input.blocked ? "wait" : "show";
 }
 
-export const tipIds = ["first-card", "needs-you", "first-idea", "first-done", "first-artifact", "first-tag", "agent-question", "older-finished", "next-move", "project-menu", "first-workpad"] as const;
+export const tipIds = ["first-card", "needs-you", "first-idea", "first-done", "first-artifact", "first-tag", "agent-question", "older-finished", "next-move", "project-menu", "first-workpad", "subagents"] as const;
 export type TipId = (typeof tipIds)[number];
 
 export interface TipFacts {
@@ -54,6 +54,8 @@ export interface TipFacts {
   projectTabs: boolean;
   /** A card of the current project has a workpad (WORKPAD-SPEC §8). */
   hasWorkpad: boolean;
+  /** A session of the current project has a live Paseo child agent (SUBAGENTS-SPEC §7). */
+  hasSubagent: boolean;
 }
 
 const tipFact: Record<TipId, keyof TipFacts> = {
@@ -68,13 +70,14 @@ const tipFact: Record<TipId, keyof TipFacts> = {
   "next-move": "nextMove",
   "project-menu": "projectTabs",
   "first-workpad": "hasWorkpad",
+  subagents: "hasSubagent",
 };
 
 /** The one tip to show now: first in priority order whose fact holds and that was not shown before. */
 export function nextTip(input: { tipsSeen: readonly string[]; facts: TipFacts; blocked: boolean }): TipId | null {
   if (input.blocked) return null;
   // Waiting for the user outranks introductions; the answer-in-session tip is the more specific one.
-  const order: TipId[] = ["agent-question", "needs-you", "first-done", "older-finished", "next-move", "first-workpad", "first-idea", "first-artifact", "first-tag", "first-card", "project-menu"];
+  const order: TipId[] = ["agent-question", "needs-you", "first-done", "older-finished", "next-move", "first-workpad", "subagents", "first-idea", "first-artifact", "first-tag", "first-card", "project-menu"];
   return order.find((id) => input.facts[tipFact[id]] && !input.tipsSeen.includes(id)) ?? null;
 }
 

@@ -10,7 +10,8 @@ import { useMotionPresence, lerp } from "./motion";
 import { t } from "../shared/i18n";
 
 type Feature = NonNullable<PaseoAgent["features"]>[number];
-export type ChipMenuId = "model" | "thinking" | "mode";
+/** Composer popups; "subagents" is the Subagents chip (SUBAGENTS-SPEC). */
+export type ChipMenuId = "model" | "thinking" | "mode" | "subagents";
 
 const featureValue = (f: Feature) =>
   f.type === "toggle"

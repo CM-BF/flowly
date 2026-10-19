@@ -56,6 +56,7 @@ import { newMessageId, rememberSentImages, sentImages } from "./sent-images";
 import { eventPoint, menuHandlers, useMenuOpener, type MenuEntry } from "./context-menu";
 import { useBoardView } from "./board-view";
 import { ComposerChips, useSessionConfig, type ChipMenuId } from "./session-settings";
+import { SubagentsChip } from "./subagents";
 import { RenameSession } from "./session-rename";
 import {
   activitySummary,
@@ -568,6 +569,11 @@ function SessionPreviewView({
     const next = Math.max(inputMin, Math.min(inputMax, Math.ceil(contentHeight)));
     setInputHeight((current) => (current === next ? current : next));
   };
+  const toggleSubagents = useStableCallback(() => setChipMenu((m) => (m === "subagents" ? null : "subagents")));
+  const openSubagent = useStableCallback((agentId: string) => {
+    setChipMenu(null);
+    openNativeSession(navigation, agentId, hostId);
+  });
   const renderComposer = () => {
     if (!active) return null;
     return (
@@ -1149,6 +1155,14 @@ function SessionPreviewView({
           <PendingRequests requests={requests} disabled={!canWrite || busy} compact={compact} onRespond={respond} />
           {showMoves && (
             <NextMoves key={suggestion.id} moves={moves} disabled={!canWrite} onPick={pickMove} onDismiss={hideMoves} />
+          )}
+          {!active.archivedAt && (
+            <SubagentsChip
+              sessionId={sessionId}
+              open={chipMenu === "subagents"}
+              onToggle={toggleSubagents}
+              onOpenAgent={typeof navigation?.openAgent === "function" ? openSubagent : undefined}
+            />
           )}
           {renderComposer()}
           {(keyHints || running || queued.length > 0) && (

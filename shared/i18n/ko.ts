@@ -944,5 +944,15 @@ const catalog: Catalog = {
   "Mark resolved: {text}": "해결됨으로 표시: {text}",
   "Card workpad": "카드 Workpad",
   "Agents keep acceptance criteria and checks on each card, and delivering with open items needs a note. Off hides it and stops these checks; what agents wrote is kept.": "에이전트가 카드마다 인수 기준과 검증 항목을 관리하고, 미완료 항목이 있는 채로 전달하려면 설명이 필요합니다. 끄면 숨겨지고 이 검사도 멈추며, 에이전트가 작성한 내용은 유지됩니다.",
+  "Subagents": "하위 에이전트",
+  "{n} subagents": "하위 에이전트 {n}개",
+  "{n} working": "{n}개 실행 중",
+  "{n} need input": "{n}개 입력 필요",
+  "{n} ready to review": "{n}개 검토 대기",
+  "Subagents: {summary}": "하위 에이전트: {summary}",
+  "Open subagents from the Paseo session pane.": "하위 에이전트는 Paseo 세션 창에서 여세요.",
+  "Untitled agent": "제목 없는 에이전트",
+  "Open {title} in Paseo": "Paseo에서 {title} 열기",
+  "When a session starts subagents, a Subagents chip appears above its message box. Click it to see their status and open one in Paseo.": "세션이 하위 에이전트를 시작하면 메시지 상자 위에 하위 에이전트 칩이 나타납니다. 클릭하면 상태를 보고 Paseo에서 열 수 있습니다.",
 };
 export default catalog;

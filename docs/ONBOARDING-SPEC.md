@@ -68,7 +68,7 @@ Primary **Create project** (opens the existing project form after the tour close
 
 ### 5. One-time contextual tips (small, non-modal)
 
-A tip is a single dismissible banner row (icon, one sentence, **Got it**) under the overview bar; only **Got it** records it as seen. Priority when several apply: agent-question, needs-you, first-done, older-finished, next-move, first-workpad, first-idea, first-artifact, first-tag, first-card, project-menu. The empty-project hint takes the same slot and wins at the top of the relevant surface, using theme colours. At most one tip is visible at a time; a tip appears at most once per host (`tipsSeen`); dismissing or acting on the feature records it. Tips never block input, never move a focused input, and are not shown while the welcome tour is open.
+A tip is a single dismissible banner row (icon, one sentence, **Got it**) under the overview bar; only **Got it** records it as seen. Priority when several apply: agent-question, needs-you, first-done, older-finished, next-move, first-workpad, subagents, first-idea, first-artifact, first-tag, first-card, project-menu. The empty-project hint takes the same slot and wins at the top of the relevant surface, using theme colours. At most one tip is visible at a time; a tip appears at most once per host (`tipsSeen`); dismissing or acting on the feature records it. Tips never block input, never move a focused input, and are not shown while the welcome tour is open.
 
 | Tip id | Shown when | Text |
 | --- | --- | --- |
@@ -77,6 +77,7 @@ A tip is a single dismissible banner row (icon, one sentence, **Got it**) under 
 | `needs-you` | the first time any card in the project is Needs you | "A card is waiting for you. Reply goes straight to the session." |
 | `next-move` | a session of the project has suggested next steps for its current turn (NEXT-MOVES-SPEC) | "When an agent finishes a turn, its suggested next steps sit above the message box. Tap one to fill it in; nothing is sent until you press Send." |
 | `first-workpad` | the project's Card workpad switch is on, a card of the project has a workpad and no card is open (WORKPAD-SPEC §8, §9) | "This card has a workpad: the agent's acceptance criteria and checks. The card shows how many checks passed; open it to see which ran on which commit, and tick items yourself." |
+| `subagents` | a session of the project has a live Paseo child agent (SUBAGENTS-SPEC §7) | "When a session starts subagents, a Subagents chip appears above its message box. Click it to see their status and open one in Paseo." |
 | `first-idea` | the first time Ideas has an open item | "An agent suggested follow-up work. Good idea starts a card or continues here; Dismiss removes it." |
 | `first-artifact` | a card of the project has an artifact and no card is open | "Cards now collect artifacts: the files and links a task worked from and delivered. Agents add them as they work; you can add your own in the card." |
 | `first-tag` | a card of the project has a tag an agent added and no card is open | "Agents tag their cards by module and direction. Open a card and tap a tag to filter the board by it, or search #tag." |

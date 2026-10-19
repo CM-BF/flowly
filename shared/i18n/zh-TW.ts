@@ -944,5 +944,15 @@ const catalog: Catalog = {
   "Mark resolved: {text}": "標記已解決：{text}",
   "Card workpad": "卡片 Workpad",
   "Agents keep acceptance criteria and checks on each card, and delivering with open items needs a note. Off hides it and stops these checks; what agents wrote is kept.": "Agent 在每張卡片上維護驗收標準和驗證項目，帶著未完成項目交付時必須說明。關閉後隱藏它並停止這些檢查；agent 已寫的內容會保留。",
+  "Subagents": "子智慧體",
+  "{n} subagents": "{n} 個子智慧體",
+  "{n} working": "{n} 個執行中",
+  "{n} need input": "{n} 個需要輸入",
+  "{n} ready to review": "{n} 個待查看",
+  "Subagents: {summary}": "子智慧體：{summary}",
+  "Open subagents from the Paseo session pane.": "請從 Paseo 的工作階段面板開啟子智慧體。",
+  "Untitled agent": "未命名智慧體",
+  "Open {title} in Paseo": "在 Paseo 中開啟 {title}",
+  "When a session starts subagents, a Subagents chip appears above its message box. Click it to see their status and open one in Paseo.": "工作階段啟動子智慧體後，訊息框上方會出現「子智慧體」標籤。點擊即可查看它們的狀態，並在 Paseo 中開啟其中一個。",
 };
 export default catalog;

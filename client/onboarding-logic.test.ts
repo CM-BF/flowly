@@ -32,12 +32,12 @@ test("tour paging stays inside the pages", () => {
 });
 
 describe("tips", () => {
-  const none: TipFacts = { hasCard: false, needsYou: false, openIdea: false, movedToFinished: false, hasArtifact: false, hasAgentTag: false, agentQuestion: false, olderHidden: false, nextMove: false, projectTabs: false, hasWorkpad: false };
+  const none: TipFacts = { hasCard: false, needsYou: false, openIdea: false, movedToFinished: false, hasArtifact: false, hasAgentTag: false, agentQuestion: false, olderHidden: false, nextMove: false, projectTabs: false, hasWorkpad: false, hasSubagent: false };
   test("nothing to show without a fact", () => {
     expect(nextTip({ tipsSeen: [], facts: none, blocked: false })).toBeNull();
   });
   test("one tip at a time, waiting-for-you first", () => {
-    const facts = { hasCard: true, needsYou: true, openIdea: true, movedToFinished: false, hasArtifact: true, hasAgentTag: true, agentQuestion: false, olderHidden: false, nextMove: false, projectTabs: false, hasWorkpad: false };
+    const facts = { hasCard: true, needsYou: true, openIdea: true, movedToFinished: false, hasArtifact: true, hasAgentTag: true, agentQuestion: false, olderHidden: false, nextMove: false, projectTabs: false, hasWorkpad: false, hasSubagent: false };
     expect(nextTip({ tipsSeen: [], facts, blocked: false })).toBe("needs-you");
     expect(nextTip({ tipsSeen: ["needs-you"], facts, blocked: false })).toBe("first-idea");
     expect(nextTip({ tipsSeen: ["needs-you", "first-idea"], facts, blocked: false })).toBe("first-artifact");
@@ -72,6 +72,12 @@ describe("tips", () => {
     expect(nextTip({ tipsSeen: ["next-move"], facts, blocked: false })).toBe("first-workpad");
     expect(nextTip({ tipsSeen: ["next-move", "first-workpad"], facts, blocked: false })).toBe("first-idea");
     expect(nextTip({ tipsSeen: ["first-workpad"], facts: { ...none, hasWorkpad: true }, blocked: false })).toBeNull();
+  });
+  test("subagents are announced after the workpad tip, before ideas", () => {
+    const facts = { ...none, hasWorkpad: true, hasSubagent: true, openIdea: true };
+    expect(nextTip({ tipsSeen: [], facts, blocked: false })).toBe("first-workpad");
+    expect(nextTip({ tipsSeen: ["first-workpad"], facts, blocked: false })).toBe("subagents");
+    expect(nextTip({ tipsSeen: ["first-workpad", "subagents"], facts, blocked: false })).toBe("first-idea");
   });
   test("the project tab tip comes last, after the first-card tip", () => {
     const facts = { ...none, hasCard: true, projectTabs: true };

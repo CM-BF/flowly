@@ -944,5 +944,15 @@ const catalog: Catalog = {
   "Mark resolved: {text}": "解決済みにする: {text}",
   "Card workpad": "カードの Workpad",
   "Agents keep acceptance criteria and checks on each card, and delivering with open items needs a note. Off hides it and stops these checks; what agents wrote is kept.": "エージェントが各カードに受け入れ基準とチェックを記録し、未完了のまま納品するときは説明が必要になります。オフにすると非表示になりチェックも止まりますが、書かれた内容は残ります。",
+  "Subagents": "サブエージェント",
+  "{n} subagents": "サブエージェント {n} 件",
+  "{n} working": "{n} 件が実行中",
+  "{n} need input": "{n} 件が入力待ち",
+  "{n} ready to review": "{n} 件が確認待ち",
+  "Subagents: {summary}": "サブエージェント: {summary}",
+  "Open subagents from the Paseo session pane.": "サブエージェントは Paseo のセッションペインから開いてください。",
+  "Untitled agent": "無題のエージェント",
+  "Open {title} in Paseo": "{title} を Paseo で開く",
+  "When a session starts subagents, a Subagents chip appears above its message box. Click it to see their status and open one in Paseo.": "セッションがサブエージェントを起動すると、メッセージ欄の上に「サブエージェント」チップが表示されます。クリックすると状態を確認でき、Paseo で開けます。",
 };
 export default catalog;

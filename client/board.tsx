@@ -118,6 +118,7 @@ import { ConceptStrip, GuideBanner, WelcomeTour, useOnboarding } from "./onboard
 import { nextTip, welcomeDecision, type TipId } from "./onboarding-logic";
 import { t, tn } from "../shared/i18n";
 import { workpadEnabled, workpadSignal } from "../shared/workpad";
+import { parentOf } from "../shared/subagents";
 
 /** One-time tip texts (ONBOARDING-SPEC §5). */
 const tipText: Record<TipId, () => string> = {
@@ -131,6 +132,7 @@ const tipText: Record<TipId, () => string> = {
   "next-move": () => t("When an agent finishes a turn, its suggested next steps sit above the message box. Tap one to fill it in; nothing is sent until you press Send. Some steps act on the card, like Move to Done."),
   "older-finished": () => t("Cards that finished a while ago fold under “Show older” at the bottom of Done and Cancelled. Settings → Workflow sets how long they stay."),
   "project-menu": () => t("Drag a project tab to reorder it. Right-click it for its settings, a new task, Insights, Ideas or Remove."),
+  subagents: () => t("When a session starts subagents, a Subagents chip appears above its message box. Click it to see their status and open one in Paseo."),
   "first-workpad": () => t("This card has a workpad: the agent's acceptance criteria and checks. The card shows how many checks passed; open it to see which ran on which commit, and tick items yourself."),
 };
 
@@ -828,6 +830,13 @@ function BoardContent(
   const projectIdeaList = useMemo(() => (board?.ideas || []).filter((i) => i.projectId === project?.id), [board?.ideas, project?.id]);
   const projectOpenIdeas = useMemo(() => projectIdeaList.filter((i) => i.status === "open").length, [projectIdeaList]);
   const projectTasks = useMemo(() => (board?.tasks || []).filter((t) => t.projectId === project?.id), [board?.tasks, project?.id]);
+  // A session of this project has a live Paseo child agent (SUBAGENTS-SPEC §7).
+  const projectHasSubagent = useMemo(() => {
+    const workspaces = new Set(projectTasks.filter((x) => !x.archivedAt).map((x) => x.workspaceId).filter(Boolean));
+    const list = agents.data || [];
+    const sessions = new Set(list.filter((a) => !!a.workspaceId && workspaces.has(a.workspaceId)).map((a) => a.id));
+    return list.some((a) => { const parent = parentOf(a); return !!parent && sessions.has(parent); });
+  }, [projectTasks, agents.data]);
   const projectAttention = useMemo(() => attention.filter((i) => i.project.id === project?.id), [attention, project?.id]);
   // First-run guidance (ONBOARDING-SPEC): the welcome tour, empty-board hint and one-time tips.
   const onboarding = useOnboarding();
@@ -874,6 +883,7 @@ function BoardContent(
           olderHidden: older.size > 0 && !(olderShown.includes("done") && olderShown.includes("cancelled")),
           projectTabs: !task && !compact && projects.length > 1,
           hasWorkpad: !task && workpadEnabled(project) && board.workpads.some((w) => w.projectId === project.id),
+          hasSubagent: projectHasSubagent,
         },
         blocked: !onboarding.values || welcomeOpen || welcome === "show" || dialogOpen,
       });

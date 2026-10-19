@@ -944,5 +944,15 @@ const catalog: Catalog = {
   "Mark resolved: {text}": "Als geklärt markieren: {text}",
   "Card workpad": "Karten-Workpad",
   "Agents keep acceptance criteria and checks on each card, and delivering with open items needs a note. Off hides it and stops these checks; what agents wrote is kept.": "Agenten führen auf jeder Karte Akzeptanzkriterien und Prüfungen; wer mit offenen Punkten liefert, muss sie begründen. Aus blendet es aus und stoppt diese Prüfungen; was Agenten geschrieben haben, bleibt erhalten.",
+  "Subagents": "Subagenten",
+  "{n} subagents": {"one": "{n} Subagent", "other": "{n} Subagenten"},
+  "{n} working": "{n} aktiv",
+  "{n} need input": {"one": "{n} braucht Eingabe", "other": "{n} brauchen Eingabe"},
+  "{n} ready to review": "{n} bereit zur Durchsicht",
+  "Subagents: {summary}": "Subagenten: {summary}",
+  "Open subagents from the Paseo session pane.": "Öffne Subagenten im Sitzungsbereich von Paseo.",
+  "Untitled agent": "Unbenannter Agent",
+  "Open {title} in Paseo": "{title} in Paseo öffnen",
+  "When a session starts subagents, a Subagents chip appears above its message box. Click it to see their status and open one in Paseo.": "Startet eine Sitzung Subagenten, erscheint über ihrem Nachrichtenfeld ein Subagenten-Chip. Klicke darauf, um ihren Status zu sehen und einen in Paseo zu öffnen.",
 };
 export default catalog;

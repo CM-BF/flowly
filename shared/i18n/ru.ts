@@ -944,5 +944,15 @@ const catalog: Catalog = {
   "Mark resolved: {text}": "Отметить как решённое: {text}",
   "Card workpad": "Workpad карточки",
   "Agents keep acceptance criteria and checks on each card, and delivering with open items needs a note. Off hides it and stops these checks; what agents wrote is kept.": "Агенты ведут на каждой карточке критерии приёмки и проверки, а сдача с незакрытыми пунктами требует пояснения. Если выключить, он скрывается и эти проверки прекращаются; записанное агентами сохраняется.",
+  "Subagents": "Субагенты",
+  "{n} subagents": {"one": "{n} субагент", "few": "{n} субагента", "many": "{n} субагентов", "other": "{n} субагента"},
+  "{n} working": "работают: {n}",
+  "{n} need input": "ждут ввода: {n}",
+  "{n} ready to review": "готовы к проверке: {n}",
+  "Subagents: {summary}": "Субагенты: {summary}",
+  "Open subagents from the Paseo session pane.": "Открывайте субагентов из панели сеанса Paseo.",
+  "Untitled agent": "Агент без названия",
+  "Open {title} in Paseo": "Открыть {title} в Paseo",
+  "When a session starts subagents, a Subagents chip appears above its message box. Click it to see their status and open one in Paseo.": "Когда сеанс запускает субагентов, над полем сообщения появляется метка «Субагенты». Нажмите на неё, чтобы увидеть их состояние и открыть одного в Paseo.",
 };
 export default catalog;
