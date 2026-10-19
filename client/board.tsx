@@ -66,6 +66,7 @@ import { useBoardQuery, useLiveAgents, useResourcesQuery } from "./queries";
 import { useStableCallback, useStableTheme } from "./stable";
 import { isLegacyScope } from "../shared/scope";
 import { LiveTaskCard, type CardDrag } from "./card";
+import { useConnections } from "./tickets";
 import { cardProgress, useSummaries } from "./task-progress";
 import { LocaleRoot } from "./i18n";
 import { agentModelFromValues, effectiveAgentModel, startingAgent } from "../shared/agent-defaults";
@@ -131,6 +132,8 @@ const tipText: Record<TipId, () => string> = {
   "first-tag": () => t("Agents tag their cards by module and direction. Open a card and tap a tag to filter the board by it, or search #tag."),
   "next-move": () => t("When an agent finishes a turn, its suggested next steps sit above the message box. Tap one to fill it in; nothing is sent until you press Send. Some steps act on the card, like Move to Done."),
   "older-finished": () => t("Cards that finished a while ago fold under “Show older” at the bottom of Done and Cancelled. Settings → Workflow sets how long they stay."),
+  "first-ticket": () => t("A card has a Jira ticket as an input. Agents read it every turn and see when it changes. Flowly never changes the ticket, and its status doesn't move the card."),
+  "jira-connect": () => t("Work from Jira tickets: connect Jira in Settings → Connections, then start a card with From Jira. Flowly only reads tickets."),
   "project-menu": () => t("Drag a project tab to reorder it. Right-click it for its settings, a new task, Insights, Ideas or Remove."),
   subagents: () => t("When a session starts subagents, a Subagents chip appears above its message box. Click it to see their status and open one in Paseo."),
   "first-workpad": () => t("This card has a workpad: the agent's acceptance criteria and checks. The card shows how many checks passed; open it to see which ran on which commit, and tick items yourself."),
@@ -760,6 +763,12 @@ function BoardContent(
     if (ideasOn) for (const i of board?.ideas || []) if (i.status === "open") counts.set(i.taskId, (counts.get(i.taskId) || 0) + 1);
     return counts;
   }, [board?.ideas, ideasOn]);
+  // Jira ticket keys per card for the card face (EXTERNAL-TRACKER-SPEC §6): the oldest first, then "+n".
+  const ticketKeys = useMemo(() => {
+    const keys = new Map<string, string[]>();
+    for (const a of board?.artifacts || []) if (a.ticket) keys.set(a.taskId, [...(keys.get(a.taskId) || []), a.ticket.key]);
+    return new Map([...keys].map(([id, list]) => [id, list.length > 1 ? `${list[0]} +${list.length - 1}` : list[0]!]));
+  }, [board?.artifacts]);
   // Each card's workpad, for its checks signal (WORKPAD-SPEC §6.1).
   const workpadIndex = useMemo(() => new Map((board?.workpads || []).map((w) => [w.taskId, w])), [board?.workpads]);
   // Unresolved blockers per card, for the "Waiting on" signal (CARD-LINKS-SPEC §5.1).
@@ -837,6 +846,8 @@ function BoardContent(
     const sessions = new Set(list.filter((a) => !!a.workspaceId && workspaces.has(a.workspaceId)).map((a) => a.id));
     return list.some((a) => { const parent = parentOf(a); return !!parent && sessions.has(parent); });
   }, [projectTasks, agents.data]);
+  // Only to announce Jira tickets to users without a connection (tip "jira-connect").
+  const connections = useConnections();
   const projectAttention = useMemo(() => attention.filter((i) => i.project.id === project?.id), [attention, project?.id]);
   // First-run guidance (ONBOARDING-SPEC): the welcome tour, empty-board hint and one-time tips.
   const onboarding = useOnboarding();
@@ -881,6 +892,8 @@ function BoardContent(
           hasAgentTag: !task && projectTasks.some((x) => !x.archivedAt && !!x.tags?.some((tag) => tag.by === "agent")),
           nextMove: projectTasks.some((x) => !x.archivedAt && hasOpenNextMoves(cardIndex.eventsByTask.get(x.id) || noEvents)),
           olderHidden: older.size > 0 && !(olderShown.includes("done") && olderShown.includes("cancelled")),
+          hasTicket: !task && board.artifacts.some((a) => a.projectId === project.id && !!a.ticket),
+          noConnection: !task && projectTasks.some((x) => !x.archivedAt) && connections.data?.connections.length === 0,
           projectTabs: !task && !compact && projects.length > 1,
           hasWorkpad: !task && workpadEnabled(project) && board.workpads.some((w) => w.projectId === project.id),
           hasSubagent: projectHasSubagent,
@@ -933,6 +946,7 @@ function BoardContent(
         progress={cardProgress(summaries.data, t.id)}
         questions={board ? cardQuestions(t, events).length : 0}
         ideas={openIdeaCount.get(t.id) || 0}
+        ticketKey={ticketKeys.get(t.id)}
         workpad={project && workpadEnabled(project) ? workpadSignal(t, workpadIndex.get(t.id), events) : null}
         waiting={waitingIndex.get(t.id)?.count || 0}
         waitingTitles={waitingIndex.get(t.id)?.titles || ""}

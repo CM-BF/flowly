@@ -22,6 +22,8 @@ import {
   ideaInputSchema,
   artifactInputSchema,
   artifactRemovalSchema,
+  readTicketInputSchema,
+  ticketReadSchema,
   tagsInputSchema,
   typeInputSchema,
   nextMovesInputSchema,
@@ -234,6 +236,17 @@ export class ToolServer {
           (input) => wrap(() => this.agents.write(identity, "artifact_remove", input)),
         );
         mcp.registerTool(
+          "kanban_read_ticket",
+          {
+            description:
+              "Read a Jira ticket input of this card (an artifact with a ticket field in get_task): metadata, description, subtasks, linked tickets, attachment names and the latest comments, as Markdown. The ticket is part of the task: read it before you start and again when get_task marks it unread. Read-only: Flowly never changes the ticket, and its status is for reference only (do not set the card stage from it). Only this card's ticket inputs can be read; to read a linked ticket, first add its link with kanban_add_artifact role=input.",
+            inputSchema: readTicketInputSchema,
+            outputSchema: ticketReadSchema,
+            annotations: { readOnlyHint: true, openWorldHint: true },
+          },
+          (input) => wrap(() => this.agents.readTicket(identity, input)),
+        );
+        mcp.registerTool(
           "kanban_set_tags",
           {
             description:
@@ -362,7 +375,7 @@ export class ToolServer {
     }
     const body = z
       .strictObject({
-        action: z.enum(["get", "status", "progress", "idea", "artifact", "artifact_remove", "tags", "type", "next_moves", "workpad"]),
+        action: z.enum(["get", "status", "progress", "idea", "artifact", "artifact_remove", "tags", "type", "next_moves", "workpad", "ticket"]),
         input: z.unknown(),
       })
       .parse(JSON.parse(Buffer.concat(chunks).toString("utf8")));
@@ -370,7 +383,9 @@ export class ToolServer {
       body.action === "get"
         ? (z.strictObject({}).parse(body.input),
           await this.agents.get(identity))
-        : await this.agents.write(identity, body.action, body.input);
+        : body.action === "ticket"
+          ? await this.agents.readTicket(identity, readTicketInputSchema.parse(body.input))
+          : await this.agents.write(identity, body.action, body.input);
     this.json(res, { ok: true, result: value });
   }
   private async prepare(

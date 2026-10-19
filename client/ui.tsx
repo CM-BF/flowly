@@ -327,10 +327,13 @@ export function Field({
   commitDelay,
   onSubmit,
   autoFocus,
+  secure = false,
 }: {
   title: string;
   value: string;
   onChange: (text: string) => void;
+  /** Hide the typed text (tokens); also turns off autocorrect and capitalization. */
+  secure?: boolean;
   multiline?: boolean;
   placeholder?: string;
   editable?: boolean;
@@ -358,6 +361,7 @@ export function Field({
         autoFocus={autoFocus}
         placeholder={placeholder}
         placeholderTextColor={colors.foregroundMuted}
+        {...(secure ? { secureTextEntry: true, autoCorrect: false, autoCapitalize: "none" as const } : {})}
         {...(onSubmit
           ? Platform.OS === "web"
             ? {

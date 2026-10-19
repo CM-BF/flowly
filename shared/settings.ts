@@ -28,6 +28,8 @@ export const boardViewSettings = defineSettings({
     showArchived: z.boolean().default(false),
     /** Done/Cancelled cards that finished more than this many days ago fold under "Show older"; 0 shows all. */
     hideFinishedAfterDays: z.number().int().min(0).max(365).default(14),
+    /** The ticket picker's connection, when there are several (EXTERNAL-TRACKER-SPEC §5.2). */
+    lastTicketConnection: z.string().max(200).default(""),
   }),
 });
 

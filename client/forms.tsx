@@ -1,7 +1,7 @@
 import { enabledStatuses, laneName, projectLanes } from "../shared/lanes";
 import { LaneEditor } from "./lane-editor";
 import { useBoardView } from "./board-view";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { View } from "react-native";
 import { Modal } from "./modal";
@@ -31,6 +31,8 @@ import { t, tn } from "../shared/i18n";
 import { projectTagStats, tagValues } from "../shared/tags";
 import { TagEditor } from "./tag-input";
 import { useStableCallback } from "./stable";
+import { TicketChip, TicketPicker, useConnections } from "./tickets";
+import type { TicketSummary } from "../shared/tickets";
 
 const sameList = (a: readonly string[], b: readonly string[]) => a.length === b.length && a.every((v, i) => v === b[i]);
 
@@ -434,6 +436,29 @@ export function TaskForm({
     [baseRef, setBase] = useState(""),
     [pending, setPending] = useState(false),
     [error, setError] = useState("");
+  // From Jira (EXTERNAL-TRACKER-SPEC §5): tickets added as inputs with the new card.
+  const connections = useConnections();
+  const ticketConnections = connections.data?.connections || [];
+  const [tickets, setTickets] = useState<TicketSummary[]>([]),
+    [pickingTicket, setPickingTicket] = useState(false);
+  // The title the last pick filled in: a later pick may replace it only while it is unchanged.
+  const prefilled = useRef("");
+  const pickTicket = useStableCallback((ticket: TicketSummary) => {
+    setTickets((current) => (current.some((x) => x.key === ticket.key) ? current : [...current, ticket]));
+    setPickingTicket(false);
+    if (!title.trim() || title === prefilled.current) {
+      setTitle(ticket.summary);
+      prefilled.current = ticket.summary;
+    }
+  });
+  const ticketKeys = useMemo(() => new Set(tickets.map((x) => x.key)), [tickets]);
+  // Tickets other cards of this project already reference (shown, still choosable).
+  const ticketUse = useMemo(() => {
+    const used = new Map<string, string>();
+    const titles = new Map((board.data?.tasks || []).filter((x) => x.projectId === project.id && !x.archivedAt).map((x) => [x.id, x.title]));
+    for (const a of board.data?.artifacts || []) if (a.ticket && titles.has(a.taskId)) used.set(a.ticket.key, titles.get(a.taskId)!);
+    return used;
+  }, [board.data?.tasks, board.data?.artifacts, project.id]);
   const [operationId] = useState(
     () => `card-${Date.now()}-${Math.random().toString(36).slice(2)}`,
   );
@@ -500,6 +525,7 @@ export function TaskForm({
             branchName,
             ...(seed?.ideaId ? { ideaId: seed.ideaId } : {}),
             ...(seed?.followUpOf ? { followUpOf: seed.followUpOf } : {}),
+            ...(tickets.length ? { tickets: tickets.map((x) => ({ connectionId: x.connectionId, key: x.key })) } : {}),
           });
       if (task) return onSaved(result.id, undefined, result.status);
       if (!startChosen) return onSaved(result.id);
@@ -543,6 +569,24 @@ export function TaskForm({
         <View style={{ gap: 16 }}>
           {!!seed?.followUpTitle && (
             <Label muted size={font.sm} lines={1}>{t("Follow-up of {title}", { title: seed.followUpTitle })}</Label>
+          )}
+          {!task && ticketConnections.length > 0 && (
+            <View style={{ gap: space[2] }}>
+              {tickets.map((ticket) => (
+                <TicketChip key={ticket.key} ticket={ticket} onRemove={() => setTickets((current) => current.filter((x) => x.key !== ticket.key))} />
+              ))}
+              {pickingTicket ? (
+                <TicketPicker connections={ticketConnections} picked={ticketKeys} usedBy={ticketUse} onPick={pickTicket} onClose={() => setPickingTicket(false)} />
+              ) : (
+                tickets.length < 5 && (
+                  <View style={{ flexDirection: "row" }}>
+                    <Button icon="Ticket" small onPress={() => setPickingTicket(true)}>
+                      {tickets.length ? t("Add another Jira ticket") : t("From Jira")}
+                    </Button>
+                  </View>
+                )
+              )}
+            </View>
           )}
           <Field title={t("Title")} value={title} onChange={setTitle} placeholder={t("What needs doing?")} onSubmit={submit} />
           <Field

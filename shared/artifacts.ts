@@ -49,16 +49,22 @@ export const artifactNoteLine = (artifact: Pick<Artifact, "role" | "title">) =>
   `${artifact.role === "input" ? "Input" : "Output"}: ${artifact.title}`;
 
 /** "- [user] Title: target — note"; the note is the user's word on how to use it, kept to one line. */
-function contextLine(a: Pick<Artifact, "title" | "target" | "note" | "createdBy">) {
+function contextLine(a: Pick<Artifact, "id" | "title" | "target" | "note" | "createdBy" | "ticket">, unreadable: ReadonlySet<string>) {
   const note = a.note.replace(/\s+/g, " ").trim();
-  return `- [${a.createdBy === "human" ? "user" : "agent"}] ${a.title}: ${a.target}${note ? ` — ${note.length > 200 ? `${note.slice(0, 199)}…` : note}` : ""}`;
+  // Ticket links need a login: point the agent at the tool that reads them (EXTERNAL-TRACKER-SPEC §4.3).
+  const ticket = !a.ticket
+    ? ""
+    : unreadable.has(a.id)
+      ? " (Jira ticket; its connection was removed in Flowly, so it can't be read: ask the user)"
+      : ` (Jira ticket; read it with kanban_read_ticket artifactId=${a.id})`;
+  return `- [${a.createdBy === "human" ? "user" : "agent"}] ${a.title}${ticket}: ${a.target}${note ? ` — ${note.length > 200 ? `${note.slice(0, 199)}…` : note}` : ""}`;
 }
 
 /**
  * Context lines for a new session (CARD-ARTIFACTS-SPEC §4.2); at most `limit` per
  * role, the user's own first (`list` is newest first, and that order is kept within each source).
  */
-export function artifactContextLines(list: readonly Artifact[], limit = 10): string[] {
+export function artifactContextLines(list: readonly Artifact[], limit = 10, unreadable: ReadonlySet<string> = new Set()): string[] {
   return (
     [
       ["input", "Inputs:"],
@@ -71,7 +77,7 @@ export function artifactContextLines(list: readonly Artifact[], limit = 10): str
     if (!own.length) return [];
     return [
       heading,
-      ...own.slice(0, limit).map(contextLine),
+      ...own.slice(0, limit).map((a) => contextLine(a, unreadable)),
       ...(own.length > limit ? [`- …and ${own.length - limit} more`] : []),
     ];
   });

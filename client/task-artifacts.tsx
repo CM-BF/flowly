@@ -13,6 +13,7 @@ import { SessionMarkdown } from "./session-content";
 import { Disclosure } from "./disclosure";
 import { AiMark, Actions, Button, Choices, Field, IconButton, Label, Notice, SectionHeader, Theme, font, message, space, touch, useTheme } from "./ui";
 import { t, tn } from "../shared/i18n";
+import { LinkTicket, TicketPreview, useConnections } from "./tickets";
 
 const shown = 5;
 
@@ -30,6 +31,10 @@ export function TaskArtifacts({ task, disabled }: { task: Task; disabled: boolea
   const [removing, setRemoving] = useState<ReadonlySet<string>>(() => new Set());
   const [editing, setEditing] = useState<Artifact | "new" | null>(null);
   const [previewing, setPreviewing] = useState<Artifact | null>(null);
+  const [linking, setLinking] = useState(false);
+  const connections = useConnections();
+  const ticketConnections = connections.data?.connections || [];
+  const readTickets = useRpc(rpc.cardTickets);
   const [expanded, setExpanded] = useState<ReadonlySet<ArtifactRole>>(() => new Set());
   const list = useMemo(
     () => (board.data ? artifactsOf(board.data.artifacts, task.id).filter((a) => !removing.has(a.id)) : []),
@@ -45,6 +50,22 @@ export function TaskArtifacts({ task, disabled }: { task: Task; disabled: boolea
     retry: false,
   });
   const missing = useMemo(() => new Set(status.data?.missing || []), [status.data]);
+  // Ticket statuses for the rows, cached by the daemon (EXTERNAL-TRACKER-SPEC §3.3).
+  const ticketKey = list.filter((a) => a.ticket).map((a) => a.id).join("|");
+  const ticketStatus = useQuery({
+    queryKey: ["ultra", "card-tickets", task.id, ticketKey],
+    queryFn: () => readTickets({ taskId: task.id }),
+    enabled: !!ticketKey,
+    staleTime: 60_000,
+    retry: false,
+  });
+  const statuses = useMemo(() => {
+    const map = new Map((ticketStatus.data?.tickets || []).map((x) => [x.artifactId, x.summary.status]));
+    // A removed connection reads as such instead of a status (EXTERNAL-TRACKER-SPEC §2).
+    for (const id of ticketStatus.data?.removed || []) map.set(id, t("Connection removed"));
+    return map;
+  }, [ticketStatus.data]);
+  const linkedKeys = useMemo(() => new Set(list.flatMap((a) => (a.ticket ? [a.ticket.key] : []))), [list]);
   const rows = useExitList(list);
   const remove = async (artifact: Artifact) => {
     setRemoving((current) => new Set(current).add(artifact.id));
@@ -63,6 +84,7 @@ export function TaskArtifacts({ task, disabled }: { task: Task; disabled: boolea
     }
   };
   const open = (artifact: Artifact) => {
+    if (artifact.ticket) return setPreviewing(artifact);
     if (artifact.kind === "url")
       return void Linking.openURL(artifact.target).catch(() => toast.show(t("Could not open the link."), { variant: "error" }));
     setPreviewing(artifact);
@@ -70,6 +92,9 @@ export function TaskArtifacts({ task, disabled }: { task: Task; disabled: boolea
   return (
     <View style={{ gap: space[2] }}>
       <SectionHeader title={t("Artifacts")} count={list.length}>
+        {ticketConnections.length > 0 && (
+          <IconButton icon="Ticket" label={t("Link Jira ticket")} disabled={disabled} onPress={() => setLinking(true)} />
+        )}
         <IconButton icon="Plus" label={t("Add an artifact: a file or link")} disabled={disabled} onPress={() => setEditing("new")} />
       </SectionHeader>
       {artifactGroups.map((group) => {
@@ -80,6 +105,7 @@ export function TaskArtifacts({ task, disabled }: { task: Task; disabled: boolea
             <ArtifactRow
               artifact={row.item}
               missing={missing.has(row.item.id)}
+              ticketStatus={statuses.get(row.item.id)}
               disabled={disabled || row.leaving}
               onOpen={open}
               onEdit={setEditing}
@@ -111,7 +137,13 @@ export function TaskArtifacts({ task, disabled }: { task: Task; disabled: boolea
         );
       })}
       {editing && <ArtifactForm task={task} artifact={editing === "new" ? null : editing} onClose={() => setEditing(null)} />}
-      {previewing && <ArtifactPreview artifact={previewing} onClose={() => setPreviewing(null)} />}
+      {previewing &&
+        (previewing.ticket ? (
+          <TicketPreview artifact={previewing} onClose={() => setPreviewing(null)} />
+        ) : (
+          <ArtifactPreview artifact={previewing} onClose={() => setPreviewing(null)} />
+        ))}
+      {linking && <LinkTicket taskId={task.id} linked={linkedKeys} connections={ticketConnections} onClose={() => setLinking(false)} />}
     </View>
   );
 }
@@ -119,6 +151,7 @@ export function TaskArtifacts({ task, disabled }: { task: Task; disabled: boolea
 const ArtifactRow = memo(function ArtifactRow({
   artifact,
   missing,
+  ticketStatus,
   disabled,
   onOpen,
   onEdit,
@@ -126,6 +159,8 @@ const ArtifactRow = memo(function ArtifactRow({
 }: {
   artifact: Artifact;
   missing: boolean;
+  /** The ticket's current status (reference only), for ticket inputs. */
+  ticketStatus?: string;
   disabled: boolean;
   onOpen(artifact: Artifact): void;
   onEdit(artifact: Artifact): void;
@@ -135,12 +170,14 @@ const ArtifactRow = memo(function ArtifactRow({
   const agent = artifact.createdBy === "agent";
   const source = agent ? t("Added by an agent") : t("Added by you");
   const role = artifact.role === "input" ? t("Input") : t("Output");
-  const detail = artifact.note || (artifact.kind === "url" ? hostOf(artifact.target) : artifact.target);
-  const icon = artifact.kind === "url" ? "Link" : /\/$|^\.\/$/.test(artifact.target) || !/\.[^/]+$/.test(baseName(artifact.target)) ? "Folder" : "FileText";
+  const detail = artifact.ticket
+    ? [t("Jira ticket"), ticketStatus, artifact.note].filter(Boolean).join(" · ")
+    : artifact.note || (artifact.kind === "url" ? hostOf(artifact.target) : artifact.target);
+  const icon = artifact.ticket ? "Ticket" : artifact.kind === "url" ? "Link" : /\/$|^\.\/$/.test(artifact.target) || !/\.[^/]+$/.test(baseName(artifact.target)) ? "Folder" : "FileText";
   return (
     <View style={{ flexDirection: "row", alignItems: "center", gap: space[1], minHeight: touch ? 44 : 34 }}>
       <Pressable
-        accessibilityRole={artifact.kind === "url" ? "link" : "button"}
+        accessibilityRole={artifact.kind === "url" && !artifact.ticket ? "link" : "button"}
         accessibilityLabel={`${role}: ${artifact.title}, ${source}${missing ? `, ${t("missing")}` : ""}`}
         onPress={() => onOpen(artifact)}
         style={({ pressed }) => ({ flex: 1, minWidth: 0, flexDirection: "row", alignItems: "center", gap: space[1.5], opacity: pressed ? 0.7 : 1 })}

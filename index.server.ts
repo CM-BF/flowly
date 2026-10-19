@@ -18,6 +18,8 @@ import { adoptIdea } from "./server/ideas";
 import { createLink, deleteLink } from "./server/links";
 import { ArtifactService } from "./server/artifacts";
 import { WorkpadService } from "./server/workpad";
+import { TicketService } from "./server/tickets";
+import { join } from "node:path";
 import { SessionSettingsService } from "./server/session-settings";
 import { applyTurnEnded, applyTurnStarted, recordLifecycle } from "./server/progress-rules";
 import { SummaryService, SummaryStore } from "./server/summaries";
@@ -68,6 +70,9 @@ export default function contribute(server: PluginServerContext) {
   server.handle(rpc.taskUsage, (input, { paseo }) => usage.task(input.taskId, paseo));
   server.handle(rpc.summaryHistory, (input) => summaries.store.history(input.taskId));
   const service = new BoardService(store);
+  // Read-only ticket inputs (EXTERNAL-TRACKER-SPEC): credentials and requests stay in the daemon.
+  const tickets = new TicketService(join(store.directory, "tickets"));
+  service.tickets = tickets;
   // Each project's board copy in `<root>/.flowly/` (PROJECT-FOLDER-SPEC).
   const folders = new ProjectFolders(() => store.read(), async () => (await summaries.store.read()).entries);
   store.onCommit = () => folders.schedule();
@@ -132,6 +137,7 @@ export default function contribute(server: PluginServerContext) {
   );
   server.handle(rpc.wrapup, (input, { paseo }) => wrapups.run(input, paseo));
   const tools = new ToolServer(store);
+  tools.agents.tickets = tickets;
   // Unreadable settings keep the default (on).
   tools.agents.ideasOn = async () => {
     const state = await ideasPrefs.read().catch(() => null);
@@ -242,8 +248,35 @@ export default function contribute(server: PluginServerContext) {
   server.handle(rpc.adoptIdea, (input, { paseo }) => adoptIdea(store, (message, api) => composer.push(message, api), input, paseo));
   server.handle(rpc.createLink, (input) => createLink(store, input));
   server.handle(rpc.deleteLink, (input) => deleteLink(store, input));
-  const artifacts = new ArtifactService(store);
+  const artifacts = new ArtifactService(store, tickets);
   const workpads = new WorkpadService(store);
+  server.handle(rpc.listConnections, async () => ({ connections: await tickets.list() }));
+  server.handle(rpc.saveConnection, (input) => tickets.save(input));
+  server.handle(rpc.testConnection, (input) => tickets.test(input));
+  server.handle(rpc.deleteConnection, (input) => tickets.remove(input.id));
+  server.handle(rpc.searchTickets, (input) => tickets.search(input));
+  server.handle(rpc.cardTickets, async (input) => {
+    const list = (await store.read()).artifacts.filter((a) => a.taskId === input.taskId && a.ticket);
+    const located = await tickets.locate(list);
+    const refs = [...located.values()].filter((r): r is NonNullable<typeof r> => !!r);
+    const found = refs.length ? await tickets.badges(refs, input.refresh) : new Map();
+    return {
+      tickets: list.flatMap((a) => {
+        const ref = located.get(a.id);
+        const hit = ref && found.get(`${ref.connectionId}:${ref.key}`);
+        return hit ? [{ artifactId: a.id, summary: hit.summary, stale: hit.stale }] : [];
+      }),
+      removed: list.filter((a) => !located.get(a.id)).map((a) => a.id),
+    };
+  });
+  server.handle(rpc.readTicket, async (input) => {
+    const artifact = (await store.read()).artifacts.find((a) => a.id === input.artifactId);
+    if (!artifact?.ticket) throw new Error("This ticket input no longer exists.");
+    const ref = (await tickets.locate([artifact])).get(artifact.id);
+    if (!ref) throw new Error("This Jira connection was removed. Add it again in Settings → Connections to read the ticket here; Open in Jira still works.");
+    const { summary, markdown, truncated, stale, fetchedAt } = await tickets.detail(ref, input.refresh);
+    return { summary, markdown, truncated, stale, fetchedAt };
+  });
   server.handle(rpc.createArtifact, (input, { paseo }) => artifacts.create(input, paseo));
   server.handle(rpc.updateArtifact, (input) => artifacts.update(input));
   server.handle(rpc.deleteArtifact, (input) => artifacts.delete(input));

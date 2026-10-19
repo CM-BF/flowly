@@ -16,7 +16,7 @@ try {
     if(arg.startsWith('--')) {const key=arg.slice(2);if(!allowed.has(key)||Object.hasOwn(opts,key))fail('Unknown or duplicate flag: '+arg); if(booleanFlags.has(key)){opts[key]=true;continue;} const value=args[++i];if(value===undefined||value.startsWith('--'))fail('Missing value for '+arg);opts[key]=value;}
     else positional.push(arg);
   }
-  const command=positional[0];if(!['current','get','status','note','idea','artifact','artifact-remove','tags','set-type','next-moves','workpad'].includes(command))fail('Usage: current [--save-request path] | status <design|development|test|blocked|in_review> | note | idea --title --detail --rationale [--context --type --priority --scope here|new] | artifact --role input|output --target <path or link> [--title --note] | artifact-remove --id <artifact id> | tags [--add a,b] [--remove c] | set-type <feature|bugfix|research|refactor|docs|chore> (only when the card has no type) | next-moves --moves <JSON array of 1-3 {label, prompt} or {label, moveTo:"done"}> | workpad --workpad-revision <n> (--workpad <JSON> | --workpad-file <path>) with {acceptance, validation, confusions}; status in_review [--acknowledge-open] delivers despite open workpad items, with --context-file and --request-file.');
+  const command=positional[0];if(!['current','get','status','note','idea','artifact','artifact-remove','tags','set-type','next-moves','workpad','ticket'].includes(command))fail('Usage: current [--save-request path] | ticket --id <artifact id> (read a Jira ticket input) | status <design|development|test|blocked|in_review> | note | idea --title --detail --rationale [--context --type --priority --scope here|new] | artifact --role input|output --target <path or link> [--title --note] | artifact-remove --id <artifact id> | tags [--add a,b] [--remove c] | set-type <feature|bugfix|research|refactor|docs|chore> (only when the card has no type) | next-moves --moves <JSON array of 1-3 {label, prompt} or {label, moveTo:"done"}> | workpad --workpad-revision <n> (--workpad <JSON> | --workpad-file <path>) with {acceptance, validation, confusions}; status in_review [--acknowledge-open] delivers despite open workpad items, with --context-file and --request-file.');
   if(positional.length!==(['status','set-type'].includes(command)?2:1))fail('Unexpected positional arguments.');
   const path=opts['context-file']||process.env.ULTRA_KANBAN_CONTEXT_FILE;if(!path)fail('No session context. Use the command supplied by the card drawer.');
   const context=JSON.parse(await readFile(path,'utf8'));
@@ -27,12 +27,13 @@ try {
   let input={}, action='get';
   if(command!=='idea'&&ideaFlags.some(k=>opts[k]!==undefined))fail('--'+ideaFlags.find(k=>opts[k]!==undefined)+' is only valid for idea.');
   if(opts.title!==undefined&&!['idea','artifact'].includes(command))fail('--title is only valid for idea and artifact.');
-  if(!['artifact','artifact-remove'].includes(command)&&artifactFlags.some(k=>opts[k]!==undefined))fail('--'+artifactFlags.find(k=>opts[k]!==undefined)+' is only valid for artifact commands.');
+  if(!['artifact','artifact-remove','ticket'].includes(command)&&artifactFlags.some(k=>opts[k]!==undefined))fail('--'+artifactFlags.find(k=>opts[k]!==undefined)+' is only valid for artifact commands.');
   if(command!=='next-moves'&&opts.moves!==undefined)fail('--moves is only valid for next-moves.');
   if(command!=='workpad'&&workpadFlags.some(k=>opts[k]!==undefined))fail('--'+workpadFlags.find(k=>opts[k]!==undefined)+' is only valid for workpad.');
   if(command!=='status'&&opts['acknowledge-open']!==undefined)fail('--acknowledge-open is only valid for status.');
   if(command!=='tags'&&tagFlags.some(k=>opts[k]!==undefined))fail('--'+tagFlags.find(k=>opts[k]!==undefined)+' is only valid for tags.');
-  if(command==='get'||command==='current') {if(['request-file','task-revision','project-revision','note','kind','role','target','id'].some(k=>opts[k]!==undefined))fail('Write flags are not valid for current.');}
+  if(command==='ticket'){if(!opts.id)fail('ticket requires --id <artifact id> (a ticket input from current).');if(['request-file','save-request','note','kind','role','target'].some(k=>opts[k]!==undefined))fail('Only --id is valid for ticket.');action='ticket';input={artifactId:opts.id};}
+  else if(command==='get'||command==='current') {if(['request-file','task-revision','project-revision','note','kind','role','target','id'].some(k=>opts[k]!==undefined))fail('Write flags are not valid for current.');}
   else {
     if(opts['save-request'])fail('--save-request is only valid for current.');
     if(command==='idea'){if(!opts['request-file']||!opts.title?.trim()||!opts.detail?.trim()||!opts.rationale?.trim())fail('idea requires --request-file, --title, --detail and --rationale.');if(opts.note||opts.kind)fail('--note and --kind are not valid for idea.');}

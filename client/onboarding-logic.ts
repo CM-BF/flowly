@@ -28,7 +28,7 @@ export function welcomeDecision(input: {
   return input.blocked ? "wait" : "show";
 }
 
-export const tipIds = ["first-card", "needs-you", "first-idea", "first-done", "first-artifact", "first-tag", "agent-question", "older-finished", "next-move", "project-menu", "first-workpad", "subagents"] as const;
+export const tipIds = ["first-card", "needs-you", "first-idea", "first-done", "first-artifact", "first-tag", "agent-question", "older-finished", "next-move", "first-ticket", "jira-connect", "project-menu", "first-workpad", "subagents"] as const;
 export type TipId = (typeof tipIds)[number];
 
 export interface TipFacts {
@@ -50,6 +50,10 @@ export interface TipFacts {
   olderHidden: boolean;
   /** A session of the current project suggested next steps for this turn (NEXT-MOVES-SPEC). */
   nextMove: boolean;
+  /** A card of the current project has a Jira ticket input (EXTERNAL-TRACKER-SPEC). */
+  hasTicket: boolean;
+  /** The current project has cards and no Jira connection is configured (known, not loading). */
+  noConnection: boolean;
   /** Desktop project tabs show two or more projects and no card is open (PROJECT-TABS-SPEC). */
   projectTabs: boolean;
   /** A card of the current project has a workpad (WORKPAD-SPEC §8). */
@@ -68,6 +72,8 @@ const tipFact: Record<TipId, keyof TipFacts> = {
   "agent-question": "agentQuestion",
   "older-finished": "olderHidden",
   "next-move": "nextMove",
+  "first-ticket": "hasTicket",
+  "jira-connect": "noConnection",
   "project-menu": "projectTabs",
   "first-workpad": "hasWorkpad",
   subagents: "hasSubagent",
@@ -77,7 +83,7 @@ const tipFact: Record<TipId, keyof TipFacts> = {
 export function nextTip(input: { tipsSeen: readonly string[]; facts: TipFacts; blocked: boolean }): TipId | null {
   if (input.blocked) return null;
   // Waiting for the user outranks introductions; the answer-in-session tip is the more specific one.
-  const order: TipId[] = ["agent-question", "needs-you", "first-done", "older-finished", "next-move", "first-workpad", "subagents", "first-idea", "first-artifact", "first-tag", "first-card", "project-menu"];
+  const order: TipId[] = ["agent-question", "needs-you", "first-done", "older-finished", "next-move", "first-workpad", "subagents", "first-idea", "first-artifact", "first-ticket", "first-tag", "first-card", "project-menu", "jira-connect"];
   return order.find((id) => input.facts[tipFact[id]] && !input.tipsSeen.includes(id)) ?? null;
 }
 

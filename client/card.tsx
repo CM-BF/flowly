@@ -80,6 +80,7 @@ export function TaskCard({
   progress,
   questions = 0,
   ideas = 0,
+  ticketKey = "",
   workpad = null,
   waiting = 0,
   waitingTitles = "",
@@ -108,6 +109,8 @@ export function TaskCard({
   questions?: number;
   /** Open ideas proposed on this card (IDEAS-SPEC §5.1). */
   ideas?: number;
+  /** Jira ticket inputs, e.g. "SHOPSR-123" or "SHOPSR-123 +2" (EXTERNAL-TRACKER-SPEC §6); key only, never the ticket status. */
+  ticketKey?: string;
   /** The workpad's checks or delivery state (WORKPAD-SPEC §6.1). */
   workpad?: WorkpadSignal | null;
   /** Unresolved cards this one is blocked by, and their titles (CARD-LINKS-SPEC §5.1). */
@@ -275,6 +278,14 @@ export function TaskCard({
           outlineStyle: "none",
         }) as never}
       >
+        {!!ticketKey && (
+          <View style={{ flexDirection: "row", alignItems: "center", gap: space[1] }}>
+            <Icon name="Ticket" size={12} color={colors.foregroundMuted} />
+            <Label muted size={font.xs} medium lines={1} selectable={false}>
+              {ticketKey}
+            </Label>
+          </View>
+        )}
         <Label medium size={font.base} lines={3} selectable={false}>
           {task.title}
         </Label>

@@ -6,6 +6,8 @@ import { absoluteTarget, artifactNoteLine, defaultTitle, isUrlTarget, validUrl }
 import { artifactLimits, type Artifact, type ArtifactEdit, type ArtifactRole, type Board, type Project, type Task } from "../shared/model";
 import { effectiveRepos } from "../shared/scope";
 import type { BoardStore } from "./store";
+import type { TicketRef } from "../shared/tickets";
+import type { TicketService } from "./tickets";
 
 /**
  * Card artifacts (CARD-ARTIFACTS-SPEC): references to files inside the card's
@@ -87,7 +89,20 @@ export type NewArtifact = {
   note?: string;
   createdBy: Artifact["createdBy"];
   agentId?: string;
+  /** A recognized ticket link (EXTERNAL-TRACKER-SPEC §3.1); always an input. */
+  ticket?: TicketRef;
 };
+
+/**
+ * A ticket link or bare key of a configured connection, checked against the
+ * tracker, as an input artifact; null when `target` is not a ticket.
+ */
+export async function ticketArtifact(tickets: TicketService | undefined, target: string) {
+  if (!tickets) return null;
+  const found = await tickets.recognize(target);
+  if (!found) return null;
+  return { kind: "url" as const, target: found.url, ticket: found.ticket, title: found.title };
+}
 
 /**
  * Adds an artifact to `board`, or updates the card's existing one with the
@@ -101,12 +116,13 @@ export function putArtifact(store: BoardStore, board: Board, input: NewArtifact,
   if (existing) {
     if (input.createdBy === "agent" && existing.createdBy === "human") return { artifact: existing, changed: false };
     const next = {
-      role: input.role,
+      role: input.ticket ? ("input" as const) : input.role,
       title: input.title?.trim() || existing.title,
       note: input.note !== undefined ? input.note.trim() : existing.note,
     };
     const changed = next.role !== existing.role || next.title !== existing.title || next.note !== existing.note;
     if (changed) Object.assign(existing, next, { updatedAt: now });
+    if (input.ticket && !existing.ticket) existing.ticket = input.ticket;
     return { artifact: existing, changed };
   }
   if (board.artifacts.filter((a) => a.taskId === task.id).length >= artifactLimits.perTask)
@@ -115,7 +131,7 @@ export function putArtifact(store: BoardStore, board: Board, input: NewArtifact,
     id: randomUUID(),
     taskId: task.id,
     projectId: task.projectId,
-    role: input.role,
+    role: input.ticket ? "input" : input.role,
     kind: input.kind,
     target: input.target,
     title: input.title?.trim() || defaultTitle(input.kind, input.target),
@@ -124,6 +140,7 @@ export function putArtifact(store: BoardStore, board: Board, input: NewArtifact,
     ...(input.agentId ? { agentId: input.agentId } : {}),
     createdAt: now,
     updatedAt: now,
+    ...(input.ticket ? { ticket: input.ticket } : {}),
   };
   board.artifacts.push(artifact);
   const event = store.event(board, { taskId: task.id, ...actor, action: "artifact_added", note: artifactNoteLine(artifact) });
@@ -153,7 +170,7 @@ export function editArtifact(store: BoardStore, input: ArtifactEdit) {
     liveCard(board, artifact.taskId);
     if (artifact.updatedAt !== input.updatedAt) throw new Error("This artifact changed. Reload and try again.");
     const next = {
-      role: input.role ?? artifact.role,
+      role: artifact.ticket ? artifact.role : (input.role ?? artifact.role),
       title: input.title?.trim() || artifact.title,
       note: input.note !== undefined ? input.note : artifact.note,
     };
@@ -217,7 +234,10 @@ type Paseo = { workspaces: { ref(id: string): { refresh(): Promise<{ workspaceDi
 
 /** Human RPCs for artifacts (CARD-ARTIFACTS-SPEC §3). */
 export class ArtifactService {
-  constructor(readonly store: BoardStore) {}
+  constructor(
+    readonly store: BoardStore,
+    readonly tickets?: TicketService,
+  ) {}
 
   /** The card's directories, from its live workspace when Paseo still knows it. */
   async where(taskId: string, paseo: Paseo, snapshot?: Board): Promise<ArtifactRoots> {
@@ -233,9 +253,16 @@ export class ArtifactService {
   }
 
   async create(input: { taskId: string; role: ArtifactRole; target: string; title?: string; note?: string }, paseo: Paseo) {
-    const { kind, target } = await normalizeTarget(input.target, await this.where(input.taskId, paseo));
+    const ticket = await ticketArtifact(this.tickets, input.target);
+    const { kind, target } = ticket || (await normalizeTarget(input.target, await this.where(input.taskId, paseo)));
     return this.store.transaction((board) => {
-      const { artifact, changed } = putArtifact(this.store, board, { ...input, kind, target, createdBy: "human" });
+      const { artifact, changed } = putArtifact(this.store, board, {
+        ...input,
+        kind,
+        target,
+        createdBy: "human",
+        ...(ticket ? { ticket: ticket.ticket, title: input.title?.trim() || ticket.title } : {}),
+      });
       return { value: { ...artifact }, changed };
     });
   }

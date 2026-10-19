@@ -213,6 +213,24 @@ export const artifactInputSchema = z.strictObject({
   title: z.string().trim().max(artifactLimits.title).optional().describe("Short title; defaults to the file name or link."),
   note: z.string().trim().max(artifactLimits.note).optional().describe("One line on what it is for."),
 });
+/** kanban_read_ticket (EXTERNAL-TRACKER-SPEC §4.2): read a ticket input of this card. */
+export const readTicketInputSchema = z.strictObject({
+  artifactId: z.string().min(1).describe("Id of a ticket input in get_task artifacts (one with a ticket field)."),
+  refresh: z.boolean().default(false).describe("Bypass the 60-second cache."),
+});
+export const ticketReadSchema = z.object({
+  artifactId: z.string(),
+  key: z.string(),
+  url: z.string(),
+  status: z.string(),
+  /** The ticket as Markdown: metadata, description, subtasks, linked tickets, attachment names, latest comments. */
+  markdown: z.string(),
+  truncated: z.boolean(),
+  /** Jira could not be reached; this is the cached copy from fetchedAt. */
+  stale: z.boolean(),
+  fetchedAt: z.string(),
+});
+export type ReadTicketInput = z.input<typeof readTicketInputSchema>;
 /** kanban_remove_artifact: only artifacts an agent added. */
 export const artifactRemovalSchema = z.strictObject({
   expectedRevision: revisionSchema,
@@ -282,8 +300,24 @@ export const toolContextSchema = z.object({
       note: z.string(),
       createdBy: z.enum(["human", "agent"]),
       missing: z.boolean(),
-      /** Added or edited since this session last called kanban_get_task (never for its own additions). */
+      /** Added or edited since this session last called kanban_get_task (never for its own additions), or its ticket's content changed. */
       unread: z.boolean(),
+      /** A Jira ticket input (EXTERNAL-TRACKER-SPEC §4.1): read its content with kanban_read_ticket. Status is for reference only. */
+      ticket: z
+        .object({
+          key: z.string(),
+          summary: z.string(),
+          status: z.string(),
+          type: z.string(),
+          priority: z.string(),
+          assignee: z.string(),
+          updated: z.string(),
+          /** Jira could not be reached; values are from the last successful read. */
+          stale: z.boolean(),
+          /** removed: the user removed this Jira's connection in Flowly; the ticket can't be read until they add it again. */
+          connection: z.enum(["ok", "removed"]),
+        })
+        .optional(),
     }),
   ),
   /** false: the user turned the workpad off for this project (WORKPAD-SPEC §9); kanban_update_workpad returns WORKPAD_DISABLED. */

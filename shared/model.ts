@@ -1,5 +1,6 @@
 import { localizedLabels, msg, t } from "./i18n";
 import { agentModelSchema } from "./agent-defaults";
+import { ticketLimits, ticketRefSchema } from "./tickets";
 import { z } from "zod";
 
 export const statuses = [
@@ -205,6 +206,8 @@ export const artifactSchema = z.object({
   agentId: z.string().optional(),
   createdAt: timestamp,
   updatedAt: timestamp,
+  /** A link to a ticket of a configured connection: a read-only input (EXTERNAL-TRACKER-SPEC §3.2). */
+  ticket: ticketRefSchema.optional(),
 });
 export type Artifact = z.infer<typeof artifactSchema>;
 export type ArtifactRole = Artifact["role"];
@@ -504,6 +507,11 @@ export const taskInput = z.strictObject({
   ideaId: z.string().min(1).optional(),
   /** Create as a follow-up of this card (CARD-LINKS-SPEC §3); not together with ideaId. */
   followUpOf: z.string().min(1).optional(),
+  /** Tickets added as inputs in the same write (EXTERNAL-TRACKER-SPEC §5.4). */
+  tickets: z
+    .array(z.strictObject({ connectionId: z.string().min(1), key: z.string().min(1).max(64) }))
+    .max(ticketLimits.perCreate)
+    .optional(),
 });
 export const taskEdit = z.strictObject({
   id: z.string(),

@@ -8,10 +8,12 @@ import { isResolved, linksOf } from "../shared/links";
 import { absoluteTarget, artifactsOf } from "../shared/artifacts";
 import { changeTags, normalizeTags, projectTagStats, tagChangeNote } from "../shared/tags";
 import { setTags } from "./store";
-import { artifactRoots, dropArtifact, missingArtifacts, normalizeTarget, putArtifact } from "./artifacts";
+import { artifactRoots, dropArtifact, missingArtifacts, normalizeTarget, putArtifact, ticketArtifact } from "./artifacts";
 import { ArtifactReadStore } from "./artifact-reads";
+import { TicketError, TicketReadStore, type TicketService } from "./tickets";
+import { join } from "node:path";
 import { hostname } from "node:os";
-import type { GitHead, Workpad } from "../shared/model";
+import type { Artifact, GitHead, Workpad } from "../shared/model";
 import { mergeWorkpad, openItemLines, openItems, plansOf, validationFreshness, workpadEnabled, workpadNote, workpadOf, workpadUpdatedAction } from "../shared/workpad";
 import { defaultGit, readHead, resolveCommit, type Git } from "./workpad";
 import {
@@ -37,6 +39,7 @@ import {
   type TypeToolInput,
   type NextMovesInput,
   type WorkpadInput,
+  type ReadTicketInput,
 } from "../shared/tools";
 import { BoardStore } from "./store";
 import { BoardService } from "./service";
@@ -60,6 +63,90 @@ export class AgentService {
     readonly clock = () => Date.now(),
   ) {
     this.artifactReads = new ArtifactReadStore(store.directory);
+    this.ticketReads = new TicketReadStore(join(store.directory, "tickets"));
+  }
+  /** Reads ticket inputs (EXTERNAL-TRACKER-SPEC §4); set by the plugin entry. */
+  tickets?: TicketService;
+  /** Per-session ticket content last seen, for ticket `unread`. */
+  readonly ticketReads: TicketReadStore;
+  /**
+   * Current summaries of the card's ticket inputs and whether their content
+   * changed since this session last saw it. Jira being unreachable never
+   * fails get_task: the cached values come back marked stale.
+   */
+  private async ticketInfo(agentId: string, list: readonly Artifact[]) {
+    const out = new Map<string, { ticket: NonNullable<ToolContext["artifacts"][number]["ticket"]>; changed: boolean; fingerprint: string }>();
+    if (!this.tickets || !list.some((a) => a.ticket)) return out;
+    const tickets = this.tickets;
+    const located = await tickets.locate(list).catch(() => new Map<string, null>());
+    const refs = [...located.values()].filter((r): r is NonNullable<typeof r> => !!r);
+    const [summaries, seen] = await Promise.all([
+      refs.length ? tickets.summaries(refs).catch(() => new Map()) : new Map(),
+      this.ticketReads.seen(agentId).catch(() => ({}) as Record<string, string>),
+    ]);
+    for (const a of list) {
+      if (!a.ticket) continue;
+      const ref = located.get(a.id);
+      const hit = ref ? summaries.get(`${ref.connectionId}:${ref.key}`) : undefined;
+      const fingerprint = hit?.fingerprint || "";
+      out.set(a.id, {
+        ticket: {
+          key: hit?.summary.key || a.ticket.key,
+          summary: hit?.summary.summary || a.title,
+          status: hit?.summary.status || "",
+          type: hit?.summary.type || "",
+          priority: hit?.summary.priority || "",
+          assignee: hit?.summary.assignee || "",
+          updated: hit?.summary.updated || "",
+          stale: !hit || hit.stale,
+          connection: ref ? "ok" : "removed",
+        },
+        changed: !!fingerprint && !!seen[a.id] && seen[a.id] !== fingerprint,
+        fingerprint,
+      });
+    }
+    return out;
+  }
+  /** kanban_read_ticket (EXTERNAL-TRACKER-SPEC §4.2): one of this card's ticket inputs, read-only. */
+  async readTicket(identity: ToolIdentity, input: ReadTicketInput) {
+    const r = await this.resources(identity);
+    const board = await this.store.read();
+    const artifact = board.artifacts.find((a) => a.id === input.artifactId && a.taskId === r.task.id);
+    if (!artifact) throw new ToolError("TICKET_NOT_FOUND", "No artifact with that id on this card. Use an id from get_task artifacts.");
+    if (!artifact.ticket) throw new ToolError("TICKET_NOT_FOUND", "This artifact is not a Jira ticket input. Read files through absolutePath and other links with your web tool.");
+    if (!this.tickets) throw new ToolError("TICKETS_DISABLED", "Tickets are unavailable in this Flowly build.");
+    const ref = (await this.tickets.locate([artifact])).get(artifact.id);
+    if (!ref)
+      throw new ToolError(
+        "TICKET_UNAVAILABLE",
+        "The user removed this Jira's connection in Flowly settings, so the ticket can't be read. Tell the user and ask them to add the connection again (Settings → Connections) or paste what you need; don't guess the ticket content.",
+      );
+    try {
+      const detail = await this.tickets.detail(ref, input.refresh ?? false);
+      if (detail.fingerprint)
+        await this.ticketReads.mark(identity.agentId, { [artifact.id]: detail.fingerprint }).catch(() => undefined);
+      this.accesses.set(identity.agentId, { at: new Date(this.clock()).toISOString(), action: "ticket" });
+      return {
+        artifactId: artifact.id,
+        key: detail.summary.key,
+        url: detail.summary.url,
+        status: detail.summary.status,
+        markdown: detail.markdown,
+        truncated: detail.truncated,
+        stale: detail.stale,
+        fetchedAt: detail.fetchedAt,
+      };
+    } catch (error) {
+      if (error instanceof TicketError)
+        throw new ToolError(
+          error.code === "TICKET_INVALID" ? "TICKET_UNAVAILABLE" : error.code,
+          error.code === "TICKET_AUTH"
+            ? "The Jira connection's token was refused. Ask the user to update it in Flowly settings → Connections; don't guess the ticket content."
+            : error.message,
+          error.code === "TICKET_UNAVAILABLE",
+        );
+      throw error;
+    }
   }
   /** Per-session last read of the card's artifacts, for `unread` (CARD-ARTIFACTS-SPEC §4.2). */
   readonly artifactReads: ArtifactReadStore;
@@ -159,6 +246,7 @@ export class AgentService {
     }
     const revision = { task: r.task.revision, project: r.project.revision };
     const finished = ["done", "cancelled"].includes(r.task.status);
+    let tickets = new Map<string, { changed: boolean; fingerprint: string; ticket: NonNullable<ToolContext["artifacts"][number]["ticket"]> }>();
     const value: ToolContext = {
       identity,
       task: r.task,
@@ -203,6 +291,7 @@ export class AgentService {
           const list = artifactsOf(board.artifacts, r.task.id).slice(0, 100);
           const where = artifactRoots(r.task, r.project, r.workspace.workspaceDirectory);
           const missing = await missingArtifacts(list, where);
+          tickets = await this.ticketInfo(identity.agentId, list);
           return list.map((a) => ({
             id: a.id,
             role: a.role,
@@ -214,7 +303,10 @@ export class AgentService {
             createdBy: a.createdBy,
             missing: missing.has(a.id),
             // Added or edited since this session last read the card; its own additions never count.
-            unread: !(a.createdBy === "agent" && a.agentId === identity.agentId) && (!lastRead || a.updatedAt > lastRead),
+            unread:
+              (!(a.createdBy === "agent" && a.agentId === identity.agentId) && (!lastRead || a.updatedAt > lastRead)) ||
+              !!tickets.get(a.id)?.changed,
+            ...(tickets.has(a.id) ? { ticket: tickets.get(a.id)!.ticket } : {}),
           }));
         })(),
         ...(workpadEnabled(r.project)
@@ -241,6 +333,11 @@ export class AgentService {
     if (markArtifacts && value.artifacts.length)
       await this.artifactReads.mark(identity.agentId, readAt).catch((e) =>
         console.error("Kanban artifact reads not saved:", e instanceof Error ? e.message : String(e)),
+      );
+    const seenTickets = Object.fromEntries([...tickets].filter(([, v]) => v.fingerprint).map(([id, v]) => [id, v.fingerprint]));
+    if (markArtifacts && Object.keys(seenTickets).length)
+      await this.ticketReads.mark(identity.agentId, seenTickets).catch((e) =>
+        console.error("Kanban ticket reads not saved:", e instanceof Error ? e.message : String(e)),
       );
     return value;
   }
@@ -290,14 +387,23 @@ export class AgentService {
     const artifactWrite = action === "artifact" || action === "artifact_remove";
     const artifactsOn = artifactWrite ? await this.artifactsOn() : true;
     // Paths are checked before the write; the transaction only records the result.
-    const artifactTarget =
+    // A ticket link or key of a configured connection becomes a ticket input (EXTERNAL-TRACKER-SPEC §3.1).
+    const ticketTarget =
       action === "artifact" && artifactsOn
-        ? await normalizeTarget(
-            (input as ArtifactToolInput).target,
-            artifactRoots(resources.task, resources.project, resources.workspace.workspaceDirectory),
-          ).catch((e) => {
+        ? await ticketArtifact(this.tickets, (input as ArtifactToolInput).target).catch((e) => {
             throw new ToolError("ARTIFACT_INVALID", e instanceof Error ? e.message : String(e));
           })
+        : null;
+    const artifactTarget =
+      action === "artifact" && artifactsOn
+        ? ticketTarget
+          ? { kind: ticketTarget.kind, target: ticketTarget.target, ticket: ticketTarget.ticket, ticketTitle: ticketTarget.title }
+          : await normalizeTarget(
+              (input as ArtifactToolInput).target,
+              artifactRoots(resources.task, resources.project, resources.workspace.workspaceDirectory),
+            ).catch((e) => {
+              throw new ToolError("ARTIFACT_INVALID", e instanceof Error ? e.message : String(e));
+            })
         : undefined;
     // Git runs outside the transaction: the workpad's HEAD stamp and commits (WORKPAD-SPEC §4.2, §5.1),
     // and the HEAD the delivery check compares checks against (§5.3).
@@ -405,7 +511,17 @@ export class AgentService {
                 const put = putArtifact(
                   this.store,
                   board,
-                  { taskId: task.id, role: a.role, ...artifactTarget!, title: a.title, note: a.note, createdBy: "agent", agentId: identity.agentId },
+                  {
+                    taskId: task.id,
+                    role: a.role,
+                    kind: artifactTarget!.kind,
+                    target: artifactTarget!.target,
+                    title: a.title || ("ticketTitle" in artifactTarget! ? artifactTarget.ticketTitle : undefined),
+                    note: a.note,
+                    createdBy: "agent",
+                    agentId: identity.agentId,
+                    ...("ticket" in artifactTarget! ? { ticket: artifactTarget.ticket } : {}),
+                  },
                   new Date(this.clock()).toISOString(),
                 );
                 artifactId = put.artifact.id;

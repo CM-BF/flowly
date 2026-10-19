@@ -2,8 +2,8 @@ import { expect, test } from "vitest";
 import { boardViewValues, statusSettingsValues } from "./settings";
 
 test("older stored settings get defaults for newer fields; invalid values fall back", () => {
-  expect(boardViewValues({ lastProjectId: "p" })).toEqual({ lastProjectId: "p", sendBehavior: "steer", startAgentOnCreate: true, boardSort: "manual", collapsedColumns: [], filterSearch: "", filterPriority: "all", filterType: "all", filterTags: [], showArchived: false, hideFinishedAfterDays: 14 });
-  expect(boardViewValues(undefined)).toEqual({ lastProjectId: "", sendBehavior: "steer", startAgentOnCreate: true, boardSort: "manual", collapsedColumns: [], filterSearch: "", filterPriority: "all", filterType: "all", filterTags: [], showArchived: false, hideFinishedAfterDays: 14 });
+  expect(boardViewValues({ lastProjectId: "p" })).toEqual({ lastProjectId: "p", sendBehavior: "steer", startAgentOnCreate: true, boardSort: "manual", collapsedColumns: [], filterSearch: "", filterPriority: "all", filterType: "all", filterTags: [], showArchived: false, hideFinishedAfterDays: 14, lastTicketConnection: "" });
+  expect(boardViewValues(undefined)).toEqual({ lastProjectId: "", sendBehavior: "steer", startAgentOnCreate: true, boardSort: "manual", collapsedColumns: [], filterSearch: "", filterPriority: "all", filterType: "all", filterTags: [], showArchived: false, hideFinishedAfterDays: 14, lastTicketConnection: "" });
   expect(boardViewValues({ sendBehavior: "bogus" }).sendBehavior).toBe("steer");
   expect(boardViewValues({ sendBehavior: "queue", startAgentOnCreate: false })).toMatchObject({ sendBehavior: "queue", startAgentOnCreate: false });
 });

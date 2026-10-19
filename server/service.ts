@@ -2,6 +2,8 @@ import { laneName, laneProblem } from "../shared/lanes";
 import { linkContextLines, linksOf } from "../shared/links";
 import { artifactContextLines, artifactsOf } from "../shared/artifacts";
 import { addLink } from "./links";
+import { putArtifact } from "./artifacts";
+import type { TicketService } from "./tickets";
 import type { PaseoApi } from "@getpaseo/client";
 import { cpSync, existsSync, renameSync, rmSync } from "node:fs";
 import { lstat, mkdir, readlink, realpath, rmdir, stat, symlink, unlink } from "node:fs/promises";
@@ -140,6 +142,8 @@ export async function directory(path: string): Promise<string> {
 
 export class BoardService {
   private provision = Promise.resolve<unknown>(undefined);
+  /** Reads tickets added at creation (EXTERNAL-TRACKER-SPEC §5.4); set by the plugin entry. */
+  tickets?: TicketService;
   constructor(readonly store: BoardStore) {}
   private serialize<T>(action: () => Promise<T>) {
     const result = this.provision.then(action);
@@ -457,6 +461,22 @@ export class BoardService {
       if (input.ideaId) openIdea(board, input.ideaId, project.id);
       if (input.ideaId && input.followUpOf) throw new Error("A card comes from an idea or follows up a card, not both.");
       if (input.followUpOf) followUpSource(board, input.followUpOf, project.id);
+      // Each ticket is read before any workspace exists; one that can't be read refuses the card.
+      const tickets = input.tickets?.length
+        ? await (async () => {
+            const service = this.tickets;
+            if (!service) throw new Error("Tickets are unavailable.");
+            const seen = new Set<string>();
+            const list = [];
+            for (const t of input.tickets!) {
+              const found = await service.resolve(t.connectionId, t.key);
+              if (seen.has(found.url)) continue;
+              seen.add(found.url);
+              list.push(found);
+            }
+            return list;
+          })()
+        : [];
       const repoPaths = [project.primaryPath];
       const sourcePath = project.primaryPath;
       let workspaceId = input.workspaceId;
@@ -569,6 +589,9 @@ export class BoardService {
             addLink(this.store, current, { kind: "derived", from: task.id, to: idea.taskId, ideaId: idea.id, createdBy: "system" }, { events: false, limit: false, archived: true });
           if (input.followUpOf)
             addLink(this.store, current, { kind: "derived", from: task.id, to: input.followUpOf });
+          // In the same write, so the first session's context already lists them.
+          for (const t of tickets)
+            putArtifact(this.store, current, { taskId: task.id, role: "input", kind: "url", target: t.url, title: t.title, createdBy: "human", ticket: t.ticket }, now);
           if (idea) {
             idea.status = "accepted";
             idea.acceptedTaskId = task.id;
@@ -588,6 +611,13 @@ export class BoardService {
         );
       }
     });
+  }
+  /** Ticket inputs whose Jira connection was removed (EXTERNAL-TRACKER-SPEC §2); unreadable stays empty on failure. */
+  private async unreadableTickets(board: Board, taskId: string) {
+    const list = board.artifacts.filter((a) => a.taskId === taskId && a.ticket);
+    if (!list.length || !this.tickets) return new Set<string>();
+    const located = await this.tickets.locate(list).catch(() => new Map<string, null>());
+    return new Set(list.filter((a) => located.has(a.id) && !located.get(a.id)).map((a) => a.id));
   }
   async context(id: string, paseo: PaseoApi, snapshot?: Board) {
     const board = snapshot || (await this.store.read());
@@ -626,7 +656,7 @@ export class BoardService {
         directories,
         workspace?.workspaceDirectory || task.sourcePath,
         linkContextLines(linksOf(board, task.id), (t) => laneName(project, t.status)),
-        artifactContextLines(artifactsOf(board.artifacts, task.id)),
+        artifactContextLines(artifactsOf(board.artifacts, task.id), 10, await this.unreadableTickets(board, task.id)),
       ),
       directories,
       workspaceRepoPaths: matches,

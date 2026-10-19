@@ -81,6 +81,7 @@ test("MCP initialize/list can precede actor creation; live calls require SDK con
     "kanban_propose_idea",
     "kanban_add_artifact",
     "kanban_remove_artifact",
+    "kanban_read_ticket",
     "kanban_set_tags",
     "kanban_set_type",
     "kanban_suggest_next_moves",

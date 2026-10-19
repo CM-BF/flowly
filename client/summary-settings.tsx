@@ -5,6 +5,7 @@ import { Enter, motionDuration, useMotionValue, lerp } from "./motion";
 import type { PluginTheme } from "@getpaseo/plugin";
 import { useShortcutBlock } from "./shortcuts";
 import { AiPage, GeneralPage, ModelsPage, WorkflowPage } from "./settings-pages";
+import { ConnectionsPage } from "./tickets";
 import { IconButton, Label, Theme, font, noFocusRing, radius, space, tint, touch, useTheme } from "./ui";
 import { msg, t } from "../shared/i18n";
 
@@ -74,13 +75,14 @@ export function SettingsFab({ open = false, onPress }: { open?: boolean; onPress
   );
 }
 
-type SettingsSection = "general" | "models" | "workflow" | "ai";
+type SettingsSection = "general" | "models" | "workflow" | "ai" | "connections";
 /** Settings grouped by what they are for; each group is one page of the two-column layout. */
 const settingsSections: { id: SettingsSection; icon: string; label: string }[] = [
   { id: "general", icon: "SlidersHorizontal", label: msg("General") },
   { id: "models", icon: "Cpu", label: msg("Models") },
   { id: "workflow", icon: "Workflow", label: msg("Workflow") },
   { id: "ai", icon: "Sparkles", label: msg("AI features") },
+  { id: "connections", icon: "Plug", label: msg("Connections") },
 ];
 
 /** One entry of the section list: a row in the left column, a compact chip when the modal is narrow. */
@@ -124,7 +126,17 @@ function SettingsPanes({ open, onTour }: { open: boolean; onTour(): void }) {
   const [section, setSection] = useState<SettingsSection>("general");
   const bodyHeight = Math.min(560, Math.max(340, height - 200));
   const pane =
-    section === "general" ? <GeneralPage onTour={onTour} /> : section === "models" ? <ModelsPage active={open} /> : section === "workflow" ? <WorkflowPage /> : <AiPage />;
+    section === "general" ? (
+      <GeneralPage onTour={onTour} />
+    ) : section === "models" ? (
+      <ModelsPage active={open} />
+    ) : section === "workflow" ? (
+      <WorkflowPage />
+    ) : section === "connections" ? (
+      <ConnectionsPage />
+    ) : (
+      <AiPage />
+    );
   const rows = settingsSections.map((entry) => (
     <SettingsNavRow key={entry.id} icon={entry.icon} label={t(entry.label)} selected={entry.id === section} stacked={stacked} onPress={() => setSection(entry.id)} />
   ));

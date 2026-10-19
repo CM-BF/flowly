@@ -64,6 +64,8 @@ agent 工作时发现的后续事项（顺带发现的 bug、现有方案的局�
 
 每张卡有一个 **Artifacts** 列表：它依据的文档、链接（输入）和产出的交付物（输出）。agent 工作时通过看板工具登记，你也可以在卡片上添加、编辑或删除自己的条目。只保存引用，文件留在原处，以只读预览打开。每条都标明是你还是 agent 添加的，agent 不能删除你添加的条目。
 
+**Jira 工单**也可以作为输入。在 Settings → Connections 连接 Jira（自建 Jira 用个人访问令牌，Jira Cloud 用 API token），然后用 **From Jira** 新建卡片：列出你最近未关闭的工单，可按编号、链接或标题关键词搜索，并在标题为空时自动填入。已有卡片可在 Artifacts 里关联工单。agent 用 `kanban_read_ticket` 读取工单的描述、评论和子任务，并能发现工单的变化。Flowly 只读：不会修改工单，工单状态也不会移动卡片。令牌只保存在 daemon 所在机器上。
+
 agent 理解任务后会自己补全卡片元数据：卡片没有**任务类型**时设置类型（feature、bugfix、research、refactor、docs、chore），不会覆盖你已选的类型；同时添加描述所涉模块和方向的**标签**（`drawer`、`performance`、`a11y`），与固定的任务类型分开。agent 会复用项目已有标签而不是另造同义词；你可在卡片或表单里添加、删除标签。可按标签筛选看板，或搜索 `#tag`（`#module/` 匹配前缀）。agent 不能删除你添加的标签。
 
 ### 6. Project insights
@@ -97,7 +99,7 @@ agent 理解任务后会自己补全卡片元数据：卡片没有**任务类型
 
 - **一个看板 project 对应一个原生 Paseo project 根目录。** 要跨多个仓库工作，可以把它们放进同一个父目录并注册该目录；也可以让插件建一个“链接根目录”，里面为每个仓库放一个软链接（移除链接不会动目标目录）。
 - **一张卡对应一个 workspace**，workspace 里可以有多个 session。由你选择哪个 session 接收指令；普通追问只发送你输入的原文。
-- **Agent 工具。** 从卡片创建的 session 会获得受限 MCP 工具：`kanban_get_task`、`kanban_update_status`、`kanban_report_progress`、`kanban_propose_idea`、`kanban_suggest_next_moves`、`kanban_set_tags`、`kanban_set_type`、`kanban_add_artifact` 和 `kanban_update_workpad`，以及说明它们用法的 skill。agent 可以在工作阶段之间和 In review 之间移动自己的卡片；Done 与 Cancelled 由人决定。没有 MCP 的 session 可使用 CLI 兜底。
+- **Agent 工具。** 从卡片创建的 session 会获得受限 MCP 工具：`kanban_get_task`、`kanban_update_status`、`kanban_report_progress`、`kanban_propose_idea`、`kanban_suggest_next_moves`、`kanban_set_tags`、`kanban_set_type`、`kanban_add_artifact`、`kanban_update_workpad` 和 `kanban_read_ticket`，以及说明它们用法的 skill。agent 可以在工作阶段之间和 In review 之间移动自己的卡片；Done 与 Cancelled 由人决定。没有 MCP 的 session 可使用 CLI 兜底。
 - **卡片业务状态与 session 执行状态相互独立。** 一轮结束不代表卡片完成。
 - **其他能力：** 拖拽（含列内排序）、卡片关联（follow-up、blocks、related）、任务类型与优先级、Done 卡片收尾（预检后归档其 session 和自有 workspace）、键盘快捷键（`?`）、按卡片统计 token、手机紧凑布局。
 
