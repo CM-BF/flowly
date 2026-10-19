@@ -101,6 +101,8 @@ export const projectSchema = z.object({
   archivedAt: timestamp.nullable(),
   /** Session-driven status rules (AUTO-STATUS-SPEC). Absent means enabled. */
   autoStatus: z.boolean().optional(),
+  /** Card workpads (WORKPAD-SPEC §9). Absent means enabled. */
+  workpad: z.boolean().optional(),
   /** Display order in the project chooser (lower first); absent sorts by creation. */
   position: z.number().optional(),
   lanes: lanesSchema.optional(),
@@ -225,6 +227,107 @@ export const artifactEdit = z.strictObject({
   note: artifactNote.optional(),
 });
 export type ArtifactEdit = z.infer<typeof artifactEdit>;
+/** The card's workpad: acceptance criteria, checks and confusions an agent keeps current (WORKPAD-SPEC §2). */
+export const workpadLimits = {
+  text: 300,
+  command: 300,
+  evidence: 600,
+  confusion: 600,
+  acceptance: 20,
+  validation: 20,
+  confusions: 10,
+  planItems: 50,
+  planText: 300,
+} as const;
+export const checkStates = ["pass", "fail", "unrun"] as const;
+export type CheckState = (typeof checkStates)[number];
+export const workpadItemId = z.string().min(1).max(40).regex(/^[a-z0-9][a-z0-9-]*$/);
+const shortSha = z.string().regex(/^[0-9a-f]{4,40}$/);
+export const acceptanceItemSchema = z.object({
+  id: workpadItemId,
+  text: z.string().min(1).max(workpadLimits.text),
+  done: z.boolean(),
+  by: z.enum(["agent", "human"]),
+  at: timestamp,
+});
+export const validationItemSchema = z.object({
+  id: workpadItemId,
+  text: z.string().min(1).max(workpadLimits.text),
+  command: z.string().max(workpadLimits.command).optional(),
+  state: z.enum(checkStates),
+  /** The commit it ran on (pass/fail only). */
+  sha: shortSha.optional(),
+  /** It ran with uncommitted changes in the working tree. */
+  dirty: z.boolean().optional(),
+  ranAt: timestamp.optional(),
+  evidence: z.string().max(workpadLimits.evidence).optional(),
+  by: z.enum(["agent", "human"]),
+  at: timestamp,
+});
+export const confusionItemSchema = z.object({
+  id: workpadItemId,
+  text: z.string().min(1).max(workpadLimits.confusion),
+  at: timestamp,
+});
+/** What git said about the card's workspace; every field optional when git is unavailable. */
+export const gitHeadSchema = z.object({
+  sha: shortSha.optional(),
+  branch: z.string().max(300).optional(),
+  dirty: z.boolean(),
+  at: timestamp,
+});
+/** Open items when an agent delivered to In review (WORKPAD-SPEC §5.3). */
+export const deliverySchema = z.object({
+  unchecked: z.number().int().nonnegative(),
+  failed: z.number().int().nonnegative(),
+  unrun: z.number().int().nonnegative(),
+  stale: z.number().int().nonnegative(),
+  total: z.number().int().nonnegative(),
+  revision: z.number().int().nonnegative(),
+});
+export type Delivery = z.infer<typeof deliverySchema>;
+export const workpadSchema = z.object({
+  taskId: z.string(),
+  projectId: z.string(),
+  revision: z.number().int().positive(),
+  acceptance: z.array(acceptanceItemSchema).max(workpadLimits.acceptance),
+  validation: z.array(validationItemSchema).max(workpadLimits.validation),
+  confusions: z.array(confusionItemSchema).max(workpadLimits.confusions),
+  /** Where the agent last wrote it from: host, workspace path and git state then. */
+  env: z.object({ host: z.string().max(300), path: z.string().max(4096), head: gitHeadSchema.nullable() }).nullable(),
+  /** The workspace HEAD at the last refresh, for out-of-date checks (§5.2). */
+  head: gitHeadSchema.nullable(),
+  /** The latest agent delivery to In review and its open items (§5.3). */
+  delivery: deliverySchema.extend({ eventId: z.string(), at: timestamp }).optional(),
+  updatedAt: timestamp,
+  updatedBy: z.enum(["agent", "human"]),
+  agentId: z.string().optional(),
+});
+export type Workpad = z.infer<typeof workpadSchema>;
+export type AcceptanceItem = z.infer<typeof acceptanceItemSchema>;
+export type ValidationItem = z.infer<typeof validationItemSchema>;
+export type ConfusionItem = z.infer<typeof confusionItemSchema>;
+export type GitHead = z.infer<typeof gitHeadSchema>;
+export const planStatuses = ["pending", "in_progress", "completed"] as const;
+/** A session's plan, read from its native todo list at turn end (WORKPAD-SPEC §2.2). */
+export const planSnapshotSchema = z.object({
+  taskId: z.string(),
+  agentId: z.string(),
+  items: z
+    .array(z.object({ text: z.string().min(1).max(workpadLimits.planText), status: z.enum(planStatuses) }))
+    .max(workpadLimits.planItems),
+  at: timestamp,
+});
+export type PlanSnapshot = z.infer<typeof planSnapshotSchema>;
+/** Human edits of one workpad item (WORKPAD-SPEC §6.3). */
+export const workpadCheck = z.strictObject({
+  taskId: z.string().min(1),
+  section: z.enum(["acceptance", "validation"]),
+  itemId: workpadItemId,
+  done: z.boolean().optional(),
+  state: z.enum(checkStates).optional(),
+});
+export type WorkpadCheck = z.infer<typeof workpadCheck>;
 export const ideaEdit = z.strictObject({
   id: z.string().min(1),
   status: z.enum(["open", "dismissed"]),
@@ -265,6 +368,8 @@ export const eventSchema = z.object({
   outcome: z.enum(["completed", "failed", "canceled"]).optional(),
   /** next_moves_suggested: the session's suggested next messages (NEXT-MOVES-SPEC §2). */
   moves: z.array(nextMoveSchema).max(nextMoveLimits.count).optional(),
+  /** status_changed into In review by an agent: the workpad's open items then (WORKPAD-SPEC §5.3). */
+  workpad: deliverySchema.optional(),
   at: timestamp,
 });
 export const boardSchema = z.object({
@@ -279,6 +384,9 @@ export const boardSchema = z.object({
   links: z.array(linkSchema).default([]),
   /** Absent in files written before artifacts (CARD-ARTIFACTS-SPEC §2.1). */
   artifacts: z.array(artifactSchema).default([]),
+  /** Absent in files written before workpads (WORKPAD-SPEC §2). */
+  workpads: z.array(workpadSchema).default([]),
+  plans: z.array(planSnapshotSchema).default([]),
 });
 export const previousBoardSchema = boardSchema.extend({
   version: z.literal(2),
@@ -292,11 +400,13 @@ export const receiptSchema = z.object({
   agentId: z.string(),
   taskId: z.string(),
   payloadHash: z.string(),
-  action: z.enum(["status", "progress", "idea", "artifact", "artifact_remove", "tags", "type", "next_moves"]),
+  action: z.enum(["status", "progress", "idea", "artifact", "artifact_remove", "tags", "type", "next_moves", "workpad"]),
   /** Empty when an artifact write changed nothing (same target already recorded). */
   eventId: z.string(),
   /** The artifact an artifact write added, updated or removed. */
   artifactId: z.string().optional(),
+  /** The workpad revision a workpad write committed. */
+  workpadRevision: z.number().int().positive().optional(),
   taskRevision: z.number().int().positive(),
   projectRevision: z.number().int().positive(),
   status: historyStatusSchema,
@@ -324,6 +434,8 @@ export const emptyBoard = (): Board => ({
   ideas: [],
   links: [],
   artifacts: [],
+  workpads: [],
+  plans: [],
   agentReceipts: [],
 });
 export const projectInput = z.strictObject({
@@ -370,6 +482,7 @@ export const projectEdit = z.strictObject({
   description: z.string().max(10000).optional(),
   archived: z.boolean().optional(),
   autoStatus: z.boolean().optional(),
+  workpad: z.boolean().optional(),
   lanes: lanesSchema.optional(),
   /** A model sets the project default; null removes it (the global default applies again). */
   agentModel: agentModelSchema.nullable().optional(),

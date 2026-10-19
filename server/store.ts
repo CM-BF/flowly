@@ -333,6 +333,7 @@ export class BoardStore {
       if (input.title !== undefined) p.title = input.title;
       if (input.description !== undefined) p.description = input.description;
       if (input.autoStatus !== undefined) p.autoStatus = input.autoStatus;
+      if (input.workpad !== undefined) p.workpad = input.workpad;
       if (input.agentModel !== undefined) {
         if (input.agentModel) p.agentModel = input.agentModel;
         else delete p.agentModel;
@@ -365,6 +366,8 @@ export class BoardStore {
         ideas: board.ideas.filter((i) => taskIds.has(i.taskId)),
         links: board.links.filter((l) => l.projectId === project.id || taskIds.has(l.from) || taskIds.has(l.to)),
         artifacts: board.artifacts.filter((a) => taskIds.has(a.taskId)),
+        workpads: board.workpads.filter((w) => taskIds.has(w.taskId)),
+        plans: board.plans.filter((p) => taskIds.has(p.taskId)),
       };
       const folder = join(this.directory, "removed");
       await mkdir(folder, { recursive: true, mode: 0o700 });
@@ -377,6 +380,8 @@ export class BoardStore {
       board.ideas = board.ideas.filter((i) => !taskIds.has(i.taskId));
       board.links = board.links.filter((l) => !removed.links.includes(l));
       board.artifacts = board.artifacts.filter((a) => !taskIds.has(a.taskId));
+      board.workpads = board.workpads.filter((w) => !taskIds.has(w.taskId));
+      board.plans = board.plans.filter((p) => !taskIds.has(p.taskId));
       return { id: project.id, removedTasks: taskIds.size, backup };
     });
   }
@@ -433,6 +438,8 @@ export class BoardStore {
       board.links.push(...snapshot.links.filter((l) => taskIds.has(l.from) && taskIds.has(l.to) && !linkIds.has(l.id)));
       const artifactIds = new Set(board.artifacts.map((a) => a.id));
       board.artifacts.push(...snapshot.artifacts.filter((a) => taskIds.has(a.taskId) && !artifactIds.has(a.id)).map((a) => ({ ...a, projectId: project.id })));
+      board.workpads.push(...(snapshot.workpads || []).filter((w) => taskIds.has(w.taskId)).map((w) => ({ ...w, projectId: project.id })));
+      board.plans.push(...(snapshot.plans || []).filter((p) => taskIds.has(p.taskId)));
       for (const t of tasks)
         this.event(board, { taskId: t.id, actor: "human", action: "restored", note: "Restored from project folder" });
       return { project, cards: tasks.length, unbound };
@@ -457,6 +464,8 @@ export class BoardStore {
         ideas: board.ideas.filter((i) => i.taskId === task.id),
         links: board.links.filter((l) => touches(l, task.id)),
         artifacts: board.artifacts.filter((a) => a.taskId === task.id),
+        workpads: board.workpads.filter((w) => w.taskId === task.id),
+        plans: board.plans.filter((p) => p.taskId === task.id),
       };
       const folder = join(this.directory, "removed");
       await mkdir(folder, { recursive: true, mode: 0o700 });
@@ -479,6 +488,8 @@ export class BoardStore {
       }
       board.links = board.links.filter((l) => !touches(l, task.id));
       board.artifacts = board.artifacts.filter((a) => a.taskId !== task.id);
+      board.workpads = board.workpads.filter((w) => w.taskId !== task.id);
+      board.plans = board.plans.filter((p) => p.taskId !== task.id);
       return { id: task.id, backup };
     });
   }

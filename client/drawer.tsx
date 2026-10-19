@@ -1,5 +1,6 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { nextMovesAction } from "../shared/next-moves";
+import { workpadCheckedAction, workpadEnabled, workpadUpdatedAction } from "../shared/workpad";
 import type { PaseoAgent } from "@getpaseo/client";
 import { Pressable, View } from "react-native";
 import { Icon, ScrollView, useToast } from "@getpaseo/plugin/client/react-native";
@@ -58,6 +59,7 @@ import { TaskUsage } from "./task-usage";
 import { TaskIdeas } from "./task-ideas";
 import { LinkOrigin, TaskLinks } from "./task-links";
 import { TaskArtifacts } from "./task-artifacts";
+import { TaskWorkpad } from "./task-workpad";
 import { TaskTags } from "./task-tags";
 import { ideaInstruction } from "../shared/ideas";
 import { getLocale, localizedLabels, msg, t, tn } from "../shared/i18n";
@@ -473,6 +475,9 @@ function TaskDrawerView({
     (e) =>
       e.action !== "agent.turn_started" &&
       e.action !== nextMovesAction &&
+      // The Workpad section shows the workpad itself (WORKPAD-SPEC §2.3).
+      e.action !== workpadUpdatedAction &&
+      e.action !== workpadCheckedAction &&
       !(e.action === "agent.turn_ended" && e.outcome !== "failed"),
   );
   // `fromSession`: started from the session view (an action next move), where the
@@ -762,6 +767,9 @@ function TaskDrawerView({
               <Label size={font.base} selectable>{task.description}</Label>
             )}
             <TaskProgress taskId={task.id} active={active} />
+            {workpadEnabled(project) && (
+              <TaskWorkpad task={task} active={active} disabled={!active || !!task.archivedAt || !!project.archivedAt} />
+            )}
             <TaskArtifacts task={task} disabled={!active || !!task.archivedAt || !!project.archivedAt} />
             <View style={{ gap: space[2] }}>
               <SectionHeader title={t("Sessions")} count={liveSessions.length}>

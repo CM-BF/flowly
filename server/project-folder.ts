@@ -25,6 +25,8 @@ const snapshotShape = z.object({
   ideas: z.array(z.unknown()).default([]),
   links: z.array(z.unknown()).default([]),
   artifacts: z.array(z.unknown()).default([]),
+  workpads: z.array(z.unknown()).default([]),
+  plans: z.array(z.unknown()).default([]),
   summaries: z.array(summaryEntrySchema).default([]),
 });
 
@@ -36,6 +38,8 @@ export type ProjectSnapshot = {
   ideas: Board["ideas"];
   links: Board["links"];
   artifacts: Board["artifacts"];
+  workpads: Board["workpads"];
+  plans: Board["plans"];
   summaries: SummaryEntry[];
 };
 
@@ -51,6 +55,8 @@ export function projectRecords(board: Board, projectId: string, summaries: reado
     ideas: board.ideas.filter((i) => ids.has(i.taskId)),
     links: board.links.filter((l) => ids.has(l.from) && ids.has(l.to)),
     artifacts: board.artifacts.filter((a) => ids.has(a.taskId)),
+    workpads: board.workpads.filter((w) => ids.has(w.taskId)),
+    plans: board.plans.filter((p) => ids.has(p.taskId)),
     summaries: summaries.filter((s) => ids.has(s.taskId)),
   };
 }
@@ -58,8 +64,8 @@ export function projectRecords(board: Board, projectId: string, summaries: reado
 /** Content key for change detection; chooser order is presentation only. */
 function contentKey(records: Omit<ProjectSnapshot, "savedAt">) {
   const { position: _position, ...project } = records.project;
-  const { tasks, events, ideas, links, artifacts, summaries } = records;
-  return JSON.stringify({ project, tasks, events, ideas, links, artifacts, summaries });
+  const { tasks, events, ideas, links, artifacts, workpads, plans, summaries } = records;
+  return JSON.stringify({ project, tasks, events, ideas, links, artifacts, workpads, plans, summaries });
 }
 
 export class SnapshotInvalidError extends Error {}
@@ -85,12 +91,14 @@ export async function readSnapshot(root: string): Promise<ProjectSnapshot | null
       ideas: raw.ideas,
       links: raw.links,
       artifacts: raw.artifacts,
+      workpads: raw.workpads,
+      plans: raw.plans,
       agentReceipts: [],
     });
     const [project] = board.projects;
     if (!project || board.tasks.some((t) => t.projectId !== project.id))
       throw new Error("Cards do not belong to the project.");
-    return { savedAt: raw.savedAt, project, tasks: board.tasks, events: board.events, ideas: board.ideas, links: board.links, artifacts: board.artifacts, summaries: raw.summaries };
+    return { savedAt: raw.savedAt, project, tasks: board.tasks, events: board.events, ideas: board.ideas, links: board.links, artifacts: board.artifacts, workpads: board.workpads, plans: board.plans, summaries: raw.summaries };
   } catch (error) {
     throw new SnapshotInvalidError(error instanceof Error ? error.message : String(error));
   }

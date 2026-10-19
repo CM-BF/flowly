@@ -17,6 +17,7 @@ import { ComposerService, ComposerStore } from "./server/composer";
 import { adoptIdea } from "./server/ideas";
 import { createLink, deleteLink } from "./server/links";
 import { ArtifactService } from "./server/artifacts";
+import { WorkpadService } from "./server/workpad";
 import { SessionSettingsService } from "./server/session-settings";
 import { applyTurnEnded, applyTurnStarted, recordLifecycle } from "./server/progress-rules";
 import { SummaryService, SummaryStore } from "./server/summaries";
@@ -242,11 +243,15 @@ export default function contribute(server: PluginServerContext) {
   server.handle(rpc.createLink, (input) => createLink(store, input));
   server.handle(rpc.deleteLink, (input) => deleteLink(store, input));
   const artifacts = new ArtifactService(store);
+  const workpads = new WorkpadService(store);
   server.handle(rpc.createArtifact, (input, { paseo }) => artifacts.create(input, paseo));
   server.handle(rpc.updateArtifact, (input) => artifacts.update(input));
   server.handle(rpc.deleteArtifact, (input) => artifacts.delete(input));
   server.handle(rpc.artifactStatus, (input, { paseo }) => artifacts.status(input, paseo));
   server.handle(rpc.previewArtifact, (input, { paseo }) => artifacts.preview(input, paseo));
+  server.handle(rpc.checkWorkpad, (input, { paseo }) => workpads.check(input, paseo));
+  server.handle(rpc.resolveConfusion, (input) => workpads.resolveConfusion(input));
+  server.handle(rpc.refreshWorkpad, (input, { paseo }) => workpads.refresh(input, paseo));
   server.handle(rpc.deleteTask, async (input, { paseo }) => {
     const archived = input.archive
       ? await wrapups.run({ ...input, keepCard: true, purpose: "delete" }, paseo)
@@ -323,6 +328,10 @@ export default function contribute(server: PluginServerContext) {
       recordLifecycle(store, board, identity, "agent.turn_ended", event.outcome);
       if (auto) applyTurnEnded(store, board, identity, event.outcome);
     });
+    // The session's plan and the workspace HEAD for the workpad (WORKPAD-SPEC §2.2, §5.2); never blocks the hook.
+    void workpads.recordTurn(identity, event.timeline, paseo).catch((e) =>
+      console.error("Kanban workpad plan not recorded:", e instanceof Error ? e.message : String(e)),
+    );
     // Progress summary (TASK-SUMMARY-SPEC): runs after the hook returns, never blocks it.
     if (event.outcome.kind === "completed" && (await summaries.settings()).summaryEnabled)
       void summaries.enqueue(identity.taskId, identity.agentId, event.timeline, paseo);

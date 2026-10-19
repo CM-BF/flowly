@@ -37,7 +37,8 @@ export function silentTurn(
   const ended = latest(mine, (e) => e.action === "agent.turn_ended");
   const started = latest(mine, (e) => e.action === "agent.turn_started");
   if (!ended || !started || ended.at < started.at || ended.outcome === "failed") return false;
-  return !mine.some((e) => isReport(e) && e.at >= started.at && e.at <= ended.at);
+  // Updating the workpad reports work too (WORKPAD-SPEC §2.3); it does not answer a question.
+  return !mine.some((e) => (isReport(e) || (e.actor === "agent" && e.action === "workpad_updated")) && e.at >= started.at && e.at <= ended.at);
 }
 
 /** Open questions on a card, newest first, one per session. */

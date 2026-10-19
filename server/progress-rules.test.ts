@@ -22,6 +22,8 @@ function board(status: Status, extra: { autoStatus?: boolean; archived?: boolean
     ideas: [],
     links: [],
     artifacts: [],
+    workpads: [],
+    plans: [],
     agentReceipts: [],
   } as Board;
 }
@@ -133,6 +135,11 @@ test("silent turn: ended without any report while the card is in a work stage", 
   expect(silentTurn({ status: "development" }, reported, "a")).toBe(false);
   expect(silentTurn({ status: "development" }, [...silent, ev("agent.turn_started", 3)], "a")).toBe(false);
   expect(silentTurn({ status: "development" }, [ev("agent.turn_started", 1), ev("agent.turn_ended", 2, { outcome: "failed" })], "a")).toBe(false);
+  // Updating the workpad is a report of work (WORKPAD-SPEC §2.3), but does not answer a question.
+  const padded = [ev("agent.turn_started", 1), ev("workpad_updated", 2), ev("agent.turn_ended", 3, { outcome: "completed" })];
+  expect(silentTurn({ status: "development" }, padded, "a")).toBe(false);
+  const asked = [ev("agent.turn_started", 1), ev("progress_reported", 2, { reportKind: "question" }), ev("workpad_updated", 3), ev("agent.turn_ended", 4)];
+  expect(openQuestion(asked, "a")).not.toBeNull();
 });
 
 test("A1r restores review/blocked when a resumed turn ends without any report", async () => {

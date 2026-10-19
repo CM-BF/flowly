@@ -11,6 +11,7 @@ import { useCardOutput, type CardOutput, type OutputSession } from "./card-outpu
 import { menuHandlers, useMenuOpener, type MenuEntry } from "./context-menu";
 import { shallowEqual } from "./stable";
 import { t, tn } from "../shared/i18n";
+import type { WorkpadSignal } from "../shared/workpad";
 
 export type CardDrag = {
   start(task: Task, point: Point): void;
@@ -30,7 +31,7 @@ type LiveTaskCardProps = Omit<TaskCardProps, "output" | "menu" | "onOpen" | "onA
 };
 
 /** Derived props arrive as fresh objects each board render; compare their content. */
-const contentProps = new Set(["summary", "progress", "outputSession"]);
+const contentProps = new Set(["summary", "progress", "outputSession", "workpad"]);
 function sameLiveCard(a: LiveTaskCardProps, b: LiveTaskCardProps) {
   const keys = new Set([...Object.keys(a), ...Object.keys(b)]) as Set<keyof LiveTaskCardProps>;
   for (const key of keys) {
@@ -79,6 +80,7 @@ export function TaskCard({
   progress,
   questions = 0,
   ideas = 0,
+  workpad = null,
   waiting = 0,
   waitingTitles = "",
   flash = false,
@@ -106,6 +108,8 @@ export function TaskCard({
   questions?: number;
   /** Open ideas proposed on this card (IDEAS-SPEC §5.1). */
   ideas?: number;
+  /** The workpad's checks or delivery state (WORKPAD-SPEC §6.1). */
+  workpad?: WorkpadSignal | null;
   /** Unresolved cards this one is blocked by, and their titles (CARD-LINKS-SPEC §5.1). */
   waiting?: number;
   waitingTitles?: string;
@@ -240,6 +244,7 @@ export function TaskCard({
           ideas ? tn(ideas, "{n} idea", "{n} ideas") : "",
           waiting ? tn(waiting, "Waiting on {n} card: {waitingTitles}", "Waiting on {n} cards: {waitingTitles}", { waitingTitles }) : "",
           progress ? t("Progress: {state}", { state: progress.state }) : "",
+          workpad ? workpadText(workpad) : "",
           [t("{priority} priority", { priority: priorityLabels[task.priority] }), task.type ? taskTypeLabels[task.type] : "", task.archivedAt ? t("archived") : "", legacy ? t("legacy scope") : ""].filter(Boolean).join(", "),
           summaryState === "ready" && summary
             ? t("{running} running, {finished} finished turns, {unread} unread sessions, {attention} need attention", { running: summary.running, finished: summary.finished, unread: summary.unread, attention: summary.attention })
@@ -286,6 +291,7 @@ export function TaskCard({
           sessions={sessions}
           questions={questions}
           ideas={ideas}
+          workpad={workpad}
           waiting={waiting}
         />
       </Pressable>
@@ -404,6 +410,7 @@ function CardSignals({
   sessions,
   questions,
   ideas,
+  workpad,
   waiting,
 }: {
   task: Task;
@@ -416,6 +423,7 @@ function CardSignals({
   sessions: number;
   questions: number;
   ideas: number;
+  workpad: WorkpadSignal | null;
   waiting: number;
 }) {
   const { colors } = useTheme();
@@ -423,6 +431,15 @@ function CardSignals({
   if (questions || (available && summary?.questions))
     items.push(<Signal key="question" icon="MessageCircleQuestion" color={colors.statusWarning} text={t("Needs you")} />);
   if (waiting) items.push(<Signal key="waiting" icon="Hourglass" text={t("Waiting on {waiting}", { waiting })} />);
+  if (workpad)
+    items.push(
+      <Signal
+        key="workpad"
+        icon="ListChecks"
+        color={workpad.kind === "failed" ? colors.statusDanger : workpad.kind === "delivered" || workpad.kind === "stale" ? colors.statusWarning : undefined}
+        text={workpadText(workpad)}
+      />,
+    );
   if (!available && wrapped)
     items.push(<Signal key="wrapped" icon="CircleCheck" text={t("Wrapped up")} />);
   else if (!available)
@@ -495,6 +512,22 @@ function CardSignals({
       {legacy && <Badge>{t("Legacy")}</Badge>}
     </View>
   );
+}
+
+/** The card's workpad signal (WORKPAD-SPEC §6.1). */
+function workpadText(signal: WorkpadSignal) {
+  switch (signal.kind) {
+    case "delivered":
+      return tn(signal.count, "Delivered with {n} open item", "Delivered with {n} open items");
+    case "failed":
+      return t("Checks {done}/{total} · {failed} failed", { done: signal.done, total: signal.total, failed: signal.count });
+    case "stale":
+      return t("Checks {done}/{total} · out of date", { done: signal.done, total: signal.total });
+    case "checks":
+      return t("Checks {done}/{total}", { done: signal.done, total: signal.total });
+    case "acceptance":
+      return t("Acceptance {done}/{total}", { done: signal.done, total: signal.total });
+  }
 }
 
 /** A neutral `#tag` chip, smaller than the priority/type pills. */

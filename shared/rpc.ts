@@ -8,6 +8,10 @@ import {
   artifactInput,
   artifactEdit,
   artifactSchema,
+  workpadSchema,
+  workpadCheck,
+  workpadItemId,
+  gitHeadSchema,
   ideaSchema,
   boardSchema,
   projectInput,
@@ -211,6 +215,22 @@ export const deleteArtifact = defineRpc({
   name: "artifacts.delete",
   input: z.strictObject({ id: z.string().min(1) }),
   output: z.object({ id: z.string() }),
+});
+/** Workpad edits by a person and HEAD refresh (WORKPAD-SPEC §6.3). */
+export const checkWorkpad = defineRpc({
+  name: "workpads.check",
+  input: workpadCheck,
+  output: workpadSchema,
+});
+export const resolveConfusion = defineRpc({
+  name: "workpads.resolve-confusion",
+  input: z.strictObject({ taskId: z.string().min(1), itemId: workpadItemId }),
+  output: workpadSchema,
+});
+export const refreshWorkpad = defineRpc({
+  name: "workpads.refresh",
+  input: z.strictObject({ taskId: z.string().min(1) }),
+  output: z.object({ head: gitHeadSchema.nullable() }),
 });
 /** Ids of a card's file artifacts that no longer exist (CARD-ARTIFACTS-SPEC §9). */
 export const artifactStatus = defineRpc({

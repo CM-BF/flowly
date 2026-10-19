@@ -430,3 +430,159 @@ test("next moves: recorded per session without a revision change; the latest win
   ctx = await x.service.get(x.identity);
   await expect(bad([{ label: "ok", prompt: "p" }])).rejects.toMatchObject({ code: "TASK_FINISHED" });
 });
+
+/** A repository stand-in for the workpad: HEAD, dirty state and the commits it knows (WORKPAD-SPEC §4.2, §5.1). */
+function fakeGit(state: { head: string | null; dirty?: boolean; commits?: string[] }) {
+  return async (_cwd: string, args: string[]) => {
+    if (!state.head) throw new Error("not a git repository");
+    const key = args.join(" ");
+    if (key === "rev-parse --short=12 HEAD") return `${state.head}\n`;
+    if (key === "rev-parse --abbrev-ref HEAD") return "main\n";
+    if (key === "status --porcelain") return state.dirty ? " M file\n" : "";
+    if (args[0] === "rev-parse" && args[1] === "--verify") {
+      const want = args.at(-1)!.replace("^{commit}", "");
+      const hit = [state.head, ...(state.commits || [])].find((c) => c.startsWith(want));
+      if (hit) return `${hit}\n`;
+      throw new Error("unknown revision");
+    }
+    throw new Error(`unexpected git ${key}`);
+  };
+}
+const workpadInput = (
+  ctx: Awaited<ReturnType<AgentService["get"]>>,
+  body: { acceptance?: unknown[]; validation?: unknown[]; confusions?: unknown[] },
+  workpadRevision = ctx.workpad?.revision ?? 0,
+) => ({ expectedRevision: ctx.revision, request: ctx.request, workpadRevision, acceptance: [], validation: [], confusions: [], ...body });
+
+test("workpad: replace with its own revision; task revision and status untouched; replay returns the receipt", async () => {
+  const x = await setup();
+  x.service.git = fakeGit({ head: "aaaaaaaaaaaa" });
+  const ctx = await x.service.get(x.identity);
+  expect(ctx.workpad).toBeNull();
+  const body = {
+    acceptance: [{ text: "Card shows Checks n/m", done: false }],
+    validation: [{ id: "unit", text: "Unit tests", command: "npm test", state: "pass" }],
+    confusions: [{ text: "Unclear whether Notes stay" }],
+  };
+  const first = await x.service.write(x.identity, "workpad", workpadInput(ctx, body));
+  expect(first.receipt).toMatchObject({ action: "workpad", workpadRevision: 1, taskRevision: ctx.revision.task });
+  const stored = (await x.store.read()).workpads[0]!;
+  expect(stored).toMatchObject({ revision: 1, updatedBy: "agent", agentId: "actor", head: { sha: "aaaaaaaaaaaa", branch: "main", dirty: false } });
+  expect(stored.validation[0]).toMatchObject({ id: "unit", state: "pass", sha: "aaaaaaaaaaaa", command: "npm test" });
+  expect(stored.env).toMatchObject({ path: x.a, head: { sha: "aaaaaaaaaaaa" } });
+  expect((await x.store.read()).tasks[0]!.revision).toBe(ctx.revision.task);
+  expect((await x.store.read()).events.at(-1)).toMatchObject({ action: "workpad_updated", actor: "agent", note: "Acceptance 0/1 · Checks 1/1 · 1 confusion" });
+  expect(first.current?.workpad).toMatchObject({ revision: 1, open: { unchecked: 1, total: 1 } });
+  expect(first.current?.workpad?.validation[0]?.fresh).toBe("fresh");
+  const replay = await x.service.write(x.identity, "workpad", workpadInput(ctx, body));
+  expect(replay.replayed).toBe(true);
+  expect((await x.store.read()).workpads[0]!.revision).toBe(1);
+});
+
+test("workpad: a person's tick bumps the workpad revision only; the agent's stale copy conflicts, other tools do not", async () => {
+  const x = await setup();
+  x.service.git = fakeGit({ head: "aaaaaaaaaaaa" });
+  const ctx = await x.service.get(x.identity);
+  await x.service.write(x.identity, "workpad", workpadInput(ctx, { acceptance: [{ id: "a", text: "A", done: false }] }));
+  const { WorkpadService } = await import("./workpad");
+  const human = new WorkpadService(x.store, fakeGit({ head: "aaaaaaaaaaaa" }));
+  await human.check({ taskId: "t", section: "acceptance", itemId: "a", done: true }, x.paseo);
+  const after = await x.service.get(x.identity);
+  expect(after.revision.task).toBe(ctx.revision.task);
+  expect(after.workpad).toMatchObject({ revision: 2, acceptance: [{ id: "a", done: true, by: "human" }] });
+  await expect(x.service.write(x.identity, "workpad", workpadInput(after, { acceptance: [{ id: "a", text: "A", done: false }] }, 1))).rejects.toMatchObject({
+    code: "WORKPAD_CONFLICT",
+  });
+  // Progress with the same task revision still goes through.
+  await x.service.write(x.identity, "progress", input(after));
+  // Re-read and keep the person's tick: by stays human.
+  const fresh = await x.service.get(x.identity);
+  await x.service.write(x.identity, "workpad", workpadInput(fresh, { acceptance: [{ id: "a", text: "A", done: true }] }));
+  expect((await x.store.read()).workpads[0]!.acceptance[0]).toMatchObject({ done: true, by: "human" });
+});
+
+test("workpad: commits are verified; no sha outside git; limits are WORKPAD_INVALID", async () => {
+  const x = await setup();
+  x.service.git = fakeGit({ head: "aaaaaaaaaaaa", commits: ["bbbbbbbbbbbb"] });
+  const ctx = await x.service.get(x.identity);
+  await x.service.write(x.identity, "workpad", workpadInput(ctx, { validation: [{ text: "Old run", state: "fail", sha: "bbbbbbb", dirty: true }] }));
+  expect((await x.store.read()).workpads[0]!.validation[0]).toMatchObject({ sha: "bbbbbbbbbbbb", dirty: true, state: "fail" });
+  const next = await x.service.get(x.identity);
+  expect(next.workpad?.validation[0]?.fresh).toBe("stale");
+  await expect(x.service.write(x.identity, "workpad", workpadInput(next, { validation: [{ text: "x", state: "pass", sha: "cccccccc" }] }))).rejects.toMatchObject({
+    code: "WORKPAD_INVALID",
+  });
+  await expect(
+    x.service.write(x.identity, "workpad", workpadInput(next, { acceptance: [{ id: "a", text: "a", done: false }, { id: "a", text: "b", done: false }] })),
+  ).rejects.toMatchObject({ code: "WORKPAD_INVALID" });
+  x.service.git = fakeGit({ head: null });
+  await expect(x.service.write(x.identity, "workpad", workpadInput(next, { validation: [{ text: "x", state: "pass", sha: "bbbbbbb" }] }))).rejects.toMatchObject({
+    code: "WORKPAD_INVALID",
+  });
+  // Without git a check still records, with no commit (freshness unknown).
+  await x.service.write(x.identity, "workpad", workpadInput(next, { validation: [{ text: "x", state: "pass" }] }));
+  const noGit = await x.service.get(x.identity);
+  expect(noGit.workpad?.validation[0]?.fresh).toBe("unknown");
+  expect(noGit.workpad?.head).toBeNull();
+});
+
+test("workpad: delivering with open items needs acknowledgeOpen; the snapshot marks the delivery", async () => {
+  const x = await setup();
+  const repo = { head: "aaaaaaaaaaaa" };
+  x.service.git = fakeGit(repo);
+  let ctx = await x.service.get(x.identity);
+  await x.service.write(x.identity, "status", { ...input(ctx), status: "development" });
+  ctx = await x.service.get(x.identity);
+  await x.service.write(x.identity, "workpad", workpadInput(ctx, { validation: [{ id: "unit", text: "Unit tests", state: "pass" }, { id: "e2e", text: "E2E", state: "unrun" }] }));
+  // A new commit after the run makes the pass out of date at delivery.
+  repo.head = "cccccccccccc";
+  ctx = await x.service.get(x.identity);
+  const refused = await x.service.write(x.identity, "status", { ...input(ctx, "Delivered"), status: "in_review" }).catch((e) => e);
+  expect(refused).toMatchObject({ code: "WORKPAD_OPEN" });
+  expect(String(refused.message)).toMatch(/check not run: E2E[\s\S]*out of date/);
+  expect((await x.store.read()).tasks[0]!.status).toBe("development");
+  // Same request, now acknowledged: nothing was committed, so it is not a reuse.
+  const ok = await x.service.write(x.identity, "status", { ...input(ctx, "Delivered; E2E not run, unit tests predate the last commit"), status: "in_review", acknowledgeOpen: true });
+  expect(ok.receipt.status).toBe("in_review");
+  const board = await x.store.read();
+  const moved = board.events.find((e) => e.id === ok.receipt.eventId)!;
+  expect(moved.workpad).toEqual({ unchecked: 0, failed: 0, unrun: 1, stale: 1, total: 2, revision: 1 });
+  expect(board.workpads[0]!.delivery).toMatchObject({ total: 2, eventId: moved.id });
+  expect(board.workpads[0]!.head?.sha).toBe("cccccccccccc");
+});
+
+test("workpad: no workpad or nothing open delivers without acknowledgement", async () => {
+  const x = await setup();
+  x.service.git = fakeGit({ head: "aaaaaaaaaaaa" });
+  let ctx = await x.service.get(x.identity);
+  await x.service.write(x.identity, "status", { ...input(ctx), status: "in_review" });
+  ctx = await x.service.get(x.identity);
+  await x.service.write(x.identity, "status", { ...input(ctx), status: "development" });
+  ctx = await x.service.get(x.identity);
+  await x.service.write(x.identity, "workpad", workpadInput(ctx, { acceptance: [{ text: "Done", done: true }], validation: [{ text: "Tests", state: "pass" }] }));
+  ctx = await x.service.get(x.identity);
+  const ok = await x.service.write(x.identity, "status", { ...input(ctx), status: "in_review" });
+  expect((await x.store.read()).events.find((e) => e.id === ok.receipt.eventId)?.workpad?.total).toBe(0);
+});
+
+test("workpad: off for the project — tool refused, no gate, get_task hides it; data kept and back when on", async () => {
+  const x = await setup();
+  x.service.git = fakeGit({ head: "aaaaaaaaaaaa" });
+  let ctx = await x.service.get(x.identity);
+  expect(ctx.workpadEnabled).toBe(true);
+  await x.service.write(x.identity, "workpad", workpadInput(ctx, { validation: [{ id: "e2e", text: "E2E", state: "unrun" }] }));
+  const off = await x.store.updateProject({ id: "p", revision: 1, workpad: false });
+  expect(off.workpad).toBe(false);
+  ctx = await x.service.get(x.identity);
+  expect(ctx).toMatchObject({ workpadEnabled: false, workpad: null, plan: [] });
+  await expect(x.service.write(x.identity, "workpad", workpadInput(ctx, {}, 1))).rejects.toMatchObject({ code: "WORKPAD_DISABLED" });
+  // The open E2E check does not stop delivery and no snapshot is taken.
+  await x.service.write(x.identity, "status", { ...input(ctx), status: "development" });
+  ctx = await x.service.get(x.identity);
+  const ok = await x.service.write(x.identity, "status", { ...input(ctx), status: "in_review" });
+  expect((await x.store.read()).events.find((e) => e.id === ok.receipt.eventId)?.workpad).toBeUndefined();
+  expect((await x.store.read()).workpads[0]!.delivery).toBeUndefined();
+  await x.store.updateProject({ id: "p", revision: 2, workpad: true });
+  ctx = await x.service.get(x.identity);
+  expect(ctx.workpad).toMatchObject({ revision: 1, validation: [{ id: "e2e" }] });
+});

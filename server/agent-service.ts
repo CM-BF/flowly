@@ -10,6 +10,10 @@ import { changeTags, normalizeTags, projectTagStats, tagChangeNote } from "../sh
 import { setTags } from "./store";
 import { artifactRoots, dropArtifact, missingArtifacts, normalizeTarget, putArtifact } from "./artifacts";
 import { ArtifactReadStore } from "./artifact-reads";
+import { hostname } from "node:os";
+import type { GitHead, Workpad } from "../shared/model";
+import { mergeWorkpad, openItemLines, openItems, plansOf, validationFreshness, workpadEnabled, workpadNote, workpadOf, workpadUpdatedAction } from "../shared/workpad";
+import { defaultGit, readHead, resolveCommit, type Git } from "./workpad";
 import {
   agentStatuses,
   ideaInputSchema,
@@ -18,6 +22,7 @@ import {
   tagsInputSchema,
   typeInputSchema,
   nextMovesInputSchema,
+  workpadInputSchema,
   progressInputSchema,
   statusInputSchema,
   type ToolIdentity,
@@ -31,6 +36,7 @@ import {
   type TagsToolInput,
   type TypeToolInput,
   type NextMovesInput,
+  type WorkpadInput,
 } from "../shared/tools";
 import { BoardStore } from "./store";
 import { BoardService } from "./service";
@@ -46,6 +52,8 @@ export class AgentService {
   ideasOn: () => Promise<boolean> = async () => true;
   /** The Agent artifacts setting; off refuses artifact writes (CARD-ARTIFACTS-SPEC §4.3). */
   artifactsOn: () => Promise<boolean> = async () => true;
+  /** Reads the workspace HEAD and verifies commits for the workpad (WORKPAD-SPEC §4.2, §5.1). */
+  git: Git = defaultGit;
   constructor(
     readonly store: BoardStore,
     readonly secrets: ToolSecrets,
@@ -209,6 +217,9 @@ export class AgentService {
             unread: !(a.createdBy === "agent" && a.agentId === identity.agentId) && (!lastRead || a.updatedAt > lastRead),
           }));
         })(),
+        ...(workpadEnabled(r.project)
+          ? { workpadEnabled: true, ...workpadContext(board.workpads, board.plans, r.task.id, identity.agentId) }
+          : { workpadEnabled: false, workpad: null, plan: [] }),
         links: linksOf(board, r.task.id)
           .filter((v) => v.other)
           .map(({ relation, other }) => ({
@@ -233,12 +244,25 @@ export class AgentService {
       );
     return value;
   }
+  /** Each commit the agent named, verified in the workspace repository (WORKPAD-SPEC §5.1). */
+  private async commits(input: WorkpadInput, dir: string, head: GitHead | null) {
+    const given = [...new Set(input.validation.flatMap((v) => (v.sha && v.state !== "unrun" ? [v.sha] : [])))];
+    const resolved = new Map<string, string>();
+    if (given.length && !head)
+      throw new ToolError("WORKPAD_INVALID", "This workspace is not a git repository (or git is unavailable); omit sha.");
+    for (const sha of given) {
+      const value = await resolveCommit(dir, sha, this.git);
+      if (!value) throw new ToolError("WORKPAD_INVALID", `"${sha}" is not a commit in this workspace's repository.`);
+      resolved.set(sha, value);
+    }
+    return resolved;
+  }
   async write(
     identity: ToolIdentity,
-    action: "status" | "progress" | "idea" | "artifact" | "artifact_remove" | "tags" | "type" | "next_moves",
+    action: "status" | "progress" | "idea" | "artifact" | "artifact_remove" | "tags" | "type" | "next_moves" | "workpad",
     raw: unknown,
   ): Promise<ToolResult> {
-    const input: StatusInput | ProgressInput | IdeaInput | ArtifactToolInput | ArtifactRemovalInput | TagsToolInput | TypeToolInput | NextMovesInput =
+    const input: StatusInput | ProgressInput | IdeaInput | ArtifactToolInput | ArtifactRemovalInput | TagsToolInput | TypeToolInput | NextMovesInput | WorkpadInput =
       action === "status"
         ? statusInputSchema.parse(raw)
         : action === "idea"
@@ -253,7 +277,9 @@ export class AgentService {
                   ? typeInputSchema.parse(raw)
                   : action === "next_moves"
                     ? nextMovesInputSchema.parse(raw)
-                    : progressInputSchema.parse(raw);
+                    : action === "workpad"
+                      ? workpadInputSchema.parse(raw)
+                      : progressInputSchema.parse(raw);
     const signed = this.secrets.validateRequest(
       identity,
       input.request,
@@ -273,6 +299,14 @@ export class AgentService {
             throw new ToolError("ARTIFACT_INVALID", e instanceof Error ? e.message : String(e));
           })
         : undefined;
+    // Git runs outside the transaction: the workpad's HEAD stamp and commits (WORKPAD-SPEC §4.2, §5.1),
+    // and the HEAD the delivery check compares checks against (§5.3).
+    const delivering = action === "status" && (input as StatusInput).status === "in_review";
+    const head: GitHead | null | undefined =
+      action === "workpad" || delivering
+        ? await readHead(resources.workspace.workspaceDirectory, this.git, new Date(this.clock()).toISOString())
+        : undefined;
+    const commits = action === "workpad" ? await this.commits(input as WorkpadInput, resources.workspace.workspaceDirectory, head ?? null) : undefined;
     // Tags are normalized before the write; one invalid value refuses the whole call (CARD-TAGS-SPEC §4.1).
     const tagEdit = action === "tags" || action === "idea" ? normalizeToolTags(action, input as TagsToolInput | IdeaInput) : undefined;
     const key = `${identity.agentId}:${digest(input.request.id)}`,
@@ -345,6 +379,17 @@ export class AgentService {
         throw new ToolError(
           "STATUS_UNAVAILABLE",
           `${laneName(project, next)} is not a lane in this project. Use one of allowedStatuses from get_task.`,
+        );
+      // Soft delivery gate (WORKPAD-SPEC §5.3): open items need an explicit acknowledgement.
+      // Off for the project (WORKPAD-SPEC §9): no gate, and the stored workpad stays as it is.
+      const deliveryPad =
+        next === "in_review" && next !== previous && workpadEnabled(project) ? board.workpads.find((w) => w.taskId === task.id) : undefined;
+      if (deliveryPad && head !== undefined) deliveryPad.head = head;
+      const delivered = deliveryPad ? openItems(deliveryPad) : undefined;
+      if (deliveryPad && delivered!.total > 0 && !(input as StatusInput).acknowledgeOpen)
+        throw new ToolError(
+          "WORKPAD_OPEN",
+          `${delivered!.total} workpad item${delivered!.total === 1 ? " is" : "s are"} still open:\n${openItemLines(deliveryPad).join("\n")}\nRerun out-of-date checks and finish what you can. Deliver anyway only with acknowledgeOpen=true and a note that explains every open item (failed, not run, out of date or not met).`,
         );
       if (next !== previous) {
         task.status = next;
@@ -425,6 +470,55 @@ export class AgentService {
               });
             })()
           : undefined;
+      let workpadRevision: number | undefined;
+      // Full replacement guarded by the workpad's own revision (WORKPAD-SPEC §2.4, §3).
+      const workpadEvent =
+        action === "workpad"
+          ? (() => {
+              const w = input as WorkpadInput;
+              if (!workpadEnabled(project))
+                throw new ToolError(
+                  "WORKPAD_DISABLED",
+                  "The workpad is turned off for this project. List acceptance criteria and checks (passed, failed, not run) in your progress and delivery notes instead; do not retry.",
+                );
+              const current = board.workpads.find((x) => x.taskId === task.id);
+              if ((current?.revision ?? 0) !== w.workpadRevision)
+                throw new ToolError(
+                  "WORKPAD_CONFLICT",
+                  `Workpad changed (current revision=${current?.revision ?? 0}), possibly by the user. Re-read get_task, keep their checks, then retry.`,
+                );
+              const now = new Date(this.clock()).toISOString();
+              let merged;
+              try {
+                merged = mergeWorkpad(current, w, { now, head: head ?? null, resolved: commits! });
+              } catch (e) {
+                throw new ToolError("WORKPAD_INVALID", e instanceof Error ? e.message : String(e));
+              }
+              const env = { host: hostname(), path: resources.workspace.workspaceDirectory, head: head ?? null };
+              const value: Workpad = {
+                ...(current ?? {}),
+                taskId: task.id,
+                projectId: project.id,
+                revision: (current?.revision ?? 0) + 1,
+                ...merged,
+                env,
+                head: head ?? null,
+                updatedAt: now,
+                updatedBy: "agent",
+                agentId: identity.agentId,
+              };
+              if (current) board.workpads[board.workpads.indexOf(current)] = value;
+              else board.workpads.push(value);
+              workpadRevision = value.revision;
+              return this.store.event(board, {
+                taskId: task.id,
+                agentId: identity.agentId,
+                actor: "agent",
+                action: workpadUpdatedAction,
+                note: workpadNote(value),
+              });
+            })()
+          : undefined;
       // A session's candidate next messages; the latest of a turn wins (NEXT-MOVES-SPEC §2-3).
       const movesEvent =
         action === "next_moves"
@@ -445,6 +539,7 @@ export class AgentService {
         tagsEvent ??
         typeEvent ??
         movesEvent ??
+        workpadEvent ??
         (action === "idea"
           ? this.store.event(board, {
               taskId: task.id,
@@ -462,7 +557,9 @@ export class AgentService {
               reportKind:
                 action === "progress" ? (input as ProgressInput).kind : "progress",
               ...(next !== previous ? { from: previous, to: next } : {}),
+              ...(deliveryPad ? { workpad: { ...delivered!, revision: deliveryPad.revision } } : {}),
             }));
+      if (deliveryPad) deliveryPad.delivery = { ...delivered!, revision: deliveryPad.revision, eventId: event.id, at: event.at };
       let ideaId: string | undefined;
       if (action === "idea") {
         const idea = input as IdeaInput;
@@ -495,6 +592,7 @@ export class AgentService {
         action,
         eventId: event.id,
         ...(artifactId ? { artifactId } : {}),
+        ...(workpadRevision ? { workpadRevision } : {}),
         taskRevision: task.revision,
         projectRevision: project.revision,
         status: task.status,
@@ -527,6 +625,26 @@ export class AgentService {
       };
     }
   }
+}
+
+/** get_task's workpad and plans (WORKPAD-SPEC §4.1). */
+function workpadContext(workpads: readonly Workpad[], plans: Board["plans"], taskId: string, agentId: string) {
+  const w = workpadOf(workpads, taskId);
+  const own = plansOf(plans, taskId).map((p) => ({ agentId: p.agentId, own: p.agentId === agentId, items: p.items, at: p.at }));
+  return {
+    workpad: w
+      ? {
+          revision: w.revision,
+          acceptance: w.acceptance,
+          validation: w.validation.map((v) => ({ ...v, fresh: validationFreshness(v, w.head) })),
+          confusions: w.confusions,
+          env: w.env,
+          head: w.head,
+          open: openItems(w),
+        }
+      : null,
+    plan: [...own.filter((p) => p.own), ...own.filter((p) => !p.own)],
+  };
 }
 
 /** Maps the retired in_progress alias onto a work stage (WORKFLOW-STAGES-SPEC §4). */

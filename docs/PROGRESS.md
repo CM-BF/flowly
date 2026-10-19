@@ -1,5 +1,14 @@
 # Implementation progress
 
+## Card workpad and soft delivery gate — 2026-10-19
+
+- [x] Card request "卡片 Workpad：结构化计划/验收/验证清单 + 交付门槛" (from the Symphony research). Evaluated first; the user chose the slim version and settled the three open points (no gate without a workpad, hide summary Target when acceptance exists, people may mark a check pass). [Spec](WORKPAD-SPEC.md).
+- [x] Implemented: `workpads`/`plans` on the board (`shared/model.ts`), pure logic `shared/workpad.ts` (merge with ids, by/at and sha rules, freshness, open items, card signal, plan from timeline), `server/workpad.ts` (git HEAD/commit reads, human check/resolve/refresh, plan + HEAD at turn end), `kanban_update_workpad` + `acknowledgeOpen`/`WORKPAD_OPEN` gate in `server/agent-service.ts`, CLI `workpad` and `--acknowledge-open`, tool body limit 256 KiB, skill (both copies); card signal, drawer Workpad section (`client/task-workpad.tsx`), Activity hides workpad events, Progress hides Target; workpads/plans follow card delete, project remove/restore and project-folder snapshots.
+- [x] Onboarding: tour feature row *Workpad*, tip `first-workpad` (after `next-move`, before `first-idea`), ONBOARDING-SPEC tip table, README (both) highlight + tool list; 26 strings in all 9 catalogs.
+- [x] PASS: typecheck; full `npm test` 519 passed / 63 skipped; live MCP/CLI and headless desktop/compact UI checks — details in [verification/workpad.md](verification/workpad.md).
+- [ ] UNRUN: Plan from a real session's todo list; cycling check state / resolving confusions / out-of-date display in the real UI; Luna 6 test session.
+- [x] User follow-up "workpad作为一个可选功能，允许在project设置中开关": `Project.workpad` (absent = on), *Card workpad* switch in project settings. Off: `WORKPAD_DISABLED`, no delivery gate, `get_task` `workpadEnabled:false` with no workpad/plan, no Plan or HEAD recording, people's edits refused, card signal / drawer section / tip hidden, summary Target shown again; stored data kept. Skill (both copies), spec §9, ONBOARDING tip row, README; 2 strings × 9 catalogs; tests in `server/agent-service.test.ts` and `server/workpad.test.ts`.
+
 ## Project tab context menu — 2026-10-19
 
 - [x] Card request "project tab增加contextual menu、进行编辑、设置等": right-click (long-press on touch) a desktop project tab for Project settings, New task, Insights, Ideas, Move left/right, Restore (archived) and Remove…. Reuses the board's `ContextMenuProvider`; `ProjectTabs` takes `menuFor`, entries built in `client/board.tsx` (`projectTabMenu`). [Spec](PROJECT-TABS-SPEC.md) updated.

@@ -2,7 +2,9 @@ export const cliSource = String.raw`#!/usr/bin/env node
 import {readFile, writeFile} from 'node:fs/promises';
 
 const args=process.argv.slice(2), opts={}, positional=[];
-const allowed=new Set(['context-file','save-request','request-file','task-revision','project-revision','note','kind','title','detail','rationale','context','type','priority','scope','role','target','id','add','remove','tags','moves']);
+const allowed=new Set(['context-file','save-request','request-file','task-revision','project-revision','note','kind','title','detail','rationale','context','type','priority','scope','role','target','id','add','remove','tags','moves','workpad','workpad-file','workpad-revision','acknowledge-open']);
+const booleanFlags=new Set(['acknowledge-open']);
+const workpadFlags=['workpad','workpad-file','workpad-revision'];
 const ideaFlags=['detail','rationale','context','type','priority','scope','tags'];
 const tagFlags=['add','remove'];
 const list=v=>v===undefined?[]:v.split(',').map(x=>x.trim()).filter(Boolean);
@@ -11,10 +13,10 @@ function fail(message){throw new Error(message);}
 try {
   for(let i=0;i<args.length;i++) {
     const arg=args[i];
-    if(arg.startsWith('--')) {const key=arg.slice(2);if(!allowed.has(key)||Object.hasOwn(opts,key))fail('Unknown or duplicate flag: '+arg); const value=args[++i];if(value===undefined||value.startsWith('--'))fail('Missing value for '+arg);opts[key]=value;}
+    if(arg.startsWith('--')) {const key=arg.slice(2);if(!allowed.has(key)||Object.hasOwn(opts,key))fail('Unknown or duplicate flag: '+arg); if(booleanFlags.has(key)){opts[key]=true;continue;} const value=args[++i];if(value===undefined||value.startsWith('--'))fail('Missing value for '+arg);opts[key]=value;}
     else positional.push(arg);
   }
-  const command=positional[0];if(!['current','get','status','note','idea','artifact','artifact-remove','tags','set-type','next-moves'].includes(command))fail('Usage: current [--save-request path] | status <design|development|test|blocked|in_review> | note | idea --title --detail --rationale [--context --type --priority --scope here|new] | artifact --role input|output --target <path or link> [--title --note] | artifact-remove --id <artifact id> | tags [--add a,b] [--remove c] | set-type <feature|bugfix|research|refactor|docs|chore> (only when the card has no type) | next-moves --moves <JSON array of 1-3 {label, prompt} or {label, moveTo:"done"}>, with --context-file and --request-file.');
+  const command=positional[0];if(!['current','get','status','note','idea','artifact','artifact-remove','tags','set-type','next-moves','workpad'].includes(command))fail('Usage: current [--save-request path] | status <design|development|test|blocked|in_review> | note | idea --title --detail --rationale [--context --type --priority --scope here|new] | artifact --role input|output --target <path or link> [--title --note] | artifact-remove --id <artifact id> | tags [--add a,b] [--remove c] | set-type <feature|bugfix|research|refactor|docs|chore> (only when the card has no type) | next-moves --moves <JSON array of 1-3 {label, prompt} or {label, moveTo:"done"}> | workpad --workpad-revision <n> (--workpad <JSON> | --workpad-file <path>) with {acceptance, validation, confusions}; status in_review [--acknowledge-open] delivers despite open workpad items, with --context-file and --request-file.');
   if(positional.length!==(['status','set-type'].includes(command)?2:1))fail('Unexpected positional arguments.');
   const path=opts['context-file']||process.env.ULTRA_KANBAN_CONTEXT_FILE;if(!path)fail('No session context. Use the command supplied by the card drawer.');
   const context=JSON.parse(await readFile(path,'utf8'));
@@ -27,6 +29,8 @@ try {
   if(opts.title!==undefined&&!['idea','artifact'].includes(command))fail('--title is only valid for idea and artifact.');
   if(!['artifact','artifact-remove'].includes(command)&&artifactFlags.some(k=>opts[k]!==undefined))fail('--'+artifactFlags.find(k=>opts[k]!==undefined)+' is only valid for artifact commands.');
   if(command!=='next-moves'&&opts.moves!==undefined)fail('--moves is only valid for next-moves.');
+  if(command!=='workpad'&&workpadFlags.some(k=>opts[k]!==undefined))fail('--'+workpadFlags.find(k=>opts[k]!==undefined)+' is only valid for workpad.');
+  if(command!=='status'&&opts['acknowledge-open']!==undefined)fail('--acknowledge-open is only valid for status.');
   if(command!=='tags'&&tagFlags.some(k=>opts[k]!==undefined))fail('--'+tagFlags.find(k=>opts[k]!==undefined)+' is only valid for tags.');
   if(command==='get'||command==='current') {if(['request-file','task-revision','project-revision','note','kind','role','target','id'].some(k=>opts[k]!==undefined))fail('Write flags are not valid for current.');}
   else {
@@ -37,6 +41,7 @@ try {
     else if(command==='tags'){if(!opts['request-file']||(!list(opts.add).length&&!list(opts.remove).length))fail('tags requires --request-file and --add or --remove (comma-separated).');if(opts.note||opts.kind)fail('--note and --kind are not valid for tags.');}
     else if(command==='set-type'){if(!opts['request-file'])fail('set-type requires --request-file.');if(opts.note||opts.kind)fail('--note and --kind are not valid for set-type.');}
     else if(command==='next-moves'){if(!opts['request-file']||!opts.moves)fail('next-moves requires --request-file and --moves (a JSON array).');if(opts.note||opts.kind)fail('--note and --kind are not valid for next-moves.');}
+    else if(command==='workpad'){if(!opts['request-file']||opts['workpad-revision']===undefined||(opts.workpad===undefined)===(opts['workpad-file']===undefined))fail('workpad requires --request-file, --workpad-revision and one of --workpad or --workpad-file.');if(!/^(0|[1-9][0-9]*)$/.test(opts['workpad-revision']))fail('--workpad-revision must be a number (0 when the card has no workpad).');if(opts.note||opts.kind)fail('--note and --kind are not valid for workpad.');}
     else if(!opts['request-file']||!opts.note?.trim())fail('Writes require --request-file and a nonempty --note.');
     const snapshot=JSON.parse(await readFile(opts['request-file'],'utf8'));
     if(snapshot.identity?.agentId!==context.identity.agentId||snapshot.identity?.taskId!==context.identity.taskId)fail('Snapshot belongs to another session/card.');
@@ -46,10 +51,11 @@ try {
     if(command==='idea'){action='idea';input={expectedRevision:snapshot.revision,request:snapshot.request,title:opts.title};for(const k of ideaFlags)if(opts[k]!==undefined)input[k]=k==='tags'?list(opts[k]):opts[k];}
     else if(command==='tags'){action='tags';input={expectedRevision:snapshot.revision,request:snapshot.request,add:list(opts.add),remove:list(opts.remove)};}
     else if(command==='next-moves'){let moves;try{moves=JSON.parse(opts.moves);}catch{fail('--moves must be a JSON array of {label, prompt}.');}action='next_moves';input={expectedRevision:snapshot.revision,request:snapshot.request,moves};}
+    else if(command==='workpad'){let pad;try{pad=JSON.parse(opts.workpad!==undefined?opts.workpad:await readFile(opts['workpad-file'],'utf8'));}catch{fail('The workpad must be a JSON object {acceptance, validation, confusions}.');}if(!pad||typeof pad!=='object'||Array.isArray(pad))fail('The workpad must be a JSON object {acceptance, validation, confusions}.');action='workpad';input={expectedRevision:snapshot.revision,request:snapshot.request,workpadRevision:Number(opts['workpad-revision']),acceptance:pad.acceptance,validation:pad.validation,confusions:pad.confusions};}
     else if(command==='set-type'){action='type';input={expectedRevision:snapshot.revision,request:snapshot.request,type:positional[1]};}
     else if(command==='artifact'){action='artifact';input={expectedRevision:snapshot.revision,request:snapshot.request,role:opts.role,target:opts.target};for(const k of ['title','note'])if(opts[k]!==undefined)input[k]=opts[k];}
     else if(command==='artifact-remove'){action='artifact_remove';input={expectedRevision:snapshot.revision,request:snapshot.request,id:opts.id};}
-    else if(command==='status'){if(opts.kind)fail('--kind is only valid for note.');action='status';input.status=positional[1];}
+    else if(command==='status'){if(opts.kind)fail('--kind is only valid for note.');action='status';input.status=positional[1];if(opts['acknowledge-open'])input.acknowledgeOpen=true;}
     else {action='progress';input.kind=opts.kind||'progress';}
   }
   const response=await fetch(new URL('api',url),{method:'POST',headers:{Authorization:'Bearer '+context.credential,'Content-Type':'application/json'},body:JSON.stringify({action,input}),signal:AbortSignal.timeout(20000)});

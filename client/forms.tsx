@@ -70,6 +70,7 @@ export function ProjectForm({
     [source, setSource] = useState<"directory" | "linked" | "native">("directory"),
     [links, setLinkList] = useState<string[]>(() => project?.links?.map((l) => l.target) ?? []),
     [autoStatus, setAutoStatus] = useState(project?.autoStatus !== false),
+    [workpad, setWorkpad] = useState(project?.workpad !== false),
     [agentModel, setAgentModel] = useState<AgentModel | null>(project?.agentModel ?? null),
     [archivedShown, setArchivedShown] = useState(!!showArchived),
     [lanes, setLanes] = useState<Lane[]>(() => projectLanes(project)),
@@ -104,6 +105,7 @@ export function ProjectForm({
           title,
           description,
           ...(autoStatus !== (project.autoStatus !== false) ? { autoStatus } : {}),
+          ...(workpad !== (project.workpad !== false) ? { workpad } : {}),
           ...(JSON.stringify(lanes) !== JSON.stringify(projectLanes(project)) ? { lanes } : {}),
           ...(JSON.stringify(agentModel) !== JSON.stringify(project.agentModel ?? null) ? { agentModel } : {}),
         });
@@ -260,6 +262,14 @@ export function ProjectForm({
               detail={t("A Kanban session resuming after review moves the card to Development, after a blocker back to its previous stage. Applies only while Auto-update status is on in Flowly settings.")}
               value={autoStatus}
               onChange={setAutoStatus}
+            />
+          )}
+          {project && (
+            <Toggle
+              title={t("Card workpad")}
+              detail={t("Agents keep acceptance criteria and checks on each card, and delivering with open items needs a note. Off hides it and stops these checks; what agents wrote is kept.")}
+              value={workpad}
+              onChange={setWorkpad}
             />
           )}
           {project && onShowArchived && (

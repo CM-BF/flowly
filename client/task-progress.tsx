@@ -7,7 +7,8 @@ import * as rpc from "../shared/rpc";
 import { modelLabel, targetText, type SummaryEntry, type SummaryOverview } from "../shared/summary";
 import { CardBody, CardField, CardFootnote, CardHeadline, ContentCard } from "./content-card";
 import { Disclosure } from "./disclosure";
-import { summariesKey, useSummariesQuery } from "./queries";
+import { summariesKey, useBoardQuery, useSummariesQuery } from "./queries";
+import { workpadEnabled, workpadOf } from "../shared/workpad";
 import { Button, Label, SectionHeader, font, message, radius, relativeTime, space, useTheme } from "./ui";
 import { formatLocale, t, tn } from "../shared/i18n";
 
@@ -25,6 +26,11 @@ export function TaskProgress({ taskId, active }: { taskId: string; active: boole
   const toast = useToast();
   const queryClient = useQueryClient();
   const overview = useSummaries(active);
+  // The workpad's acceptance criteria replace the summary's Target (WORKPAD-SPEC §6.2).
+  const board = useBoardQuery();
+  const projectId = board.data?.tasks.find((x) => x.id === taskId)?.projectId;
+  const hideTarget =
+    workpadEnabled(board.data?.projects.find((p) => p.id === projectId)) && !!workpadOf(board.data?.workpads, taskId)?.acceptance.length;
   const refreshRpc = useRpc(rpc.refreshSummary);
   const historyRpc = useRpc(rpc.summaryHistory);
   const [historyOpen, setHistoryOpen] = useState(false);
@@ -58,7 +64,7 @@ export function TaskProgress({ taskId, active }: { taskId: string; active: boole
       </SectionHeader>
       {latest ? (
         <ContentCard footer={<CardFootnote>{t("Updated {time}", { time: relativeTime(latest.at) })} · {modelLabel(latest.model)}</CardFootnote>}>
-          <SummaryBody entry={latest} />
+          <SummaryBody entry={hideTarget ? { ...latest, target: "" } : latest} />
         </ContentCard>
       ) : (
         <Label muted size={font.sm}>

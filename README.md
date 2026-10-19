@@ -51,6 +51,8 @@ After every completed turn a cheap model (Haiku 5.5 by default, configurable) up
 
 ![Card summary: state, target, recap and next step](docs/promo/screenshots/03-card-summary.png)
 
+Agents also keep a **Workpad** on the card: acceptance criteria, the checks they run (passed, failed or not run, each on a named commit, with the exact command) and what in the card confused them. Their plan comes from their own todo list. The card shows **Checks 3/5**; a check that ran on an older commit than the workspace's HEAD reads *out of date*. You can tick criteria and set a check's state yourself. An agent delivering to In review with open items has to acknowledge them, and the card then says **Delivered with N open items**. Turn it off per project with *Card workpad* in the project settings.
+
 ### 4. Follow-up ideas
 
 Work an agent discovers along the way (a bug it tripped over, a limitation, the next step) lands in the project's **Ideas** inbox instead of being lost in a chat. **Good idea** gives you two paths: continue in the same session, or start a new card or new session with the context pre-filled. **Dismiss** removes it. Agents never create cards or start work on their own.
@@ -95,7 +97,7 @@ The interface follows your device language, or pick one in **Flowly settings →
 
 - **One board project = one native Paseo project root.** To work across repositories, put them under one directory and register it, or let the plugin create a linked root with one symlink per repository (removing a link never touches the target).
 - **One card = one workspace**, with any number of sessions in it. You choose which session receives an instruction; ordinary follow-ups send exactly what you type.
-- **Agent tools.** Sessions created from a card get scoped MCP tools: `kanban_get_task`, `kanban_update_status`, `kanban_report_progress`, `kanban_propose_idea`, `kanban_suggest_next_moves`, `kanban_set_tags`, `kanban_set_type` and `kanban_add_artifact`, plus a skill that explains them. An agent can move its card between the work stages and In review; a person decides Done and Cancelled. A CLI fallback is provided for sessions without MCP.
+- **Agent tools.** Sessions created from a card get scoped MCP tools: `kanban_get_task`, `kanban_update_status`, `kanban_report_progress`, `kanban_propose_idea`, `kanban_suggest_next_moves`, `kanban_set_tags`, `kanban_set_type`, `kanban_add_artifact` and `kanban_update_workpad`, plus a skill that explains them. An agent can move its card between the work stages and In review; a person decides Done and Cancelled. A CLI fallback is provided for sessions without MCP.
 - **Card status and session status are independent.** A turn ending never completes a card.
 - **Also included:** drag and drop (including within a column), card links (follow-up, blocks, related), task types and priorities, wrap-up of Done cards (archive their sessions and own workspace, after a preflight), keyboard shortcuts (`?`), per-card token usage, and a compact phone layout.
 

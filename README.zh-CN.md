@@ -51,6 +51,8 @@ agent 需要你拍板时，会提出一个明确的问题并停下。卡片亮�
 
 ![卡片 summary：状态、目标、已完成、下一步](docs/promo/screenshots/03-card-summary.png)
 
+agent 还会在卡片上维护一份 **Workpad**：验收标准、它跑的验证项（通过、失败或未运行，各自标明在哪个 commit 上跑、用的什么命令），以及卡片里让它困惑的地方。计划直接取自 agent 自己的待办列表。卡片上显示 **验证 3/5**；在比当前 HEAD 更旧的 commit 上跑的验证会标为*已过期*。你也可以自己勾选验收标准、改验证状态。agent 带着未完成项交付到 In review 时必须明确确认，卡片随后标出 **交付时 N 项未完成**。可在项目设置的 *Card workpad* 里按项目关闭。
+
 ### 4. 任务延伸 ideas
 
 agent 工作时发现的后续事项（顺带发现的 bug、现有方案的局限、下一步）会进入项目的 **Ideas** 收件箱，而不是淹没在对话里。点 **Good idea** 有两条路：在原 session 里继续，或者带着预填好的上下文新建卡片 / 新开 session；**Dismiss** 则忽略。agent 不会自己建卡或开工。
@@ -95,7 +97,7 @@ agent 理解任务后会自己补全卡片元数据：卡片没有**任务类型
 
 - **一个看板 project 对应一个原生 Paseo project 根目录。** 要跨多个仓库工作，可以把它们放进同一个父目录并注册该目录；也可以让插件建一个“链接根目录”，里面为每个仓库放一个软链接（移除链接不会动目标目录）。
 - **一张卡对应一个 workspace**，workspace 里可以有多个 session。由你选择哪个 session 接收指令；普通追问只发送你输入的原文。
-- **Agent 工具。** 从卡片创建的 session 会获得受限 MCP 工具：`kanban_get_task`、`kanban_update_status`、`kanban_report_progress`、`kanban_propose_idea`、`kanban_suggest_next_moves`、`kanban_set_tags`、`kanban_set_type` 和 `kanban_add_artifact`，以及说明它们用法的 skill。agent 可以在工作阶段之间和 In review 之间移动自己的卡片；Done 与 Cancelled 由人决定。没有 MCP 的 session 可使用 CLI 兜底。
+- **Agent 工具。** 从卡片创建的 session 会获得受限 MCP 工具：`kanban_get_task`、`kanban_update_status`、`kanban_report_progress`、`kanban_propose_idea`、`kanban_suggest_next_moves`、`kanban_set_tags`、`kanban_set_type`、`kanban_add_artifact` 和 `kanban_update_workpad`，以及说明它们用法的 skill。agent 可以在工作阶段之间和 In review 之间移动自己的卡片；Done 与 Cancelled 由人决定。没有 MCP 的 session 可使用 CLI 兜底。
 - **卡片业务状态与 session 执行状态相互独立。** 一轮结束不代表卡片完成。
 - **其他能力：** 拖拽（含列内排序）、卡片关联（follow-up、blocks、related）、任务类型与优先级、Done 卡片收尾（预检后归档其 session 和自有 workspace）、键盘快捷键（`?`）、按卡片统计 token、手机紧凑布局。
 

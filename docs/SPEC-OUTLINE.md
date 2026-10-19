@@ -1,5 +1,6 @@
 # Paseo Kanban Plugin：Spec 大纲与路线图
 
+2026-10-19 卡片 Workpad（已实现）：agent 用 `kanban_update_workpad`（CLI `workpad`）整体替换卡片的验收标准、验证项（pass/fail/unrun + 运行时 commit）和困惑点，workpad 有独立 revision（人勾选不改 task revision）；Plan 取自 agent 原生 todo；daemon 用 git 记录环境戳并判断验证是否过期；agent 交付 In review 时有未完成项返回 `WORKPAD_OPEN`，需 `acknowledgeOpen` 确认，卡片标“Delivered with N open items”。卡面 Checks n/m，抽屉 Workpad 段可勾选。新提示 `first-workpad`。[spec](WORKPAD-SPEC.md)。
 2026-10-19 AI 标记（已实现）：AI 写的或建议的内容统一用 `Sparkles` 星星标记（共享 `AiMark`）：卡片进度行、侧栏 Progress 与 Ideas、Ideas 页、Insights 每日摘要、agent 添加的产物和标签，与下一步建议一致；卡片类型 feature 改用 `Puzzle`。[spec](AI-MARK-SPEC.md)。
 2026-10-19 下一步建议（已实现）：agent 在一轮结束时用 `kanban_suggest_next_moves`（CLI `next-moves`）给出 1–3 条候选下一条消息（label + 完整 prompt），记为本会话事件 `next_moves_suggested`，不改 revision；Flowly 会话输入框上方显示本轮建议，点按只预填（已有文字则追加），不发送；用户下一条消息开始新一轮后失效，可 × 隐藏。活动时间线不显示，A1r 不把它当作工作汇报。新提示 `next-move` 与欢迎页特色条目。[spec](NEXT-MOVES-SPEC.md)。
 2026-10-18 卡片类型由 agent 补全（已实现）：`kanban_set_type` / CLI `set-type` 仅在卡片没有 type 时写入（+task revision，事件 `type_set`），已有 type 一律保留（`TYPE_ALREADY_SET`）。[spec](CARD-TYPE-SPEC.md)。

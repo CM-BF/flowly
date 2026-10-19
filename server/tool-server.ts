@@ -25,6 +25,7 @@ import {
   tagsInputSchema,
   typeInputSchema,
   nextMovesInputSchema,
+  workpadInputSchema,
   progressInputSchema,
   statusInputSchema,
   toolContextSchema,
@@ -39,6 +40,8 @@ import { ToolSecrets, writePrivate } from "./tool-context";
 import { ToolError, toolFailure } from "./tool-error";
 import { cliSource } from "./cli-source";
 import { skillText, workingInstructions } from "./skill-source";
+
+const maxBody = 262144;
 
 export class ToolServer {
   readonly secrets: ToolSecrets;
@@ -164,7 +167,7 @@ export class ToolServer {
           "kanban_update_status",
           {
             description:
-              "Move this card to one of allowedStatuses from get_task (design, development, test, blocked or in_review when they are lanes of this project; lanes lists the names the user sees). Use the work stage that matches what you are doing now: design for plans/specs/research, development for implementation, test for verification; you decide where to start and may skip or go back. Keep it current: switch when the work changes, and at the start of each turn correct the stage the card was automatically resumed in if it does not match the work. Copy revisions and request from get_task, include a note. Done/cancelled are human decisions. Retry identical uncertain requests only.",
+              "Move this card to one of allowedStatuses from get_task (design, development, test, blocked or in_review when they are lanes of this project; lanes lists the names the user sees). Use the work stage that matches what you are doing now: design for plans/specs/research, development for implementation, test for verification; you decide where to start and may skip or go back. Keep it current: switch when the work changes, and at the start of each turn correct the stage the card was automatically resumed in if it does not match the work. Copy revisions and request from get_task, include a note. Done/cancelled are human decisions. Delivering to in_review with open workpad items returns WORKPAD_OPEN and changes nothing; deliver anyway only with acknowledgeOpen=true and a note that explains every open item. Retry identical uncertain requests only.",
             inputSchema: statusInputSchema,
             outputSchema: toolResultSchema,
             annotations: {
@@ -263,12 +266,24 @@ export class ToolServer {
           },
           (input) => wrap(() => this.agents.write(identity, "next_moves", input)),
         );
+        mcp.registerTool(
+          "kanban_update_workpad",
+          {
+            description:
+              "Replace this card's workpad: acceptance criteria (done or not), validation checks (pass, fail or unrun, with the command and the commit they ran on) and confusions (what in the card was unclear). The plan comes from your own todo list; do not repeat it here. Send all three lists every time; items you leave out are removed. Copy workpad.revision from get_task as workpadRevision (0 when there is none). On WORKPAD_CONFLICT the user changed it: re-read, keep their checks, retry. WORKPAD_DISABLED (workpadEnabled=false in get_task): the user turned it off for this project; report criteria and checks in your notes instead and do not retry. Does not change card status or task revision. Copy revisions/request from get_task.",
+            inputSchema: workpadInputSchema,
+            outputSchema: toolResultSchema,
+            annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+          },
+          (input) => wrap(() => this.agents.write(identity, "workpad", input)),
+        );
         return mcp;
       },
-      { responseMode: "json", maxRequestBodySize: 65536 },
+      // A full workpad with multi-byte text can exceed 64 KiB (WORKPAD-SPEC §3).
+      { responseMode: "json", maxRequestBodySize: maxBody },
     );
     const nodeHandler = toNodeHandler(this.handler, {
-      maxRequestBodySize: 65536,
+      maxRequestBodySize: maxBody,
     });
     const host = localhostHostValidation(),
       origin = localhostOriginValidation();
@@ -339,7 +354,7 @@ export class ToolServer {
     for await (const chunk of req.iterator({ destroyOnReturn: false })) {
       const data = Buffer.from(chunk);
       length += data.length;
-      if (length > 65536) {
+      if (length > maxBody) {
         req.resume();
         throw new ToolError("INVALID_INPUT", "Request body is too large.");
       }
@@ -347,7 +362,7 @@ export class ToolServer {
     }
     const body = z
       .strictObject({
-        action: z.enum(["get", "status", "progress", "idea", "artifact", "artifact_remove", "tags", "type", "next_moves"]),
+        action: z.enum(["get", "status", "progress", "idea", "artifact", "artifact_remove", "tags", "type", "next_moves", "workpad"]),
         input: z.unknown(),
       })
       .parse(JSON.parse(Buffer.concat(chunks).toString("utf8")));

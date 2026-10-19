@@ -117,6 +117,7 @@ import {
 import { ConceptStrip, GuideBanner, WelcomeTour, useOnboarding } from "./onboarding";
 import { nextTip, welcomeDecision, type TipId } from "./onboarding-logic";
 import { t, tn } from "../shared/i18n";
+import { workpadEnabled, workpadSignal } from "../shared/workpad";
 
 /** One-time tip texts (ONBOARDING-SPEC §5). */
 const tipText: Record<TipId, () => string> = {
@@ -128,8 +129,9 @@ const tipText: Record<TipId, () => string> = {
   "agent-question": () => t("An agent is asking you something. Open the card's session to answer it right there, no need to switch to Paseo."),
   "first-tag": () => t("Agents tag their cards by module and direction. Open a card and tap a tag to filter the board by it, or search #tag."),
   "next-move": () => t("When an agent finishes a turn, its suggested next steps sit above the message box. Tap one to fill it in; nothing is sent until you press Send. Some steps act on the card, like Move to Done."),
-  "project-menu": () => t("Drag a project tab to reorder it. Right-click it for its settings, a new task, Insights, Ideas or Remove."),
   "older-finished": () => t("Cards that finished a while ago fold under “Show older” at the bottom of Done and Cancelled. Settings → Workflow sets how long they stay."),
+  "project-menu": () => t("Drag a project tab to reorder it. Right-click it for its settings, a new task, Insights, Ideas or Remove."),
+  "first-workpad": () => t("This card has a workpad: the agent's acceptance criteria and checks. The card shows how many checks passed; open it to see which ran on which commit, and tick items yourself."),
 };
 
 /** RN-Web forwards React keyboard events on View; React Native's types omit them. */
@@ -756,6 +758,8 @@ function BoardContent(
     if (ideasOn) for (const i of board?.ideas || []) if (i.status === "open") counts.set(i.taskId, (counts.get(i.taskId) || 0) + 1);
     return counts;
   }, [board?.ideas, ideasOn]);
+  // Each card's workpad, for its checks signal (WORKPAD-SPEC §6.1).
+  const workpadIndex = useMemo(() => new Map((board?.workpads || []).map((w) => [w.taskId, w])), [board?.workpads]);
   // Unresolved blockers per card, for the "Waiting on" signal (CARD-LINKS-SPEC §5.1).
   const waitingIndex = useMemo(() => {
     const index = new Map<string, { count: number; titles: string }>();
@@ -869,6 +873,7 @@ function BoardContent(
           nextMove: projectTasks.some((x) => !x.archivedAt && hasOpenNextMoves(cardIndex.eventsByTask.get(x.id) || noEvents)),
           olderHidden: older.size > 0 && !(olderShown.includes("done") && olderShown.includes("cancelled")),
           projectTabs: !task && !compact && projects.length > 1,
+          hasWorkpad: !task && workpadEnabled(project) && board.workpads.some((w) => w.projectId === project.id),
         },
         blocked: !onboarding.values || welcomeOpen || welcome === "show" || dialogOpen,
       });
@@ -918,6 +923,7 @@ function BoardContent(
         progress={cardProgress(summaries.data, t.id)}
         questions={board ? cardQuestions(t, events).length : 0}
         ideas={openIdeaCount.get(t.id) || 0}
+        workpad={project && workpadEnabled(project) ? workpadSignal(t, workpadIndex.get(t.id), events) : null}
         waiting={waitingIndex.get(t.id)?.count || 0}
         waitingTitles={waitingIndex.get(t.id)?.titles || ""}
         flash={flashing.has(t.id)}

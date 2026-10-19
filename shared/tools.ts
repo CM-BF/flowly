@@ -18,6 +18,14 @@ import {
   tagInputList,
   nextMoveLimits,
   nextMoveTargets,
+  workpadLimits,
+  workpadItemId,
+  checkStates,
+  acceptanceItemSchema,
+  validationItemSchema,
+  confusionItemSchema,
+  gitHeadSchema,
+  planStatuses,
 } from "./model";
 
 export const agentStatuses = ["design", "development", "test", "blocked", "in_review"] as const;
@@ -40,6 +48,12 @@ export const statusInputSchema = z.strictObject({
     .enum([...agentStatuses, legacyStatus])
     .describe(
       "One of allowedStatuses. in_progress is a deprecated alias kept for older sessions: it keeps the current work stage, else Development.",
+    ),
+  acknowledgeOpen: z
+    .boolean()
+    .optional()
+    .describe(
+      "Deliver to in_review although workpad items are still open (WORKPAD_OPEN). Only with a note that explains every open item.",
     ),
 });
 export const progressInputSchema = z.strictObject({
@@ -139,6 +153,52 @@ export const nextMovesInputSchema = z.strictObject({
       });
     }),
 });
+const itemId = workpadItemId
+  .optional()
+  .describe("Keep the id from get_task when you update an item; omit it for a new one.");
+/** kanban_update_workpad (WORKPAD-SPEC §3): replace the card's acceptance criteria, checks and confusions. */
+export const workpadInputSchema = z.strictObject({
+  expectedRevision: revisionSchema,
+  request: requestSchema,
+  workpadRevision: z
+    .number()
+    .int()
+    .nonnegative()
+    .describe("workpad.revision from get_task; 0 when the card has no workpad yet."),
+  acceptance: z
+    .array(
+      z.strictObject({
+        id: itemId,
+        text: z.string().trim().min(1).max(workpadLimits.text),
+        done: z.boolean(),
+      }),
+    )
+    .max(workpadLimits.acceptance)
+    .describe("Acceptance criteria: what must be true for the card to be done."),
+  validation: z
+    .array(
+      z.strictObject({
+        id: itemId,
+        text: z.string().trim().min(1).max(workpadLimits.text).describe("What the check verifies."),
+        command: z.string().trim().max(workpadLimits.command).optional().describe("The exact command, e.g. npm test."),
+        state: z.enum(checkStates).describe("pass or fail only after you actually ran it; unrun otherwise."),
+        sha: z
+          .string()
+          .trim()
+          .regex(/^[0-9a-fA-F]{4,40}$/)
+          .optional()
+          .describe("The commit it ran on (git rev-parse --short HEAD). Omitted: the previous one when unchanged, else the current HEAD."),
+        dirty: z.boolean().optional().describe("It ran with uncommitted changes."),
+        evidence: z.string().trim().max(workpadLimits.evidence).optional().describe("Short output summary or the failure."),
+      }),
+    )
+    .max(workpadLimits.validation)
+    .describe("Validation checks with their state."),
+  confusions: z
+    .array(z.strictObject({ id: itemId, text: z.string().trim().min(1).max(workpadLimits.confusion) }))
+    .max(workpadLimits.confusions)
+    .describe("What in the card was unclear and what you assumed."),
+});
 /** kanban_add_artifact (CARD-ARTIFACTS-SPEC §4.1): register an input or a deliverable of this card. */
 export const artifactInputSchema = z.strictObject({
   expectedRevision: revisionSchema,
@@ -226,6 +286,32 @@ export const toolContextSchema = z.object({
       unread: z.boolean(),
     }),
   ),
+  /** false: the user turned the workpad off for this project (WORKPAD-SPEC §9); kanban_update_workpad returns WORKPAD_DISABLED. */
+  workpadEnabled: z.boolean().optional(),
+  /** The card's workpad (WORKPAD-SPEC §4.1); `fresh` is null for unrun checks. */
+  workpad: z
+    .object({
+      revision: z.number(),
+      acceptance: z.array(acceptanceItemSchema),
+      validation: z.array(validationItemSchema.extend({ fresh: z.enum(["fresh", "stale", "unknown"]).nullable() })),
+      confusions: z.array(confusionItemSchema),
+      env: z.object({ host: z.string(), path: z.string(), head: gitHeadSchema.nullable() }).nullable(),
+      head: gitHeadSchema.nullable(),
+      open: z.object({ unchecked: z.number(), failed: z.number(), unrun: z.number(), stale: z.number(), total: z.number() }),
+    })
+    .nullable()
+    .optional(),
+  /** Each session's plan from its own todo list, this session first. */
+  plan: z
+    .array(
+      z.object({
+        agentId: z.string(),
+        own: z.boolean(),
+        items: z.array(z.object({ text: z.string(), status: z.enum(planStatuses) })),
+        at: z.string(),
+      }),
+    )
+    .optional(),
   /** Linked cards, read-only (CARD-LINKS-SPEC §4). `resolved` only for blocked_by. */
   links: z.array(
     z.object({
@@ -283,3 +369,4 @@ export type TypeToolInput = z.infer<typeof typeInputSchema>;
 export type NextMovesInput = z.infer<typeof nextMovesInputSchema>;
 export type ArtifactToolInput = z.infer<typeof artifactInputSchema>;
 export type ArtifactRemovalInput = z.infer<typeof artifactRemovalSchema>;
+export type WorkpadInput = z.infer<typeof workpadInputSchema>;

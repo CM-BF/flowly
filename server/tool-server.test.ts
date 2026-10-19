@@ -84,7 +84,14 @@ test("MCP initialize/list can precede actor creation; live calls require SDK con
     "kanban_set_tags",
     "kanban_set_type",
     "kanban_suggest_next_moves",
+    "kanban_update_workpad",
   ]);
+  // The soft delivery gate and the workpad's own revision are part of the tool schemas (WORKPAD-SPEC §3, §5.3).
+  const listed = (await mcp("tools/list", {})).result.tools as { name: string; inputSchema: { properties: Record<string, unknown> } }[];
+  expect(listed.find((t) => t.name === "kanban_update_status")!.inputSchema.properties).toHaveProperty("acknowledgeOpen");
+  expect(Object.keys(listed.find((t) => t.name === "kanban_update_workpad")!.inputSchema.properties)).toEqual(
+    expect.arrayContaining(["workpadRevision", "acceptance", "validation", "confusions"]),
+  );
   const cold = await mcp("tools/call", {
     name: "kanban_get_task",
     arguments: {},
