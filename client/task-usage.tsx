@@ -1,17 +1,16 @@
-import { useState } from "react";
 import { View } from "react-native";
 import { useRpc } from "@getpaseo/plugin/client";
 import { useQuery } from "@tanstack/react-query";
 import * as rpc from "../shared/rpc";
 import { cacheHitRate, compactDuration, compactNumber, percent, totalTokens, type SessionUsage, type TokenUsage } from "../shared/usage";
-import { Disclosure } from "./disclosure";
+import { Section, type SectionState } from "./disclosure";
 import { Label, font, message, radius, space, useTheme } from "./ui";
 import { t, tn } from "../shared/i18n";
 
 /** Drawer "Usage": token use read from local Claude Code / Codex logs (USAGE-STATS-SPEC). Collapsed by default. */
-export function TaskUsage({ taskId, active }: { taskId: string; active: boolean }) {
+export function TaskUsage({ taskId, active, section }: { taskId: string; active: boolean; section: SectionState }) {
   const { colors } = useTheme();
-  const [open, setOpen] = useState(false);
+  const open = section.open;
   const read = useRpc(rpc.taskUsage);
   const usage = useQuery({
     queryKey: ["flowly", "usage", taskId],
@@ -33,7 +32,7 @@ export function TaskUsage({ taskId, active }: { taskId: string; active: boolean 
   const work = data?.sessions.filter((s) => !s.summarizer) || [];
   const summarizers = data?.sessions.filter((s) => s.summarizer) || [];
   return (
-    <Disclosure title={t("Usage")} summary={summary} open={open} onChange={setOpen} disabled={!active}>
+    <Section id={taskId} title={t("Usage")} summary={summary} open={open} onToggle={section.onToggle}>
       {usage.error && !data ? (
         <Label muted size={font.sm}>{message(usage.error)}</Label>
       ) : !data ? (
@@ -66,7 +65,7 @@ export function TaskUsage({ taskId, active }: { taskId: string; active: boolean 
             {t("From local Claude Code / Codex logs; tokens only. Output includes reasoning.")}</Label>
         </View>
       )}
-    </Disclosure>
+    </Section>
   );
 }
 

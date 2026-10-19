@@ -1057,5 +1057,16 @@ const catalog: Catalog = {
   "Dismissed": "Dispensado",
   "Dismissed from Attention. It comes back when something new happens.": "Dispensado da Atenção. Volta quando houver algo novo.",
   "Not ready to decide? Dismiss a card from Attention. It comes back when something new happens.": "Ainda não sabe o que fazer? Dispense um cartão da Atenção. Ele volta quando houver algo novo.",
+  "Card sidebar": "Painel do cartão",
+  "Move {section} up": "{section} para cima",
+  "Move {section} down": "{section} para baixo",
+  "Drag to reorder {section}": "Arraste para reordenar {section}",
+  "Arrange the sections of an open card and choose which start open. The description stays on top.": "Organize as seções de um cartão aberto e escolha quais começam abertas. A descrição fica no topo.",
+  "Starts open": "Começa aberta",
+  "{section} starts open": "{section} começa aberta",
+  "{section} starts closed": "{section} começa fechada",
+  "Reset sidebar layout": "Redefinir o painel",
+  "The sidebar uses the default layout": "O painel usa o layout padrão",
+  "Arrange an open card your way: reorder its sections and choose which start open in Settings → Cards → Card sidebar.": "Deixe um cartão aberto do seu jeito: reordene as seções e escolha quais começam abertas em Configurações → Cartões → Painel do cartão.",
 };
 export default catalog;

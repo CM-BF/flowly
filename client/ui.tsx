@@ -698,14 +698,38 @@ export function SectionHeader({
   title,
   count,
   ai,
+  open,
+  onToggle,
+  summary,
   children,
 }: {
   title: string;
   count?: number;
   /** The section shows AI-written content: the title gets the AI mark. */
   ai?: boolean;
+  /** With `onToggle`: the title collapses the section; a chevron after it shows the state. */
+  open?: boolean;
+  onToggle?(): void;
+  /** One muted line after the title while the section is collapsed (what is inside). */
+  summary?: string;
   children?: ReactNode;
 }) {
+  const { colors } = useTheme();
+  const heading = (
+    <>
+      <Label bold size={font.md} selectable={false}>
+        {title}
+      </Label>
+      {ai && <AiMark label={t("AI generated")} />}
+      {count !== undefined && (
+        <Label muted size={font.md} selectable={false}>
+          {count}
+        </Label>
+      )}
+      {onToggle && <Icon name={open ? "ChevronDown" : "ChevronRight"} size={14} color={colors.foregroundMuted} />}
+    </>
+  );
+  const row = { flexDirection: "row", alignItems: "center", gap: space[1.5] } as const;
   return (
     <View
       style={{
@@ -715,17 +739,28 @@ export function SectionHeader({
         minHeight: control,
       }}
     >
-      <View style={{ flex: 1, minWidth: 0, flexDirection: "row", alignItems: "center", gap: space[1.5] }}>
-        <Label bold size={font.md} selectable={false}>
-          {title}
-        </Label>
-        {ai && <AiMark label={t("AI generated")} />}
-        {count !== undefined && (
-          <Label muted size={font.md} selectable={false}>
-            {count}
+      {onToggle ? (
+        <View style={{ flex: 1, minWidth: 0, flexDirection: "row" }}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={title}
+            accessibilityState={{ expanded: !!open }}
+            onPress={onToggle}
+            style={({ pressed }) => ({ ...row, minHeight: touch ? 44 : control, flexShrink: 1, opacity: pressed ? 0.7 : 1 })}
+          >
+            {heading}
+          </Pressable>
+        </View>
+      ) : (
+        <View style={{ flex: 1, minWidth: 0, ...row }}>{heading}</View>
+      )}
+      {!open && !!summary && (
+        <View style={{ flexShrink: 1, maxWidth: "60%" }}>
+          <Label muted size={font.sm} lines={1} selectable={false}>
+            {summary}
           </Label>
-        )}
-      </View>
+        </View>
+      )}
       {children}
     </View>
   );

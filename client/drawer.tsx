@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { Fragment, memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { nextMovesAction } from "../shared/next-moves";
 import { workpadCheckedAction, workpadEnabled, workpadUpdatedAction } from "../shared/workpad";
 import type { PaseoAgent } from "@getpaseo/client";
@@ -44,7 +44,7 @@ import { sessionAttention } from "../shared/session-attention";
 import type { SessionEntry } from "./session-link";
 import { Enter, MotionReveal, useSettled } from "./motion";
 import { TaskMetadata } from "./task-metadata";
-import { Disclosure } from "./disclosure";
+import { Disclosure, Section, type SectionState } from "./disclosure";
 import { WrapupModal } from "./wrapup";
 import { currentWrapup } from "../shared/wrapup-state";
 import { useComposer } from "./composer";
@@ -61,6 +61,7 @@ import { LinkOrigin, TaskLinks } from "./task-links";
 import { TaskArtifacts } from "./task-artifacts";
 import { TaskWorkpad } from "./task-workpad";
 import { TaskTags } from "./task-tags";
+import { drawerSectionOrder, drawerSectionsOpen, type AnyDrawerSection, type DrawerSection } from "../shared/drawer-sections";
 import { ideaInstruction } from "../shared/ideas";
 import { getLocale, localizedLabels, msg, t, tn } from "../shared/i18n";
 
@@ -96,6 +97,8 @@ function TaskDrawerView({
   escapeRequest,
   attention,
   onAttention,
+  sectionOrder,
+  sectionOpen,
 }: {
   task: Task;
   project: Project;
@@ -137,6 +140,10 @@ function TaskDrawerView({
   attention?: "active" | "dismissed";
   /** Dismisses the card from Attention, or restores it when dismissed. */
   onAttention?(): void;
+  /** The stored section order, comma-joined so the memo compares it by value (DRAWER-SPEC, Section order). */
+  sectionOrder?: string;
+  /** The stored open/closed choices as JSON, compared by value (DRAWER-SPEC, Section order). */
+  sectionOpen?: string;
 }) {
   const toast = useToast();
   const theme = useTheme();
@@ -154,9 +161,6 @@ function TaskDrawerView({
     [ideaSession, setIdeaSession] = useState<Idea | null>(null),
     [showWrapup, setShowWrapup] = useState(false),
     [showArchived, setShowArchived] = useState(false),
-    [detailsOpen, setDetailsOpen] = useState(false),
-    // Activity is history, not status: collapsed until asked for (USAGE-STATS-SPEC §5).
-    [activityOpen, setActivityOpen] = useState(false),
     [sending, setSending] = useState(false),
     [error, setError] = useState(""),
     [drafts, setDrafts] = useState<Record<string, string>>({}),
@@ -164,6 +168,19 @@ function TaskDrawerView({
       {},
     );
   const lock = useRef(false);
+  const order = useMemo(() => drawerSectionOrder(sectionOrder ? sectionOrder.split(",") : []), [sectionOrder]);
+  // Which sections are open: the user's defaults each time the sidebar opens, then their own toggles.
+  // Activity and Usage are history, not status: closed by default (USAGE-STATS-SPEC §5).
+  const openDefaults = useMemo(() => drawerSectionsOpen(sectionOpen ? (JSON.parse(sectionOpen) as Record<string, boolean>) : {}), [sectionOpen]);
+  const [opened, setOpened] = useState(openDefaults);
+  useEffect(() => {
+    if (active) setOpened(openDefaults);
+  }, [active, openDefaults]);
+  const sectionStates = useMemo(() => {
+    const states = {} as Record<AnyDrawerSection, SectionState>;
+    for (const id of Object.keys(opened) as AnyDrawerSection[]) states[id] = sectionStateOf(id, opened[id], setOpened);
+    return states;
+  }, [opened]);
   // Heavy sections and their reads start once the open transition is over.
   const settled = useSettled(task.id);
   const ready = active && settled;
@@ -328,6 +345,8 @@ function TaskDrawerView({
     (a, b) => b.createdAt.localeCompare(a.createdAt) || a.id.localeCompare(b.id),
   );
   const liveSessions = ordered.filter((a) => !a.archivedAt);
+  const runningSessions = liveSessions.filter((a) => a.status === "running" || a.status === "initializing").length;
+  const sessionSummary = runningSessions ? t("{n} running", { n: runningSessions }) : undefined;
   // Agent questions and approvals waiting in this card's sessions, answered
   // right in the Needs-you area (SESSION-QUESTION-SPEC §2.1). Keyed by content
   // so a board refresh does not re-render the forms (or reset their drafts).
@@ -561,6 +580,159 @@ function TaskDrawerView({
       checked: priority === task.priority,
       onPress: () => priority !== task.priority && editField({ priority }, t("Priority set to {priority}", { priority: priorityLabels[priority] })),
     }));
+  // Title, properties and tags: fixed on desktop; on phones they scroll away with the content, so the sections get the screen.
+  const heading = (
+    <>
+      <Label bold size={font.xl} lines={3}>{task.title}</Label>
+      <View testID="task-actions" style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: space[2] }}>
+        <Property
+          icon={<StatusIcon status={task.status} />}
+          text={laneName(project, task.status)}
+          label={t("Status: {lane}", { lane: laneName(project, task.status) })}
+          disabled={statusDisabled || !openMenu}
+          onPress={(at) => openMenu?.(at, t("Status"), statusEntries())}
+        />
+        <Property
+          icon={<PriorityIcon priority={task.priority} always />}
+          text={priorityLabels[task.priority]}
+          label={t("Priority: {priority}", { priority: priorityLabels[task.priority] })}
+          disabled={!active || sending || !openMenu}
+          onPress={(at) => openMenu?.(at, t("Priority"), priorityEntries())}
+        />
+        <Property
+          icon={<TypeIcon type={task.type} always />}
+          text={task.type ? taskTypeLabels[task.type] : t("No type")}
+          label={t("Type: {type}", { type: task.type ? taskTypeLabels[task.type] : t("none") })}
+          disabled={!active || sending || !openMenu}
+          onPress={(at) => openMenu?.(at, t("Type"), typeEntries())}
+        />
+      </View>
+      <TaskTags task={task} active={active} readOnly={!!project.archivedAt} onFilterTag={onFilterTag} />
+      {!!error && <Notice>{error}</Notice>}
+    </>
+  );
+  // The movable sections, in the user's order (DRAWER-SPEC, Section order).
+  const section = (id: DrawerSection): ReactNode => {
+    switch (id) {
+      case "progress":
+        return (
+          <TaskProgress taskId={task.id} active={active} section={sectionStates.progress} />
+        );
+      case "workpad":
+        return (
+          workpadEnabled(project) && (
+            <TaskWorkpad task={task} active={active} disabled={!active || !!task.archivedAt || !!project.archivedAt} section={sectionStates.workpad} />
+          )
+        );
+      case "artifacts":
+        return (
+          <TaskArtifacts task={task} active={active} disabled={!active || !!task.archivedAt || !!project.archivedAt} section={sectionStates.artifacts} />
+        );
+      case "sessions":
+        return (
+          <Section
+            id={task.id}
+            title={t("Sessions")}
+            count={liveSessions.length}
+            open={sectionStates.sessions.open}
+            onToggle={sectionStates.sessions.onToggle}
+            summary={sessionSummary}
+            actions={
+              <Button quiet icon="Plus" disabled={!active || unavailable} onPress={() => setShowNew(true)}>
+                {t("Start session")}
+              </Button>
+            }
+          >
+            {sessions.error && (
+              <View style={{ gap: space[2] }}>
+                <Notice>
+                  {message(sessions.error)}
+                  {sessions.data?.length ? ` ${t("Showing the last known session state.")}` : ""}
+                </Notice>
+                <View style={{ flexDirection: "row" }}>
+                  <Button quiet icon="RefreshCw" onPress={() => void sessions.refetch()}>
+                    {t("Retry sessions")}</Button>
+                </View>
+              </View>
+            )}
+            {readState.error && (
+              <Notice tone="warning">
+                {t("Read state unavailable: {error}", { error: message(readState.error) })}
+              </Notice>
+            )}
+            {sessions.isPending ? (
+              <Label muted>{t("Loading sessions…")}</Label>
+            ) : !liveSessions.length && !sessions.error ? (
+              <View
+                style={{
+                  paddingVertical: space[5],
+                  paddingHorizontal: space[4],
+                  alignItems: "center",
+                  gap: space[1],
+                  borderRadius: radius.lg,
+                  borderWidth: 1,
+                  borderStyle: "dashed",
+                  borderColor: colors.border,
+                }}
+              >
+                <Label muted size={font.md}>{t("No sessions yet")}</Label>
+                <Label muted size={font.sm}>{t("Start one to put an agent on this task.")}</Label>
+                <View style={{ paddingTop: space[2] }}>
+                  <Button primary icon="Play" disabled={!active || unavailable} onPress={() => setShowNew(true)}>
+                    {t("Start session")}</Button>
+                </View>
+              </View>
+            ) : (
+              <SessionGroup list={liveSessions} render={renderSession} />
+            )}
+            {archivedSessions.length > 0 && (
+              <Disclosure
+                title={t("Archived · {n}", { n: archivedSessions.length })}
+                open={showArchived}
+                onChange={setShowArchived}
+              >
+                <Label muted size={font.sm}>
+                  {t("Open one and send a message to restore it.")}</Label>
+                <SessionGroup list={archivedSessions} render={renderSession} />
+              </Disclosure>
+            )}
+          </Section>
+        );
+      case "ideas":
+        return (
+          onCreateFromIdea && onOpenTask && (
+            <TaskIdeas
+              taskId={task.id}
+              sessions={ordered}
+              // Ideas outlive the card: only an archived project makes them read-only (IDEAS-INBOX-SPEC §2.2).
+              disabled={!active || !!project.archivedAt}
+              onCreate={onCreateFromIdea}
+              onAllIdeas={onAllIdeas && (() => onAllIdeas(task.id))}
+              onNewSession={(idea) => {
+                setIdeaSession(idea);
+                setShowNew(true);
+              }}
+              onOpenTask={onOpenTask}
+              section={sectionStates.ideas}
+            />
+          )
+        );
+      case "links":
+        return (
+          onOpenTask && onLink && onFollowUp && (
+            <TaskLinks
+              task={task}
+              project={project}
+              disabled={!active || !!task.archivedAt || !!project.archivedAt}
+              onOpenTask={onOpenTask}
+              onLink={onLink}
+              onFollowUp={onFollowUp}
+              section={sectionStates.links}
+            />
+          )
+        );
+    }
+  };
   return (
     <View
       style={{
@@ -635,32 +807,7 @@ function TaskDrawerView({
               />
               {!compact && <IconButton icon="X" label={t("Close side bar")} onPress={onClose} />}
             </View>
-            <Label bold size={font.xl} lines={3}>{task.title}</Label>
-            <View testID="task-actions" style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: space[2] }}>
-              <Property
-                icon={<StatusIcon status={task.status} />}
-                text={laneName(project, task.status)}
-                label={t("Status: {lane}", { lane: laneName(project, task.status) })}
-                disabled={statusDisabled || !openMenu}
-                onPress={(at) => openMenu?.(at, t("Status"), statusEntries())}
-              />
-              <Property
-                icon={<PriorityIcon priority={task.priority} always />}
-                text={priorityLabels[task.priority]}
-                label={t("Priority: {priority}", { priority: priorityLabels[task.priority] })}
-                disabled={!active || sending || !openMenu}
-                onPress={(at) => openMenu?.(at, t("Priority"), priorityEntries())}
-              />
-              <Property
-                icon={<TypeIcon type={task.type} always />}
-                text={task.type ? taskTypeLabels[task.type] : t("No type")}
-                label={t("Type: {type}", { type: task.type ? taskTypeLabels[task.type] : t("none") })}
-                disabled={!active || sending || !openMenu}
-                onPress={(at) => openMenu?.(at, t("Type"), typeEntries())}
-              />
-            </View>
-            <TaskTags task={task} active={active} readOnly={!!project.archivedAt} onFilterTag={onFilterTag} />
-            {!!error && <Notice>{error}</Notice>}
+            {!compact && heading}
           </View>
           <Divider />
           <ScrollView
@@ -670,6 +817,7 @@ function TaskDrawerView({
             keyboardShouldPersistTaps="handled"
             contentContainerStyle={{ ...verticalContent, padding: space[4], paddingBottom: space[6] + space[2], gap: space[5] }}
           >
+            {compact && <View style={{ gap: space[2] }}>{heading}</View>}
             {!!resourceIssue && !wrapped && (
               <View style={{ gap: space[2] }}>
                 <Notice tone="warning">{resourceIssue}</Notice>
@@ -792,109 +940,15 @@ function TaskDrawerView({
             {!!task.description && (
               <Label size={font.base} selectable>{task.description}</Label>
             )}
-            <TaskProgress taskId={task.id} active={active} />
-            {workpadEnabled(project) && (
-              <TaskWorkpad task={task} active={active} disabled={!active || !!task.archivedAt || !!project.archivedAt} />
-            )}
-            <TaskArtifacts task={task} disabled={!active || !!task.archivedAt || !!project.archivedAt} />
-            <View style={{ gap: space[2] }}>
-              <SectionHeader title={t("Sessions")} count={liveSessions.length}>
-                <Button
-                  quiet
-                  icon="Plus"
-                  disabled={!active || unavailable}
-                  onPress={() => setShowNew(true)}
-                >
-                  {t("Start session")}</Button>
-              </SectionHeader>
-              {sessions.error && (
-                <View style={{ gap: space[2] }}>
-                  <Notice>
-                    {message(sessions.error)}
-                    {sessions.data?.length ? ` ${t("Showing the last known session state.")}` : ""}
-                  </Notice>
-                  <View style={{ flexDirection: "row" }}>
-                    <Button quiet icon="RefreshCw" onPress={() => void sessions.refetch()}>
-                      {t("Retry sessions")}</Button>
-                  </View>
-                </View>
-              )}
-              {readState.error && (
-                <Notice tone="warning">
-                  {t("Read state unavailable: {error}", { error: message(readState.error) })}
-                </Notice>
-              )}
-              {sessions.isPending ? (
-                <Label muted>{t("Loading sessions…")}</Label>
-              ) : !liveSessions.length && !sessions.error ? (
-                <View
-                  style={{
-                    paddingVertical: space[5],
-                    paddingHorizontal: space[4],
-                    alignItems: "center",
-                    gap: space[1],
-                    borderRadius: radius.lg,
-                    borderWidth: 1,
-                    borderStyle: "dashed",
-                    borderColor: colors.border,
-                  }}
-                >
-                  <Label muted size={font.md}>{t("No sessions yet")}</Label>
-                  <Label muted size={font.sm}>{t("Start one to put an agent on this task.")}</Label>
-                  <View style={{ paddingTop: space[2] }}>
-                    <Button primary icon="Play" disabled={!active || unavailable} onPress={() => setShowNew(true)}>
-                      {t("Start session")}</Button>
-                  </View>
-                </View>
-              ) : (
-                <SessionGroup list={liveSessions} render={renderSession} />
-              )}
-              {archivedSessions.length > 0 && (
-                <Disclosure
-                  title={t("Archived · {n}", { n: archivedSessions.length })}
-                  open={showArchived}
-                  onChange={setShowArchived}
-                >
-                  <Label muted size={font.sm}>
-                    {t("Open one and send a message to restore it.")}</Label>
-                  <SessionGroup list={archivedSessions} render={renderSession} />
-                </Disclosure>
-              )}
-            </View>
-            {onCreateFromIdea && onOpenTask && (
-              <TaskIdeas
-                taskId={task.id}
-                sessions={ordered}
-                // Ideas outlive the card: only an archived project makes them read-only (IDEAS-INBOX-SPEC §2.2).
-                disabled={!active || !!project.archivedAt}
-                onCreate={onCreateFromIdea}
-                onAllIdeas={onAllIdeas && (() => onAllIdeas(task.id))}
-                onNewSession={(idea) => {
-                  setIdeaSession(idea);
-                  setShowNew(true);
-                }}
-                onOpenTask={onOpenTask}
-              />
-            )}
-            {onOpenTask && onLink && onFollowUp && (
-              <TaskLinks
-                task={task}
-                project={project}
-                disabled={!active || !!task.archivedAt || !!project.archivedAt}
-                onOpenTask={onOpenTask}
-                onLink={onLink}
-                onFollowUp={onFollowUp}
-              />
-            )}
+            {order.map((id) => <Fragment key={id}>{section(id)}</Fragment>)}
             {settled && (
             // Below the sessions, so mounting them after the transition moves nothing above.
             <Enter distance={4} style={{ gap: space[5] }}>
             <TaskMetadata
               task={task}
               project={project}
-              open={detailsOpen}
-              onChange={setDetailsOpen}
-              disabled={!active}
+              open={sectionStates.details.open}
+              onToggle={sectionStates.details.onToggle}
               summary={workspace.isPending || scope.isPending ? t("Checking…") : unavailable ? t("Unavailable") : legacy ? t("Legacy") : workspace.data?.name}
               legacy={legacy}
               workspaceName={workspace.data?.name}
@@ -903,13 +957,14 @@ function TaskDrawerView({
               owner={scope.data?.owner}
               directories={scope.data?.directories || []}
             />
-            <TaskUsage taskId={task.id} active={ready} />
+            <TaskUsage taskId={task.id} active={ready} section={sectionStates.usage} />
             {meaningful.length > 0 && (
-              <Disclosure
+              <Section
+                id={task.id}
                 title={t("Activity")}
-                summary={`${meaningful.length}`}
-                open={activityOpen}
-                onChange={setActivityOpen}
+                count={meaningful.length}
+                open={sectionStates.activity.open}
+                onToggle={sectionStates.activity.onToggle}
               >
                 <View>
                   {meaningful
@@ -933,7 +988,7 @@ function TaskDrawerView({
                       />
                     ))}
                 </View>
-              </Disclosure>
+              </Section>
             )}
             </Enter>
             )}
@@ -1021,6 +1076,11 @@ const CardRequests = memo(function CardRequests({
     </View>
   );
 });
+
+/** A section's open state and a toggle that only flips that section. */
+function sectionStateOf(id: AnyDrawerSection, open: boolean, set: (update: (current: Record<AnyDrawerSection, boolean>) => Record<AnyDrawerSection, boolean>) => void): SectionState {
+  return { open, onToggle: () => set((current) => ({ ...current, [id]: !current[id] })) };
+}
 
 function sameDrawerProps(a: TaskDrawerProps, b: TaskDrawerProps) {
   const keys = new Set([...Object.keys(a), ...Object.keys(b)]) as Set<keyof TaskDrawerProps>;

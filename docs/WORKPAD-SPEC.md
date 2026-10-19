@@ -217,6 +217,7 @@ agent 调 `flowly_update_status(status=in_review)` 时（只在 agent 路径；�
 
 在 `TaskProgress` 与 `TaskArtifacts` 之间新增 **Workpad** 段（`client/task-workpad.tsx`，`React.memo`，回调用 `useStableCallback`），默认展开，没有 workpad 也没有 Plan 时整段不显示：
 
+- 整段可收起（2026-10-19）：点 `Workpad` 标题（带箭头）收起/展开；收起时标题右侧显示 `Acceptance n/m · Checks n/m`（通过数）；是否默认展开由 设置 → Cards → Card sidebar 决定（默认展开）。Acceptance、Checks、Confusions 各先显示 5 条，“Show N more” 每次追加 5 条；Checks 按 失败、过期、未运行、通过 排序；命令默认只显示一行，展开输出或点击命令后显示全部（[DRAWER-SPEC](DRAWER-SPEC.md#section-order-and-artifacts-paging)）。
 - 头部：`Workpad` + 环境戳 `host:path@sha`（可选中复制）+ “Updated {time} by {session}”。
 - **Acceptance**：复选框列表。人勾选的项旁标小字“by you”。
 - **Checks**：每行状态图标（pass 绿勾 / 过期的 pass 警告三角 / fail 红叉 / unrun 灰色虚线圈），点图标按 unrun → pass → fail → unrun 切换（§6.3）；文字、等宽 `command`；第二行小字：`@sha`、“out of date”（stale，警告色）、“on uncommitted changes”（dirty）、相对 `ranAt`；有 `evidence` 时用 “Show output / Hide output” 展开。

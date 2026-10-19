@@ -35,6 +35,10 @@ export const boardViewSettings = defineSettings({
     cardActivity: z.enum(cardActivityModes).catch("auto").default("auto"),
     /** Card fields the user hid; unknown ids are kept and ignored (CARD-DISPLAY-SPEC §4). */
     cardHidden: z.array(z.string().max(40)).max(20).catch([]).default([]),
+    /** The card sidebar's section order; unknown ids are kept and ignored (DRAWER-SPEC, Section order). */
+    drawerOrder: z.array(z.string().max(40)).max(20).catch([]).default([]),
+    /** Card sidebar sections that start open (true) or closed (false) unlike their default (DRAWER-SPEC, Section order). */
+    drawerOpen: z.record(z.string().max(40), z.boolean()).catch({}).default({}),
   }),
 });
 

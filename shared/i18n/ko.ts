@@ -1057,5 +1057,16 @@ const catalog: Catalog = {
   "Dismissed": "숨김",
   "Dismissed from Attention. It comes back when something new happens.": "확인 필요에서 숨겼습니다. 새로운 일이 생기면 다시 나타납니다.",
   "Not ready to decide? Dismiss a card from Attention. It comes back when something new happens.": "아직 결정하기 어렵나요? 카드를 확인 필요에서 숨길 수 있습니다. 새로운 일이 생기면 다시 나타납니다.",
+  "Card sidebar": "카드 사이드바",
+  "Move {section} up": "{section} 위로 이동",
+  "Move {section} down": "{section} 아래로 이동",
+  "Drag to reorder {section}": "드래그하여 {section} 순서 변경",
+  "Arrange the sections of an open card and choose which start open. The description stays on top.": "열린 카드의 섹션 순서를 정하고 처음에 펼칠 섹션을 고르세요. 설명은 맨 위에 고정됩니다.",
+  "Starts open": "처음에 펼침",
+  "{section} starts open": "{section} 처음에 펼침",
+  "{section} starts closed": "{section} 처음에 접힘",
+  "Reset sidebar layout": "사이드바 초기화",
+  "The sidebar uses the default layout": "사이드바가 기본 레이아웃입니다",
+  "Arrange an open card your way: reorder its sections and choose which start open in Settings → Cards → Card sidebar.": "열린 카드를 내 방식대로: 설정 → 카드 → 카드 사이드바에서 섹션 순서와 처음에 펼칠 섹션을 고르세요.",
 };
 export default catalog;

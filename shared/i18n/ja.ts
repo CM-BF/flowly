@@ -1057,5 +1057,16 @@ const catalog: Catalog = {
   "Dismissed": "非表示",
   "Dismissed from Attention. It comes back when something new happens.": "要対応から非表示にしています。新しい動きがあると戻ります。",
   "Not ready to decide? Dismiss a card from Attention. It comes back when something new happens.": "まだ決められない？カードを要対応から非表示にできます。新しい動きがあると戻ります。",
+  "Card sidebar": "カードのサイドバー",
+  "Move {section} up": "{section} を上へ",
+  "Move {section} down": "{section} を下へ",
+  "Drag to reorder {section}": "ドラッグして {section} を並べ替え",
+  "Arrange the sections of an open card and choose which start open. The description stays on top.": "開いたカードのセクションを並べ替え、最初に開いておくセクションを選びます。説明は常に一番上です。",
+  "Starts open": "最初から開く",
+  "{section} starts open": "{section} は最初から開く",
+  "{section} starts closed": "{section} は最初は閉じる",
+  "Reset sidebar layout": "サイドバーをリセット",
+  "The sidebar uses the default layout": "サイドバーは既定のレイアウトです",
+  "Arrange an open card your way: reorder its sections and choose which start open in Settings → Cards → Card sidebar.": "開いたカードを自分好みに：設定 → カード → カードのサイドバー で、セクションの順序と最初に開くセクションを選べます。",
 };
 export default catalog;

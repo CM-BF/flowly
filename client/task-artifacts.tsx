@@ -1,4 +1,4 @@
-import { memo, useMemo, useState } from "react";
+import { memo, useEffect, useMemo, useState } from "react";
 import { Image, Linking, Pressable, View } from "react-native";
 import { Icon, useToast } from "@getpaseo/plugin/client/react-native";
 import { useRpc } from "@getpaseo/plugin/client";
@@ -10,19 +10,20 @@ import { Modal } from "./modal";
 import { IdeaRow, useExitList } from "./task-ideas";
 import { boardKey, useBoardQuery } from "./queries";
 import { SessionMarkdown } from "./session-content";
-import { Disclosure } from "./disclosure";
-import { AiMark, Actions, Button, Choices, Field, IconButton, Label, Notice, SectionHeader, Theme, font, message, space, touch, useTheme } from "./ui";
+import { Section, ShowMore, pageSize, type SectionState } from "./disclosure";
+import { AiMark, Actions, Button, Choices, Field, IconButton, Label, Notice, Theme, font, message, space, touch, useTheme } from "./ui";
 import { t, tn } from "../shared/i18n";
 import { LinkTicket, TicketPreview, useConnections } from "./tickets";
 
-const shown = 5;
+/** Rows shown per group at first, and added by each Show more (CARD-ARTIFACTS-SPEC §5.2). */
+const firstPage: Record<ArtifactRole, number> = { input: pageSize, output: pageSize };
 
 /**
  * Drawer "Artifacts" (CARD-ARTIFACTS-SPEC §5.2): the card's inputs and outputs,
  * each marked as added by you or by an agent. Files open a read-only preview,
  * links open in the browser. Removing is optimistic and never touches the file.
  */
-export function TaskArtifacts({ task, disabled }: { task: Task; disabled: boolean }) {
+export function TaskArtifacts({ task, active, disabled, section }: { task: Task; active: boolean; disabled: boolean; section: SectionState }) {
   const board = useBoardQuery();
   const toast = useToast();
   const queryClient = useQueryClient();
@@ -35,7 +36,11 @@ export function TaskArtifacts({ task, disabled }: { task: Task; disabled: boolea
   const connections = useConnections();
   const ticketConnections = connections.data?.connections || [];
   const readTickets = useRpc(rpc.cardTickets);
-  const [expanded, setExpanded] = useState<ReadonlySet<ArtifactRole>>(() => new Set());
+  // Per opening of the sidebar: Show more only adds rows, closing and reopening starts over.
+  const [limit, setLimit] = useState(firstPage);
+  useEffect(() => {
+    if (active) setLimit(firstPage);
+  }, [active]);
   const list = useMemo(
     () => (board.data ? artifactsOf(board.data.artifacts, task.id).filter((a) => !removing.has(a.id)) : []),
     [board.data, task.id, removing],
@@ -83,59 +88,60 @@ export function TaskArtifacts({ task, disabled }: { task: Task; disabled: boolea
       });
     }
   };
-  const open = (artifact: Artifact) => {
+  const openArtifact = (artifact: Artifact) => {
     if (artifact.ticket) return setPreviewing(artifact);
     if (artifact.kind === "url")
       return void Linking.openURL(artifact.target).catch(() => toast.show(t("Could not open the link."), { variant: "error" }));
     setPreviewing(artifact);
   };
   return (
-    <View style={{ gap: space[2] }}>
-      <SectionHeader title={t("Artifacts")} count={list.length}>
-        {ticketConnections.length > 0 && (
-          <IconButton icon="Ticket" label={t("Link Jira ticket")} disabled={disabled} onPress={() => setLinking(true)} />
-        )}
-        <IconButton icon="Plus" label={t("Add an artifact: a file or link")} disabled={disabled} onPress={() => setEditing("new")} />
-      </SectionHeader>
+    <>
+    <Section
+      id={task.id}
+      title={t("Artifacts")}
+      count={list.length}
+      empty={!rows.length}
+      open={section.open}
+      onToggle={section.onToggle}
+      actions={
+        <>
+          {ticketConnections.length > 0 && (
+            <IconButton icon="Ticket" label={t("Link Jira ticket")} disabled={disabled} onPress={() => setLinking(true)} />
+          )}
+          <IconButton icon="Plus" label={t("Add an artifact: a file or link")} disabled={disabled} onPress={() => setEditing("new")} />
+        </>
+      }
+    >
       {artifactGroups.map((group) => {
         const own = rows.filter((r) => r.item.role === group.role);
         if (!own.length) return null;
-        const render = (row: (typeof own)[number]) => (
-          <IdeaRow key={row.item.id} leaving={row.leaving} entering={row.entering} spacing={0}>
-            <ArtifactRow
-              artifact={row.item}
-              missing={missing.has(row.item.id)}
-              ticketStatus={statuses.get(row.item.id)}
-              disabled={disabled || row.leaving}
-              onOpen={open}
-              onEdit={setEditing}
-              onRemove={remove}
-            />
-          </IdeaRow>
-        );
+        const rest = own.length - limit[group.role];
         return (
           <View key={group.role} style={{ gap: 2 }}>
             <Label muted size={font.xs} bold selectable={false}>{t(group.title)}</Label>
-            {own.slice(0, shown).map(render)}
-            {own.length > shown && (
-              <Disclosure
-                title={tn(own.length - shown, "Show {n} more", "Show {n} more")}
-                open={expanded.has(group.role)}
-                onChange={(next) =>
-                  setExpanded((current) => {
-                    const copy = new Set(current);
-                    if (next) copy.add(group.role);
-                    else copy.delete(group.role);
-                    return copy;
-                  })
-                }
-              >
-                <View style={{ gap: 2 }}>{own.slice(shown).map(render)}</View>
-              </Disclosure>
+            {own.slice(0, limit[group.role]).map((row) => (
+              <IdeaRow key={row.item.id} leaving={row.leaving} entering={row.entering} spacing={0}>
+                <ArtifactRow
+                  artifact={row.item}
+                  missing={missing.has(row.item.id)}
+                  ticketStatus={statuses.get(row.item.id)}
+                  disabled={disabled || row.leaving}
+                  onOpen={openArtifact}
+                  onEdit={setEditing}
+                  onRemove={remove}
+                />
+              </IdeaRow>
+            ))}
+            {rest > 0 && (
+              <ShowMore
+                count={Math.min(pageSize, rest)}
+                onPress={() => setLimit((current) => ({ ...current, [group.role]: current[group.role] + pageSize }))}
+              />
             )}
           </View>
         );
       })}
+    </Section>
       {editing && <ArtifactForm task={task} artifact={editing === "new" ? null : editing} onClose={() => setEditing(null)} />}
       {previewing &&
         (previewing.ticket ? (
@@ -144,7 +150,7 @@ export function TaskArtifacts({ task, disabled }: { task: Task; disabled: boolea
           <ArtifactPreview artifact={previewing} onClose={() => setPreviewing(null)} />
         ))}
       {linking && <LinkTicket taskId={task.id} linked={linkedKeys} connections={ticketConnections} onClose={() => setLinking(false)} />}
-    </View>
+    </>
   );
 }
 

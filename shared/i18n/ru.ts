@@ -1057,5 +1057,16 @@ const catalog: Catalog = {
   "Dismissed": "Скрыто",
   "Dismissed from Attention. It comes back when something new happens.": "Скрыто из «Внимания». Карточка вернётся, когда появится что-то новое.",
   "Not ready to decide? Dismiss a card from Attention. It comes back when something new happens.": "Пока не готовы решать? Скройте карточку из «Внимания». Она вернётся, когда появится что-то новое.",
+  "Card sidebar": "Панель карточки",
+  "Move {section} up": "Вверх: {section}",
+  "Move {section} down": "Вниз: {section}",
+  "Drag to reorder {section}": "Перетащите, чтобы изменить порядок: {section}",
+  "Arrange the sections of an open card and choose which start open. The description stays on top.": "Упорядочьте разделы открытой карточки и выберите, какие открыты сразу. Описание всегда сверху.",
+  "Starts open": "Открыт сразу",
+  "{section} starts open": "{section}: открыт сразу",
+  "{section} starts closed": "{section}: свёрнут сразу",
+  "Reset sidebar layout": "Сбросить панель",
+  "The sidebar uses the default layout": "Панель в макете по умолчанию",
+  "Arrange an open card your way: reorder its sections and choose which start open in Settings → Cards → Card sidebar.": "Настройте открытую карточку под себя: порядок разделов и какие из них открыты сразу — в Настройки → Карточки → Панель карточки.",
 };
 export default catalog;

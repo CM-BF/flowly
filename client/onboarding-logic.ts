@@ -28,7 +28,7 @@ export function welcomeDecision(input: {
   return input.blocked ? "wait" : "show";
 }
 
-export const tipIds = ["first-card", "needs-you", "first-idea", "first-done", "first-artifact", "first-tag", "agent-question", "older-finished", "next-move", "first-ticket", "jira-connect", "project-menu", "first-workpad", "subagents", "card-display", "attention-dismiss"] as const;
+export const tipIds = ["first-card", "needs-you", "first-idea", "first-done", "first-artifact", "first-tag", "agent-question", "older-finished", "next-move", "first-ticket", "jira-connect", "project-menu", "first-workpad", "subagents", "card-display", "attention-dismiss", "sidebar-order"] as const;
 export type TipId = (typeof tipIds)[number];
 
 export interface TipFacts {
@@ -64,6 +64,8 @@ export interface TipFacts {
   busyBoard: boolean;
   /** Three or more cards are in Attention, none of them dismissed yet (ATTENTION-DISMISS-SPEC §6). */
   crowdedAttention: boolean;
+  /** A card's sidebar is open and shows at least one artifact or idea, so it has several sections (DRAWER-SPEC, Section order). */
+  fullSidebar: boolean;
 }
 
 const tipFact: Record<TipId, keyof TipFacts> = {
@@ -83,13 +85,14 @@ const tipFact: Record<TipId, keyof TipFacts> = {
   subagents: "hasSubagent",
   "card-display": "busyBoard",
   "attention-dismiss": "crowdedAttention",
+  "sidebar-order": "fullSidebar",
 };
 
 /** The one tip to show now: first in priority order whose fact holds and that was not shown before. */
 export function nextTip(input: { tipsSeen: readonly string[]; facts: TipFacts; blocked: boolean }): TipId | null {
   if (input.blocked) return null;
   // Waiting for the user outranks introductions; the answer-in-session tip is the more specific one.
-  const order: TipId[] = ["agent-question", "needs-you", "attention-dismiss", "first-done", "older-finished", "next-move", "first-workpad", "subagents", "first-idea", "first-artifact", "first-ticket", "first-tag", "first-card", "card-display", "project-menu", "jira-connect"];
+  const order: TipId[] = ["agent-question", "needs-you", "attention-dismiss", "first-done", "older-finished", "next-move", "first-workpad", "subagents", "first-idea", "first-artifact", "first-ticket", "first-tag", "first-card", "card-display", "sidebar-order", "project-menu", "jira-connect"];
   return order.find((id) => input.facts[tipFact[id]] && !input.tipsSeen.includes(id)) ?? null;
 }
 

@@ -2,21 +2,20 @@ import { useState, type ReactNode } from "react";
 import { Animated, Pressable, View } from "react-native";
 import { Icon } from "@getpaseo/plugin/client/react-native";
 import { useMotionPresence, lerp } from "./motion";
-import { Label, font, touch, useTheme } from "./ui";
-import { t } from "../shared/i18n";
+import { Label, SectionHeader, font, space, touch, useTheme } from "./ui";
+import { t, tn } from "../shared/i18n";
 
-export function Disclosure({ title, summary, open, disabled, onChange, children }: {
+export function Disclosure({ title, summary, open, disabled, flush, onChange, children }: {
   title: string;
   summary?: string;
   open: boolean;
   disabled?: boolean;
+  /** The body starts at the title's left edge instead of under the title text (lists of bordered items). */
+  flush?: boolean;
   onChange(open: boolean): void;
   children: ReactNode;
 }) {
   const { colors } = useTheme();
-  const [height, setHeight] = useState(0);
-  // Height shares this value with opacity/chevron, so use the JS driver on all platforms.
-  const presence = useMotionPresence(open ? true : undefined, open ? title : "", false);
   return (
     <View>
       <Pressable
@@ -30,32 +29,118 @@ export function Disclosure({ title, summary, open, disabled, onChange, children 
           opacity: disabled ? 0.4 : pressed ? 0.7 : 1,
         })}
       >
-        <Animated.View style={{ transform: [{ rotate: lerp(presence.progress, ["0deg", "90deg"]) }] }}>
-          <Icon name="ChevronRight" size={16} color={colors.foregroundMuted} />
-        </Animated.View>
+        <Chevron open={open} title={title} color={colors.foregroundMuted} />
         <View style={{ flex: 1, minWidth: 0 }}>
           <Label bold size={font.md} selectable={false}>{title}</Label>
         </View>
         {!!summary && <View style={{ flexShrink: 1, maxWidth: "50%" }}><Label muted size={font.sm} lines={1} selectable={false}>{summary}</Label></View>}
       </Pressable>
-      {presence.item && (
-        <Animated.View
-          testID="disclosure-body"
-          pointerEvents={presence.active ? "auto" : "none"}
-          accessibilityElementsHidden={!presence.active}
-          importantForAccessibility={presence.active ? "auto" : "no-hide-descendants"}
-          style={{
-            overflow: "hidden",
-            height: lerp(presence.progress, [0, height]),
-            opacity: presence.progress,
-          }}
-        >
-          <View
-            onLayout={(event) => setHeight(Math.max(0, event.nativeEvent.layout.height))}
-            style={{ position: "absolute", top: 0, left: 0, right: 0, paddingTop: 8, paddingBottom: 4, paddingLeft: 22, gap: 10 }}
-          >{children}</View>
-        </Animated.View>
+      <Collapse open={open} id={title} style={{ paddingTop: 8, paddingBottom: 4, paddingLeft: flush ? 0 : 22, gap: 10 }}>
+        {children}
+      </Collapse>
+    </View>
+  );
+}
+
+/** A chevron that turns from right to down with the same progress as `Collapse`. */
+export function Chevron({ open, title, color, size = 16 }: { open: boolean; title: string; color: string; size?: number }) {
+  const presence = useMotionPresence(open ? true : undefined, open ? title : "", false);
+  return (
+    <Animated.View style={{ transform: [{ rotate: lerp(presence.progress, ["0deg", "90deg"]) }] }}>
+      <Icon name="ChevronRight" size={size} color={color} />
+    </Animated.View>
+  );
+}
+
+/**
+ * Measured-height reveal shared by Disclosure and collapsible sections
+ * (DRAWER-SPEC, Motion). Height shares this value with opacity, so it uses
+ * the JS driver on all platforms; closed content is unmounted after the exit.
+ */
+export function Collapse({ open, id, style, children }: {
+  open: boolean;
+  /** Identity of the content; a new id restarts the reveal. */
+  id: string;
+  style?: object;
+  children: ReactNode;
+}) {
+  // Mounted open (a section shown expanded): stay in the normal layout until measured, so nothing jumps.
+  const [height, setHeight] = useState<number | null>(() => (open ? null : 0));
+  const presence = useMotionPresence(open ? true : undefined, open ? id : "", false);
+  if (!presence.item) return null;
+  const measured = height !== null;
+  return (
+    <Animated.View
+      testID="disclosure-body"
+      pointerEvents={presence.active ? "auto" : "none"}
+      accessibilityElementsHidden={!presence.active}
+      importantForAccessibility={presence.active ? "auto" : "no-hide-descendants"}
+      style={{
+        overflow: "hidden",
+        ...(measured ? { height: lerp(presence.progress, [0, height]) } : null),
+        opacity: presence.progress,
+      }}
+    >
+      <View
+        onLayout={(event) => setHeight(Math.max(0, event.nativeEvent.layout.height))}
+        style={{ ...(measured ? { position: "absolute", top: 0, left: 0, right: 0 } : null), ...style }}
+      >{children}</View>
+    </Animated.View>
+  );
+}
+
+/**
+ * A card sidebar section (DRAWER-SPEC, Section order): a header whose title
+ * collapses it, a one-line summary while collapsed, actions on the right, and
+ * the body revealed by `Collapse`. The drawer owns `open`, so the user's
+ * defaults apply each time the sidebar opens.
+ */
+export function Section({ id, title, count, ai, summary, open, onToggle, actions, empty, children }: {
+  id: string;
+  title: string;
+  count?: number;
+  ai?: boolean;
+  summary?: string;
+  open: boolean;
+  onToggle(): void;
+  actions?: ReactNode;
+  /** Nothing to show yet: a plain header (with its actions), no chevron and no body. */
+  empty?: boolean;
+  children?: ReactNode;
+}) {
+  return (
+    <View style={{ gap: space[2] }}>
+      <SectionHeader title={title} count={count} ai={ai} open={open || empty} onToggle={empty ? undefined : onToggle} summary={summary}>
+        {actions}
+      </SectionHeader>
+      {!empty && (
+        <Collapse open={open} id={id} style={{ gap: space[2] }}>
+          {children}
+        </Collapse>
       )}
     </View>
   );
 }
+
+/** "Show N more": adds the next rows to the same list, lined up with the rows' icons. There is no Show less. */
+export function ShowMore({ count, onPress }: { count: number; onPress(): void }) {
+  const { colors } = useTheme();
+  const label = tn(count, "Show {n} more", "Show {n} more");
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      onPress={onPress}
+      style={({ pressed }) => ({ flexDirection: "row", alignItems: "center", gap: space[1.5], minHeight: touch ? 44 : 30, opacity: pressed ? 0.7 : 1 })}
+    >
+      <Icon name="ChevronDown" size={14} color={colors.foregroundMuted} />
+      <Label muted size={font.sm} selectable={false}>{label}</Label>
+    </Pressable>
+  );
+}
+
+/** How the drawer controls a section (open state lives in the drawer). */
+export type SectionState = { open: boolean; onToggle(): void };
+
+/** Rows shown at first and added by each Show more. */
+export const pageSize = 5;

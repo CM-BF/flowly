@@ -32,12 +32,12 @@ test("tour paging stays inside the pages", () => {
 });
 
 describe("tips", () => {
-  const none: TipFacts = { hasCard: false, needsYou: false, openIdea: false, movedToFinished: false, hasArtifact: false, hasAgentTag: false, agentQuestion: false, olderHidden: false, nextMove: false, hasTicket: false, noConnection: false, projectTabs: false, hasWorkpad: false, hasSubagent: false, busyBoard: false, crowdedAttention: false };
+  const none: TipFacts = { hasCard: false, needsYou: false, openIdea: false, movedToFinished: false, hasArtifact: false, hasAgentTag: false, agentQuestion: false, olderHidden: false, nextMove: false, hasTicket: false, noConnection: false, projectTabs: false, hasWorkpad: false, hasSubagent: false, busyBoard: false, crowdedAttention: false, fullSidebar: false };
   test("nothing to show without a fact", () => {
     expect(nextTip({ tipsSeen: [], facts: none, blocked: false })).toBeNull();
   });
   test("one tip at a time, waiting-for-you first", () => {
-    const facts = { hasCard: true, needsYou: true, openIdea: true, movedToFinished: false, hasArtifact: true, hasAgentTag: true, agentQuestion: false, olderHidden: false, nextMove: false, hasTicket: false, noConnection: false, projectTabs: false, hasWorkpad: false, hasSubagent: false, busyBoard: false, crowdedAttention: false };
+    const facts = { hasCard: true, needsYou: true, openIdea: true, movedToFinished: false, hasArtifact: true, hasAgentTag: true, agentQuestion: false, olderHidden: false, nextMove: false, hasTicket: false, noConnection: false, projectTabs: false, hasWorkpad: false, hasSubagent: false, busyBoard: false, crowdedAttention: false, fullSidebar: false };
     expect(nextTip({ tipsSeen: [], facts, blocked: false })).toBe("needs-you");
     expect(nextTip({ tipsSeen: ["needs-you"], facts, blocked: false })).toBe("first-idea");
     expect(nextTip({ tipsSeen: ["needs-you", "first-idea"], facts, blocked: false })).toBe("first-artifact");
@@ -85,6 +85,10 @@ describe("tips", () => {
     expect(nextTip({ tipsSeen: ["first-card"], facts, blocked: false })).toBe("card-display");
     expect(nextTip({ tipsSeen: ["first-card", "card-display"], facts, blocked: false })).toBe("project-menu");
     expect(nextTip({ tipsSeen: [], facts: { ...none, busyBoard: true }, blocked: false })).toBe("card-display");
+    // An open card with several sections: point at the section order, after the card display tip.
+    expect(nextTip({ tipsSeen: [], facts: { ...none, fullSidebar: true }, blocked: false })).toBe("sidebar-order");
+    expect(nextTip({ tipsSeen: [], facts: { ...none, busyBoard: true, fullSidebar: true }, blocked: false })).toBe("card-display");
+    expect(nextTip({ tipsSeen: ["card-display"], facts: { ...none, fullSidebar: true, projectTabs: true }, blocked: false })).toBe("sidebar-order");
   });
   test("Jira tickets: the attached-ticket tip follows artifacts; connecting Jira is announced last", () => {
     const facts = { ...none, hasCard: true, hasArtifact: true, hasTicket: true, noConnection: true };

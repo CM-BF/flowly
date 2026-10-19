@@ -6,10 +6,10 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import * as rpc from "../shared/rpc";
 import { modelLabel, targetText, type SummaryEntry, type SummaryOverview } from "../shared/summary";
 import { CardBody, CardField, CardFootnote, CardHeadline, ContentCard } from "./content-card";
-import { Disclosure } from "./disclosure";
+import { Disclosure, Section, type SectionState } from "./disclosure";
 import { summariesKey, useBoardQuery, useSummariesQuery } from "./queries";
 import { workpadEnabled, workpadOf } from "../shared/workpad";
-import { Button, Label, SectionHeader, font, message, radius, relativeTime, space, useTheme } from "./ui";
+import { Button, Label, font, message, radius, relativeTime, space, useTheme } from "./ui";
 import { formatLocale, t, tn } from "../shared/i18n";
 
 export { summariesKey };
@@ -22,7 +22,7 @@ export function cardProgress(overview: SummaryOverview | undefined, taskId: stri
 }
 
 /** Drawer "Progress": state, recap and next step, with refresh and version history. */
-export function TaskProgress({ taskId, active }: { taskId: string; active: boolean }) {
+export function TaskProgress({ taskId, active, section }: { taskId: string; active: boolean; section: SectionState }) {
   const toast = useToast();
   const queryClient = useQueryClient();
   const overview = useSummaries(active);
@@ -56,12 +56,19 @@ export function TaskProgress({ taskId, active }: { taskId: string; active: boole
   };
   const older = (history.data || []).filter((e) => e.id !== latest?.id);
   return (
-    <View style={{ gap: space[2] }}>
-      <SectionHeader title={t("Progress")} ai>
+    <Section
+      id={taskId}
+      title={t("Progress")}
+      ai
+      open={section.open}
+      onToggle={section.onToggle}
+      summary={running ? t("Updating…") : latest?.state}
+      actions={
         <Button quiet icon="RefreshCw" disabled={!active || running || requesting} onPress={() => void refresh()}>
           {running ? t("Updating…") : t("Refresh")}
         </Button>
-      </SectionHeader>
+      }
+    >
       {latest ? (
         <ContentCard footer={<CardFootnote>{t("Updated {time}", { time: relativeTime(latest.at) })} · {modelLabel(latest.model)}</CardFootnote>}>
           <SummaryBody entry={hideTarget ? { ...latest, target: "" } : latest} />
@@ -87,6 +94,7 @@ export function TaskProgress({ taskId, active }: { taskId: string; active: boole
           open={historyOpen}
           onChange={setHistoryOpen}
           disabled={!active}
+          flush
         >
           {history.isPending ? (
             <Label muted size={font.sm}>{t("Loading…")}</Label>
@@ -103,7 +111,7 @@ export function TaskProgress({ taskId, active }: { taskId: string; active: boole
           )}
         </Disclosure>
       )}
-    </View>
+    </Section>
   );
 }
 
@@ -148,7 +156,8 @@ function HistoryItem({ entry }: { entry: SummaryEntry }) {
         </Label>
       </Pressable>
       {open && (
-        <View style={{ paddingHorizontal: space[3], paddingBottom: space[3] }}>
+        // Under the version's title, past the chevron, so the fields line up with it.
+        <View style={{ paddingLeft: space[2] + 14 + space[2], paddingRight: space[2], paddingBottom: space[3] }}>
           <SummaryBody entry={{ state: "", target: entry.target, recap: entry.recap, next: entry.next }} />
         </View>
       )}

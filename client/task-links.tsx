@@ -11,9 +11,10 @@ import { groupOf, groups, linkCandidates } from "./link-rows";
 import { eventPoint, useMenuOpener } from "./context-menu";
 import { Modal } from "./modal";
 import { IdeaRow, useExitList } from "./task-ideas";
+import { Section, type SectionState } from "./disclosure";
 import { boardKey, useBoardQuery } from "./queries";
 import { TypeIcon } from "./status";
-import { Choices, IconButton, Label, Notice, SectionHeader, TextBox, Theme, font, message, radius, space, touch, useTheme } from "./ui";
+import { Choices, IconButton, Label, Notice, TextBox, Theme, font, message, radius, space, touch, useTheme } from "./ui";
 import { t } from "../shared/i18n";
 
 /**
@@ -28,6 +29,7 @@ export function TaskLinks({
   onOpenTask,
   onLink,
   onFollowUp,
+  section,
 }: {
   task: Task;
   project: Project;
@@ -35,6 +37,7 @@ export function TaskLinks({
   onOpenTask(id: string): void;
   onLink(task: Task): void;
   onFollowUp(task: Task): void;
+  section: SectionState;
 }) {
   const board = useBoardQuery();
   const toast = useToast();
@@ -63,8 +66,14 @@ export function TaskLinks({
     }
   };
   return (
-    <View style={{ gap: space[2] }}>
-      <SectionHeader title={t("Links")} count={views.length}>
+    <Section
+      id={task.id}
+      title={t("Links")}
+      count={views.length}
+      empty={!rows.length}
+      open={section.open}
+      onToggle={section.onToggle}
+      actions={
         <IconButton
           icon="Plus"
           label={t("Add a link: link to a card or start a follow-up task")}
@@ -77,7 +86,8 @@ export function TaskLinks({
             ]);
           }}
         />
-      </SectionHeader>
+      }
+    >
       {groups.map((group) => {
         const list = rows.filter((r) => groupOf(r.item) === group.id);
         if (!list.length) return null;
@@ -98,7 +108,7 @@ export function TaskLinks({
           </View>
         );
       })}
-    </View>
+    </Section>
   );
 }
 

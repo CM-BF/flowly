@@ -1,6 +1,6 @@
 import { View } from "react-native";
 import { taskTypeLabels, type Task, type Project } from "../shared/model";
-import { Disclosure } from "./disclosure";
+import { Section } from "./disclosure";
 import { Label, Notice, basename, font, space } from "./ui";
 import { priorityLabels } from "./status";
 import { formatLocale, t } from "../shared/i18n";
@@ -12,14 +12,13 @@ function MetaRow({ label, value, mono = false }: { label: string; value: string;
   </View>;
 }
 
-export function TaskMetadata({ task, project, open, onChange, disabled, summary, legacy,
+export function TaskMetadata({ task, project, open, onToggle, summary, legacy,
   workspaceName, workspaceDirectory, workspaceStatus, owner, directories,
 }: {
   task: Task;
   project: Project;
   open: boolean;
-  onChange(open: boolean): void;
-  disabled: boolean;
+  onToggle(): void;
   summary?: string;
   legacy: boolean;
   workspaceName?: string;
@@ -28,7 +27,7 @@ export function TaskMetadata({ task, project, open, onChange, disabled, summary,
   owner?: string;
   directories: { repo: string; directory: string }[];
 }) {
-  return <Disclosure title={t("Details & workspace")} summary={summary} open={open} disabled={disabled} onChange={onChange}>
+  return <Section id={task.id} title={t("Details & workspace")} summary={summary} open={open} onToggle={onToggle}>
     <MetaRow label={t("Type")} value={task.type ? taskTypeLabels[task.type] : "None"} />
     <MetaRow label={t("Priority")} value={priorityLabels[task.priority]} />
     {!!task.tags?.length && <MetaRow label={t("Tags")} value={task.tags.map((x) => x.tag).join(", ")} />}
@@ -45,5 +44,5 @@ export function TaskMetadata({ task, project, open, onChange, disabled, summary,
       <Notice tone="info">{t("Legacy card scope is preserved. Its saved directories and workspace stay linked.")}</Notice>
       {directories.map((path) => <MetaRow key={path.repo} label={basename(path.repo)} value={path.directory} mono />)}
     </>}
-  </Disclosure>;
+  </Section>;
 }

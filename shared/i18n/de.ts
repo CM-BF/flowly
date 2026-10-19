@@ -1057,5 +1057,16 @@ const catalog: Catalog = {
   "Dismissed": "Ausgeblendet",
   "Dismissed from Attention. It comes back when something new happens.": "Aus Aufmerksamkeit ausgeblendet. Die Karte kommt zurück, sobald es Neues gibt.",
   "Not ready to decide? Dismiss a card from Attention. It comes back when something new happens.": "Noch unentschlossen? Blende eine Karte aus Aufmerksamkeit aus. Sie kommt zurück, sobald es Neues gibt.",
+  "Card sidebar": "Kartenseitenleiste",
+  "Move {section} up": "{section} nach oben",
+  "Move {section} down": "{section} nach unten",
+  "Drag to reorder {section}": "Zum Umordnen von {section} ziehen",
+  "Arrange the sections of an open card and choose which start open. The description stays on top.": "Ordne die Abschnitte einer geöffneten Karte und wähle, welche geöffnet starten. Die Beschreibung bleibt oben.",
+  "Starts open": "Startet geöffnet",
+  "{section} starts open": "{section} startet geöffnet",
+  "{section} starts closed": "{section} startet geschlossen",
+  "Reset sidebar layout": "Seitenleiste zurücksetzen",
+  "The sidebar uses the default layout": "Die Seitenleiste nutzt das Standardlayout",
+  "Arrange an open card your way: reorder its sections and choose which start open in Settings → Cards → Card sidebar.": "Richte eine geöffnete Karte nach deinem Geschmack ein: Ordne ihre Abschnitte und wähle, welche geöffnet starten, unter Einstellungen → Karten → Kartenseitenleiste.",
 };
 export default catalog;

@@ -1,5 +1,21 @@
 # Implementation progress
 
+## Card sidebar tweaks (card "UI/UX 调整") — 2026-10-19
+
+- [x] Request: History alignment, Artifacts paging (+5 per press, no collapse, reset on reopen), Artifacts collapsible as a whole, user-ordered sidebar sections. [Spec](DRAWER-SPEC.md#section-order-and-artifacts-paging); CARD-ARTIFACTS-SPEC §5.2 and CARD-DISPLAY-SPEC §3 updated. No inputs or tickets on the card.
+- [x] `client/disclosure.tsx`: shared `Collapse` (measured height, stays in layout until measured when mounted open) and `Chevron`; `Disclosure` gains `flush`. Progress → History uses it; an opened version's fields line up with its title.
+- [x] `client/task-artifacts.tsx`: per-group limit (5, +5 per *Show N more*, aligned with rows), whole-section collapse through `SectionHeader` `open`/`onToggle`; both reset when the sidebar opens.
+- [x] `shared/drawer-sections.ts` (+ test), `board-view.drawerOrder`, drawer renders the six movable sections in that order; Settings → Cards → Card sidebar (drag / arrows, reset).
+- [x] Onboarding: tip `sidebar-order` (after `card-display`), ONBOARDING-SPEC table; tour unchanged (view preference, not a new concept). 8 strings in all 9 catalogs.
+- [x] PASS on `7a4562d` + dirty: `npm run typecheck`; `npm test` 583 passed / 63 skipped; `paseo plugin reload flowly` running.
+- [x] PASS (headless web, real card with 37 artifacts): paging, whole-section collapse, reset on reopen, History alignment, drag reorder + drawer order + reset. [Verification](verification/sidebar-tweaks.md).
+- [x] Follow-up: Workpad collapses as a whole like Artifacts (title + chevron, resets on reopen); collapsed header shows `Acceptance n/m · Checks n/m` (existing strings, no new catalog entries).
+- [x] Follow-up "整体调整 UI": every sidebar section is a shared `Section` (title + trailing chevron, actions, collapsed summary, empty sections without chevron); Details/Usage/Activity converted from `Disclosure`. Settings → Cards → Card sidebar: order plus a *Starts open* switch per section (`drawerOpen`), pinned bottom three, *Reset sidebar layout*. Workpad lists page by 5, checks sorted by what needs a look, commands one line. Phones: title/properties/tags scroll with the content. 7 strings added and 4 removed in all 9 catalogs; tip text updated.
+- [x] PASS on `7a4562d` + dirty: typecheck; `npm test` 587 passed / 63 skipped; plugin reload. Headless web (desktop 1700×1100 and phone 430×900): before/after screenshots, defaults round trip (Workpad off/Activity on → drawer opens that way → toggle → Reset), paging/collapse regression. [Verification](verification/sidebar-tweaks.md).
+- [x] Follow-up: default layout set to the user's current one: order Progress, Sessions, Workpad, Artifacts, Ideas, Links; Links (and the bottom three) start closed, Artifacts open.
+- [ ] UNRUN: native apps, compact web, Luna 6 test session.
+
+
 ## Attention dismiss — 2026-10-19
 
 - [x] Card request "attention dismiss": Attention counts kept showing items the user could not or did not want to decide yet. [Spec](ATTENTION-DISMISS-SPEC.md) approved by the user as written (per card, back on any new signal, no timed snooze).

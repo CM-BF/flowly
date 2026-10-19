@@ -7,8 +7,11 @@ import * as rpc from "../shared/rpc";
 import type { AcceptanceItem, CheckState, ConfusionItem, PlanSnapshot, Task, ValidationItem, Workpad } from "../shared/model";
 import { plansOf, validationFreshness, workpadOf } from "../shared/workpad";
 import { boardKey, useBoardQuery, useLiveAgents } from "./queries";
-import { AiMark, IconButton, Label, SectionHeader, font, message, radius, relativeTime, space, touch, useTheme } from "./ui";
+import { Section, ShowMore, pageSize, type SectionState } from "./disclosure";
+import { AiMark, IconButton, Label, font, message, radius, relativeTime, space, touch, useTheme } from "./ui";
 import { t } from "../shared/i18n";
+
+const firstPage = { acceptance: pageSize, checks: pageSize, confusions: pageSize };
 
 /** The next state when a person taps a check's status (WORKPAD-SPEC §6.3). */
 const nextState: Record<CheckState, CheckState> = { unrun: "pass", pass: "fail", fail: "unrun" };
@@ -22,7 +25,7 @@ const shortPath = (path: string) => path.replace(/^\/(Users|home)\/[^/]+/, "~");
  * tick criteria, set a check's state and resolve confusions; edits are
  * optimistic and never change the task revision.
  */
-export const TaskWorkpad = memo(function TaskWorkpad({ task, disabled, active }: { task: Task; disabled: boolean; active: boolean }) {
+export const TaskWorkpad = memo(function TaskWorkpad({ task, disabled, active, section }: { task: Task; disabled: boolean; active: boolean; section: SectionState }) {
   const board = useBoardQuery();
   const toast = useToast();
   const queryClient = useQueryClient();
@@ -49,6 +52,12 @@ export const TaskWorkpad = memo(function TaskWorkpad({ task, disabled, active }:
     staleTime: 30_000,
     retry: false,
   });
+  // Long lists show 5 items, then Show more adds 5; per opening of the sidebar (DRAWER-SPEC, Section order).
+  const [limit, setLimit] = useState(firstPage);
+  useEffect(() => {
+    if (active) setLimit(firstPage);
+  }, [active]);
+  const more = (group: keyof typeof firstPage) => setLimit((current) => ({ ...current, [group]: current[group] + pageSize }));
   const storedSha = workpad?.head?.sha || "",
     storedDirty = !!workpad?.head?.dirty;
   useEffect(() => {
@@ -80,6 +89,11 @@ export const TaskWorkpad = memo(function TaskWorkpad({ task, disabled, active }:
     const p = pending.get(v.id);
     return p && p !== "removed" && p.state ? { ...v, state: p.state, by: "human" as const } : v;
   });
+  // What needs a look first: failed, out of date, not run, then passed (stable within each).
+  const shownChecks = checks
+    .map((item, index) => ({ item, index, rank: item.state === "fail" ? 0 : item.state === "unrun" ? 2 : validationFreshness(item, workpad!.head) === "stale" ? 1 : 3 }))
+    .sort((a, b) => a.rank - b.rank || a.index - b.index)
+    .map((x) => x.item);
   const confusions = (workpad?.confusions || []).filter((c) => pending.get(c.id) !== "removed");
   const updatedBy = !workpad
     ? ""
@@ -90,73 +104,84 @@ export const TaskWorkpad = memo(function TaskWorkpad({ task, disabled, active }:
     ? `${workpad.env.host}:${shortPath(workpad.env.path)}${workpad.env.head?.sha ? `@${workpad.env.head.sha.slice(0, 7)}${workpad.env.head.dirty ? "*" : ""}` : ""}`
     : "";
   return (
-    <View style={{ gap: space[2] }}>
-      <SectionHeader title={t("Workpad")} />
-      {!!workpad && (
-        <View>
-          {!!stamp && (
-            <Label size={font.xs} muted mono selectable lines={1}>
-              {stamp}
+    <Section
+      id={task.id}
+      title={t("Workpad")}
+      open={section.open}
+      onToggle={section.onToggle}
+      summary={[
+        acceptance.length ? t("Acceptance {done}/{total}", { done: acceptance.filter((a) => a.done).length, total: acceptance.length }) : "",
+        checks.length ? t("Checks {done}/{total}", { done: checks.filter((c) => c.state === "pass").length, total: checks.length }) : "",
+      ].filter(Boolean).join(" · ")}
+    >
+        {!!workpad && (
+          <View>
+            {!!stamp && (
+              <Label size={font.xs} muted mono selectable lines={1}>
+                {stamp}
+              </Label>
+            )}
+            <Label size={font.xs} muted selectable={false}>
+              {updatedBy}
             </Label>
-          )}
-          <Label size={font.xs} muted selectable={false}>
-            {updatedBy}
-          </Label>
-        </View>
-      )}
-      {!!acceptance.length && (
-        <Group title={t("Acceptance")}>
-          {acceptance.map((item) => (
-            <AcceptanceRow
-              key={item.id}
-              item={item}
-              disabled={disabled || pending.has(item.id)}
-              onToggle={() =>
-                void edit(item.id, { done: !item.done }, () =>
-                  checkRpc({ taskId: task.id, section: "acceptance", itemId: item.id, done: !item.done }),
-                )
-              }
-            />
-          ))}
-        </Group>
-      )}
-      {!!checks.length && (
-        <Group title={t("Checks")}>
-          {checks.map((item) => (
-            <CheckRow
-              key={item.id}
-              item={item}
-              workpad={workpad!}
-              disabled={disabled || pending.has(item.id)}
-              onCycle={() =>
-                void edit(item.id, { state: nextState[item.state] }, () =>
-                  checkRpc({ taskId: task.id, section: "validation", itemId: item.id, state: nextState[item.state] }),
-                )
-              }
-            />
-          ))}
-        </Group>
-      )}
-      {!!plans.length && (
-        <Group title={t("Plan")} note={t("From the agent's todo list · updated at turn end")}>
-          {plans.map((plan) => (
-            <PlanList key={plan.agentId} plan={plan} title={plans.length > 1 ? titles.get(plan.agentId) || t("Session") : ""} />
-          ))}
-        </Group>
-      )}
-      {!!confusions.length && (
-        <Group title={t("Confusions")}>
-          {confusions.map((item) => (
-            <ConfusionRow
-              key={item.id}
-              item={item}
-              disabled={disabled || pending.has(item.id)}
-              onResolve={() => void edit(item.id, "removed", () => resolveRpc({ taskId: task.id, itemId: item.id }))}
-            />
-          ))}
-        </Group>
-      )}
-    </View>
+          </View>
+        )}
+        {!!acceptance.length && (
+          <Group title={t("Acceptance")}>
+            {acceptance.slice(0, limit.acceptance).map((item) => (
+              <AcceptanceRow
+                key={item.id}
+                item={item}
+                disabled={disabled || pending.has(item.id)}
+                onToggle={() =>
+                  void edit(item.id, { done: !item.done }, () =>
+                    checkRpc({ taskId: task.id, section: "acceptance", itemId: item.id, done: !item.done }),
+                  )
+                }
+              />
+            ))}
+            {acceptance.length > limit.acceptance && <ShowMore count={Math.min(pageSize, acceptance.length - limit.acceptance)} onPress={() => more("acceptance")} />}
+          </Group>
+        )}
+        {!!checks.length && (
+          <Group title={t("Checks")}>
+            {shownChecks.slice(0, limit.checks).map((item) => (
+              <CheckRow
+                key={item.id}
+                item={item}
+                workpad={workpad!}
+                disabled={disabled || pending.has(item.id)}
+                onCycle={() =>
+                  void edit(item.id, { state: nextState[item.state] }, () =>
+                    checkRpc({ taskId: task.id, section: "validation", itemId: item.id, state: nextState[item.state] }),
+                  )
+                }
+              />
+            ))}
+            {shownChecks.length > limit.checks && <ShowMore count={Math.min(pageSize, shownChecks.length - limit.checks)} onPress={() => more("checks")} />}
+          </Group>
+        )}
+        {!!plans.length && (
+          <Group title={t("Plan")} note={t("From the agent's todo list · updated at turn end")}>
+            {plans.map((plan) => (
+              <PlanList key={plan.agentId} plan={plan} title={plans.length > 1 ? titles.get(plan.agentId) || t("Session") : ""} />
+            ))}
+          </Group>
+        )}
+        {!!confusions.length && (
+          <Group title={t("Confusions")}>
+            {confusions.slice(0, limit.confusions).map((item) => (
+              <ConfusionRow
+                key={item.id}
+                item={item}
+                disabled={disabled || pending.has(item.id)}
+                onResolve={() => void edit(item.id, "removed", () => resolveRpc({ taskId: task.id, itemId: item.id }))}
+              />
+            ))}
+            {confusions.length > limit.confusions && <ShowMore count={Math.min(pageSize, confusions.length - limit.confusions)} onPress={() => more("confusions")} />}
+          </Group>
+        )}
+    </Section>
   );
 });
 
@@ -267,9 +292,12 @@ function CheckRow({ item, workpad, disabled, onCycle }: { item: ValidationItem; 
       <View style={{ flex: 1, minWidth: 0, gap: 1 }}>
         <Label size={font.sm}>{item.text}</Label>
         {!!item.command && (
-          <Label size={font.xs} muted mono selectable>
-            {item.command}
-          </Label>
+          // One line until the output is shown (or the command is tapped), so long commands don't fill the sidebar.
+          <Pressable accessibilityRole="button" accessibilityState={{ expanded: open }} onPress={() => setOpen(!open)}>
+            <Label size={font.xs} muted mono selectable lines={open ? undefined : 1}>
+              {item.command}
+            </Label>
+          </Pressable>
         )}
         {(details.length > 0 || stale) && (
           <View style={{ flexDirection: "row", flexWrap: "wrap", columnGap: space[1.5] }}>

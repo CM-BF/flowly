@@ -8,13 +8,13 @@ import { taskTypeLabels, type Idea } from "../shared/model";
 import { continuesInCard } from "../shared/ideas";
 import { eventPoint, useMenuOpener, type MenuEntry, type Point } from "./context-menu";
 import { CardBody, CardField, CardHeadline, CardMeta, CardMetaRow, CardText, ContentCard } from "./content-card";
-import { Disclosure } from "./disclosure";
+import { Disclosure, Section, type SectionState } from "./disclosure";
 import { lerp, motionDuration, useMotionPresence, useReducedMotion } from "./motion";
 import { exitRows } from "./idea-rows";
 import { boardKey, useBoardQuery } from "./queries";
 import { useStableCallback } from "./stable";
 import { PriorityIcon, TypeIcon, priorityLabels } from "./status";
-import { Button, Label, SectionHeader, font, message, relativeTime, space, touch, useTheme } from "./ui";
+import { Button, Label, font, message, relativeTime, space, touch, useTheme } from "./ui";
 import { t } from "../shared/i18n";
 
 export type IdeaSession = { id: string; title?: string | null; archivedAt?: string | null };
@@ -34,6 +34,7 @@ export function TaskIdeas({
   onNewSession,
   onOpenTask,
   onAllIdeas,
+  section,
 }: {
   taskId: string;
   /** This card's sessions, newest first (archived included, for names). */
@@ -45,6 +46,7 @@ export function TaskIdeas({
   onOpenTask(id: string): void;
   /** Opens the project Ideas page showing only this card (IDEAS-INBOX-SPEC §5). */
   onAllIdeas?(): void;
+  section: SectionState;
 }) {
   const board = useBoardQuery();
   const [closedOpen, setClosedOpen] = useState(false);
@@ -57,13 +59,20 @@ export function TaskIdeas({
   if (!ideas.length) return null;
   const titleOf = (id: string) => board.data?.tasks.find((t) => t.id === id)?.title;
   return (
-    <View style={{ gap: space[2] }}>
-      <SectionHeader title={t("Ideas")} ai count={open.length}>
-        {onAllIdeas && (
+    <Section
+      id={taskId}
+      title={t("Ideas")}
+      ai
+      count={open.length}
+      open={section.open}
+      onToggle={section.onToggle}
+      actions={
+        onAllIdeas && (
           <Button small quiet label={t("Show this card's ideas on the project Ideas page")} onPress={onAllIdeas}>
             {t("All ideas")}</Button>
-        )}
-      </SectionHeader>
+        )
+      }
+    >
       {rows.length ? (
         <View>
           {rows.map((row) => (
@@ -92,7 +101,7 @@ export function TaskIdeas({
           </View>
         </Disclosure>
       )}
-    </View>
+    </Section>
   );
 }
 

@@ -1057,5 +1057,16 @@ const catalog: Catalog = {
   "Dismissed": "暫不處理",
   "Dismissed from Attention. It comes back when something new happens.": "已從關注列表中隱藏。有新狀況時會自動回來。",
   "Not ready to decide? Dismiss a card from Attention. It comes back when something new happens.": "一時拿不定主意？可以先把卡片從關注列表中隱藏，有新狀況時它會自動回來。",
+  "Card sidebar": "卡片側欄",
+  "Move {section} up": "上移 {section}",
+  "Move {section} down": "下移 {section}",
+  "Drag to reorder {section}": "拖動以調整 {section} 的順序",
+  "Arrange the sections of an open card and choose which start open. The description stays on top.": "調整開啟卡片後各欄目的順序，並選擇哪些預設展開。描述始終在最上方。",
+  "Starts open": "預設展開",
+  "{section} starts open": "{section} 預設展開",
+  "{section} starts closed": "{section} 預設收起",
+  "Reset sidebar layout": "恢復預設側欄版面",
+  "The sidebar uses the default layout": "側欄為預設版面",
+  "Arrange an open card your way: reorder its sections and choose which start open in Settings → Cards → Card sidebar.": "依你的習慣整理卡片側欄：在 設定 → 卡片 → 卡片側欄 中調整欄目順序，並選擇哪些預設展開。",
 };
 export default catalog;

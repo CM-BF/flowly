@@ -35,6 +35,7 @@ Host-scoped (`board-view` settings), so every board on this device uses them.
 - `both` restores the earlier two-line behaviour (progress line, then output line).
 - The page shows a live preview card built from sample data with the current options, and a *Reset to defaults* row.
 - The board's Sort menu ends with *Card display…*, which opens Settings on the Cards page.
+- The same page has a **Card sidebar** group for the open card's section order and which sections start open (DRAWER-SPEC, Section order).
 
 ## 4. Data contract
 

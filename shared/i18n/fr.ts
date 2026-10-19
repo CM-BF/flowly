@@ -1057,5 +1057,16 @@ const catalog: Catalog = {
   "Dismissed": "Écartée",
   "Dismissed from Attention. It comes back when something new happens.": "Écartée de la liste À traiter. Elle reviendra dès qu'il y a du nouveau.",
   "Not ready to decide? Dismiss a card from Attention. It comes back when something new happens.": "Pas encore prêt à décider ? Écartez une carte de la liste À traiter. Elle reviendra dès qu'il y a du nouveau.",
+  "Card sidebar": "Panneau de la carte",
+  "Move {section} up": "Monter {section}",
+  "Move {section} down": "Descendre {section}",
+  "Drag to reorder {section}": "Glisser pour réordonner {section}",
+  "Arrange the sections of an open card and choose which start open. The description stays on top.": "Organisez les sections d’une carte ouverte et choisissez celles qui s’ouvrent au départ. La description reste en haut.",
+  "Starts open": "Ouverte au départ",
+  "{section} starts open": "{section} ouverte au départ",
+  "{section} starts closed": "{section} fermée au départ",
+  "Reset sidebar layout": "Réinitialiser le panneau",
+  "The sidebar uses the default layout": "Le panneau utilise la disposition par défaut",
+  "Arrange an open card your way: reorder its sections and choose which start open in Settings → Cards → Card sidebar.": "Organisez une carte ouverte à votre façon : réordonnez ses sections et choisissez celles ouvertes au départ dans Paramètres → Cartes → Panneau de la carte.",
 };
 export default catalog;
