@@ -1,5 +1,7 @@
 import type { Project, Task, BoardEvent } from "../shared/model";
 import { openQuestion, silentTurn } from "../shared/progress";
+import { pendingRequests } from "../shared/permission-question";
+import { isDismissed, sessionSignalKeys, type AttentionDismissal } from "../shared/attention-dismiss";
 import {
   sessionAttention,
   type AttentionAgent,
@@ -23,11 +25,15 @@ export type AttentionItem = {
   /** Set when exactly one session needs attention, so it can be opened directly. */
   sessionId: string | null;
   updatedAt: string;
+  /** What the card is waiting on now, one key per concrete thing (ATTENTION-DISMISS-SPEC §2.2). */
+  signals: string[];
+  /** Dismissed from Attention and nothing new since: not counted, listed under Dismissed. */
+  dismissed: boolean;
 };
 
 /** Cards across all active projects whose sessions need a human. Running alone does not count. */
 export function attentionItems(
-  board: { projects: Project[]; tasks: Task[]; events: BoardEvent[] },
+  board: { projects: Project[]; tasks: Task[]; events: BoardEvent[]; attentionDismissals?: readonly AttentionDismissal[] },
   agents: readonly Agent[],
   receipts: readonly SessionReadReceipt[],
   readUnavailable: boolean,
@@ -46,11 +52,22 @@ export function attentionItems(
       }))
       .map(({ agent, state }) => {
         const unread = !readUnavailable && state.unread && !state.permission && !state.error;
+        const question = openQuestion(own, agent.id);
         return {
           agent,
+          signals: sessionSignalKeys({
+            agent,
+            questionEventId: question?.id || null,
+            requestIds: state.permission ? pendingRequests(agent).map((r) => r.id) : [],
+            permission: state.permission,
+            error: state.error,
+            unread,
+            token: state.token,
+            manualUnread: state.manualUnread,
+          }),
           permission: state.permission && !state.question,
           error: state.error,
-          question: state.question || !!openQuestion(own, agent.id),
+          question: state.question || !!question,
           asks: state.question,
           unread,
           silent: unread && silentTurn(task, own, agent.id),
@@ -58,6 +75,7 @@ export function attentionItems(
       })
       .filter((s) => s.permission || s.error || s.question || s.unread);
     if (!flagged.length) continue;
+    const signals = flagged.flatMap((s) => s.signals);
     items.push({
       task,
       project,
@@ -72,6 +90,8 @@ export function attentionItems(
         .map((s) => s.agent.updatedAt || "")
         .sort()
         .at(-1) || "",
+      signals,
+      dismissed: isDismissed(signals, board.attentionDismissals?.find((d) => d.taskId === task.id)),
     });
   }
   return items.sort(
@@ -84,19 +104,27 @@ export function attentionItems(
 
 type AttentionBoard = Parameters<typeof attentionItems>[0];
 
-/**
- * The one counting rule shared by the board Attention button and the sidebar badge.
- * Returns null while the board or agent list is unavailable (loading or failed).
- * Read receipts that are pending or failed only drop finished-but-unread sessions.
- */
-export function attentionFromSources(sources: {
+type AttentionSources = {
   board: AttentionBoard | null | undefined;
   agents: readonly Agent[] | null | undefined;
   receipts: readonly SessionReadReceipt[];
   readUnavailable: boolean;
-}): AttentionItem[] | null {
+};
+
+/** Every card needing a human, dismissed ones included; null while unavailable. */
+export function allAttentionFromSources(sources: AttentionSources): AttentionItem[] | null {
   if (!sources.board || !sources.agents) return null;
   return attentionItems(sources.board, sources.agents, sources.receipts, sources.readUnavailable);
+}
+
+/**
+ * The one counting rule shared by the board Attention button and the sidebar badge:
+ * cards needing a human that were not dismissed (ATTENTION-DISMISS-SPEC §3.2).
+ * Returns null while the board or agent list is unavailable (loading or failed).
+ * Read receipts that are pending or failed only drop finished-but-unread sessions.
+ */
+export function attentionFromSources(sources: AttentionSources): AttentionItem[] | null {
+  return allAttentionFromSources(sources)?.filter((i) => !i.dismissed) ?? null;
 }
 
 /** Badge text for a count; null hides the badge. */

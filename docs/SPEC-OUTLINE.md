@@ -1,5 +1,6 @@
 # Paseo Kanban Plugin：Spec 大纲与路线图
 
+2026-10-19 Attention 暂不处理（已实现）：Attention 列表、卡片菜单和侧栏可按卡片 Dismiss，退出铃铛、侧边栏角标、总览 chip 与 tab 计数；记录当时的信号 key（问题事件、权限请求、错误、未读轮次），出现任何新 key 即自动回来；卡片和侧栏仍显示信号并加 Dismissed 标记，列表底部 Dismissed 分组可 Restore。不是已读、不回答/批准、不改 revision 或 Activity；存 `board.json` 的 `attentionDismissals`。新提示 `attention-dismiss`。[spec](ATTENTION-DISMISS-SPEC.md)。
 2026-10-19 内置工具与 skill 命名：MCP 服务/config key 为 `flowly`，11 个工具统一 `flowly_*`，skill 为 `skills/flowly`，CLI 为 `flowly.mjs`，新环境变量统一 `FLOWLY_*`；仅保留历史数据与既有会话所需的私有兼容入口。[spec](FLOWLY-NAMING-SPEC.md)。
 2026-10-19 卡片显示（已实现）：卡片改为四层——标题上方一行淡色元信息（优先级/类型/工单/标签，去掉 pill 和标签框）、标题、单行活动（默认“摘要，否则输出”）、状态信号行；新增 设置 → Cards 页（host 级 `cardActivity` / `cardHidden`，带实时预览与恢复默认），Sort 菜单末尾“Card display…”直达；需要用户处理的信号始终显示。新提示 `card-display`。[spec](CARD-DISPLAY-SPEC.md)。
 2026-10-19 卡片 Workpad（已实现）：agent 用 `flowly_update_workpad`（CLI `workpad`）整体替换卡片的验收标准、验证项（pass/fail/unrun + 运行时 commit）和困惑点，workpad 有独立 revision（人勾选不改 task revision）；Plan 取自 agent 原生 todo；daemon 用 git 记录环境戳并判断验证是否过期；agent 交付 In review 时有未完成项返回 `WORKPAD_OPEN`，需 `acknowledgeOpen` 确认，卡片标“Delivered with N open items”。卡面 Checks n/m，抽屉 Workpad 段可勾选。新提示 `first-workpad`。[spec](WORKPAD-SPEC.md)。

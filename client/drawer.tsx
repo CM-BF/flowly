@@ -94,6 +94,8 @@ function TaskDrawerView({
   onAllIdeas,
   onFilterTag,
   escapeRequest,
+  attention,
+  onAttention,
 }: {
   task: Task;
   project: Project;
@@ -131,6 +133,10 @@ function TaskDrawerView({
   onFilterTag?(tag: string): void;
   /** Changes on each board Esc shortcut: leave the session preview, else close. */
   escapeRequest?: string;
+  /** The card's Attention state when it has any (ATTENTION-DISMISS-SPEC §3.3). */
+  attention?: "active" | "dismissed";
+  /** Dismisses the card from Attention, or restores it when dismissed. */
+  onAttention?(): void;
 }) {
   const toast = useToast();
   const theme = useTheme();
@@ -371,6 +377,13 @@ function TaskDrawerView({
       disabled: unavailable || !!task.archivedAt,
       onPress: () => setShowNew(true),
     },
+    ...(attention && onAttention
+      ? [
+          attention === "dismissed"
+            ? { id: "attention-restore", label: t("Restore to Attention"), icon: "Bell", onPress: onAttention }
+            : { id: "attention-dismiss", label: t("Dismiss from Attention"), icon: "BellOff", onPress: onAttention },
+        ]
+      : []),
     ...(finished && !wrapped && !task.archivedAt && !project.archivedAt
       ? [{ id: "wrap", label: t("Wrap up…"), icon: "PackageCheck", onPress: () => setShowWrapup(true) }]
       : []),
@@ -667,6 +680,19 @@ function TaskDrawerView({
                     void scope.refetch();
                   }}>{t("Refresh details")}</Button>
                 </View>
+              </View>
+            )}
+            {attention === "dismissed" && onAttention && (
+              <View style={{ flexDirection: "row", alignItems: "center", gap: space[2] }}>
+                <Icon name="BellOff" size={14} color={colors.foregroundMuted} />
+                <View style={{ flex: 1, minWidth: 0 }}>
+                  <Label muted size={font.sm}>
+                    {t("Dismissed from Attention. It comes back when something new happens.")}
+                  </Label>
+                </View>
+                <Button small quiet icon="Bell" disabled={!active} onPress={onAttention}>
+                  {t("Restore")}
+                </Button>
               </View>
             )}
             {questions.map((q) => (

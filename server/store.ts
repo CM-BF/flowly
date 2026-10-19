@@ -7,6 +7,7 @@ import { upgradeBoard } from "./migrate";
 import { ideaTitleKey } from "../shared/ideas";
 import { otherEnd, relationLabels, relationOf, touches } from "../shared/links";
 import { changeTags, mergeTagEdit, normalizeTags, tagChangeNote } from "../shared/tags";
+import { attentionDismissLimits, dismissalSignals, type AttentionDismissInput, type AttentionRestoreInput } from "../shared/attention-dismiss";
 import type { FlowLog } from "./flow-log";
 import type { ProjectSnapshot } from "./project-folder";
 import {
@@ -382,6 +383,7 @@ export class BoardStore {
       board.artifacts = board.artifacts.filter((a) => !taskIds.has(a.taskId));
       board.workpads = board.workpads.filter((w) => !taskIds.has(w.taskId));
       board.plans = board.plans.filter((p) => !taskIds.has(p.taskId));
+      board.attentionDismissals = board.attentionDismissals.filter((d) => !taskIds.has(d.taskId));
       return { id: project.id, removedTasks: taskIds.size, backup };
     });
   }
@@ -490,7 +492,39 @@ export class BoardStore {
       board.artifacts = board.artifacts.filter((a) => a.taskId !== task.id);
       board.workpads = board.workpads.filter((w) => w.taskId !== task.id);
       board.plans = board.plans.filter((p) => p.taskId !== task.id);
+      board.attentionDismissals = board.attentionDismissals.filter((d) => d.taskId !== task.id);
       return { id: task.id, backup };
+    });
+  }
+  /**
+   * Hides a card from Attention until a signal not in `signals` appears
+   * (ATTENTION-DISMISS-SPEC §5). A display preference: no revision, no Activity.
+   */
+  dismissAttention(input: AttentionDismissInput) {
+    return this.transaction((board) => {
+      const task = board.tasks.find((t) => t.id === input.taskId);
+      const project = task && board.projects.find((p) => p.id === task.projectId);
+      if (!task) throw new Error("Task not found.");
+      if (task.archivedAt || !project || project.archivedAt) throw new Error("The card or its project is archived.");
+      const signals = dismissalSignals(input.signals);
+      const current = board.attentionDismissals.find((d) => d.taskId === task.id);
+      if (current && current.signals.length === signals.length && signals.every((s) => current.signals.includes(s)))
+        return { value: current, changed: false };
+      const others = board.attentionDismissals.filter((d) => d.taskId !== task.id);
+      if (others.length >= attentionDismissLimits.records)
+        throw new Error(`Attention already has ${attentionDismissLimits.records} dismissed cards.`);
+      const record = { taskId: task.id, signals, dismissedAt: new Date().toISOString() };
+      board.attentionDismissals = [...others, record];
+      return { value: record, changed: true };
+    });
+  }
+  /** Puts a dismissed card back into Attention; idempotent. */
+  restoreAttention(input: AttentionRestoreInput) {
+    return this.transaction((board) => {
+      if (!board.tasks.some((t) => t.id === input.taskId)) throw new Error("Task not found.");
+      const before = board.attentionDismissals.length;
+      board.attentionDismissals = board.attentionDismissals.filter((d) => d.taskId !== input.taskId);
+      return { value: { taskId: input.taskId }, changed: board.attentionDismissals.length !== before };
     });
   }
   /** Dismisses or restores an idea; accepted ideas are final (IDEAS-SPEC §7, IDEAS-INBOX-SPEC §2.2). */

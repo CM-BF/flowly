@@ -1,5 +1,17 @@
 # Implementation progress
 
+## Attention dismiss — 2026-10-19
+
+- [x] Card request "attention dismiss": Attention counts kept showing items the user could not or did not want to decide yet. [Spec](ATTENTION-DISMISS-SPEC.md) approved by the user as written (per card, back on any new signal, no timed snooze).
+- [x] `shared/attention-dismiss.ts`: schema, signal keys (`q:` question event, `p:` request, `e:` error, `u:` unread generation), `isDismissed`. `board.json` gains `attentionDismissals` (default `[]`, no migration); card delete and project remove drop it.
+- [x] RPC `attention.dismiss` / `attention.restore` (`BoardStore.dismissAttention` / `restoreAttention`): serialized, idempotent, no task/project revision or Activity.
+- [x] `client/attention.ts`: items carry `signals` and `dismissed`; `attentionFromSources` (bell, sidebar badge, overview chips, tabs, tips) excludes dismissed; `allAttentionFromSources` for the list.
+- [x] UI: Dismiss button per Attention row, collapsed *Dismissed · N* section with Restore, card `Dismissed` signal, drawer notice + Restore and menu entry, board context menu and phone Actions sheet entries, toasts.
+- [x] Onboarding: tip `attention-dismiss` (after `needs-you`), ONBOARDING-SPEC table, README (both). Tour unchanged: not a new concept. 14 strings in all 9 catalogs.
+- [x] PASS: `npm run typecheck`; `npm test` 577 passed / 63 skipped (new `client/attention-dismiss.test.ts`, `server/attention-dismiss.test.ts`, tip order).
+- [x] PASS (headless web, Tinylink): Restore → Dismiss round trip, counts/chip/badge, Dismissed section, card marker, drawer notice, compact sheet. [Verification](verification/attention-dismiss.md).
+- [ ] UNRUN: live re-surface on a real new agent turn (unit tests only), native apps, Luna 6 test session.
+
 ## Flowly tool and skill naming — 2026-10-19
 
 - [x] User request and [complete incremental spec](FLOWLY-NAMING-SPEC.md) before implementation. Input: this card and the user's rename instruction; no ticket inputs.

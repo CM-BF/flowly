@@ -1,3 +1,4 @@
+import { attentionDismissInput, attentionDismissalSchema, attentionRestoreInput } from "./attention-dismiss";
 import { defineRpc } from "@getpaseo/plugin";
 import { z } from "zod";
 import {
@@ -183,6 +184,18 @@ export const updateIdea = defineRpc({
   name: "ideas.update",
   input: ideaEdit,
   output: ideaSchema,
+});
+/** Hide a card from Attention until something new happens (ATTENTION-DISMISS-SPEC §5). */
+export const dismissAttention = defineRpc({
+  name: "attention.dismiss",
+  input: attentionDismissInput,
+  output: attentionDismissalSchema,
+});
+/** Put a dismissed card back into Attention. */
+export const restoreAttention = defineRpc({
+  name: "attention.restore",
+  input: attentionRestoreInput,
+  output: z.object({ taskId: z.string() }),
 });
 /** Accept an idea in its own card: send it to one of the card's sessions (IDEAS-SPEC §6.2). */
 export const adoptIdea = defineRpc({

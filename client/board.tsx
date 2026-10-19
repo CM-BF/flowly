@@ -49,7 +49,7 @@ import {
 import { StatusIcon, priorityLabels } from "./status";
 import {
   attentionBadgeText,
-  attentionFromSources,
+  allAttentionFromSources,
   attentionOpenToken,
   lastSessionSettings,
   type AttentionItem,
@@ -138,6 +138,7 @@ const tipText: Record<TipId, () => string> = {
   "project-menu": () => t("Drag a project tab to reorder it. Right-click it for its settings, a new task, Insights, Ideas or Remove."),
   subagents: () => t("When a session starts subagents, a Subagents chip appears above its message box. Click it to see their status and open one in Paseo."),
   "card-display": () => t("Cards too busy? Choose what they show in Settings → Cards, or from the Sort menu → Card display."),
+  "attention-dismiss": () => t("Not ready to decide? Dismiss a card from Attention. It comes back when something new happens."),
   "first-workpad": () => t("This card has a workpad: the agent's acceptance criteria and checks. The card shows how many checks passed; open it to see which ran on which commit, and tick items yourself."),
 };
 
@@ -565,11 +566,16 @@ function BoardContent(
     [managed.data],
   );
   const readUnavailable = readState.isPending || readState.isError;
-  const attention = useMemo(
+  // Dismissed cards stay out of every count until something new happens (ATTENTION-DISMISS-SPEC).
+  const allAttention = useMemo(
     () =>
-      attentionFromSources({ board, agents: agents.data, receipts, readUnavailable }) || [],
+      allAttentionFromSources({ board, agents: agents.data, receipts, readUnavailable }) || [],
     [board, agents.data, receipts, readUnavailable],
   );
+  const attention = useMemo(() => allAttention.filter((i) => !i.dismissed), [allAttention]);
+  const dismissedAttention = useMemo(() => allAttention.filter((i) => i.dismissed), [allAttention]);
+  const attentionByTask = useMemo(() => new Map(allAttention.map((i) => [i.task.id, i])), [allAttention]);
+  const [dismissedOpen, setDismissedOpen] = useState(false);
   // The project's default model wins over the global one; with neither, the latest session's settings (MODEL-DEFAULTS-SPEC).
   const modelPrefs = useSettings(modelSettings);
   const globalModel = agentModelFromValues(modelPrefs.status === "ready" ? modelSettingsValues(modelPrefs.values) : null);
@@ -663,6 +669,26 @@ function BoardContent(
       refresh();
     }
   }
+  const dismissRpc = useRpc(rpc.dismissAttention),
+    restoreRpc = useRpc(rpc.restoreAttention);
+  const dismissFromAttention = useStableCallback((item: AttentionItem) =>
+    void doAction(
+      () => dismissRpc({ taskId: item.task.id, signals: item.signals }),
+      t("Dismissed. It comes back when something new happens."),
+    ),
+  );
+  const restoreToAttention = useStableCallback((taskId: string) =>
+    void doAction(() => restoreRpc({ taskId }), t("Back in Attention")),
+  );
+  const attentionMenuEntry = (card: Task) => {
+    const item = attentionByTask.get(card.id);
+    if (!item) return [];
+    return [
+      item.dismissed
+        ? { id: "attention-restore", label: t("Restore to Attention"), icon: "Bell", disabled: pending, onPress: () => restoreToAttention(card.id) }
+        : { id: "attention-dismiss", label: t("Dismiss from Attention"), icon: "BellOff", disabled: pending, onPress: () => dismissFromAttention(item) },
+    ];
+  };
   const move = (input: { id: string; revision: number; status: Status }) => {
     const from = data.data?.tasks.find((t) => t.id === input.id)?.status;
     void doAction(
@@ -696,6 +722,7 @@ function BoardContent(
       },
       { id: "link", label: t("Link to a card…"), icon: "Link", disabled: locked, onPress: () => setLinking(card) },
       { id: "follow-up", label: t("New follow-up task"), icon: "CornerDownRight", disabled: locked, onPress: () => followUp(card) },
+      ...attentionMenuEntry(card),
       { kind: "separator", id: "s1" },
       { kind: "label", id: "move", label: t("Move to") },
       ...shownStatuses.map((status) => ({
@@ -904,6 +931,7 @@ function BoardContent(
           hasWorkpad: !task && workpadEnabled(project) && board.workpads.some((w) => w.projectId === project.id),
           busyBoard: !task && projectTasks.filter((x) => !x.archivedAt).length >= 6,
           hasSubagent: projectHasSubagent,
+          crowdedAttention: attention.length >= 3 && dismissedAttention.length === 0,
         },
         blocked: !onboarding.values || welcomeOpen || welcome === "show" || dialogOpen,
       });
@@ -917,6 +945,12 @@ function BoardContent(
     drawer.item && askWrapup(drawer.item.task.id, from, to),
   );
   const stableRefresh = useStableCallback(() => refresh());
+  const drawerAttention = drawer.item ? attentionByTask.get(drawer.item.task.id) : undefined;
+  const toggleDrawerAttention = useStableCallback(() => {
+    if (!drawerAttention) return;
+    if (drawerAttention.dismissed) restoreToAttention(drawerAttention.task.id);
+    else dismissFromAttention(drawerAttention);
+  });
   const sessionEntryConsumed = useStableCallback((requestId: string) =>
     setSessionEntry((current) =>
       current?.requestId === requestId &&
@@ -949,6 +983,7 @@ function BoardContent(
         sessions={sessions.length}
         summary={sessionAttentionSummary(sessions, t, receipts, events)}
         summaryState={summaryState}
+        attentionDismissed={!!attentionByTask.get(t.id)?.dismissed}
         outputSession={pickOutputSession(sessions, t.workspaceId, managedIds)}
         progress={cardProgress(summaries.data, t.id)}
         questions={board ? cardQuestions(t, events).length : 0}
@@ -1098,6 +1133,67 @@ function BoardContent(
     consumedIntents.add(parsed.key);
     runIntent(parsed.intent);
   }, [props.params?.intent, props.params?.at, data.isPending]);
+  const attentionDetail = (item: AttentionItem) =>
+    `${item.project.title} · ${laneName(item.project, item.task.status)} · ${[
+      item.questions && tn(item.questions, "{n} question", "{n} questions"),
+      item.permissions && tn(item.permissions, "{n} approval", "{n} approvals"),
+      item.errors && tn(item.errors, "{n} error", "{n} errors"),
+      item.unread &&
+        (item.silent
+          ? item.silent === item.unread
+            ? t("{unread} unread (no report)", { unread: item.unread })
+            : t("{unread} unread ({silent} no report)", { unread: item.unread, silent: item.silent })
+          : t("{unread} unread", { unread: item.unread })),
+    ]
+      .filter(Boolean)
+      .join(" · ")}`;
+  // The Dismiss/Restore button sits beside the row, so pressing it never opens the card.
+  const attentionRow = (item: AttentionItem) => (
+    <View key={item.task.id} style={{ flexDirection: "row", alignItems: "center", opacity: item.dismissed ? 0.7 : 1 }}>
+      <View style={{ flex: 1, minWidth: 0 }}>
+        <Row
+          title={item.task.title}
+          detail={attentionDetail(item)}
+          label={t("Open {title}", { title: item.task.title })}
+          leading={
+            <Dot
+              size={8}
+              color={
+                item.dismissed
+                  ? colors.foregroundMuted
+                  : item.permissions || item.questions
+                    ? colors.statusWarning
+                    : item.errors
+                      ? colors.statusDanger
+                      : colors.statusSuccess
+              }
+            />
+          }
+          trailing={
+            <Label muted size={font.xs} selectable={false}>
+              {relativeTime(item.updatedAt)}
+            </Label>
+          }
+          onPress={() => openAttention(item)}
+        />
+      </View>
+      {item.dismissed ? (
+        <IconButton
+          icon="Bell"
+          label={t("Restore {title} to Attention", { title: item.task.title })}
+          disabled={pending}
+          onPress={() => restoreToAttention(item.task.id)}
+        />
+      ) : (
+        <IconButton
+          icon="BellOff"
+          label={t("Dismiss {title} from Attention", { title: item.task.title })}
+          disabled={pending}
+          onPress={() => dismissFromAttention(item)}
+        />
+      )}
+    </View>
+  );
   const attentionList = (
     <>
       {readUnavailable && (
@@ -1109,47 +1205,21 @@ function BoardContent(
       {!attention.length ? (
         <View style={{ paddingVertical: space[6], alignItems: "center", gap: space[2] }}>
           <Icon name="BellOff" size={20} color={colors.foregroundMuted} />
-          <Label muted>{t("Nothing needs your attention.")}</Label>
+          <Label muted>{dismissedAttention.length ? t("Nothing new needs your attention.") : t("Nothing needs your attention.")}</Label>
         </View>
       ) : (
-        attention.map((item) => (
+        attention.map((item) => attentionRow(item))
+      )}
+      {dismissedAttention.length > 0 && (
+        <View style={{ paddingTop: space[2], borderTopWidth: 1, borderTopColor: colors.border, marginTop: space[2] }}>
           <Row
-            key={item.task.id}
-            title={item.task.title}
-            detail={`${item.project.title} · ${laneName(item.project, item.task.status)} · ${[
-              item.questions && tn(item.questions, "{n} question", "{n} questions"),
-              item.permissions && tn(item.permissions, "{n} approval", "{n} approvals"),
-              item.errors && tn(item.errors, "{n} error", "{n} errors"),
-              item.unread &&
-                (item.silent
-                  ? item.silent === item.unread
-                    ? t("{unread} unread (no report)", { unread: item.unread })
-                    : t("{unread} unread ({silent} no report)", { unread: item.unread, silent: item.silent })
-                  : t("{unread} unread", { unread: item.unread })),
-            ]
-              .filter(Boolean)
-              .join(" · ")}`}
-            label={t("Open {title}", { title: item.task.title })}
-            leading={
-              <Dot
-                size={8}
-                color={
-                  item.permissions || item.questions
-                    ? colors.statusWarning
-                    : item.errors
-                      ? colors.statusDanger
-                      : colors.statusSuccess
-                }
-              />
-            }
-            trailing={
-              <Label muted size={font.xs} selectable={false}>
-                {relativeTime(item.updatedAt)}
-              </Label>
-            }
-            onPress={() => openAttention(item)}
+            title={t("Dismissed · {n}", { n: dismissedAttention.length })}
+            label={dismissedOpen ? t("Hide dismissed cards") : t("Show dismissed cards")}
+            icon={dismissedOpen ? "ChevronDown" : "ChevronRight"}
+            onPress={() => setDismissedOpen((open) => !open)}
           />
-        ))
+          {dismissedOpen && dismissedAttention.map((item) => attentionRow(item))}
+        </View>
       )}
     </>
   );
@@ -1212,6 +1282,8 @@ function BoardContent(
           sessionEntry?.taskId === drawer.item.task.id && drawer.active ? sessionEntry : undefined
         }
         onSessionEntryConsumed={sessionEntryConsumed}
+        attention={drawerAttention ? (drawerAttention.dismissed ? "dismissed" : "active") : undefined}
+        onAttention={toggleDrawerAttention}
       />
     </Animated.View>
   );
@@ -1839,6 +1911,18 @@ function BoardContent(
                       setActionTask(null);
                     }}
                   />
+                  {attentionMenuEntry(actionTask).map((entry) => (
+                    <Row
+                      key={entry.id}
+                      title={entry.label}
+                      icon={entry.icon}
+                      disabled={entry.disabled}
+                      onPress={() => {
+                        entry.onPress();
+                        setActionTask(null);
+                      }}
+                    />
+                  ))}
                   {(["up", "down"] as const).map((direction) => (
                     <Row
                       key={direction}

@@ -2,6 +2,7 @@ import { localizedLabels, msg, t } from "./i18n";
 import { agentModelSchema } from "./agent-defaults";
 import { ticketLimits, ticketRefSchema } from "./tickets";
 import { z } from "zod";
+import { attentionDismissLimits, attentionDismissalSchema } from "./attention-dismiss";
 
 export const statuses = [
   "backlog",
@@ -390,6 +391,8 @@ export const boardSchema = z.object({
   /** Absent in files written before workpads (WORKPAD-SPEC §2). */
   workpads: z.array(workpadSchema).default([]),
   plans: z.array(planSnapshotSchema).default([]),
+  /** Cards dismissed from Attention (ATTENTION-DISMISS-SPEC §4); absent in older files. */
+  attentionDismissals: z.array(attentionDismissalSchema).max(attentionDismissLimits.records).default([]),
 });
 export const previousBoardSchema = boardSchema.extend({
   version: z.literal(2),
@@ -439,6 +442,7 @@ export const emptyBoard = (): Board => ({
   artifacts: [],
   workpads: [],
   plans: [],
+  attentionDismissals: [],
   agentReceipts: [],
 });
 export const projectInput = z.strictObject({

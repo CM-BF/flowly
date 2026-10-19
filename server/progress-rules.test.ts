@@ -23,6 +23,7 @@ function board(status: Status, extra: { autoStatus?: boolean; archived?: boolean
     links: [],
     artifacts: [],
     workpads: [],
+    attentionDismissals: [],
     plans: [],
     agentReceipts: [],
   } as Board;

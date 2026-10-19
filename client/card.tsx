@@ -87,6 +87,7 @@ export function TaskCard({
   workpad = null,
   waiting = 0,
   waitingTitles = "",
+  attentionDismissed = false,
   display = defaultCardDisplay,
   flash = false,
   dragging,
@@ -120,6 +121,8 @@ export function TaskCard({
   /** Unresolved cards this one is blocked by, and their titles (CARD-LINKS-SPEC §5.1). */
   waiting?: number;
   waitingTitles?: string;
+  /** Dismissed from Attention; its signals still show (ATTENTION-DISMISS-SPEC §3.3). */
+  attentionDismissed?: boolean;
   /** Which fields show (CARD-DISPLAY-SPEC); the accessibility label always lists everything. */
   display?: CardDisplay;
   /** Briefly emphasize a card whose status just changed (often an automatic move). */
@@ -255,6 +258,7 @@ export function TaskCard({
           waiting ? tn(waiting, "Waiting on {n} card: {waitingTitles}", "Waiting on {n} cards: {waitingTitles}", { waitingTitles }) : "",
           progress ? t("Progress: {state}", { state: progress.state }) : "",
           workpad ? workpadText(workpad) : "",
+          attentionDismissed ? t("Dismissed from Attention") : "",
           [t("{priority} priority", { priority: priorityLabels[task.priority] }), task.type ? taskTypeLabels[task.type] : "", task.archivedAt ? t("archived") : "", legacy ? t("legacy scope") : ""].filter(Boolean).join(", "),
           summaryState === "ready" && summary
             ? t("{running} running, {finished} finished turns, {unread} unread sessions, {attention} need attention", { running: summary.running, finished: summary.finished, unread: summary.unread, attention: summary.attention })
@@ -304,6 +308,7 @@ export function TaskCard({
           ideas={ideas}
           workpad={workpad}
           waiting={waiting}
+          attentionDismissed={attentionDismissed}
           display={display}
         />
       </Pressable>
@@ -431,6 +436,7 @@ function CardSignals({
   ideas,
   workpad,
   waiting,
+  attentionDismissed,
   display,
 }: {
   task: Task;
@@ -445,6 +451,7 @@ function CardSignals({
   ideas: number;
   workpad: WorkpadSignal | null;
   waiting: number;
+  attentionDismissed: boolean;
   display: CardDisplay;
 }) {
   const { colors } = useTheme();
@@ -488,6 +495,7 @@ function CardSignals({
     }
   } else if (sessions && display.sessions)
     items.push(<Signal key="fallback" icon="MessageSquare" text={running ? t("{running}/{sessions} running", { running, sessions }) : `${sessions}`} />);
+  if (attentionDismissed) items.push(<Signal key="dismissed" icon="BellOff" text={t("Dismissed")} />);
   if (workpad && display.workpad)
     items.push(
       <Signal

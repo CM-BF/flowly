@@ -32,12 +32,12 @@ test("tour paging stays inside the pages", () => {
 });
 
 describe("tips", () => {
-  const none: TipFacts = { hasCard: false, needsYou: false, openIdea: false, movedToFinished: false, hasArtifact: false, hasAgentTag: false, agentQuestion: false, olderHidden: false, nextMove: false, hasTicket: false, noConnection: false, projectTabs: false, hasWorkpad: false, hasSubagent: false, busyBoard: false };
+  const none: TipFacts = { hasCard: false, needsYou: false, openIdea: false, movedToFinished: false, hasArtifact: false, hasAgentTag: false, agentQuestion: false, olderHidden: false, nextMove: false, hasTicket: false, noConnection: false, projectTabs: false, hasWorkpad: false, hasSubagent: false, busyBoard: false, crowdedAttention: false };
   test("nothing to show without a fact", () => {
     expect(nextTip({ tipsSeen: [], facts: none, blocked: false })).toBeNull();
   });
   test("one tip at a time, waiting-for-you first", () => {
-    const facts = { hasCard: true, needsYou: true, openIdea: true, movedToFinished: false, hasArtifact: true, hasAgentTag: true, agentQuestion: false, olderHidden: false, nextMove: false, hasTicket: false, noConnection: false, projectTabs: false, hasWorkpad: false, hasSubagent: false, busyBoard: false };
+    const facts = { hasCard: true, needsYou: true, openIdea: true, movedToFinished: false, hasArtifact: true, hasAgentTag: true, agentQuestion: false, olderHidden: false, nextMove: false, hasTicket: false, noConnection: false, projectTabs: false, hasWorkpad: false, hasSubagent: false, busyBoard: false, crowdedAttention: false };
     expect(nextTip({ tipsSeen: [], facts, blocked: false })).toBe("needs-you");
     expect(nextTip({ tipsSeen: ["needs-you"], facts, blocked: false })).toBe("first-idea");
     expect(nextTip({ tipsSeen: ["needs-you", "first-idea"], facts, blocked: false })).toBe("first-artifact");
@@ -101,6 +101,13 @@ describe("tips", () => {
     expect(nextTip({ tipsSeen: ["first-card", "project-menu"], facts, blocked: false })).toBe("jira-connect");
     // A single project (or the compact switcher) has no tabs to point at.
     expect(nextTip({ tipsSeen: ["first-card"], facts: { ...none, hasCard: true }, blocked: false })).toBeNull();
+  });
+  test("a crowded Attention list points to Dismiss right after the waiting-for-you tips", () => {
+    const facts = { ...none, needsYou: true, crowdedAttention: true, hasCard: true };
+    expect(nextTip({ tipsSeen: [], facts, blocked: false })).toBe("needs-you");
+    expect(nextTip({ tipsSeen: ["needs-you"], facts, blocked: false })).toBe("attention-dismiss");
+    expect(nextTip({ tipsSeen: ["needs-you", "attention-dismiss"], facts, blocked: false })).toBe("first-card");
+    expect(nextTip({ tipsSeen: [], facts: { ...none, crowdedAttention: true }, blocked: false })).toBe("attention-dismiss");
   });
   test("no tip while the tour or another dialog is open", () => {
     expect(nextTip({ tipsSeen: [], facts: { ...none, hasCard: true }, blocked: true })).toBeNull();
