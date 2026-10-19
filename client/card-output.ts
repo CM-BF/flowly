@@ -155,7 +155,7 @@ const limit = createLimiter(OUTPUT_CONCURRENCY);
 export function useCardOutput(session: OutputSession | null | undefined, taskId: string) {
   const tail = useRpc(sessionTail);
   const query = useQuery({
-    queryKey: ["ultra", "cardOutput", session?.id, session ? outputCacheKey(session) : ""],
+    queryKey: ["flowly", "cardOutput", session?.id, session ? outputCacheKey(session) : ""],
     queryFn: ({ signal }) =>
       limit(async () => {
         const response = await tail({ taskId, agentId: session!.id, limit: OUTPUT_TAIL_LIMIT });

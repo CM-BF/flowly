@@ -30,7 +30,7 @@ export function useSessionConfig(taskId: string, agent: PaseoAgent | undefined, 
     configure = useRpc(rpc.configureSession),
     toast = useToast();
   const models = useQuery({
-    queryKey: ["ultra", "models", agent?.provider, agent?.cwd],
+    queryKey: ["flowly", "models", agent?.provider, agent?.cwd],
     queryFn: async () => {
       const result = await paseo.providers.listModels(agent!.provider, { cwd: agent!.cwd });
       if (result.error) throw new Error(result.error);

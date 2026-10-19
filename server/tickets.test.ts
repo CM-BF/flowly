@@ -306,7 +306,7 @@ describe("cards and ticket inputs (EXTERNAL-TRACKER-SPEC §5.4)", () => {
       ticket: { connectionId: x.connection.id, provider: "jira-dc", key: "AB-1", remoteId: "10001" },
     });
     expect(saved.events.filter((e) => e.taskId === card.id).map((e) => e.action)).toEqual(["created", "artifact_added"]);
-    expect(artifactContextLines(inputs).join("\n")).toContain(`AB-1 Empty result page (Jira ticket; read it with kanban_read_ticket artifactId=${inputs[0]!.id})`);
+    expect(artifactContextLines(inputs).join("\n")).toContain(`AB-1 Empty result page (Jira ticket; read it with flowly_read_ticket artifactId=${inputs[0]!.id})`);
   });
 
   test("a ticket that can't be read refuses the card before any workspace exists", async () => {
@@ -388,7 +388,7 @@ describe("agents (EXTERNAL-TRACKER-SPEC §4)", () => {
     const board = await x.store.read();
     const lines = artifactContextLines(board.artifacts, 10, (await x.tickets.locate(board.artifacts)).get(linked.id) ? new Set() : new Set([linked.id]));
     expect(lines.join("\n")).toContain("its connection was removed in Flowly, so it can't be read: ask the user");
-    expect(lines.join("\n")).not.toContain("kanban_read_ticket");
+    expect(lines.join("\n")).not.toContain("flowly_read_ticket");
     // A new connection to the same Jira (new id, address with a trailing slash) picks the ticket up again.
     const again = await x.tickets.save({ provider: "jira-dc", baseUrl: "https://jira.example.com/", secret: "new-token" });
     expect(again.id).not.toBe(x.connection.id);

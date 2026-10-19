@@ -87,7 +87,7 @@ test("a turn writes a version without touching board or task revisions; the sess
   const latest = await x.store.latest("t");
   expect(latest).toMatchObject({ state: "实现完成", target: "g", model: "claude/claude-haiku-5-5", agentIds: ["a1"] });
   // Child of the finishing session in the card's own workspace: no new native project/workspace.
-  expect(x.created[0]).toMatchObject({ workspaceId: "w", parent: "a1", labels: { "ultra-kanban": "summarizer", "ultra-kanban-task": "t" } });
+  expect(x.created[0]).toMatchObject({ workspaceId: "w", parent: "a1", labels: { flowly: "summarizer", "flowly-task": "t" } });
   expect(x.created[0].prompt).toContain("User: 做登录");
   expect(x.archived()).toBe(1);
   const after = await x.board.read();

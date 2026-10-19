@@ -225,7 +225,7 @@ export class SummaryService {
       parent: batch.agentIds[batch.agentIds.length - 1],
       config: { provider: model },
       title: `Kanban summary · ${task.title}`.slice(0, 120),
-      labels: { ...SUMMARIZER_LABELS, "ultra-kanban-task": taskId },
+      labels: { ...SUMMARIZER_LABELS, "flowly-task": taskId },
       prompt,
       outputSchema: outputJsonSchema as unknown as Record<string, unknown>,
     });

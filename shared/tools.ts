@@ -60,7 +60,7 @@ export const progressInputSchema = z.strictObject({
   ...base,
   kind: z.enum(["progress", "blocker", "result", "question"]).default("progress"),
 });
-/** kanban_propose_idea (IDEAS-SPEC §3): a follow-up outside this card's scope. */
+/** flowly_propose_idea (IDEAS-SPEC §3): a follow-up outside this card's scope. */
 export const ideaInputSchema = z.strictObject({
   expectedRevision: revisionSchema,
   request: requestSchema,
@@ -93,7 +93,7 @@ export const ideaInputSchema = z.strictObject({
       "here: an extension of this card's goal that this card's session can continue with its current context; new: divergent work that deserves its own card.",
     ),
 });
-/** kanban_set_tags (CARD-TAGS-SPEC §4.1): tag this card with modules and directions. */
+/** flowly_set_tags (CARD-TAGS-SPEC §4.1): tag this card with modules and directions. */
 export const tagsInputSchema = z.strictObject({
   expectedRevision: revisionSchema,
   request: requestSchema,
@@ -108,7 +108,7 @@ export const tagsInputSchema = z.strictObject({
     .default([])
     .describe("Tags to remove. Only tags an agent added can be removed."),
 });
-/** kanban_set_type (CARD-TYPE-SPEC §2): classify a card that has no type yet. */
+/** flowly_set_type (CARD-TYPE-SPEC §2): classify a card that has no type yet. */
 export const typeInputSchema = z.strictObject({
   expectedRevision: revisionSchema,
   request: requestSchema,
@@ -116,7 +116,7 @@ export const typeInputSchema = z.strictObject({
     "feature: new behavior; bugfix: wrong behavior fixed; research: investigation or analysis without a shipped change; refactor: restructuring without behavior change; docs: documentation only; chore: build, tooling, dependencies, maintenance.",
   ),
 });
-/** kanban_suggest_next_moves (NEXT-MOVES-SPEC §2): the session's candidate next messages for the user. */
+/** flowly_suggest_next_moves (NEXT-MOVES-SPEC §2): the session's candidate next messages for the user. */
 export const nextMovesInputSchema = z.strictObject({
   expectedRevision: revisionSchema,
   request: requestSchema,
@@ -156,7 +156,7 @@ export const nextMovesInputSchema = z.strictObject({
 const itemId = workpadItemId
   .optional()
   .describe("Keep the id from get_task when you update an item; omit it for a new one.");
-/** kanban_update_workpad (WORKPAD-SPEC §3): replace the card's acceptance criteria, checks and confusions. */
+/** flowly_update_workpad (WORKPAD-SPEC §3): replace the card's acceptance criteria, checks and confusions. */
 export const workpadInputSchema = z.strictObject({
   expectedRevision: revisionSchema,
   request: requestSchema,
@@ -199,7 +199,7 @@ export const workpadInputSchema = z.strictObject({
     .max(workpadLimits.confusions)
     .describe("What in the card was unclear and what you assumed."),
 });
-/** kanban_add_artifact (CARD-ARTIFACTS-SPEC §4.1): register an input or a deliverable of this card. */
+/** flowly_add_artifact (CARD-ARTIFACTS-SPEC §4.1): register an input or a deliverable of this card. */
 export const artifactInputSchema = z.strictObject({
   expectedRevision: revisionSchema,
   request: requestSchema,
@@ -213,7 +213,7 @@ export const artifactInputSchema = z.strictObject({
   title: z.string().trim().max(artifactLimits.title).optional().describe("Short title; defaults to the file name or link."),
   note: z.string().trim().max(artifactLimits.note).optional().describe("One line on what it is for."),
 });
-/** kanban_read_ticket (EXTERNAL-TRACKER-SPEC §4.2): read a ticket input of this card. */
+/** flowly_read_ticket (EXTERNAL-TRACKER-SPEC §4.2): read a ticket input of this card. */
 export const readTicketInputSchema = z.strictObject({
   artifactId: z.string().min(1).describe("Id of a ticket input in get_task artifacts (one with a ticket field)."),
   refresh: z.boolean().default(false).describe("Bypass the 60-second cache."),
@@ -231,7 +231,7 @@ export const ticketReadSchema = z.object({
   fetchedAt: z.string(),
 });
 export type ReadTicketInput = z.input<typeof readTicketInputSchema>;
-/** kanban_remove_artifact: only artifacts an agent added. */
+/** flowly_remove_artifact: only artifacts an agent added. */
 export const artifactRemovalSchema = z.strictObject({
   expectedRevision: revisionSchema,
   request: requestSchema,
@@ -300,9 +300,9 @@ export const toolContextSchema = z.object({
       note: z.string(),
       createdBy: z.enum(["human", "agent"]),
       missing: z.boolean(),
-      /** Added or edited since this session last called kanban_get_task (never for its own additions), or its ticket's content changed. */
+      /** Added or edited since this session last called flowly_get_task (never for its own additions), or its ticket's content changed. */
       unread: z.boolean(),
-      /** A Jira ticket input (EXTERNAL-TRACKER-SPEC §4.1): read its content with kanban_read_ticket. Status is for reference only. */
+      /** A Jira ticket input (EXTERNAL-TRACKER-SPEC §4.1): read its content with flowly_read_ticket. Status is for reference only. */
       ticket: z
         .object({
           key: z.string(),
@@ -320,7 +320,7 @@ export const toolContextSchema = z.object({
         .optional(),
     }),
   ),
-  /** false: the user turned the workpad off for this project (WORKPAD-SPEC §9); kanban_update_workpad returns WORKPAD_DISABLED. */
+  /** false: the user turned the workpad off for this project (WORKPAD-SPEC §9); flowly_update_workpad returns WORKPAD_DISABLED. */
   workpadEnabled: z.boolean().optional(),
   /** The card's workpad (WORKPAD-SPEC §4.1); `fresh` is null for unrun checks. */
   workpad: z
@@ -366,7 +366,7 @@ export const toolResultSchema = z.object({
     expiresAt: true,
   }),
   replayed: z.boolean(),
-  /** The proposed idea, for kanban_propose_idea. */
+  /** The proposed idea, for flowly_propose_idea. */
   ideaId: z.string().optional(),
   /** The added, updated or removed artifact, for the artifact tools. */
   artifactId: z.string().optional(),

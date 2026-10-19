@@ -43,7 +43,7 @@ export const TaskWorkpad = memo(function TaskWorkpad({ task, disabled, active }:
   const titles = useMemo(() => new Map<string, string>(titleKey ? JSON.parse(titleKey) : []), [titleKey]);
   // A fresh HEAD when the section shows, so out-of-date checks are current (§5.2).
   const head = useQuery({
-    queryKey: ["ultra", "workpad-head", task.id],
+    queryKey: ["flowly", "workpad-head", task.id],
     queryFn: () => refreshRpc({ taskId: task.id }),
     enabled: active && !!workpad?.validation.some((v) => v.state !== "unrun"),
     staleTime: 30_000,

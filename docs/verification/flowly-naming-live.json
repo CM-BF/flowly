@@ -1,0 +1,23 @@
+{
+  "provider": "codex/gpt-6-luna",
+  "modeAtCreation": "full-access",
+  "taskId": "bb3e8868-2a5c-4914-97f3-7b0c01896be4",
+  "workspaceId": "wks_55a49504bd8a47c0",
+  "parentId": "36bfa957-aed8-438c-9c5d-38de2f33e312",
+  "agentId": "bc10675f-1b10-49dd-8cba-6ebbf2f18fd0",
+  "createdAt": "2026-10-19T10:45:55.046Z",
+  "finished": {
+    "status": "idle",
+    "at": "2026-10-19T10:47:29.668Z"
+  },
+  "cleanup": {
+    "archivedAt": "2026-10-19T10:47:29.682Z",
+    "existingWorkspacePreserved": true,
+    "createdProjects": 0,
+    "createdWorkspaces": 0,
+    "createdCards": 0,
+    "deletedAt": "2026-10-19T10:48:25.742Z",
+    "nativeMissing": true,
+    "cardSessionMissing": true
+  }
+}

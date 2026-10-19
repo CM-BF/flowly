@@ -82,7 +82,7 @@ export function ProjectForm({
   // A board saved in the chosen folder's .flowly can be restored (PROJECT-FOLDER-SPEC §3).
   const restorePath = useDebounced(!project && source !== "linked" ? primaryPath.trim() : "", 400);
   const saved = useQuery({
-    queryKey: ["ultra", "restore-check", restorePath],
+    queryKey: ["flowly", "restore-check", restorePath],
     queryFn: () => checkRestore({ path: restorePath }),
     enabled: !!restorePath,
     staleTime: 0,
@@ -90,7 +90,7 @@ export function ProjectForm({
   const found = restorePath && saved.data?.found ? saved.data : null;
   const readFolder = useRpc(rpc.projectFolderState);
   const folder = useQuery({
-    queryKey: ["ultra", "folder-state", project?.id],
+    queryKey: ["flowly", "folder-state", project?.id],
     queryFn: () => readFolder({ id: project!.id }),
     enabled: !!project,
     staleTime: 0,

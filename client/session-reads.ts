@@ -8,7 +8,7 @@ export function useSessionReads() {
     mark = useRpc(markSessionRead),
     unmark = useRpc(markSessionUnread);
   const query = useQuery({
-    queryKey: ["ultra", "sessionReads"],
+    queryKey: ["flowly", "sessionReads"],
     queryFn: () => read({}),
     refetchInterval: 5000,
   });

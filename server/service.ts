@@ -69,6 +69,7 @@ export const PLUGIN_ID = "flowly";
 /** Plugin id before the rename to match the product name. */
 export const LEGACY_PLUGIN_ID = "paseo-ultra-kanban";
 export const dataDirectory = () =>
+  process.env.FLOWLY_DATA_DIR ||
   process.env.ULTRA_KANBAN_DATA_DIR ||
   resolve(paseoHome(), "plugin-data", PLUGIN_ID);
 
@@ -93,7 +94,7 @@ export function migrateLegacyPluginData(home = paseoHome()) {
 }
 /** Fixed parent of plugin-created linked multi-repo project roots (PROJECT-PICKER-SPEC). */
 export const linkedDirectory = () =>
-  process.env.ULTRA_KANBAN_LINKED_DIR || resolve(dataDirectory(), "projects");
+  process.env.FLOWLY_LINKED_DIR || process.env.ULTRA_KANBAN_LINKED_DIR || resolve(dataDirectory(), "projects");
 /** Folder/link name: letters, digits, `-`, `_`, `.`; never empty, hidden or a path. */
 export function folderName(text: string, fallback = "project") {
   const name = text

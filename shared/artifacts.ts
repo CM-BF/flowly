@@ -56,7 +56,7 @@ function contextLine(a: Pick<Artifact, "id" | "title" | "target" | "note" | "cre
     ? ""
     : unreadable.has(a.id)
       ? " (Jira ticket; its connection was removed in Flowly, so it can't be read: ask the user)"
-      : ` (Jira ticket; read it with kanban_read_ticket artifactId=${a.id})`;
+      : ` (Jira ticket; read it with flowly_read_ticket artifactId=${a.id})`;
   return `- [${a.createdBy === "human" ? "user" : "agent"}] ${a.title}${ticket}: ${a.target}${note ? ` — ${note.length > 200 ? `${note.slice(0, 199)}…` : note}` : ""}`;
 }
 

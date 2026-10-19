@@ -20,7 +20,7 @@ Incremental spec for card F2. Extends the board Attention entry in [MULTITASK-SP
 
 - Count = `attentionItems(...)` length, computed by the shared pure function `attentionFromSources` that the board also uses. Identical inputs give identical board and sidebar counts: same board RPC (`readBoard`), same agent listing (`listAgents` over the plugin-provided `usePaseo` SDK), same read receipts RPC, same `readUnavailable = pending || error` rule (unread excluded, permissions/errors kept).
 - No second Paseo connection; only plugin SDK/RPC.
-- Polling: every 10 s while the sidebar item is mounted, `retry: 1`, not in background. Query keys are host-scoped (`["ultra","sidebar",hostId,…]`) so multiple hosts never share counts. Unmount removes the observers, which stops polling.
+- Polling: every 10 s while the sidebar item is mounted, `retry: 1`, not in background. Query keys are host-scoped (`["flowly","sidebar",hostId,…]`) so multiple hosts never share counts. Unmount removes the observers, which stops polling.
 - Because the sidebar polls at 10 s and the board at 3–5 s, the two can briefly differ by one polling interval; they converge on the next poll.
 
 ## Errors

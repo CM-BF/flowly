@@ -87,7 +87,7 @@
 
 ## 4. Agent 侧
 
-- `kanban_get_task` 新增只读字段：
+- `flowly_get_task` 新增只读字段：
 
   ```
   links: [{ relation: "follow_up_of"|"follow_up"|"related"|"blocks"|"blocked_by",
@@ -104,7 +104,7 @@
   Related: …
   ```
 
-  这是建 session 时的快照；之后以 `kanban_get_task` 为准。
+  这是建 session 时的快照；之后以 `flowly_get_task` 为准。
 - Skill 新增一条：`links` 列出关联卡；有未解除的 `blocked_by` 时，开始前在回复里说明并按用户指示决定是否继续（不要自行改状态为 blocked，除非整张卡确实无法推进）。
 - v1 agent **不能**创建或删除关联（不新增写工具）。
 
@@ -182,6 +182,6 @@
   - `tasks.create` 带 `ideaId` 时关联与 accepted 原子写入；带 `followUpOf` 的预检（不留 workspace）、事务内复检、重放不重复；`ideaId` 与 `followUpOf` 同时给出被拒。
   - 旧 `board.json`：无 `links` 时由 `origin` 回填、来源卡缺失跳过；有 `links`（含空数组）时不回填。
   - 删除卡片与移除项目的关联级联和备份。
-  - `sessionContext` 的关联行与截断；`kanban_get_task` 的 `links`。
+  - `sessionContext` 的关联行与截断；`flowly_get_task` 的 `links`。
 - 客户端（`client/board-view.test.ts` 等）：Waiting on 计数；分组顺序；选择弹层的排除与禁用。
-- typecheck、全量测试；安装并 reload 本插件；用 Luna 6（`codex/gpt-6-luna`，`full-access`）测试 session 在 fixture 项目上走通：手动 Related/Blocks/Follow-up 关联与删除、环与跨项目报错、从 idea 建卡产生 derived、New follow-up task、Waiting on 信号随阻塞方完成消失、删除卡片级联、`kanban_get_task` 返回 links；桌面与紧凑布局 UI 按 AGENTS.md 绑定非全屏窗口，无法绑定时标 UNRUN。结束后清理 fixture，证据存 `docs/verification/card-links.md`。
+- typecheck、全量测试；安装并 reload 本插件；用 Luna 6（`codex/gpt-6-luna`，`full-access`）测试 session 在 fixture 项目上走通：手动 Related/Blocks/Follow-up 关联与删除、环与跨项目报错、从 idea 建卡产生 derived、New follow-up task、Waiting on 信号随阻塞方完成消失、删除卡片级联、`flowly_get_task` 返回 links；桌面与紧凑布局 UI 按 AGENTS.md 绑定非全屏窗口，无法绑定时标 UNRUN。结束后清理 fixture，证据存 `docs/verification/card-links.md`。

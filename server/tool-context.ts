@@ -133,7 +133,7 @@ export class ToolSecrets {
     )
       throw new ToolError(
         "INVALID_INPUT",
-        "Copy the request and both revisions from kanban_get_task; do not change signed fields.",
+        "Copy the request and both revisions from flowly_get_task; do not change signed fields.",
       );
     return parsed;
   }

@@ -129,10 +129,10 @@ function SummaryModelGroup({ active }: { active: boolean }) {
   // The provider shown can run ahead of the stored model until a model is picked.
   const [provider, setProvider] = useState(storedProvider);
   useEffect(() => setProvider(storedProvider), [storedProvider]);
-  const providers = useQuery({ queryKey: ["ultra", "providers"], queryFn: () => paseo.providers.listAvailable(), enabled: active });
-  const providerInfo = useQuery({ queryKey: ["ultra", "providerSnapshot"], queryFn: () => paseo.providers.snapshot(), enabled: active, staleTime: 60000 });
+  const providers = useQuery({ queryKey: ["flowly", "providers"], queryFn: () => paseo.providers.listAvailable(), enabled: active });
+  const providerInfo = useQuery({ queryKey: ["flowly", "providerSnapshot"], queryFn: () => paseo.providers.snapshot(), enabled: active, staleTime: 60000 });
   const models = useQuery({
-    queryKey: ["ultra", "summary-models", provider],
+    queryKey: ["flowly", "summary-models", provider],
     queryFn: async () => {
       const result = await paseo.providers.listModels(provider);
       if (result.error) throw new Error(result.error);

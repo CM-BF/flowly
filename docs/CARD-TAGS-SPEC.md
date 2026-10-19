@@ -54,7 +54,7 @@ tags?: Array<{
 不单独存储。服务端从本项目**未归档**卡片的标签统计 `{ tag, count, lastUsedAt }`，按 count 降序、再按 lastUsedAt 降序，取前 50 个：
 
 - 客户端从已有的 etag 看板读取里自行计算，不新增 RPC 和轮询。
-- `kanban_get_task` 返回 `projectTags`（同样的前 50 个），让 agent 优先复用已有写法。
+- `flowly_get_task` 返回 `projectTags`（同样的前 50 个），让 agent 优先复用已有写法。
 
 重命名、合并、删除标签见 §9（v1 不做）。
 
@@ -86,7 +86,7 @@ tags?: Array<{
 
 ### 4.1 工具
 
-新增 MCP 工具 `kanban_set_tags`（CLI 同步提供 `tags` 子命令：`tags --request-file <f> --add drawer,performance --remove old-tag`），遵循现有签名 request + expectedRevision 协议，幂等，不改 task revision：
+新增 MCP 工具 `flowly_set_tags`（CLI 同步提供 `tags` 子命令：`tags --request-file <f> --add drawer,performance --remove old-tag`），遵循现有签名 request + expectedRevision 协议，幂等，不改 task revision：
 
 ```
 { expectedRevision, request,
@@ -100,7 +100,7 @@ tags?: Array<{
 - `remove` 只能移除 agent 打的标签（任一 session 均可，同卡 session 共享工作）。移除人打的标签拒绝：`Only the user can remove tags they added.`；移除不存在的标签是空操作。
 - 返回 `{ receipt, tags, current }`，`current` 同其他写工具，是刷新后的 get_task 内容。
 
-`kanban_get_task` 的 `task` 带上 `tags`，并新增顶层 `projectTags`。
+`flowly_get_task` 的 `task` 带上 `tags`，并新增顶层 `projectTags`。
 
 工具描述（写进 description 与 skill）：
 
@@ -112,11 +112,11 @@ tags?: Array<{
 
 ### 4.3 Ideas
 
-`kanban_propose_idea` 增加可选 `tags: string[]`（≤ 12，同规范化）。从 idea 新建卡片时，表单预填这些标签，建卡后来源为 `human`（用户确认过）。`ideaSchema` 增加 `tags?: string[]`。
+`flowly_propose_idea` 增加可选 `tags: string[]`（≤ 12，同规范化）。从 idea 新建卡片时，表单预填这些标签，建卡后来源为 `human`（用户确认过）。`ideaSchema` 增加 `tags?: string[]`。
 
 ### 4.4 Skill
 
-`skills/paseo-ultra-kanban/SKILL.md` 与 `server/skill-source.ts` 加一条：理解范围后用 `kanban_set_tags` 给本卡打 1–4 个模块/方向标签，优先复用 `projectTags`。
+`skills/paseo-ultra-kanban/SKILL.md` 与 `server/skill-source.ts` 加一条：理解范围后用 `flowly_set_tags` 给本卡打 1–4 个模块/方向标签，优先复用 `projectTags`。
 
 ## 5. 错误
 
@@ -183,7 +183,7 @@ Details & workspace 增加 Tags 行。
 - `shared/tags.ts`：`normalizeTag`、`parseTagInput`（逗号/空白分割）、`mergeTags`（§2.5）、`projectTagStats`。
 - `shared/model.ts`：`taskSchema.tags`、`ideaSchema.tags`、`tagLimits`。
 - `shared/rpc.ts` / `server/service.ts` / `server/store.ts`：`tasks.create/update` 字段、`tasks.tags`，事件 `tags_changed`。
-- `shared/tools.ts` / `server/tool-server.ts` / `server/cli-source.ts`：`kanban_set_tags`、`tags` 子命令、`get_task.projectTags`。
+- `shared/tools.ts` / `server/tool-server.ts` / `server/cli-source.ts`：`flowly_set_tags`、`tags` 子命令、`get_task.projectTags`。
 - `shared/scope.ts`：`sessionContext` 的 Tags 行。
 - `shared/settings.ts`：`filterTags`。
 - `client/forms.tsx`、`client/board.tsx`、`client/drawer.tsx`：§6；新增 `client/tag-input.tsx`（表单与侧栏共用，memo 化，建议列表只在输入时计算）。
@@ -199,7 +199,7 @@ Details & workspace 增加 Tags 行。
 
 - 单元：`normalizeTag` 各规则（大小写、`#`、空白/下划线、中文、非法字符、长度）；`mergeTags` 三方合并（agent 在表单打开后新增的标签被保留，人删掉的不复活）；上限；词表统计排除归档卡并正确排序。
 - store / service：表单编辑增 task revision；`tasks.tags` 与工具只增看板 revision；事件 note 与“无变化不记事件”；归档拒绝；非法存储值不重置文件。
-- tool-server：`kanban_set_tags` 幂等重放、整次拒绝不部分写入、agent 不能删人打的标签、add/remove 重叠、`get_task` 的 `tags` 与 `projectTags`；CLI `tags` 子命令。
+- tool-server：`flowly_set_tags` 幂等重放、整次拒绝不部分写入、agent 不能删人打的标签、add/remove 重叠、`get_task` 的 `tags` 与 `projectTags`；CLI `tags` 子命令。
 - `sessionContext` 仅有标签时含 Tags 行；ideas 带标签并预填新建表单。
 - 设置：`filterTags` 默认 `[]`、上限；看板筛选 OR 与前缀；搜索 `#tag` AND。
 - onboarding-logic：`tags` 提示规则。

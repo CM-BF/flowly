@@ -53,12 +53,12 @@ idea 不是任务卡：不进泳道、不占 workspace、不改来源卡状态�
   - `idea_adopted`（human，来源卡，agentId=目标 session，note=标题）
   - `idea_dismissed`、`idea_restored`（human，来源卡，note=标题）
 
-## 3. Agent 工具 `kanban_propose_idea`
+## 3. Agent 工具 `flowly_propose_idea`
 
 输入（strict）：
 
 ```
-{ expectedRevision, request,             // 同其他写工具，来自 kanban_get_task
+{ expectedRevision, request,             // 同其他写工具，来自 flowly_get_task
   title, detail, rationale,
   context?: string = "",
   type?: "feature"|"bugfix"|"research"|"refactor"|"docs"|"chore",
@@ -66,18 +66,18 @@ idea 不是任务卡：不进泳道、不占 workspace、不改来源卡状态�
   scope?: "here"|"new" = "new" }   // here：本卡目标的延伸，本卡 session 带着现有上下文就能接着做；new：发散性工作
 ```
 
-- 与 `kanban_report_progress` 相同的身份、签名、过期、revision、归档和已完成检查；不改卡片状态或 revision。
+- 与 `flowly_report_progress` 相同的身份、签名、过期、revision、归档和已完成检查；不改卡片状态或 revision。
 - 重放：同一 request 同一参数返回原回执与原 `ideaId`（`replayed: true`）；参数不同报 `REQUEST_REUSED`。
 - 错误：
   - `IDEA_DUPLICATE`：本卡已有同标题的 open idea（去首尾空白、忽略大小写），消息中带已有 idea ID。
   - `IDEA_LIMIT`：本卡已有 10 个 open idea。
 - 输出：`toolResultSchema`，多一个 `ideaId`。
-- `kanban_get_task` 的上下文新增 `ideas: [{ id, title, status, scope?, acceptedTaskId?, acceptedAgentId? }]`（本卡全部 idea），供 agent 避免重复。
+- `flowly_get_task` 的上下文新增 `ideas: [{ id, title, status, scope?, acceptedTaskId?, acceptedAgentId? }]`（本卡全部 idea），供 agent 避免重复。
 - CLI 新增 `idea` 子命令：`idea --request-file <snapshot> --title … --detail … --rationale … [--context …] [--type …] [--priority …] [--scope here|new]`（不需要 `--note`）。HTTP `/api` 的 `action` 新增 `"idea"`。
 
 ## 4. Skill 规则（新增一条）
 
-- 工作中发现用户没要求、但值得做的下一步时用 `kanban_propose_idea` 提出，通常在交付时。本卡目标的延伸用 `scope=here`（用户可能把它发回本 session 继续）；发散性工作（顺带发现的 bug、重构、独立功能）用 `scope=new`。本卡本来就要求的工作不是 idea，直接做。
+- 工作中发现用户没要求、但值得做的下一步时用 `flowly_propose_idea` 提出，通常在交付时。本卡目标的延伸用 `scope=here`（用户可能把它发回本 session 继续）；发散性工作（顺带发现的 bug、重构、独立功能）用 `scope=new`。本卡本来就要求的工作不是 idea，直接做。
 - 每次交付最多 3 个；先看 `ideas` 避免重复。
 - `context` 写清新任务需要的文件、分支和结论，因为新卡的 agent 看不到本对话。
 - idea 只是建议：不要自行开始、不要建卡。
@@ -212,5 +212,5 @@ agent 建议 `scope=new` 时 “Start a new task · Suggested” 排在最前、
   - 建卡：预检与事务内复检、`origin` 与 accepted 原子写入、非 open idea 报错且不创建 workspace、跨项目拒绝。
   - `ideas.update` 状态约束；删除卡片与移除项目的级联与备份；旧 `board.json`（无 `ideas`）可读。
   - `ideaDescription()` 输出与截断；`sessionContext` 的来源行。
-- 工具服务：注册 `kanban_propose_idea`；`/api` 的 `idea` 动作；`kanban_get_task` 返回 `ideas`。
+- 工具服务：注册 `flowly_propose_idea`；`/api` 的 `idea` 动作；`flowly_get_task` 返回 `ideas`。
 - typecheck、全量测试；安装并 reload 本插件；用 Luna 6 全权限测试 session 在 fixture 卡片上走通“提出 → 侧栏显示 → 建卡 → 双向链接”，结束后清理。

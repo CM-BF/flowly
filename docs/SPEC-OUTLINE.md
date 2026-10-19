@@ -1,14 +1,15 @@
 # Paseo Kanban Plugin：Spec 大纲与路线图
 
+2026-10-19 内置工具与 skill 命名：MCP 服务/config key 为 `flowly`，11 个工具统一 `flowly_*`，skill 为 `skills/flowly`，CLI 为 `flowly.mjs`，新环境变量统一 `FLOWLY_*`；仅保留历史数据与既有会话所需的私有兼容入口。[spec](FLOWLY-NAMING-SPEC.md)。
 2026-10-19 卡片显示（已实现）：卡片改为四层——标题上方一行淡色元信息（优先级/类型/工单/标签，去掉 pill 和标签框）、标题、单行活动（默认“摘要，否则输出”）、状态信号行；新增 设置 → Cards 页（host 级 `cardActivity` / `cardHidden`，带实时预览与恢复默认），Sort 菜单末尾“Card display…”直达；需要用户处理的信号始终显示。新提示 `card-display`。[spec](CARD-DISPLAY-SPEC.md)。
-2026-10-19 卡片 Workpad（已实现）：agent 用 `kanban_update_workpad`（CLI `workpad`）整体替换卡片的验收标准、验证项（pass/fail/unrun + 运行时 commit）和困惑点，workpad 有独立 revision（人勾选不改 task revision）；Plan 取自 agent 原生 todo；daemon 用 git 记录环境戳并判断验证是否过期；agent 交付 In review 时有未完成项返回 `WORKPAD_OPEN`，需 `acknowledgeOpen` 确认，卡片标“Delivered with N open items”。卡面 Checks n/m，抽屉 Workpad 段可勾选。新提示 `first-workpad`。[spec](WORKPAD-SPEC.md)。
+2026-10-19 卡片 Workpad（已实现）：agent 用 `flowly_update_workpad`（CLI `workpad`）整体替换卡片的验收标准、验证项（pass/fail/unrun + 运行时 commit）和困惑点，workpad 有独立 revision（人勾选不改 task revision）；Plan 取自 agent 原生 todo；daemon 用 git 记录环境戳并判断验证是否过期；agent 交付 In review 时有未完成项返回 `WORKPAD_OPEN`，需 `acknowledgeOpen` 确认，卡片标“Delivered with N open items”。卡面 Checks n/m，抽屉 Workpad 段可勾选。新提示 `first-workpad`。[spec](WORKPAD-SPEC.md)。
 2026-10-19 AI 标记（已实现）：AI 写的或建议的内容统一用 `Sparkles` 星星标记（共享 `AiMark`）：卡片进度行、侧栏 Progress 与 Ideas、Ideas 页、Insights 每日摘要、agent 添加的产物和标签，与下一步建议一致；卡片类型 feature 改用 `Puzzle`。[spec](AI-MARK-SPEC.md)。
-2026-10-19 下一步建议（已实现）：agent 在一轮结束时用 `kanban_suggest_next_moves`（CLI `next-moves`）给出 1–3 条候选下一条消息（label + 完整 prompt），记为本会话事件 `next_moves_suggested`，不改 revision；Flowly 会话输入框上方显示本轮建议，点按只预填（已有文字则追加），不发送；用户下一条消息开始新一轮后失效，可 × 隐藏。活动时间线不显示，A1r 不把它当作工作汇报。新提示 `next-move` 与欢迎页特色条目。[spec](NEXT-MOVES-SPEC.md)。
-2026-10-19 外部工单接入（Jira / Linear，已确认，P1 实现中）：用户决定工单系统**只作为输入和引用**，Flowly 从不写工单系统，工单状态也不驱动卡片。工单链接或 key 作为卡片的 input artifact，由 daemon 识别并读取（凭据只在 daemon）；agent 用新工具 `kanban_read_ticket` 读正文和评论，内容变化时标为 unread。New task → From Jira 列出我的最近工单，也可以按工单号或文字搜索，标题为空时预填；已有卡片可用 Link Jira ticket 关联。按需刷新，没有后台轮询。[设计 spec](EXTERNAL-TRACKER-SPEC.md)。
-2026-10-18 卡片类型由 agent 补全（已实现）：`kanban_set_type` / CLI `set-type` 仅在卡片没有 type 时写入（+task revision，事件 `type_set`），已有 type 一律保留（`TYPE_ALREADY_SET`）。[spec](CARD-TYPE-SPEC.md)。
-2026-10-18 卡片自定义标签（已实现）：与固定的 type 不同，标签是自由文本、按项目词表复用，标记功能模块与优化方向；agent 用 `kanban_set_tags` 给本卡打标签（只增看板 revision，不能删人打的标签），表单/卡片/侧栏显示，筛选与搜索支持 `#tag`，字段按将来的搜索设计。[增量 spec](CARD-TAGS-SPEC.md)和[验证](verification/card-tags.md)。
+2026-10-19 下一步建议（已实现）：agent 在一轮结束时用 `flowly_suggest_next_moves`（CLI `next-moves`）给出 1–3 条候选下一条消息（label + 完整 prompt），记为本会话事件 `next_moves_suggested`，不改 revision；Flowly 会话输入框上方显示本轮建议，点按只预填（已有文字则追加），不发送；用户下一条消息开始新一轮后失效，可 × 隐藏。活动时间线不显示，A1r 不把它当作工作汇报。新提示 `next-move` 与欢迎页特色条目。[spec](NEXT-MOVES-SPEC.md)。
+2026-10-19 外部工单接入（Jira / Linear，已确认，P1 实现中）：用户决定工单系统**只作为输入和引用**，Flowly 从不写工单系统，工单状态也不驱动卡片。工单链接或 key 作为卡片的 input artifact，由 daemon 识别并读取（凭据只在 daemon）；agent 用新工具 `flowly_read_ticket` 读正文和评论，内容变化时标为 unread。New task → From Jira 列出我的最近工单，也可以按工单号或文字搜索，标题为空时预填；已有卡片可用 Link Jira ticket 关联。按需刷新，没有后台轮询。[设计 spec](EXTERNAL-TRACKER-SPEC.md)。
+2026-10-18 卡片类型由 agent 补全（已实现）：`flowly_set_type` / CLI `set-type` 仅在卡片没有 type 时写入（+task revision，事件 `type_set`），已有 type 一律保留（`TYPE_ALREADY_SET`）。[spec](CARD-TYPE-SPEC.md)。
+2026-10-18 卡片自定义标签（已实现）：与固定的 type 不同，标签是自由文本、按项目词表复用，标记功能模块与优化方向；agent 用 `flowly_set_tags` 给本卡打标签（只增看板 revision，不能删人打的标签），表单/卡片/侧栏显示，筛选与搜索支持 `#tag`，字段按将来的搜索设计。[增量 spec](CARD-TAGS-SPEC.md)和[验证](verification/card-tags.md)。
 2026-10-16 新用户 onboarding（设计待评审，未实现）：首次打开时的四页欢迎引导（project / 卡片 / session 与 Paseo 的对应关系、基本流程、特色功能、开始使用），空状态增强，可重看入口，以及可选的一次性情境提示；仅新增 host 级 `onboarding` 设置，不改看板数据、RPC 或 agent 工具。[设计 spec](ONBOARDING-SPEC.md)。
-2026-10-16 改名：展示名由 Ultra Kanban 改为 **Flowly**（不设中文名；定位为 agent 原生工作流，看板是界面）。插件 ID 同日改为 `flowly`（数据目录与设置由 `migrateLegacyPluginData` 复制迁移）；skill 与 MCP 服务名仍为 `paseo-ultra-kanban`；历史 spec/验证文档中的旧名保持原样。
+2026-10-16 改名：展示名由 Ultra Kanban 改为 **Flowly**（不设中文名；定位为 agent 原生工作流，看板是界面）。插件 ID 同日改为 `flowly`（数据目录与设置由 `migrateLegacyPluginData` 复制迁移）；工具与 skill 命名由 2026-10-19 的 [Flowly 命名修订](FLOWLY-NAMING-SPEC.md)继续统一；历史验证证据中的旧名保持原样。
 
 2026-10-16 默认模型：设置新增 Models 页（新会话默认模型、摘要模型），项目设置可单独指定默认模型并优先于全局；都未设置时沿用最近一个会话。设置界面同时重做为卡片式分组。[增量 spec](MODEL-DEFAULTS-SPEC.md)和[验证](verification/model-defaults.md)。
 
@@ -16,7 +17,7 @@
 
 2026-10-16 界面多语言：UI 文案按设备语言（或设置中手选）显示，首批 zh-CN / zh-TW / ja / ko / es / fr / de / pt-BR / ru；英文原文即 key，缺译回退英文；agent 面向文本、daemon 错误与模型写的摘要不翻译。[增量 spec](I18N-SPEC.md)和[验证](verification/i18n.md)。
 
-2026-10-15 Ideas 卡片：agent 用 `kanban_propose_idea` 把本卡范围外的后续工作作为 idea 挂到来源卡（理由、上下文、类型/优先级），看板卡片显示灯泡计数，侧栏 Ideas 区块可 Create task（打开预填 idea 内容与来源卡进展的新建表单，建卡时原子标记 accepted 并记录 `origin`，两卡互链）或 Dismiss/Restore；数据存 `board.json` 的 `ideas`，无需迁移。[增量 spec](IDEAS-SPEC.md)。
+2026-10-15 Ideas 卡片：agent 用 `flowly_propose_idea` 把本卡范围外的后续工作作为 idea 挂到来源卡（理由、上下文、类型/优先级），看板卡片显示灯泡计数，侧栏 Ideas 区块可 Create task（打开预填 idea 内容与来源卡进展的新建表单，建卡时原子标记 accepted 并记录 `origin`，两卡互链）或 Dismiss/Restore；数据存 `board.json` 的 `ideas`，无需迁移。[增量 spec](IDEAS-SPEC.md)。
 
 2026-10-16 项目 Ideas 页：总览栏 “Ideas N” chip（快捷键 B）打开与 Insights 对齐的整页，收拢本项目所有卡片的 ideas（Open/Accepted/Dismissed、搜索、排序、按卡分组、筛选）；idea 不随卡片 Done/收尾/归档改变，删卡或移除项目时删除；finished/归档卡上的 idea 只能新建卡片或忽略。[增量 spec](IDEAS-INBOX-SPEC.md)。
 2026-10-15 app 性能优化：主因是手机 JS 线程被大体量轮询（relay 下 JS 解密）和无 memo 的整树重渲染占满。看板/summary/resources 改为 etag 读取（未变时 147 KB → 38 B），session 输出改用 daemon 精简 tail（68 KB → 9 KB），agent 列表改为 Paseo 订阅流（替代 5 s 全量轮询与侧栏每 3 s 扫描全部含归档 agent），卡片/侧栏/对话 memo 化，手机打开卡片不再卸载看板，运行脉冲改为原生循环；输入框原生自增高、发送即清空（失败恢复）、晚到的草稿恢复不再重挂载输入框。[增量 spec](PERFORMANCE-SPEC.md)和[验证](verification/performance.md)。

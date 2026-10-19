@@ -121,7 +121,7 @@ Done/Cancelled 是人的决定；把 idea 发回这类卡的 session，agent 会
 ## 7. 不做
 
 - 跨项目 Ideas 汇总；idea 编辑、合并、投票；批量操作（批量 Dismiss 可后续作为 idea）。
-- 让 agent 读取本项目其他卡的 ideas 以避免跨卡重复（后续 idea：`kanban_get_task` 增加项目级 open idea 标题）。
+- 让 agent 读取本项目其他卡的 ideas 以避免跨卡重复（后续 idea：`flowly_get_task` 增加项目级 open idea 标题）。
 - idea 自动过期。
 - “Reopen and continue”（见 §8）。
 
@@ -152,5 +152,5 @@ Done/Cancelled 是人的决定；把 idea 发回这类卡的 session，agent 会
 - 关闭时：
   - 总览栏 Ideas chip 隐藏，快捷键 `B` 不响应，已打开的 Ideas 页回到看板；
   - 看板卡片的灯泡计数与卡片侧栏 Ideas 区块隐藏；
-  - `kanban_propose_idea`（及 CLI/HTTP `idea`）返回 `IDEAS_DISABLED`（“Ideas are turned off in Ultra Kanban settings. Mention follow-up suggestions in your reply instead.”），不写数据；关闭前已提交的同一请求仍按回执重放。Skill 提示 agent 收到该错误时在回复里说明后续建议、不要重试。
+  - `flowly_propose_idea`（及 CLI/HTTP `idea`）返回 `IDEAS_DISABLED`（“Ideas are turned off in Ultra Kanban settings. Mention follow-up suggestions in your reply instead.”），不写数据；关闭前已提交的同一请求仍按回执重放。Skill 提示 agent 收到该错误时在回复里说明后续建议、不要重试。
 - 关闭不删除、不修改任何 idea；重新打开后一切照旧。删除卡片/移除项目时的级联删除不受开关影响。

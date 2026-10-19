@@ -1,6 +1,6 @@
 import type { BoardEvent, NextMove } from "./model";
 
-/** The event an agent's kanban_suggest_next_moves records (NEXT-MOVES-SPEC §2). */
+/** The event an agent's flowly_suggest_next_moves records (NEXT-MOVES-SPEC §2). */
 export const nextMovesAction = "next_moves_suggested";
 
 export type NextMovesEvent = BoardEvent & { moves: NextMove[] };

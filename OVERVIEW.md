@@ -20,7 +20,7 @@ Requires Paseo 0.11.2 or newer. Board data is stored on the daemon machine. Arch
 
 ## Agent Kanban tools
 
-Sessions created from a card receive four scoped MCP tools: `kanban_get_task`, `kanban_update_status`, `kanban_report_progress` and `kanban_propose_idea`. The plugin supplies the current card, workspace, effective repository directories, a skill, and a private session context. An agent can move its card between the Design, Development and Test stages or to In review; a person decides Done and Cancelled. A progress report leaves the card's status and task revision unchanged.
+Sessions created from a card receive eleven scoped `flowly_*` MCP tools for reading their card and ticket inputs, updating its work stage and workpad, reporting progress, proposing ideas and next moves, tagging and classifying the card, and managing artifacts. The plugin supplies the current card, workspace, effective repository directories, a skill, and a private session context. An agent can move its card between the Design, Development and Test stages or to In review; a person decides Done and Cancelled. A progress report leaves the card's status and task revision unchanged.
 
 For a session already in the card's workspace, select it in the drawer and choose **Send Kanban work instructions**. That sends the CLI and skill instructions to that session; it does not change the ordinary follow-up draft or install MCP into a running provider session. The drawer shows which access was configured and when a tool call actually succeeded. It also shows tool service errors, including when the local listener cannot start.
 

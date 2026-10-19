@@ -75,7 +75,7 @@ PlanSnapshot { taskId, agentId, items: { text (≤ 300), status: "pending" | "in
 
 | action | actor | 何时 | note |
 | --- | --- | --- | --- |
-| `workpad_updated` | agent（带 agentId） | `kanban_update_workpad` 提交 | 计数摘要，如 `Acceptance 2/4 · Checks 3/5, 1 failed` |
+| `workpad_updated` | agent（带 agentId） | `flowly_update_workpad` 提交 | 计数摘要，如 `Acceptance 2/4 · Checks 3/5, 1 failed` |
 | `workpad_checked` | human | 人勾选/改状态/移除 confusion（§6.3） | `<段名>: <条目文字前 80 字>` → 新状态 |
 
 两者都**不**显示在卡片活动时间线（与 `next_moves_suggested` 相同，避免刷屏），flow log 照常记录。`status_changed` 事件新增可选字段 `workpad`（交付快照，§5.3）。
@@ -87,7 +87,7 @@ PlanSnapshot { taskId, agentId, items: { text (≤ 300), status: "pending" | "in
 - **task revision**：workpad 写入（agent 或人）都不改。现有工具的 `expectedRevision.task` 语义不变。
 - **workpad revision**：每次写入（agent 整体替换、人改一项）+1。agent 写入必须带 `workpadRevision`（尚无 workpad 时为 0），不符则 `WORKPAD_CONFLICT`。这样人刚勾的项不会被 agent 用旧副本覆盖，而 agent 的状态/进度/产物写入不受人勾选影响。
 
-## 3. Agent 工具 `kanban_update_workpad`
+## 3. Agent 工具 `flowly_update_workpad`
 
 ### 3.1 输入
 
@@ -186,14 +186,14 @@ plan: { agentId, own: boolean, items, at }[]         // 本卡各 session 的 Pl
 - `stale`：`state = pass` 且新鲜度为 `stale` 的验证；
 - `total` 为四者之和。Plan 与 Confusions 不计入。
 
-agent 调 `kanban_update_status(status=in_review)` 时（只在 agent 路径；人拖到 In review 不检查）：
+agent 调 `flowly_update_status(status=in_review)` 时（只在 agent 路径；人拖到 In review 不检查）：
 
 1. 先刷新 `head`，计算 `openItems`。
 2. 没有 workpad，或 `total = 0`：照常提交。
 3. `total > 0` 且输入没有 `acknowledgeOpen: true`：返回 `WORKPAD_OPEN`，不提交任何内容（不写回执，同一 request 可以带确认后重试）。消息列出未完成项：“{n} workpad items are still open: … Deliver anyway only if the note explains each one (failed, not run, or out of date), with acknowledgeOpen=true.”
 4. `total > 0` 且 `acknowledgeOpen: true`：提交；`status_changed` 事件带交付快照 `workpad: { unchecked, failed, unrun, stale, total, revision }`。
 
-`kanban_update_status` 输入新增可选 `acknowledgeOpen: boolean`（默认 false），CLI 加 `--acknowledge-open`。门槛不检查 note 的内容（系统无法判断），只保证 agent 看过清单并主动确认。
+`flowly_update_status` 输入新增可选 `acknowledgeOpen: boolean`（默认 false），CLI 加 `--acknowledge-open`。门槛不检查 note 的内容（系统无法判断），只保证 agent 看过清单并主动确认。
 
 卡片标记：每次 agent 交付都把快照同时写进 workpad 的 `delivery`（带该 `status_changed` 事件的 id）。卡片在 In review，且最近一条进入 In review 的 `status_changed` 就是这次交付（事件已被裁剪时也算），`total > 0` 时卡面显示“Delivered with {n} open items”（警告色）。卡片离开 In review、或之后被人重新拖进 In review，都不再显示。标记反映交付时的状态；之后人或 agent 再勾选，标记不变，抽屉里看实时状态。
 
@@ -249,7 +249,7 @@ agent 调 `kanban_update_status(status=in_review)` 时（只在 agent 路径；�
 
 `server/skill-source.ts` 与 `skills/paseo-ultra-kanban/SKILL.md` 同步新增一条（英文）：
 
-> - Keep the card's workpad current with kanban_update_workpad: acceptance criteria, validation checks and confusions. Your plan is read from your own todo list, so keep that list current instead of copying it. Before you start implementing, write the acceptance criteria and the checks you will run; when the card description has a Validation, Test plan or acceptance section, copy each item into the workpad word for word and never weaken or drop one. Each check names the exact command. Update the workpad after each milestone: mark a check pass or fail only after you actually ran it, with the commit it ran on (sha, plus dirty=true when it ran on uncommitted changes); leave it unrun otherwise. Add a confusion when something in the card was unclear and you had to guess. A check that turns out to be unnecessary is removed with a reason in your reply, not marked pass. Before delivering to in_review, rerun checks that are out of date. If items are still open, the status update returns WORKPAD_OPEN: deliver only with acknowledgeOpen=true and a note that explains every open item.
+> - Keep the card's workpad current with flowly_update_workpad: acceptance criteria, validation checks and confusions. Your plan is read from your own todo list, so keep that list current instead of copying it. Before you start implementing, write the acceptance criteria and the checks you will run; when the card description has a Validation, Test plan or acceptance section, copy each item into the workpad word for word and never weaken or drop one. Each check names the exact command. Update the workpad after each milestone: mark a check pass or fail only after you actually ran it, with the commit it ran on (sha, plus dirty=true when it ran on uncommitted changes); leave it unrun otherwise. Add a confusion when something in the card was unclear and you had to guess. A check that turns out to be unnecessary is removed with a reason in your reply, not marked pass. Before delivering to in_review, rerun checks that are out of date. If items are still open, the status update returns WORKPAD_OPEN: deliver only with acknowledgeOpen=true and a note that explains every open item.
 
 并在现有 “Deliver the overall result to in_review…” 一句后补：“…unrun checks and remaining issues; the workpad shows them on the card, so keep it and your note consistent.”
 
@@ -259,7 +259,7 @@ CLI 用法段加入 `workpad` 子命令和 `status in_review --acknowledge-open`
 
 - 欢迎页特色列表新增一条 **Workpad**：“Agents keep a workpad on each card: acceptance criteria, checks marked passed, failed or not run on a named commit, and what confused them.”
 - 一次性提示 `first-workpad`：当前项目任一卡片有 workpad 时出现，文案 “This card has a workpad: the agent's acceptance criteria and checks. The card shows how many checks passed; open it to see which ran on which commit, and tick items yourself.” 优先级排在 `next-move` 之后、`first-idea` 之前。`client/onboarding-logic.ts` 加 tip id 与事实 `workpads`，`client/board.tsx` 的 `tipText` 加文案，ONBOARDING-SPEC 提示表加一行。
-- README / README.zh-CN Highlights 加一句，agent 工具列表加 `kanban_update_workpad`。
+- README / README.zh-CN Highlights 加一句，agent 工具列表加 `flowly_update_workpad`。
 - 所有新文案（卡面信号、抽屉段落、状态读出、错误、tip、欢迎页）加入 `shared/i18n/` 全部目录；`tn` 用于计数。agent 面向文字和 daemon 错误保持英文。
 - 实现时在 SPEC-OUTLINE 顶部加一条记录，PROGRESS.md 记录完成/失败/未运行的检查。
 
@@ -270,7 +270,7 @@ CLI 用法段加入 `workpad` 子命令和 `status in_review --acknowledge-open`
 - 数据：`Project.workpad?: boolean`，缺省为开（老项目与新项目都开）；`projects.update` 接受 `workpad`，与其它项目编辑一样增加项目 revision。
 - 设置：项目设置弹层在 “Auto-update status in this project” 之后新增开关 **Card workpad**，说明 “Agents keep acceptance criteria and checks on each card, and delivering with open items needs a note. Off hides it and stops these checks; what agents wrote is kept.” 只在编辑已有项目时显示。
 - 关闭时：
-  - `kanban_update_workpad` 返回 `WORKPAD_DISABLED`（不写入、不留回执）；`get_task` 返回 `workpadEnabled: false`、`workpad: null`、`plan: []`；skill 要求 agent 改在进度和交付说明里列出验收与验证，不重试；
+  - `flowly_update_workpad` 返回 `WORKPAD_DISABLED`（不写入、不留回执）；`get_task` 返回 `workpadEnabled: false`、`workpad: null`、`plan: []`；skill 要求 agent 改在进度和交付说明里列出验收与验证，不重试；
   - 交付不检查（不返回 `WORKPAD_OPEN`，不记交付快照）；
   - 回合结束不记录 Plan、不刷新 HEAD；`workpads.check` / `workpads.resolve-confusion` 拒绝（“The workpad is turned off for this project.”），`workpads.refresh` 不执行 git；
   - 卡面不显示 workpad 信号（包括 “Delivered with N open items”），抽屉不显示 Workpad 段，Progress 重新显示 summary 的 Target，`first-workpad` 提示不出现。
@@ -289,7 +289,7 @@ CLI 用法段加入 `workpad` 子命令和 `status in_review --acknowledge-open`
   - 门槛：有未完成项无确认 → `WORKPAD_OPEN` 且状态未变、无回执；带 `acknowledgeOpen` → 提交且事件带快照；无 workpad 或全部完成 → 照常；HEAD 前进使 pass 变 stale 并计入门槛。
 - `server/workpad-plan.test.ts`：从 timeline 取最后一个 todo；无 todo 保留旧快照；空数组清空；`status` 缺失时由 `completed` 推出；只处理看板管理的 session；条目与长度上限。
 - `server/progress-rules.test.ts`：只更新了 workpad 的回合不算 silent turn；A1r 把 workpad 更新算作工作。
-- `server/tool-server.test.ts`：工具列表含 `kanban_update_workpad`，`kanban_update_status` schema 含 `acknowledgeOpen`。
+- `server/tool-server.test.ts`：工具列表含 `flowly_update_workpad`，`flowly_update_status` schema 含 `acknowledgeOpen`。
 - `client/onboarding-logic.test.ts`：`first-workpad` 规则与优先级。
 - 项目开关（§9）：关闭后写入返回 `WORKPAD_DISABLED`、交付不拦、`get_task` 不返回 workpad、回合结束不记 Plan、人工编辑被拒；重新打开后旧数据仍在；`projects.update` 保存开关。
 - `npm test` 的 i18n 目录检查通过；`npm run typecheck` 通过。

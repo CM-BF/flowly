@@ -86,6 +86,7 @@ test("prompt carries the card, previous summary and transcript", () => {
 });
 
 test("summarizer sessions are recognized by label", () => {
+  expect(isSummarizer({ labels: { flowly: "summarizer" } })).toBe(true);
   expect(isSummarizer({ labels: { "ultra-kanban": "summarizer" } })).toBe(true);
   expect(isSummarizer({ labels: {} })).toBe(false);
   expect(isSummarizer({})).toBe(false);

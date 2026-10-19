@@ -15,7 +15,7 @@ Status: implementation authorized by Kanban card **F1 卡片显示最近 agent �
 ## 2. Data fetching contract
 
 - The agent snapshot (0.11.2 `AgentSnapshotPayload`) has no assistant-text field (`title`, `lastError` and attention fields are not agent output), so a bounded tail fetch is used: `agents.ref(id).timeline.refetch({ direction: "tail", limit: 20, projection: "projected" })`, via the supplied `usePaseo()` SDK only.
-- Query key `["ultra", "cardOutput", agentId, updatedAt]`, `staleTime: Infinity`, no polling interval, no retry, no focus/reconnect refetch. A new fetch happens only when the chosen session or its `updatedAt` changes (observed through the board's existing 5 s agent list). Shared cache: duplicate card renders reuse one request.
+- Query key `["flowly", "cardOutput", agentId, updatedAt]`, `staleTime: Infinity`, no polling interval, no retry, no focus/reconnect refetch. A new fetch happens only when the chosen session or its `updatedAt` changes (observed through the board's existing 5 s agent list). Shared cache: duplicate card renders reuse one request.
 - Only mounted cards fetch: the current project, filters, shown desktop columns and the current compact status lane. Hidden lanes/filtered cards issue no requests. Unmounting cancels queued work through the query abort signal.
 - A module-level limiter allows at most **3** concurrent tail fetches; extra work queues FIFO. Aborted queued work never starts; slots are released on success, failure or abort.
 - No daemon persistence, no localStorage, no second Paseo connection, no subscription per card.

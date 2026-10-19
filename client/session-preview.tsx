@@ -243,7 +243,7 @@ function SessionPreviewView({
   });
   const streamed = liveAgents.data ?? undefined;
   const current = useQuery({
-    queryKey: ["ultra", "agent", sessionId],
+    queryKey: ["flowly", "agent", sessionId],
     queryFn: () => agent.refresh(),
     enabled: visible,
     refetchInterval: 10000,
@@ -261,20 +261,20 @@ function SessionPreviewView({
   // Slim tail from the daemon (no tool payloads); it checks membership itself,
   // so it loads in parallel with the agent.
   const timeline = useQuery({
-    queryKey: ["ultra", "timeline", task.id, sessionId],
+    queryKey: ["flowly", "timeline", task.id, sessionId],
     queryFn: () => tailRead({ taskId: task.id, agentId: sessionId, limit: 35 }),
     enabled: visible && settled && !current.isError,
     refetchInterval: streamReady ? 15000 : 3000,
   });
   // Only the Kanban tools section shows these.
   const tools = useQuery({
-    queryKey: ["ultra", "tools"],
+    queryKey: ["flowly", "tools"],
     queryFn: () => healthRead({}),
     enabled: visible && belongs && showTools,
     refetchInterval: 5000,
   });
   const access = useQuery({
-    queryKey: ["ultra", "access", task.id, sessionId],
+    queryKey: ["flowly", "access", task.id, sessionId],
     queryFn: () => accessRead({ id: task.id, agentId: sessionId }),
     enabled: visible && belongs && !current.isError && showTools,
     refetchInterval: 3000,

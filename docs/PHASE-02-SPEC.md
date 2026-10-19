@@ -41,7 +41,7 @@ Agent 在卡片关联的 workspace 中工作时，能读取当前任务、有效
 1. 用户打开卡片侧栏，选 provider/model/mode、填写初始指示。
 2. 插件准备 session：读取当前卡片/project、校验 workspace，预分配 `agentId`，生成仅绑定该 agent/card/workspace 的工具凭据和 CLI context 文件。
 3. 通过 workspace SDK 创建 session，传入这个 `agentId`、MCP 配置、skill 指令和 Phase 1 的任务/目录上下文。其他 MCP、provider 选项和权限选择保持正常合并。
-4. Agent 开始工作前读取 `kanban_get_task`；它的身份和当前卡片由接入配置确定，不需手填任务 ID。
+4. Agent 开始工作前读取 `flowly_get_task`；它的身份和当前卡片由接入配置确定，不需手填任务 ID。
 5. 实际开始工作时设 In progress；途中汇报；完成当前交付时设 In review，列出结果、验证和未完成项。
 6. 用户从侧栏继续指示、要求返工或确认 Done。
 
@@ -76,7 +76,7 @@ Agent 在卡片关联的 workspace 中工作时，能读取当前任务、有效
 
 ## 5. 实时任务上下文与校验
 
-### 5.1 `kanban_get_task` 返回内容
+### 5.1 `flowly_get_task` 返回内容
 
 - 当前 agent/card/workspace 的 ID；卡片标题、描述、状态、优先级。
 - project ID/标题、对应原生 Paseo project ID，以及 workspace 实际原生 owner；二者可不同。
@@ -102,13 +102,13 @@ MCP/CLI 获取的工作目录用于 Agent 当前工作计划。skill 要求开�
 
 ## 6. 三个工具的合约
 
-MCP server 名称：`paseo-ultra-kanban`。输入/输出使用共享 Zod 合约，成功结果同时提供 JSON text 和 `structuredContent`。下表不包含手填 agent/card ID，身份由连接配置决定。
+MCP server 名称：`flowly`（[命名修订](FLOWLY-NAMING-SPEC.md)）。输入/输出使用共享 Zod 合约，成功结果同时提供 JSON text 和 `structuredContent`。下表不包含手填 agent/card ID，身份由连接配置决定。
 
 | 工具 | 输入 | 效果 |
 | --- | --- | --- |
-| `kanban_get_task` | 空对象 | 返回第 5.1 节上下文、版本和下一次写入请求 ID |
-| `kanban_update_status` | `expectedRevision: {task, project}`、`request: {id, issuedAt}`、`status`、`note` | 校验并变更状态，记录 agent 活动；返回提交回执与当前上下文 |
-| `kanban_report_progress` | 同样的版本/request，`note`，可选 `kind: progress/blocker/result`（默认 progress） | 记录活动，不改变业务状态；返回提交回执与当前上下文 |
+| `flowly_get_task` | 空对象 | 返回第 5.1 节上下文、版本和下一次写入请求 ID |
+| `flowly_update_status` | `expectedRevision: {task, project}`、`request: {id, issuedAt}`、`status`、`note` | 校验并变更状态，记录 agent 活动；返回提交回执与当前上下文 |
+| `flowly_report_progress` | 同样的版本/request，`note`，可选 `kind: progress/blocker/result`（默认 progress） | 记录活动，不改变业务状态；返回提交回执与当前上下文 |
 
 约束：版本为正整数，note trim 后 1–10000 字符，status 为 `in_progress/blocked/in_review`。未知字段拒绝。输入中粘贴 credential 或另一个卡片的 ID 不会产生跨卡更新。
 
@@ -177,7 +177,7 @@ MCP initialize/tools-list 阶段只验证签名配置，不要求预分配的 ag
 
 后端生成的凭据绑定 `agentId + taskId + workspaceId`，CLI 与 MCP 都使用它。调用时再 refresh 原生 agent 验证真实 membership。MCP 新建 session 的 agent ID 可以在创建前通过 SDK 参数指定，因此不必让模型手填 agent ID。
 
-CLI context 文件按 agent ID 分开，包含该 agent 的绑定凭据和服务发现文件路径，mode 0600。CLI 默认通过 `ULTRA_KANBAN_CONTEXT_FILE` 或侧栏提供的显式文件路径发现绑定；若有 `PASEO_AGENT_ID`，必须与文件中的 agent 一致。普通终端缺少 session 身份时不提供不受限的人类写入模式。
+CLI context 文件按 agent ID 分开，包含该 agent 的绑定凭据和服务发现文件路径，mode 0600。CLI 默认通过 `FLOWLY_CONTEXT_FILE` 或侧栏提供的显式文件路径发现绑定；若有 `PASEO_AGENT_ID`，必须与文件中的 agent 一致。普通终端缺少 session 身份时不提供不受限的人类写入模式。
 
 这些都是同一 OS 用户下的可信本地插件/Agent，不是相互隔离的进程身份系统；credential/membership 校验用于明确调用目标和避免误写，不能证明是谁读取了同用户可访问的文件。
 
@@ -204,9 +204,9 @@ reload 后、尚未收到 RPC/hook 时，不能伪称原生 membership 已确认
 CLI 是同一服务的轻量调用器，不是第二个数据库 writer。运行路径由插件返回，例如：
 
 ```text
-node <plugin-data>/ultra-kanban.mjs --context-file <session-context> current
-node <plugin-data>/ultra-kanban.mjs --context-file <session-context> status in_progress --task-revision 7 --project-revision 3 --request-file <saved-request> --note "开始修改 repo-one 和 repo-two"
-node <plugin-data>/ultra-kanban.mjs --context-file <session-context> note --task-revision 8 --project-revision 3 --request-file <saved-request> --note "repo-one 已完成，repo-two 仍在修改"
+node <plugin-data>/flowly.mjs --context-file <session-context> current
+node <plugin-data>/flowly.mjs --context-file <session-context> status in_progress --task-revision 7 --project-revision 3 --request-file <saved-request> --note "开始修改 repo-one 和 repo-two"
+node <plugin-data>/flowly.mjs --context-file <session-context> note --task-revision 8 --project-revision 3 --request-file <saved-request> --note "repo-one 已完成，repo-two 仍在修改"
 ```
 
 `current`（别名 get）输出实时上下文和下一次 request。可通过 `--save-request <path>` 保存非凭据 request/版本快照，便于避免手抄字段；`status`/`note` 可从 `--request-file` 一并读取两个版本，显式版本必须与快照一致。保存文件也是 per-session，不使用共享 cwd 推断身份。
@@ -215,7 +215,7 @@ node <plugin-data>/ultra-kanban.mjs --context-file <session-context> note --task
 
 ## 10. Skill 的内容和加载
 
-插件携带 `skills/paseo-ultra-kanban/SKILL.md`，runtime copy 由同一内容来源生成。名称/description 只指向“在已关联的卡片中读取任务、汇报进度和更新状态”。本轮不生成实际 skill 文件；以下是其内容要求。
+插件携带 `skills/flowly/SKILL.md`，runtime copy 由同一内容来源生成。名称/description 只指向“在已关联的卡片中读取任务、汇报进度和更新状态”。本轮不生成实际 skill 文件；以下是其内容要求。
 
 1. 先读取当前卡片和有效 repo/checkout 目录，再开展工作；不要把 cwd 当作 repo 范围。
 2. 只更新当前连接关联的卡片，遵循第 4 节状态语义。

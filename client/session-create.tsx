@@ -65,7 +65,7 @@ export function SessionCreate({
   >(undefined);
   const lock = useRef(false);
   const tools = useQuery({
-    queryKey: ["ultra", "tools"],
+    queryKey: ["flowly", "tools"],
     queryFn: () => healthRead({}),
     enabled: open,
     refetchInterval: open ? 5000 : false,
@@ -148,7 +148,7 @@ export function SessionCreate({
           provider: `${provider}/${chosen}`,
           systemPrompt: preparation?.instructions || latestScope.context,
           ...(preparation
-            ? { mcpServers: { "ultra-kanban": preparation.mcp } }
+            ? { mcpServers: { flowly: preparation.mcp } }
             : {}),
           ...(chosenMode ? { modeId: chosenMode } : {}),
           ...(choice.chosenThinking ? { thinkingOptionId: choice.chosenThinking } : {}),
@@ -158,14 +158,14 @@ export function SessionCreate({
               agentId: preparation.agentId,
               idempotencyKey: `ultra-kanban-session:${preparation.agentId}`,
               env: {
-                ULTRA_KANBAN_CONTEXT_FILE: preparation.contextFile,
-                ULTRA_KANBAN_CLI: preparation.cliPath,
-                ULTRA_KANBAN_SKILL: preparation.skillPath,
+                FLOWLY_CONTEXT_FILE: preparation.contextFile,
+                FLOWLY_CLI: preparation.cliPath,
+                FLOWLY_SKILL: preparation.skillPath,
               },
             }
           : { idempotencyKey: attempt.current.operationId }),
         title: newTitle.trim() || task.title,
-        labels: { "ultra-kanban-task": task.id },
+        labels: { "flowly-task": task.id },
         prompt: newPrompt.trim(),
       };
       const created = preparation

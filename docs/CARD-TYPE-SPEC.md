@@ -4,7 +4,7 @@
 
 卡片的 type（feature / bugfix / research / refactor / docs / chore）是可选字段。没设 type 的卡片，由在其中工作的 agent 在理解任务后补上；已经有的 type（无论人设还是 agent 设）不被 agent 改动。
 
-## 2. Agent 工具 `kanban_set_type`
+## 2. Agent 工具 `flowly_set_type`
 
 - 输入：`expectedRevision`、`request`（照抄 get_task）、`type`（上述六种之一，其他值为 `INVALID_INPUT`）。
 - 卡片没有 type：写入 type，task revision +1（让人打开的旧表单发生 revision 冲突，不会把 type 清回空），记录事件 `type_set`（actor=agent，note 为 type id），回执 action=`type`。
@@ -24,5 +24,5 @@
 ## 5. 验收
 
 - `server/agent-service.test.ts`：缺失时设置并 +revision、重放、已设不同值拒绝、相同值无变化、人设的值不被替换、非法值拒绝。
-- `server/tool-server.test.ts`：MCP 工具列表包含 `kanban_set_type`。
+- `server/tool-server.test.ts`：MCP 工具列表包含 `flowly_set_type`。
 - Skill 文本（`server/skill-source.ts` 与 `skills/paseo-ultra-kanban/SKILL.md` 一致）说明何时调用。

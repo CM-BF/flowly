@@ -39,7 +39,7 @@ export function TaskProgress({ taskId, active }: { taskId: string; active: boole
   const running = !!overview.data?.running.includes(taskId);
   const error = overview.data?.errors.find((e) => e.taskId === taskId);
   const history = useQuery({
-    queryKey: ["ultra", "summary-history", taskId, latest?.id],
+    queryKey: ["flowly", "summary-history", taskId, latest?.id],
     queryFn: () => historyRpc({ taskId }),
     enabled: active && historyOpen,
   });

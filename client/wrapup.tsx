@@ -51,7 +51,7 @@ export function WrapupModal({
   const [pending, setPending] = useState(false),
     [error, setError] = useState("");
   const check = useQuery({
-    queryKey: ["ultra", "wrapup", task.id, task.revision],
+    queryKey: ["flowly", "wrapup", task.id, task.revision],
     queryFn: () => checkRead({ id: task.id }),
     enabled: open,
     gcTime: 0,

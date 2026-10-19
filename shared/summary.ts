@@ -12,9 +12,10 @@ export const DESCRIPTION_LIMIT = 2000;
  */
 export const FIELD_LIMIT = 4000;
 /** Summarizer sessions run as children of the card's session and carry this label; board views hide them. */
-export const SUMMARIZER_LABELS = { "ultra-kanban": "summarizer" } as const;
+export const SUMMARIZER_LABELS = { flowly: "summarizer" } as const;
 export const isSummarizer = (agent: { labels?: Record<string, string> | null }) =>
-  agent.labels?.["ultra-kanban"] === "summarizer";
+  agent.labels?.flowly === "summarizer" ||
+  agent.labels?.["ultra-kanban"] === "summarizer"; // Existing helper sessions.
 export const AUTO_MODELS = ["claude/claude-haiku-5-5", "codex/gpt-6-luna"] as const;
 
 export const summaryFields = z.object({

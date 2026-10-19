@@ -14,7 +14,7 @@ export function TaskUsage({ taskId, active }: { taskId: string; active: boolean 
   const [open, setOpen] = useState(false);
   const read = useRpc(rpc.taskUsage);
   const usage = useQuery({
-    queryKey: ["ultra", "usage", taskId],
+    queryKey: ["flowly", "usage", taskId],
     queryFn: () => read({ taskId }),
     enabled: active,
     staleTime: 30_000,

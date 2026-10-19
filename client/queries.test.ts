@@ -6,7 +6,7 @@ import { SUMMARIZER_LABELS } from "../shared/summary";
 
 vi.mock("@getpaseo/plugin/client", () => ({ usePaseo: () => null, useRpc: () => null }));
 
-const key = ["ultra", "fixture"] as const;
+const key = ["flowly", "fixture"] as const;
 /** Runs one fetch the way react-query does: the result becomes the key's next data update. */
 async function poll<T>(client: QueryClient, read: ReturnType<typeof createChangedReader>, fetch: (etag?: string) => Promise<{ etag: string; value?: T }>) {
   const value = await read(client, key, fetch);

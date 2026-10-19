@@ -82,10 +82,10 @@ stateDiagram-v2
 
 - 数据：task 增加 `stage`（`design/develop/verify` 或 null）和 `requests[]`。request 字段包括 id、kind（`decision/approval/input/review`）、question、options、agentId、createdAt，以及 answer/answeredAt/answeredBy。另增交付记录 `deliverable`：summary、verification、notRun、links、changes。存储 v3 → v4 迁移，保留无效数据而不重置。
 - Agent 工具（MCP 与 CLI 同一服务，沿用 CAS 和幂等回执）：
-  - `kanban_set_stage(stage, note)`：仅在 In progress 下可用。
-  - `kanban_request_human(question, options?)`：记录请求，不改状态，卡片标为“Needs you”。每卡最多 10 个未结请求。
+  - `flowly_set_stage(stage, note)`：仅在 In progress 下可用。
+  - `flowly_request_human(question, options?)`：记录请求，不改状态，卡片标为“Needs you”。每卡最多 10 个未结请求。
   - 工作流可配置（D1）：项目级阶段列表，每个阶段有说明、退出条件和可选的人审 gate；内置默认，可设为新项目默认。
-  - `kanban_submit_review(deliverable)`：结构化交付，卡片移到 In review 并标为“等你验收”。原 `update_status(in_review)` 继续兼容。
+  - `flowly_submit_review(deliverable)`：结构化交付，卡片移到 In review 并标为“等你验收”。原 `update_status(in_review)` 继续兼容。
 - 人侧 UI：
   - 卡片：右上显示“需要你”徽标（warning 色）和问题摘要；阶段以小标签显示在信号行。
   - 侧栏：顶部固定一块“待处理”：问题、选项按钮、回复框；或交付物卡片配“通过 / 要求修改”。

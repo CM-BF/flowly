@@ -37,7 +37,7 @@ export function DirectoryChooser({
     [picking, setPicking] = useState(false),
     [error, setError] = useState("");
   const dirs = useQuery({
-    queryKey: ["ultra", "directories", path ?? ""],
+    queryKey: ["flowly", "directories", path ?? ""],
     queryFn: () => list({ path }),
     // The first page also tells whether a system dialog exists.
     staleTime: 10_000,

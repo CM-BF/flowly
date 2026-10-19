@@ -33,12 +33,12 @@ export function RemoveProjectDialog({
     checkRemove = useRpc(rpc.removeProjectCheck),
     readFolder = useRpc(rpc.projectFolderState);
   const folder = useQuery({
-    queryKey: ["ultra", "folder-state", project.id],
+    queryKey: ["flowly", "folder-state", project.id],
     queryFn: () => readFolder({ id: project.id }),
     staleTime: 0,
   });
   const check = useQuery({
-    queryKey: ["ultra", "remove-check", project.id],
+    queryKey: ["flowly", "remove-check", project.id],
     queryFn: () => checkRemove({ id: project.id }),
     staleTime: 0,
   });

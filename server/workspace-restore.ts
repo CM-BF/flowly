@@ -37,7 +37,7 @@ export function daemonWorkspaceRecovery(home = paseoHome()): WorkspaceRecovery {
     async connect() {
       const client = await openLocalDaemon(
         home,
-        "paseo-ultra-kanban-restore",
+        "flowly-restore",
         ["inspectWorkspaceRecovery", "restoreWorkspace", "fetchAgents", "fetchAgent", "refreshAgent"],
         "This Paseo version cannot restore workspaces.",
       );

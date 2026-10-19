@@ -44,7 +44,7 @@ export default function contribute(server: PluginServerContext) {
     const state = await statusPrefs.read().catch(() => null);
     return statusSettingsValues(state?.status === "ready" ? state.values : {}).autoStatus;
   };
-  if (!process.env.ULTRA_KANBAN_DATA_DIR) migrateLegacyPluginData();
+  if (!process.env.FLOWLY_DATA_DIR && !process.env.ULTRA_KANBAN_DATA_DIR) migrateLegacyPluginData();
   const store = new BoardStore(dataDirectory());
   const summaries = new SummaryService(
     store,
@@ -396,9 +396,9 @@ export default function contribute(server: PluginServerContext) {
           ...request,
           env: {
             ...request.env,
-            ULTRA_KANBAN_CONTEXT_FILE: contextFile,
-            ULTRA_KANBAN_CLI: store.directory + "/ultra-kanban.mjs",
-            ULTRA_KANBAN_SKILL: store.directory + "/SKILL.md",
+            FLOWLY_CONTEXT_FILE: contextFile,
+            FLOWLY_CLI: store.directory + "/flowly.mjs",
+            FLOWLY_SKILL: store.directory + "/SKILL.md",
           },
         };
     } catch (e) {

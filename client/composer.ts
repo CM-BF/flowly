@@ -5,7 +5,7 @@ import * as rpc from "../shared/rpc";
 import type { ComposerState, OutgoingImage } from "../shared/composer";
 import { t } from "../shared/i18n";
 
-const key = ["ultra", "composer"] as const;
+const key = ["flowly", "composer"] as const;
 
 /**
  * Daemon-persisted drafts and queued follow-ups (survive plugin reload / app

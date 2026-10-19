@@ -17,7 +17,7 @@ The project form has a **Source** choice: *Single directory* (existing behavior)
 Multiple repositories:
 
 1. The user names the project and adds two or more directories (browser, system dialog or typed path). Duplicates (after `realpath`) are rejected.
-2. `projects.create-linked({ title, description, links })` creates `<plugin data>/projects/<slug>` — the fixed parent is `~/.paseo/plugin-data/flowly/projects` (override: `ULTRA_KANBAN_LINKED_DIR`). `<slug>` comes from the title (letters/digits/`-`, max 60; `project` when empty), suffixed `-2`, `-3`… when the directory already exists. The directory is new and empty; the plugin never reuses or writes into an existing user directory.
+2. `projects.create-linked({ title, description, links })` creates `<plugin data>/projects/<slug>` — the fixed parent is `~/.paseo/plugin-data/flowly/projects` (override: `FLOWLY_LINKED_DIR`). `<slug>` comes from the title (letters/digits/`-`, max 60; `project` when empty), suffixed `-2`, `-3`… when the directory already exists. The directory is new and empty; the plugin never reuses or writes into an existing user directory.
 3. One symlink per target, named after the target's basename (suffixed `-2`… on collision), pointing at the canonical target. Targets must be existing directories outside the linked parent.
 4. The directory is registered as a native Paseo project and bound like a single-root project. `project.links = [{ name, target }]` records the links. `repos` stays `[root]`.
 5. Failure before the native project exists removes only what this call created (its symlinks and the new directory). After native registration the directory is preserved.

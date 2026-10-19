@@ -32,7 +32,7 @@ export function SessionImage({
   const read = useRpc(rpc.sessionImage);
   const local = localImagePath(image.src);
   const served = useQuery({
-    queryKey: ["ultra", "image", agentId, image.src],
+    queryKey: ["flowly", "image", agentId, image.src],
     queryFn: () => read({ taskId, agentId, src: image.src }),
     enabled: !!local,
     staleTime: Infinity,

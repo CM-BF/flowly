@@ -21,18 +21,18 @@ export function useAgentChoice({ enabled, cwd, defaults }: { enabled: boolean; c
     [mode, setMode] = useState(defaults?.mode || ""),
     [thinking, setThinking] = useState(defaults?.thinking || "");
   const providers = useQuery({
-    queryKey: ["ultra", "providers"],
+    queryKey: ["flowly", "providers"],
     queryFn: () => paseo.providers.listAvailable(),
     enabled,
   });
   const providerInfo = useQuery({
-    queryKey: ["ultra", "providerSnapshot"],
+    queryKey: ["flowly", "providerSnapshot"],
     queryFn: () => paseo.providers.snapshot(),
     enabled,
     staleTime: 60000,
   });
   const models = useQuery({
-    queryKey: ["ultra", "models", provider, cwd],
+    queryKey: ["flowly", "models", provider, cwd],
     queryFn: async () => {
       const result = await paseo.providers.listModels(provider, { cwd });
       if (result.error) throw new Error(result.error);
@@ -41,7 +41,7 @@ export function useAgentChoice({ enabled, cwd, defaults }: { enabled: boolean; c
     enabled: enabled && !!cwd,
   });
   const modes = useQuery({
-    queryKey: ["ultra", "modes", provider, cwd],
+    queryKey: ["flowly", "modes", provider, cwd],
     queryFn: async () => {
       const result = await paseo.providers.listModes(provider, { cwd });
       if (result.error) throw new Error(result.error);

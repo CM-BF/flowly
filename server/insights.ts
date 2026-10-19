@@ -275,7 +275,7 @@ export class InsightsService {
     const agent = await paseo.workspaces.ref(workspaceId).agents.create({
       config: { provider: model },
       title: `Kanban digest · ${project.title} · ${input.day}`.slice(0, 120),
-      labels: { ...SUMMARIZER_LABELS, "ultra-kanban-project": project.id },
+      labels: { ...SUMMARIZER_LABELS, "flowly-project": project.id },
       prompt,
       outputSchema: digestJsonSchema as unknown as Record<string, unknown>,
     });

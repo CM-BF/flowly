@@ -55,7 +55,7 @@ Status subscription/refresh updates running and idle state without reload. Timel
 
 ## 6. Data and RPC contracts
 
-Server data directory: `ULTRA_KANBAN_DATA_DIR` override, else `<PASEO_HOME or ~/.paseo>/plugin-data/flowly`. A versioned JSON document stores projects, cards and bounded card events. Write through one store instance with serialized mutations, temp file + atomic rename, restrictive permissions, and a backup of the previous valid revision. Corrupt or newer-version files produce a recoverable error without silent replacement.
+Server data directory: `FLOWLY_DATA_DIR` override, else `<PASEO_HOME or ~/.paseo>/plugin-data/flowly`. A versioned JSON document stores projects, cards and bounded card events. Write through one store instance with serialized mutations, temp file + atomic rename, restrictive permissions, and a backup of the previous valid revision. Corrupt or newer-version files produce a recoverable error without silent replacement.
 
 Data version 2 adds card `repoPaths` (empty = all project repos). Project: ID, title, description, native project ID, primary path, repo paths, revision, created/updated/archived timestamps. Card: ID, project ID, workspace ID, workspace source path, repo scope, title, description, status, priority, position, revision, creation operation ID and timestamps. Event: ID, task ID, actor (`human`, `agent`, `system`), action, optional agent ID/note, previous/new status and timestamp. Retain the latest 100 events per card. Session state is read from Paseo; it is not authoritative card status.
 

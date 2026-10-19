@@ -4,7 +4,7 @@ import {
   type IncomingMessage,
   type ServerResponse,
 } from "node:http";
-import { readFile } from "node:fs/promises";
+import { access, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { z } from "zod";
 import type { PaseoApi } from "@getpaseo/client";
@@ -106,10 +106,19 @@ export class ToolServer {
   private async initialize() {
     await this.secrets.initialize();
     await writePrivate(
-      join(this.store.directory, "ultra-kanban.mjs"),
+      join(this.store.directory, "flowly.mjs"),
       cliSource,
       0o700,
     );
+    // Refresh an existing session's old CLI entry on upgrade. Fresh installs
+    // create only flowly.mjs; new instructions never advertise the old path.
+    const legacyCli = join(this.store.directory, "ultra-kanban.mjs");
+    try {
+      await access(legacyCli);
+      await writePrivate(legacyCli, cliSource, 0o700);
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code !== "ENOENT") throw e;
+    }
     await writePrivate(join(this.store.directory, "SKILL.md"), skillText);
     let port = 0;
     const discoveryFile = join(this.store.directory, "tool-endpoint.json");
@@ -151,11 +160,11 @@ export class ToolServer {
           requestInfo?.headers.get("authorization") || undefined,
         );
         const mcp = new McpServer({
-          name: "paseo-ultra-kanban",
+          name: "flowly",
           version: "0.2.0",
         });
         mcp.registerTool(
-          "kanban_get_task",
+          "flowly_get_task",
           {
             description:
               "Read this session's current Kanban card, effective repo/worktree directories, both revisions and signed request. Read before work or any write, and at the start of every turn: artifacts with unread=true were added or edited since your last read.",
@@ -166,7 +175,7 @@ export class ToolServer {
           () => wrap(() => this.agents.get(identity)),
         );
         mcp.registerTool(
-          "kanban_update_status",
+          "flowly_update_status",
           {
             description:
               "Move this card to one of allowedStatuses from get_task (design, development, test, blocked or in_review when they are lanes of this project; lanes lists the names the user sees). Use the work stage that matches what you are doing now: design for plans/specs/research, development for implementation, test for verification; you decide where to start and may skip or go back. Keep it current: switch when the work changes, and at the start of each turn correct the stage the card was automatically resumed in if it does not match the work. Copy revisions and request from get_task, include a note. Done/cancelled are human decisions. Delivering to in_review with open workpad items returns WORKPAD_OPEN and changes nothing; deliver anyway only with acknowledgeOpen=true and a note that explains every open item. Retry identical uncertain requests only.",
@@ -182,7 +191,7 @@ export class ToolServer {
           (input) => wrap(() => this.agents.write(identity, "status", input)),
         );
         mcp.registerTool(
-          "kanban_report_progress",
+          "flowly_report_progress",
           {
             description:
               "Append this session's checkpoint/blocker/result/question without changing card status or task revision. kind=question asks the user something and marks the card Needs you until they reply. Copy revisions/request from get_task. Partial contribution does not complete the card.",
@@ -198,7 +207,7 @@ export class ToolServer {
           (input) => wrap(() => this.agents.write(identity, "progress", input)),
         );
         mcp.registerTool(
-          "kanban_propose_idea",
+          "flowly_propose_idea",
           {
             description:
               "Propose a next step the user did not ask for. scope=here: an extension of this card's goal; the user may send it back to this card's session as an instruction. scope=new: divergent work (a bug found on the way, a refactor, a separate feature); the user may turn it into a new card that starts from your detail, rationale and context, whose agent cannot see this conversation, so put files, branches and findings in context. Do not propose work this card already requires, propose at most 3 per delivery, check ideas from get_task for duplicates, and never start the idea yourself. Does not change card status or task revision. Copy revisions/request from get_task.",
@@ -214,7 +223,7 @@ export class ToolServer {
           (input) => wrap(() => this.agents.write(identity, "idea", input)),
         );
         mcp.registerTool(
-          "kanban_add_artifact",
+          "flowly_add_artifact",
           {
             description:
               "Register a file or link that is an input this card worked from or an output it delivered, so the user and later sessions can find it. role=input|output; target is an http(s) link or a path (absolute, or relative to the workspace directory) inside this card's directories. Add deliverables when you produce them (specs, reports, exported files, PRs, verification evidence), not every file you touched: source code changes are already visible through the workspace diff. Use a short title and a one-line note on what it is for. Adding a recorded target again updates the one you or another agent added; one the user added stays as is. Check artifacts in get_task first. Does not change card status or task revision. Copy revisions/request from get_task.",
@@ -225,7 +234,7 @@ export class ToolServer {
           (input) => wrap(() => this.agents.write(identity, "artifact", input)),
         );
         mcp.registerTool(
-          "kanban_remove_artifact",
+          "flowly_remove_artifact",
           {
             description:
               "Remove an artifact an agent added to this card (id from get_task artifacts), e.g. a wrong or replaced entry. Artifacts the user added can only be removed by the user. Never deletes the file. Copy revisions/request from get_task.",
@@ -236,10 +245,10 @@ export class ToolServer {
           (input) => wrap(() => this.agents.write(identity, "artifact_remove", input)),
         );
         mcp.registerTool(
-          "kanban_read_ticket",
+          "flowly_read_ticket",
           {
             description:
-              "Read a Jira ticket input of this card (an artifact with a ticket field in get_task): metadata, description, subtasks, linked tickets, attachment names and the latest comments, as Markdown. The ticket is part of the task: read it before you start and again when get_task marks it unread. Read-only: Flowly never changes the ticket, and its status is for reference only (do not set the card stage from it). Only this card's ticket inputs can be read; to read a linked ticket, first add its link with kanban_add_artifact role=input.",
+              "Read a Jira ticket input of this card (an artifact with a ticket field in get_task): metadata, description, subtasks, linked tickets, attachment names and the latest comments, as Markdown. The ticket is part of the task: read it before you start and again when get_task marks it unread. Read-only: Flowly never changes the ticket, and its status is for reference only (do not set the card stage from it). Only this card's ticket inputs can be read; to read a linked ticket, first add its link with flowly_add_artifact role=input.",
             inputSchema: readTicketInputSchema,
             outputSchema: ticketReadSchema,
             annotations: { readOnlyHint: true, openWorldHint: true },
@@ -247,7 +256,7 @@ export class ToolServer {
           (input) => wrap(() => this.agents.readTicket(identity, input)),
         );
         mcp.registerTool(
-          "kanban_set_tags",
+          "flowly_set_tags",
           {
             description:
               'Tag this card with the functional areas it touches and the improvement directions it serves (for example a module like "drawer" or "session-composer", or a direction like "performance", "a11y", "mobile"), so the user can filter and search cards later. Tags are not the task type, status or priority; do not repeat those. Reuse a tag from projectTags in get_task when one fits instead of inventing a synonym. Use 1-4 short lowercase tags, add them once you understand the scope, and adjust them if the scope changes. You can only remove tags an agent added. Does not change card status or task revision. Copy revisions/request from get_task.',
@@ -258,7 +267,7 @@ export class ToolServer {
           (input) => wrap(() => this.agents.write(identity, "tags", input)),
         );
         mcp.registerTool(
-          "kanban_set_type",
+          "flowly_set_type",
           {
             description:
               "Set this card's type (feature, bugfix, research, refactor, docs, chore) when it has none: task.type is missing in get_task. Choose it once you understand the work. A type the user or an agent already set is kept: the call returns TYPE_ALREADY_SET and changes nothing, so do not retry with another type. Increments the task revision. Copy revisions/request from get_task.",
@@ -269,10 +278,10 @@ export class ToolServer {
           (input) => wrap(() => this.agents.write(identity, "type", input)),
         );
         mcp.registerTool(
-          "kanban_suggest_next_moves",
+          "flowly_suggest_next_moves",
           {
             description:
-              "When you end a turn and hand control back to the user, offer the 1-3 next messages they are most likely to send you (e.g. verify the change, commit and push, continue to the next stage), recommended first. Flowly shows them above the user's message box; picking one only fills the box, the user edits or sends it. Valid until the user's next message starts a new turn; calling again in the same turn replaces them. Still mention the options in your reply. Not for questions (use kanban_report_progress kind=question) or for divergent work (use kanban_propose_idea). Does not change card status or task revision. Copy revisions/request from get_task.",
+              "When you end a turn and hand control back to the user, offer the 1-3 next messages they are most likely to send you (e.g. verify the change, commit and push, continue to the next stage), recommended first. Flowly shows them above the user's message box; picking one only fills the box, the user edits or sends it. Valid until the user's next message starts a new turn; calling again in the same turn replaces them. Still mention the options in your reply. Not for questions (use flowly_report_progress kind=question) or for divergent work (use flowly_propose_idea). Does not change card status or task revision. Copy revisions/request from get_task.",
             inputSchema: nextMovesInputSchema,
             outputSchema: toolResultSchema,
             annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
@@ -280,7 +289,7 @@ export class ToolServer {
           (input) => wrap(() => this.agents.write(identity, "next_moves", input)),
         );
         mcp.registerTool(
-          "kanban_update_workpad",
+          "flowly_update_workpad",
           {
             description:
               "Replace this card's workpad: acceptance criteria (done or not), validation checks (pass, fail or unrun, with the command and the commit they ran on) and confusions (what in the card was unclear). The plan comes from your own todo list; do not repeat it here. Send all three lists every time; items you leave out are removed. Copy workpad.revision from get_task as workpadRevision (0 when there is none). On WORKPAD_CONFLICT the user changed it: re-read, keep their checks, retry. WORKPAD_DISABLED (workpadEnabled=false in get_task): the user turned it off for this project; report criteria and checks in your notes instead and do not retry. Does not change card status or task revision. Copy revisions/request from get_task.",
@@ -395,7 +404,7 @@ export class ToolServer {
   ): Promise<ToolPreparation> {
     await this.start();
     const contextFile = await this.secrets.writeContext(identity, method),
-      cliPath = join(this.store.directory, "ultra-kanban.mjs"),
+      cliPath = join(this.store.directory, "flowly.mjs"),
       skillPath = join(this.store.directory, "SKILL.md");
     return {
       agentId: identity.agentId,

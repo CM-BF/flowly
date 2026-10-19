@@ -9,7 +9,7 @@ import { AgentService } from "./agent-service";
 // Test fixture only; runtime entries never import this module.
 export async function agentFixture() {
   const root = await realpath(
-    await mkdtemp(join(tmpdir(), "ultra-agent-test-")),
+    await mkdtemp(join(tmpdir(), "flowly-agent-test-")),
   );
   const a = join(root, "a"),
     b = join(root, "b");

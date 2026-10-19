@@ -53,7 +53,7 @@ worktree 分支名、commit message 带工单 key 会让 Jira 的 GitLab 开发�
   - 确认时显示有多少张卡片带有这个 Jira 的工单，并说明后果；
   - 卡片上的工单 input 原样保留（链接、key、标题、`ticket` 字段都不改），卡片面的 key 照常显示；该连接的缓存会清掉；
   - 侧栏工单行显示“连接已移除”，预览提示重新添加连接，“在 Jira 中打开”仍然可用；
-  - agent 看到 `get_task.artifacts[].ticket.connection = "removed"`，没有 unread；`kanban_read_ticket` 返回 `TICKET_UNAVAILABLE`，并提示 agent 告诉用户、不要猜内容；新 session 的上下文里，这一行写“连接已移除，无法读取，问用户”，不再提示调用 `kanban_read_ticket`；
+  - agent 看到 `get_task.artifacts[].ticket.connection = "removed"`，没有 unread；`flowly_read_ticket` 返回 `TICKET_UNAVAILABLE`，并提示 agent 告诉用户、不要猜内容；新 session 的上下文里，这一行写“连接已移除，无法读取，问用户”，不再提示调用 `flowly_read_ticket`；
   - **重新添加同一个 Jira 后自动恢复**：工单 input 先找自己记录的连接；找不到时，改用当前任一 base URL 能识别其链接的连接（`TicketService.locate`），所以新连接 id 不同也能用，不需要改动看板数据。
 
 ## 3. 工单 input
@@ -91,8 +91,8 @@ daemon 只在有人需要时拉取，同一工单 60 秒内复用缓存：
 | 时机 | 拉取内容 |
 | --- | --- |
 | 选择器列表与搜索、添加工单 input | 摘要字段（选择器结果也写入缓存） |
-| agent 调 `kanban_get_task` | 本卡所有工单的摘要字段，用来计算 unread。按连接批量查询 `key in (…≤50)`，只取 `summary,status,updated,…` |
-| agent 调 `kanban_read_ticket` | 完整内容：正文、评论、子任务、关联工单列表、附件名 |
+| agent 调 `flowly_get_task` | 本卡所有工单的摘要字段，用来计算 unread。按连接批量查询 `key in (…≤50)`，只取 `summary,status,updated,…` |
+| agent 调 `flowly_read_ticket` | 完整内容：正文、评论、子任务、关联工单列表、附件名 |
 | 侧栏打开卡片 / 工单预览 | 摘要字段；展开时拉完整内容 |
 | 看板上的卡片面徽标 | 不拉取：卡片面只显示 key（§10），key 存在 artifact 上 |
 | 侧栏 Artifacts 的状态标签 | `tickets.card`，缓存 30 分钟内直接返回；不为徽标计算内容指纹 |
@@ -110,7 +110,7 @@ daemon 只在有人需要时拉取，同一工单 60 秒内复用缓存：
 
 ## 4. Agent 侧
 
-### 4.1 `kanban_get_task`
+### 4.1 `flowly_get_task`
 
 `artifacts[]` 里工单 input 多出：
 
@@ -121,18 +121,18 @@ daemon 只在有人需要时拉取，同一工单 60 秒内复用缓存：
 
 `unread` 规则扩展为：artifact 本身在本 session 上次读取后被添加或编辑，**或**工单内容指纹在上次读取后变化。只有状态或指派人变化时不算 unread，这些不是需求变化。读取时间沿用 `artifact-reads.json`，另存每个 session 最后看到的指纹。
 
-### 4.2 新工具 `kanban_read_ticket`（+ CLI `ticket <artifactId>`）
+### 4.2 新工具 `flowly_read_ticket`（+ CLI `ticket <artifactId>`）
 
-- 入参：`artifactId`，只能是**本卡**的工单 input。agent 想看关联工单时，先用 `kanban_add_artifact` 把它的链接加为 input，再读取，这样人能在卡片上看到 agent 引用了什么。
+- 入参：`artifactId`，只能是**本卡**的工单 input。agent 想看关联工单时，先用 `flowly_add_artifact` 把它的链接加为 input，再读取，这样人能在卡片上看到 agent 引用了什么。
 - 返回 Markdown：标题、元数据（状态、类型、优先级、指派人、报告人、组件、版本、标签）、描述、最近 20 条评论（作者、时间）、子任务和关联工单（key、标题、状态、关系）、附件名列表。超过 32 KB 时截断，并附工单 URL。
-- 只读，不写回执，也不改看板 revision。返回结果把内容推进为“已读”，与 `kanban_get_task` 推进 artifact 已读的规则一致。
+- 只读，不写回执，也不改看板 revision。返回结果把内容推进为“已读”，与 `flowly_get_task` 推进 artifact 已读的规则一致。
 - 错误码：`TICKET_NOT_FOUND`、`TICKET_AUTH`（连接凭据失效，请用户在设置中更新）、`TICKET_UNAVAILABLE`（远端不可用，附缓存时间和缓存内容）、`TICKETS_DISABLED`。
 
 ### 4.3 skill 与 session 上下文
 
-- 建 session 时注入的 Inputs 段中，工单行写成 `- [user] SHOPSR-123 <summary> (Jira, In Progress): <url>`，并提示用 `kanban_read_ticket` 读取全文。
+- 建 session 时注入的 Inputs 段中，工单行写成 `- [user] SHOPSR-123 <summary> (Jira, In Progress): <url>`，并提示用 `flowly_read_ticket` 读取全文。
 - skill 增补：
-  - 工单 input 是任务需求，开工前用 `kanban_read_ticket` 读完；unread 时先重读；
+  - 工单 input 是任务需求，开工前用 `flowly_read_ticket` 读完；unread 时先重读；
   - 工单状态只是参考，不要据此设置卡片阶段，也不要尝试修改工单；
   - 工单描述与用户指令冲突时，以用户指令为准；拿不准就用 `kind=question` 问用户；
   - 交付时写明依据了哪些工单。
@@ -208,7 +208,7 @@ daemon 只在有人需要时拉取，同一工单 60 秒内复用缓存：
 
 | 期 | 内容 |
 | --- | --- |
-| **P1** | Jira DC + Cloud 连接；工单选择器（我的最近工单、key/链接/数字/文字搜索）；New task → From Jira（标题预填、原子创建）；Link Jira ticket；工单 input 识别与快照；`get_task.ticket` 与 unread；`kanban_read_ticket` / CLI；侧栏工单预览；卡片 key 徽标；skill、tip、i18n |
+| **P1** | Jira DC + Cloud 连接；工单选择器（我的最近工单、key/链接/数字/文字搜索）；New task → From Jira（标题预填、原子创建）；Link Jira ticket；工单 input 识别与快照；`get_task.ticket` 与 unread；`flowly_read_ticket` / CLI；侧栏工单预览；卡片 key 徽标；skill、tip、i18n |
 | **P2** | Linear provider（GraphQL，按 `updatedAt` 查询，限流以 HTTP 400 `RATELIMITED` 返回）；按 JQL 批量导入；新工单收件箱（与 Ideas 收件箱同一模式）；从工单的关联工单中一键加为 input |
 
 ## 8.1 实现记录（P1，2026-10-19）
@@ -221,13 +221,13 @@ daemon 只在有人需要时拉取，同一工单 60 秒内复用缓存：
   - `TicketReadStore`：`ticket-reads.json`，记录每个 session 看到的内容指纹。
 - RPC：`tickets.connections`、`tickets.connection-test`、`tickets.connection-save`、`tickets.connection-delete`、`tickets.search`、`tickets.card`、`tickets.read`。
 - 已有接口的改动：
-  - `artifacts.create` 与 agent 的 `kanban_add_artifact` 都会先识别工单链接或 key；
+  - `artifacts.create` 与 agent 的 `flowly_add_artifact` 都会先识别工单链接或 key；
   - `tasks.create` 接受 `tickets`；
   - 设置 `board-view.lastTicketConnection`；
   - `Field` 增加 `secure`，令牌输入不显示明文。
 - agent：
   - `get_task.artifacts[].ticket`；
-  - `kanban_read_ticket`，CLI 为 `ticket --id`；
+  - `flowly_read_ticket`，CLI 为 `ticket --id`；
   - skill 增加工单段落，`skills/paseo-ultra-kanban/SKILL.md` 同步。
 - 客户端：
   - `client/tickets.tsx`：Connections 页、TicketPicker、TicketChip、LinkTicket、TicketPreview；
@@ -261,7 +261,7 @@ daemon 只在有人需要时拉取，同一工单 60 秒内复用缓存：
 - unread：内容指纹变化算 unread，只有状态或指派人变化不算；session 自己添加的工单 input 不算。
 - 错误：401 标记连接失效，404 标 Missing，429 遵守 `Retry-After`，远端不可用时返回缓存。
 - 凭据：RPC 返回值、日志、工具输出中都没有 token。
-- 工具作用域：`kanban_read_ticket` 拒绝其他卡片的 artifact 和普通链接。
+- 工具作用域：`flowly_read_ticket` 拒绝其他卡片的 artifact 和普通链接。
 
 联调：mock Jira 覆盖 DC 和 Cloud 两种响应；真实 jira.shopee.io 只读验证，用用户指定的工单。按项目要求，用 full-access 的 `codex/gpt-6-luna` session 做 UI 验收，覆盖桌面和手机布局，证据存 `docs/verification/external-tracker.md`。
 

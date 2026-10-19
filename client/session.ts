@@ -115,17 +115,17 @@ export async function launchKanbanSession(
     config: {
       provider: `${choice.provider}/${choice.model}`,
       systemPrompt: preparation.instructions,
-      mcpServers: { "ultra-kanban": preparation.mcp },
+      mcpServers: { flowly: preparation.mcp },
       ...(choice.mode ? { modeId: choice.mode } : {}),
       ...(choice.thinking ? { thinkingOptionId: choice.thinking } : {}),
     },
     env: {
-      ULTRA_KANBAN_CONTEXT_FILE: preparation.contextFile,
-      ULTRA_KANBAN_CLI: preparation.cliPath,
-      ULTRA_KANBAN_SKILL: preparation.skillPath,
+      FLOWLY_CONTEXT_FILE: preparation.contextFile,
+      FLOWLY_CLI: preparation.cliPath,
+      FLOWLY_SKILL: preparation.skillPath,
     },
     title: choice.title?.trim() || task.title,
-    labels: { "ultra-kanban-task": task.id },
+    labels: { "flowly-task": task.id },
     prompt: choice.prompt?.trim() || undefined,
   });
 }

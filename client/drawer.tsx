@@ -220,14 +220,14 @@ function TaskDrawerView({
     else onClose();
   }, [active, escapeRequest]);
   const workspace = useQuery({
-    queryKey: ["ultra", "workspace", task.workspaceId],
+    queryKey: ["flowly", "workspace", task.workspaceId],
     queryFn: () => paseo.workspaces.ref(task.workspaceId).refresh(),
     enabled: ready,
     // Availability rarely changes; sends re-check it fresh anyway.
     refetchInterval: 10000,
   });
   const scope = useQuery({
-    queryKey: ["ultra", "context", task.id, task.revision, project.revision],
+    queryKey: ["flowly", "context", task.id, task.revision, project.revision],
     queryFn: () => contextRead({ id: task.id }),
     enabled: ready,
     refetchInterval: 10000,
@@ -245,7 +245,7 @@ function TaskDrawerView({
   // Archived ones come from the daemon (it pages every agent on the host).
   const archivedRead = useRpc(rpc.archivedSessions);
   const workspaceSessions = useQuery({
-    queryKey: ["ultra", "sessions", "archived", task.id],
+    queryKey: ["flowly", "sessions", "archived", task.id],
     queryFn: async () => (await archivedRead({ taskId: task.id })) as unknown as PaseoAgent[],
     enabled: ready,
     refetchInterval: 30000,

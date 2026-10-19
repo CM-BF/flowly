@@ -107,7 +107,7 @@ export class AgentService {
     }
     return out;
   }
-  /** kanban_read_ticket (EXTERNAL-TRACKER-SPEC §4.2): one of this card's ticket inputs, read-only. */
+  /** flowly_read_ticket (EXTERNAL-TRACKER-SPEC §4.2): one of this card's ticket inputs, read-only. */
   async readTicket(identity: ToolIdentity, input: ReadTicketInput) {
     const r = await this.resources(identity);
     const board = await this.store.read();
@@ -206,7 +206,7 @@ export class AgentService {
     return { paseo, task, project, workspace, context };
   }
   /**
-   * `markArtifacts`: this call is the session reading its card (kanban_get_task),
+   * `markArtifacts`: this call is the session reading its card (flowly_get_task),
    * so artifacts it returns stop being unread for that session. The context
    * returned after a write shows the flags without clearing them.
    */

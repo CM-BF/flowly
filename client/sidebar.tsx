@@ -23,7 +23,7 @@ function useAttentionCount() {
   const board = useBoardQuery(poll);
   const agents = useLiveAgents({ ...poll, stream: false });
   const receipts = useQuery({
-    queryKey: ["ultra", "sessionReads"],
+    queryKey: ["flowly", "sessionReads"],
     queryFn: () => reads({}),
     ...poll,
   });

@@ -5,7 +5,7 @@ import { z } from "zod";
 
 const stateSchema = z.object({
   version: z.literal(1),
-  /** agentId → when that session last read the card's artifacts through kanban_get_task. */
+  /** agentId → when that session last read the card's artifacts through flowly_get_task. */
   reads: z.record(z.string(), z.string()),
 });
 type State = z.infer<typeof stateSchema>;

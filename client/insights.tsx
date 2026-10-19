@@ -435,7 +435,7 @@ function Digest({
     setFailed("");
     try {
       await refresh({ projectId, tz: localZone(), day });
-      await client.invalidateQueries({ queryKey: ["ultra", "digest", projectId, day] });
+      await client.invalidateQueries({ queryKey: ["flowly", "digest", projectId, day] });
     } catch (e) {
       setFailed(message(e));
     }

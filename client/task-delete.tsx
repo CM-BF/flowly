@@ -36,7 +36,7 @@ export function DeleteTaskDialog({
   const prefs = useSettings(wrapupSettings);
   const auto = prefs.status === "ready" && wrapupSettingsValues(prefs.values).archiveOnDelete;
   const check = useQuery({
-    queryKey: ["ultra", "delete-check", task.id],
+    queryKey: ["flowly", "delete-check", task.id],
     queryFn: () => checkDelete({ id: task.id }),
     staleTime: 0,
   });

@@ -19,7 +19,7 @@ The list is fixed in `shared/model.ts` (`taskTypes`); no per-project customizati
 
 - `task.type` is optional. Absent means "no type": every card created before this change, and new cards where the user leaves it unset. No board version bump or migration; older plugin builds ignore the field only if they do not strip it (zod `object` strips unknown keys on parse, so a downgrade drops types — acceptable, nothing else depends on them).
 - `tasks.create` accepts optional `type`. `tasks.update` accepts `type`: a value sets it, `null` clears it, absent leaves it unchanged. Changing only the type is an ordinary `edited` event and bumps the task revision like other human edits.
-- Agent tools do not change the type. `kanban_get_task` returns it inside `task`. The session context given at session creation / work instructions includes `Task type: <Label>` when set.
+- Agent tools do not change the type. `flowly_get_task` returns it inside `task`. The session context given at session creation / work instructions includes `Task type: <Label>` when set.
 
 ## UI
 

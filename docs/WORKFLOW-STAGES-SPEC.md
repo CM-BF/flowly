@@ -40,7 +40,7 @@ backlog → todo → design → development → test → in_review → blocked �
 
 | 规则 | 修订后行为 |
 | --- | --- |
-| **A1 开工** | 卡片在 Backlog/Todo 时，session 开始一轮**不再改状态**。进入哪个阶段由 agent 按指令判断并调用 `kanban_update_status` 设置；agent 指南要求它在开始实际工作时立即设置。 |
+| **A1 开工** | 卡片在 Backlog/Todo 时，session 开始一轮**不再改状态**。进入哪个阶段由 agent 按指令判断并调用 `flowly_update_status` 设置；agent 指南要求它在开始实际工作时立即设置。 |
 | **A1 继续** | （2026-10-15 再修订）卡片在 **In review** 时，session 开始一轮 → **Development**（评审后的反馈通常是返工；方案返工由 agent 改回 Design）；Development 未开启时按下述 Blocked 的回退。卡片在 **Blocked** 时 → 回到**卡片上一次所在的工作阶段**：从活动中最近一条 `to ∈ 工作阶段 ∪ {in_progress}` 的 `status_changed` 推导，`in_progress` 视为 `development`；找不到或该泳道未开启时，取已开启工作阶段中的第一个；三个都关闭则不动。 |
 | **A1r 恢复** | 判断条件中的 “task.status === in_progress” 改为“属于工作阶段”，其余不变。 |
 | **M2 静默结束** | `silentTurn` 的条件改为“卡片在任一工作阶段”。 |

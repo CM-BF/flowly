@@ -100,7 +100,7 @@ test("a past day's digest is generated once on read; today's only on refresh", a
   const second = await x.service.digest({ projectId: "p", tz: "UTC", day: "2026-10-15" }, x.paseo);
   expect(second.entry).toMatchObject({ headline: "Login is ready for review", progressed: [{ text: "Login built", taskId: "t" }], model: "claude/claude-haiku-5-5" });
   expect(x.created.length).toBe(1);
-  expect(x.created[0]).toMatchObject({ workspaceId: "root-ws", labels: { "ultra-kanban": "summarizer", "ultra-kanban-project": "p" } });
+  expect(x.created[0]).toMatchObject({ workspaceId: "root-ws", labels: { flowly: "summarizer", "flowly-project": "p" } });
   expect(x.created[0].prompt).toContain("## Card t: Login");
   expect(x.created[0].prompt).toContain("Todo → In review (agent)");
   expect(x.archived()).toBe(1);

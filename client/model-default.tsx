@@ -31,10 +31,10 @@ export function ModelDefaultGroup({
   // A provider can be picked before its model is: the model row follows it.
   const [provider, setProvider] = useState(value?.provider ?? "");
   useEffect(() => setProvider(value?.provider ?? ""), [value?.provider]);
-  const providers = useQuery({ queryKey: ["ultra", "providers"], queryFn: () => paseo.providers.listAvailable() });
-  const providerInfo = useQuery({ queryKey: ["ultra", "providerSnapshot"], queryFn: () => paseo.providers.snapshot(), staleTime: 60000 });
+  const providers = useQuery({ queryKey: ["flowly", "providers"], queryFn: () => paseo.providers.listAvailable() });
+  const providerInfo = useQuery({ queryKey: ["flowly", "providerSnapshot"], queryFn: () => paseo.providers.snapshot(), staleTime: 60000 });
   const models = useQuery({
-    queryKey: ["ultra", "default-models", provider],
+    queryKey: ["flowly", "default-models", provider],
     queryFn: async () => {
       const result = await paseo.providers.listModels(provider);
       if (result.error) throw new Error(result.error);

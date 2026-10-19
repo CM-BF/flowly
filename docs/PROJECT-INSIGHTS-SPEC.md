@@ -90,7 +90,7 @@ daemon 计算，最多 5 条，按严重度（warning > info）再按规则顺�
   - “今天”只在手动 Refresh 时生成；任意一天都可 Refresh 重新生成；
   - 该天没有任何活动时不生成，显示“No activity”。
 - 每个项目同时最多一个生成任务。
-- 运行：`agents.create`，`config.provider` 为 Summary model（TASK-SUMMARY-SPEC §4，Auto 同解析），标签 `ultra-kanban=summarizer`、`ultra-kanban-project=<id>`，`waitForFinish(120000)`，`finally` 中归档。workspace：项目根目录对应的原生 workspace（`projectId` 与 `workspaceDirectory` 匹配且未归档），没有时用该项目最近更新的未归档卡片 workspace；都没有时报错。
+- 运行：`agents.create`，`config.provider` 为 Summary model（TASK-SUMMARY-SPEC §4，Auto 同解析），标签 `flowly=summarizer`、`flowly-project=<id>`，`waitForFinish(120000)`，`finally` 中归档。workspace：项目根目录对应的原生 workspace（`projectId` 与 `workspaceDirectory` 匹配且未归档），没有时用该项目最近更新的未归档卡片 workspace；都没有时报错。
 - 开关：设置 `task-summary` 增加 `digestEnabled`（默认 true），只控制自动生成；手动 Refresh 始终可用。
 - 存储：`digests.json`，串行写、备份、原子替换；无效时保留文件并报错。`{ version: 1, entries: [{ projectId, day, tz, at, model, headline, done, progressed, issues, next }], errors: [{ projectId, day, at, message }] }`。每个项目保留最近 60 天；Remove 项目时备份到 `removed/` 后删除。
 

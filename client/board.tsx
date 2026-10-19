@@ -217,7 +217,7 @@ function BoardContent(
     ? JSON.stringify([props.host.id, sessionLinkKey(input.link)])
     : "";
   const resolvedLink = useQuery({
-    queryKey: ["ultra", "cardLink", linkMount, linkKey],
+    queryKey: ["flowly", "cardLink", linkMount, linkKey],
     queryFn: () => resolveSessionLink(paseo, () => read({}), input.link!),
     enabled: !!input.link,
     gcTime: 0,
@@ -352,12 +352,12 @@ function BoardContent(
     let cancelled = false;
     void (async () => {
       await queryClient.cancelQueries({
-        queryKey: ["ultra", "board"],
+        queryKey: ["flowly", "board"],
         exact: true,
       });
       if (cancelled) return;
       appliedLink.current = linkKey;
-      queryClient.setQueryData(["ultra", "board"], target.board);
+      queryClient.setQueryData(["flowly", "board"], target.board);
       setProject(target.project.id);
       setTask(target.task.id);
       setSearch("");
@@ -556,7 +556,7 @@ function BoardContent(
   const managedRead = useRpc(rpc.managedSessions);
   const summaries = useSummaries();
   const managed = useQuery({
-    queryKey: ["ultra", "managed"],
+    queryKey: ["flowly", "managed"],
     queryFn: () => managedRead({}),
     refetchInterval: 10000,
   });

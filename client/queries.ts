@@ -55,10 +55,10 @@ export function createChangedReader() {
 
 const readChanged = createChangedReader();
 
-export const boardKey = ["ultra", "board"] as const;
-export const resourcesKey = ["ultra", "resources"] as const;
-export const summariesKey = ["ultra", "summaries"] as const;
-export const activityKey = ["ultra", "activity"] as const;
+export const boardKey = ["flowly", "board"] as const;
+export const resourcesKey = ["flowly", "resources"] as const;
+export const summariesKey = ["flowly", "summaries"] as const;
+export const activityKey = ["flowly", "activity"] as const;
 
 export function useBoardQuery(options: { refetchInterval?: number; retry?: number; enabled?: boolean } = {}) {
   const read = useRpc(rpc.readBoardChanged);
@@ -232,7 +232,7 @@ export function useInsightsQuery(projectId: string, day: string | null, revision
   const read = useRpc(rpc.projectInsights);
   const client = useQueryClient();
   const tz = localZone();
-  const key = ["ultra", "insights", projectId, day || "today"] as const;
+  const key = ["flowly", "insights", projectId, day || "today"] as const;
   const query = useQuery({
     queryKey: key,
     queryFn: () => readChanged(client, key, (etag) => read({ projectId, tz, ...(day ? { day } : {}), ...(etag ? { etag } : {}) })),
@@ -252,7 +252,7 @@ export function useDigestQuery(projectId: string, day: string | null, enabled: b
   const read = useRpc(rpc.projectDigest);
   const tz = localZone();
   return useQuery({
-    queryKey: ["ultra", "digest", projectId, day || ""],
+    queryKey: ["flowly", "digest", projectId, day || ""],
     queryFn: () => read({ projectId, tz, day: day! }),
     enabled: enabled && !!day,
     refetchInterval: (q) => (q.state.data?.running ? 3000 : false),
@@ -264,7 +264,7 @@ export function useTokensQuery(projectId: string, day: string | null, enabled: b
   const read = useRpc(rpc.projectTokens);
   const client = useQueryClient();
   const tz = localZone();
-  const key = ["ultra", "insights-tokens", projectId, day || "today"] as const;
+  const key = ["flowly", "insights-tokens", projectId, day || "today"] as const;
   return useQuery({
     queryKey: key,
     queryFn: () => readChanged(client, key, (etag) => read({ projectId, tz, ...(day ? { day } : {}), ...(etag ? { etag } : {}) })),

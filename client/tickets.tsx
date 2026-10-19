@@ -20,7 +20,7 @@ import { msg, t, tn } from "../shared/i18n";
  * drawer, and the ticket preview. Nothing here writes to Jira.
  */
 
-export const connectionsKey = ["ultra", "ticket-connections"] as const;
+export const connectionsKey = ["flowly", "ticket-connections"] as const;
 
 export function useConnections() {
   const list = useRpc(rpc.listConnections);
@@ -114,7 +114,7 @@ export function TicketPicker({
   // Text needs two characters; keys, links and numbers search at once.
   const ready = !!connection && (kind !== "text" || query.trim().length >= 2);
   const results = useQuery({
-    queryKey: ["ultra", "ticket-search", connection?.id ?? "", kind === "recent" ? "" : query.trim()],
+    queryKey: ["flowly", "ticket-search", connection?.id ?? "", kind === "recent" ? "" : query.trim()],
     queryFn: () => search({ connectionId: connection!.id, query: kind === "recent" ? "" : query.trim() }),
     enabled: ready,
     staleTime: 30_000,
@@ -230,7 +230,7 @@ export function TicketPreview({ artifact, onClose }: { artifact: Artifact; onClo
   const read = useRpc(rpc.readTicket);
   const [refresh, setRefresh] = useState(0);
   const preview = useQuery({
-    queryKey: ["ultra", "ticket-preview", artifact.id, refresh],
+    queryKey: ["flowly", "ticket-preview", artifact.id, refresh],
     queryFn: () => read({ artifactId: artifact.id, refresh: refresh > 0 }),
     staleTime: 0,
     gcTime: 0,

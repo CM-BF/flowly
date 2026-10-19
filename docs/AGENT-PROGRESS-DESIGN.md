@@ -4,7 +4,7 @@
 
 ## 1. 现状问题
 
-现在卡片状态只在 agent **主动调用** `kanban_update_status` 时变化。实测：
+现在卡片状态只在 agent **主动调用** `flowly_update_status` 时变化。实测：
 - 显式要求汇报的 F1–F4 每张都正确走完 Todo → In progress → In review。
 - 没接工具或没收到指示的 session，84 轮里状态零变化。
 
@@ -43,7 +43,7 @@ agent 报告（工具）         │      trigger + condition + action    卡片
 ### 3.1 信号
 
 - **session 生命周期**：已有的 `agent.turn_started`、`agent.turn_ended`（含 outcome），以及 `agent.permission_requested/resolved`、`agent.archived`。只看**看板管理的 session**（见 PHASE-02 修订）。
-- **agent 报告**：保留现有工具，`kanban_report_progress` 的 kind 增加 `question`（需要你回答）。`result` 表示“我认为交付了”。不新增工具，agent 只需记住两个词：有问题报 `question`，做完报 `result`。
+- **agent 报告**：保留现有工具，`flowly_report_progress` 的 kind 增加 `question`（需要你回答）。`result` 表示“我认为交付了”。不新增工具，agent 只需记住两个词：有问题报 `question`，做完报 `result`。
 - **人的操作**：在卡片或 session 中给看板管理的 session 发消息、拖拽、验收。
 
 ### 3.2 v1 默认规则

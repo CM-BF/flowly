@@ -8,7 +8,7 @@ Agent 完成一段工作后常在回复末尾写“接下来要不要……或�
 
 与 Ideas 的区别：idea 是本卡目标之外、值得以后做的工作（进 Ideas 收件箱，可建新卡）；next move 是**这个会话下一条消息**的候选，只在本轮结束到下一轮开始之间有效，不进收件箱、不建卡。
 
-## 2. Agent 工具 `kanban_suggest_next_moves`
+## 2. Agent 工具 `flowly_suggest_next_moves`
 
 - 输入：`expectedRevision`、`request`（照抄 get_task）、`moves`：1–3 条，每条
   - `label`：按钮文字，1–60 字符，短动词短语，用用户使用的语言（如“用 Luna 验证”“提交并推送”）。
@@ -52,7 +52,7 @@ Agent 完成一段工作后常在回复末尾写“接下来要不要……或�
 - `server/agent-service.test.ts`：写入事件并带 `moves`、不改 revision；同轮再次调用以最新为准；重放；空/超长/超过 3 条拒绝；Done 卡拒绝。
 - `shared/next-moves.test.ts`：新一轮开始后失效、取最新一组、只看本会话、预填拼接规则。
 - `server/progress-rules.test.ts`：只有 next moves 的回合仍按 A1r 回退。
-- `server/tool-server.test.ts`：工具列表包含 `kanban_suggest_next_moves`。
+- `server/tool-server.test.ts`：工具列表包含 `flowly_suggest_next_moves`。
 - `client/onboarding-logic.test.ts`：`next-move` 提示规则与优先级。
 - Skill 文本（`server/skill-source.ts` 与 `skills/paseo-ultra-kanban/SKILL.md` 一致）。
 - 人工/Luna：真实会话调用工具后输入框上方出现建议；点按只预填不发送、可编辑；已有文字时追加；发送后建议消失；关闭后不再显示；手机紧凑布局可用。

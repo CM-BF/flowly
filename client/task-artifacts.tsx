@@ -43,7 +43,7 @@ export function TaskArtifacts({ task, disabled }: { task: Task; disabled: boolea
   const fileKey = list.filter((a) => a.kind === "file").map((a) => `${a.id}:${a.target}`).join("|");
   // One batched check when the drawer shows the card or its files change (CARD-ARTIFACTS-SPEC §9).
   const status = useQuery({
-    queryKey: ["ultra", "artifact-status", task.id, fileKey],
+    queryKey: ["flowly", "artifact-status", task.id, fileKey],
     queryFn: () => readStatus({ taskId: task.id }),
     enabled: !!fileKey,
     staleTime: 30_000,
@@ -53,7 +53,7 @@ export function TaskArtifacts({ task, disabled }: { task: Task; disabled: boolea
   // Ticket statuses for the rows, cached by the daemon (EXTERNAL-TRACKER-SPEC §3.3).
   const ticketKey = list.filter((a) => a.ticket).map((a) => a.id).join("|");
   const ticketStatus = useQuery({
-    queryKey: ["ultra", "card-tickets", task.id, ticketKey],
+    queryKey: ["flowly", "card-tickets", task.id, ticketKey],
     queryFn: () => readTickets({ taskId: task.id }),
     enabled: !!ticketKey,
     staleTime: 60_000,
@@ -273,7 +273,7 @@ function ArtifactPreview({ artifact, onClose }: { artifact: Artifact; onClose():
   const theme = useTheme();
   const read = useRpc(rpc.previewArtifact);
   const preview = useQuery({
-    queryKey: ["ultra", "artifact-preview", artifact.id, artifact.updatedAt],
+    queryKey: ["flowly", "artifact-preview", artifact.id, artifact.updatedAt],
     queryFn: () => read({ id: artifact.id }),
     staleTime: 0,
     gcTime: 0,

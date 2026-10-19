@@ -60,7 +60,7 @@ agent 在卡片 workspace 里按项目工作流推进阶段，需要人时在卡
 
 ### 2.4 agent 切换阶段
 
-`kanban_set_stage(stage, note)`：
+`flowly_set_stage(stage, note)`：
 
 - 只在状态为 In progress 时可用，否则返回 `STAGE_NOT_ACTIVE`。目标须为当前工作流中的阶段，否则返回 `STAGE_UNKNOWN`。
 - 向后移动或同阶段（仅记活动）始终允许。
@@ -73,7 +73,7 @@ agent 在卡片 workspace 里按项目工作流推进阶段，需要人时在卡
 
 | kind | 来源 | 人的操作 | 结果 |
 | --- | --- | --- | --- |
-| `question` | agent `kanban_request_human` | 选一个选项或填写回答 | 答复送回发起的 session |
+| `question` | agent `flowly_request_human` | 选一个选项或填写回答 | 答复送回发起的 session |
 | `approval` | 阶段 gate（2.4） | Approve 或 Reject（Reject 须填意见） | Approve：stage 前进，通知 session；Reject：stage 不变，意见送回 |
 
 请求**不改变业务状态，不增加 task revision**，只增加 board revision 并记活动。卡片因此可以一边保持 In progress 一边显示“需要你”。agent 可以继续做其他部分，也可以等待；skill 要求它在 note 中说明是否会等待。
@@ -104,7 +104,7 @@ agent 在卡片 workspace 里按项目工作流推进阶段，需要人时在卡
   - `reject`：须带意见。
   - `dismiss`：表示“不需要了”，不投递。
   - 同一 `operationId` 重放返回首次结果。
-- **agent 撤回**：`kanban_withdraw_request(requestId, note)`，只能撤回自己发起的 open question。approval 由人处理，agent 撤回 approval 返回 `REQUEST_CLOSED` 之外的 `INVALID_REQUEST`。
+- **agent 撤回**：`flowly_withdraw_request(requestId, note)`，只能撤回自己发起的 open question。approval 由人处理，agent 撤回 approval 返回 `REQUEST_CLOSED` 之外的 `INVALID_REQUEST`。
 - **卡片归档或进入 Done/Cancelled**：剩余 open 请求自动转为 `dismissed`（closedBy=system），不投递。
 
 ### 3.4 投递（D5 自动续工）
@@ -134,7 +134,7 @@ approval 的消息为 `Stage gate approved: Design → Develop. Continue with De
 
 ### 4.1 agent 提交
 
-`kanban_submit_review(summary, verification, notRun?, links?)`：
+`flowly_submit_review(summary, verification, notRun?, links?)`：
 
 | 字段 | 约束 |
 | --- | --- |
@@ -145,7 +145,7 @@ approval 的消息为 `Stage gate approved: Design → Develop. Continue with De
 
 - 仅从 In progress 或 Blocked 提交，否则返回 `INVALID_STATUS`。
 - 一次提交内完成：状态改为 In review、写入 `task.review`（id、agentId、submittedAt、上述字段、verdict=null），增加 task revision，记录 `review_submitted` 活动。
-- 原 `kanban_update_status(in_review, note)` 继续可用，视为只有 summary 的交付。
+- 原 `flowly_update_status(in_review, note)` 继续可用，视为只有 summary 的交付。
 
 ### 4.2 人验收
 
@@ -173,12 +173,12 @@ RPC `tasks.review({ id, revision, verdict, comment?, operationId })`，要求卡
 
 | 工具 | 输入 | 状态 / revision |
 | --- | --- | --- |
-| `kanban_get_task` | 不变 | 返回字段新增：<br>• `workflow`：阶段数组和 revision<br>• `stage` / `stageValid`、`nextStage`、`gateBeforeNext`<br>• `requests`：本卡 open 请求，以及最近 10 个已关闭请求及其答复<br>• `review` |
-| `kanban_set_stage` | expectedRevision、request、`stage`、note | 移动时增加 task revision；遇到 gate 只建请求 |
-| `kanban_request_human` | expectedRevision、request、`question`、`options?`、note | 不改状态，不增加 task revision |
-| `kanban_withdraw_request` | expectedRevision、request、`requestId`、note | 不改状态，不增加 task revision |
-| `kanban_submit_review` | expectedRevision、request、4.1 中的字段 | 状态改为 In review，增加 task revision |
-| `kanban_update_status` / `kanban_report_progress` | 不变 | 不变；进入 In progress 时自动补首个阶段（2.3） |
+| `flowly_get_task` | 不变 | 返回字段新增：<br>• `workflow`：阶段数组和 revision<br>• `stage` / `stageValid`、`nextStage`、`gateBeforeNext`<br>• `requests`：本卡 open 请求，以及最近 10 个已关闭请求及其答复<br>• `review` |
+| `flowly_set_stage` | expectedRevision、request、`stage`、note | 移动时增加 task revision；遇到 gate 只建请求 |
+| `flowly_request_human` | expectedRevision、request、`question`、`options?`、note | 不改状态，不增加 task revision |
+| `flowly_withdraw_request` | expectedRevision、request、`requestId`、note | 不改状态，不增加 task revision |
+| `flowly_submit_review` | expectedRevision、request、4.1 中的字段 | 状态改为 In review，增加 task revision |
+| `flowly_update_status` / `flowly_report_progress` | 不变 | 不变；进入 In progress 时自动补首个阶段（2.3） |
 
 - `request_human` 与 `withdraw_request` 同样校验读取时的 task/project revision（与 progress 一致），避免按旧上下文提问。
 - CLI 子命令一一对应：`stage <id>`、`ask --question … [--option …]`、`withdraw <requestId>`、`review --summary … --verification … [--not-run …] [--link …]`，与 MCP 共用同一服务。

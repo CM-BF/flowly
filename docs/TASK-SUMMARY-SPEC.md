@@ -19,10 +19,10 @@ summary 是系统写的描述文字，**不改**卡片业务状态（lane），�
 - 调用：`paseo.workspaces.ref(<卡片 workspace>).agents.create`（2026-10-15 修订，用户选 B）
   - 作为**刚结束回合的 session 的子 session**（`parent`）运行在卡片自己的 workspace 中，不新建原生 project 或 workspace；
   - `config.provider`：设置中的 Summary model（§4）；
-  - `title`：`Kanban summary · <卡片标题>`；`labels`：`{"ultra-kanban": "summarizer", "ultra-kanban-task": <taskId>}`；
+  - `title`：`Kanban summary · <卡片标题>`；`labels`：`{"flowly": "summarizer", "flowly-task": <taskId>}`；
   - `prompt` 与 `outputSchema`（§3）；
   - `waitForFinish(120000)`；无论成功、失败、超时，都在 `finally` 中 `archive()` 该 session。
-  - 看板视图按标签隐藏 summarizer：卡片 session 列表、计数、最近输出、Attention、侧栏角标、`kanban_get_task` 的 sessions。项目 Remove 与 Wrap up 的“运行中 session”检查**不**隐藏它，运行中的 summarizer 仍会阻止这些破坏性操作。
+  - 看板视图按标签隐藏 summarizer：卡片 session 列表、计数、最近输出、Attention、侧栏角标、`flowly_get_task` 的 sessions。项目 Remove 与 Wrap up 的“运行中 session”检查**不**隐藏它，运行中的 summarizer 仍会阻止这些破坏性操作。
   - 初版把 cwd 放在插件数据目录，实测（[验证](verification/task-summary.md)）Paseo 为该目录注册了原生 project 并每次新建 workspace，因此改为本方案；遗留的 project 已删除（`paseo project delete`，不删目录）。
 - summarizer 自己的回合结束不会递归触发：它没有看板身份（无 context 文件；`session_open` 只给已有凭据的 session 注入看板上下文）。
 

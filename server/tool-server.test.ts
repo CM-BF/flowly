@@ -61,40 +61,38 @@ test("MCP initialize/list can precede actor creation; live calls require SDK con
         : body,
     );
   };
-  expect(
-    (
-      await mcp("initialize", {
+  const initialized = await mcp("initialize", {
         protocolVersion: "2025-06-18",
         capabilities: {},
         clientInfo: { name: "test", version: "1" },
-      })
-    ).result.protocolVersion,
-  ).toBe("2025-06-18");
+      });
+  expect(initialized.result.protocolVersion).toBe("2025-06-18");
+  expect(initialized.result.serverInfo.name).toBe("flowly");
   expect(
     (await mcp("tools/list", {})).result.tools.map(
       (t: { name: string }) => t.name,
     ),
   ).toEqual([
-    "kanban_get_task",
-    "kanban_update_status",
-    "kanban_report_progress",
-    "kanban_propose_idea",
-    "kanban_add_artifact",
-    "kanban_remove_artifact",
-    "kanban_read_ticket",
-    "kanban_set_tags",
-    "kanban_set_type",
-    "kanban_suggest_next_moves",
-    "kanban_update_workpad",
+    "flowly_get_task",
+    "flowly_update_status",
+    "flowly_report_progress",
+    "flowly_propose_idea",
+    "flowly_add_artifact",
+    "flowly_remove_artifact",
+    "flowly_read_ticket",
+    "flowly_set_tags",
+    "flowly_set_type",
+    "flowly_suggest_next_moves",
+    "flowly_update_workpad",
   ]);
   // The soft delivery gate and the workpad's own revision are part of the tool schemas (WORKPAD-SPEC §3, §5.3).
   const listed = (await mcp("tools/list", {})).result.tools as { name: string; inputSchema: { properties: Record<string, unknown> } }[];
-  expect(listed.find((t) => t.name === "kanban_update_status")!.inputSchema.properties).toHaveProperty("acknowledgeOpen");
-  expect(Object.keys(listed.find((t) => t.name === "kanban_update_workpad")!.inputSchema.properties)).toEqual(
+  expect(listed.find((t) => t.name === "flowly_update_status")!.inputSchema.properties).toHaveProperty("acknowledgeOpen");
+  expect(Object.keys(listed.find((t) => t.name === "flowly_update_workpad")!.inputSchema.properties)).toEqual(
     expect.arrayContaining(["workpadRevision", "acceptance", "validation", "confusions"]),
   );
   const cold = await mcp("tools/call", {
-    name: "kanban_get_task",
+    name: "flowly_get_task",
     arguments: {},
   });
   expect(cold.result.isError).toBe(true);
@@ -103,13 +101,13 @@ test("MCP initialize/list can precede actor creation; live calls require SDK con
   );
   x.server.attach(x.paseo);
   const read = await mcp("tools/call", {
-    name: "kanban_get_task",
+    name: "flowly_get_task",
     arguments: {},
   });
   expect(read.result.structuredContent.identity).toEqual(x.identity);
   const ctx = read.result.structuredContent;
   const updated = await mcp("tools/call", {
-    name: "kanban_update_status",
+    name: "flowly_update_status",
     arguments: {
       expectedRevision: ctx.revision,
       request: ctx.request,
@@ -119,7 +117,7 @@ test("MCP initialize/list can precede actor creation; live calls require SDK con
   });
   expect(updated.result.structuredContent.receipt.status).toBe("development");
   const proposed = await mcp("tools/call", {
-    name: "kanban_propose_idea",
+    name: "flowly_propose_idea",
     arguments: {
       expectedRevision: updated.result.structuredContent.current.revision,
       request: updated.result.structuredContent.current.request,
@@ -205,9 +203,13 @@ test("prepared ID and scoped files are stable, selected existing actor verified"
   ).rejects.toMatchObject({ code: "SESSION_MISMATCH" });
   const existing = await x.server.prepareExisting("t", "actor", x.paseo);
   expect(existing.agentId).toBe("actor");
-  expect(existing.instructions).toContain("kanban_get_task");
+  expect(existing.instructions).toContain("flowly_get_task");
+  expect(existing.cliPath).toBe(x.store.directory + "/flowly.mjs");
+  expect(existing.instructions).not.toMatch(/ultra[ _-]kanban|kanban_/i);
+  expect(skillText).toContain("name: flowly\n");
+  await expect(readFile(x.store.directory + "/ultra-kanban.mjs", "utf8")).rejects.toMatchObject({ code: "ENOENT" });
   expect(await readFile(existing.skillPath, "utf8")).toBe(skillText);
-  expect(await readFile("skills/paseo-ultra-kanban/SKILL.md", "utf8")).toBe(
+  expect(await readFile("skills/flowly/SKILL.md", "utf8")).toBe(
     skillText,
   );
   expect((await x.server.accessState("t", "actor", x.paseo)).methods).toContain(
@@ -232,6 +234,16 @@ test("CLI runs a complete scoped flow; replay, wrong env, snapshots and flags", 
   };
   const current = await cli("current", "--save-request", snapshot);
   expect(current.identity).toEqual(x.identity);
+  // Explicit argument > Flowly environment > legacy session environment.
+  for (const overrides of [
+    { FLOWLY_CONTEXT_FILE: prepared.contextFile, ULTRA_KANBAN_CONTEXT_FILE: "missing" },
+    { FLOWLY_CONTEXT_FILE: "", ULTRA_KANBAN_CONTEXT_FILE: prepared.contextFile },
+  ]) {
+    const result = await run(process.execPath, [prepared.cliPath, "current"], {
+      env: { ...process.env, ...overrides, PASEO_AGENT_ID: "actor" },
+    });
+    expect(JSON.parse(result.stdout).identity).toEqual(x.identity);
+  }
   const started = await cli(
     "status",
     "development",
@@ -343,6 +355,7 @@ test("same port and credentials survive cleanup/reload; cold error recovers with
     };
   const first = (await x.api("progress", input)).result;
   await x.server.stop();
+  await writeFile(x.store.directory + "/ultra-kanban.mjs", "old CLI");
   const restored = new ToolServer(x.store);
   cleanups.push(() => restored.stop());
   await restored.start();
@@ -353,6 +366,13 @@ test("same port and credentials survive cleanup/reload; cold error recovers with
   ).toBe(x.url);
   expect((await x.api("get")).error.code).toBe("PASEO_UNAVAILABLE");
   restored.attach(x.paseo);
+  expect(await readFile(x.store.directory + "/ultra-kanban.mjs", "utf8")).toBe(
+    await readFile(x.store.directory + "/flowly.mjs", "utf8"),
+  );
+  const legacy = await run(process.execPath, [x.store.directory + "/ultra-kanban.mjs", "current"], {
+    env: { ...process.env, FLOWLY_CONTEXT_FILE: "", ULTRA_KANBAN_CONTEXT_FILE: await restored.secrets.writeContext(x.identity, "cli"), PASEO_AGENT_ID: "actor" },
+  });
+  expect(JSON.parse(legacy.stdout).identity).toEqual(x.identity);
   const replay = (await x.api("progress", input)).result;
   expect(replay).toMatchObject({ receipt: first.receipt, replayed: true });
 });
