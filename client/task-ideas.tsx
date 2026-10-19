@@ -9,7 +9,7 @@ import { continuesInCard } from "../shared/ideas";
 import { eventPoint, useMenuOpener, type MenuEntry, type Point } from "./context-menu";
 import { CardBody, CardField, CardHeadline, CardMeta, CardMetaRow, CardText, ContentCard } from "./content-card";
 import { Disclosure } from "./disclosure";
-import { Enter, lerp, motionDuration, useMotionPresence, useReducedMotion } from "./motion";
+import { lerp, motionDuration, useMotionPresence, useReducedMotion } from "./motion";
 import { exitRows } from "./idea-rows";
 import { boardKey, useBoardQuery } from "./queries";
 import { useStableCallback } from "./stable";
@@ -67,7 +67,7 @@ export function TaskIdeas({
       {rows.length ? (
         <View>
           {rows.map((row) => (
-            <IdeaRow key={row.item.id} leaving={row.leaving} entering={row.entering} swipe={actions.swiped.has(row.item.id)}>
+            <IdeaRow key={row.item.id} leaving={row.leaving} entering={row.entering} swipe={actions.swiped.has(row.item.id)} restored={actions.restored.has(row.item.id)}>
               <IdeaCard idea={row.item} disabled={disabled || row.leaving} onGood={actions.choose} onDismiss={actions.dismiss} />
             </IdeaRow>
           ))}
@@ -123,6 +123,8 @@ export function useIdeaActions({
   const [restoring, setRestoring] = useState("");
   // Ideas dismissed here on desktop: their row swipes out instead of collapsing in place.
   const swiped = useRef(new Set<string>()).current;
+  // Ideas restored here: their row opens its slot and the card comes back in, even if it was on the list at first render.
+  const restored = useRef(new Set<string>()).current;
   const ideas = board.data?.ideas;
   // A closing is settled once the board shows it; drop it from the optimistic set.
   useEffect(() => {
@@ -188,6 +190,7 @@ export function useIdeaActions({
   });
   const dismiss = useStableCallback(async (idea: Idea) => {
     if (!touch) swiped.add(idea.id);
+    restored.delete(idea.id);
     setHidden((current) => new Set(current).add(idea.id));
     try {
       await updateIdea({ id: idea.id, status: "dismissed" });
@@ -200,17 +203,21 @@ export function useIdeaActions({
   });
   const restore = useStableCallback(async (idea: Idea) => {
     swiped.delete(idea.id);
+    restored.add(idea.id);
     setRestoring(idea.id);
     try {
       await updateIdea({ id: idea.id, status: "open" });
       await queryClient.invalidateQueries({ queryKey: boardKey });
+      // Only this return animates in; a list mounted later (another tab, the drawer reopened) shows it plainly.
+      setTimeout(() => restored.delete(idea.id), 1000);
     } catch (e) {
+      restored.delete(idea.id);
       toast.show(message(e), { variant: "error" });
     } finally {
       setRestoring("");
     }
   });
-  return { hidden, restoring, swiped: swiped as ReadonlySet<string>, choose, dismiss, restore };
+  return { hidden, restoring, swiped: swiped as ReadonlySet<string>, restored: restored as ReadonlySet<string>, choose, dismiss, restore };
 }
 
 const without = (set: ReadonlySet<string>, ids: readonly string[]) => {
@@ -272,20 +279,24 @@ const swipeMs = 180;
 const rowExitMs = swipeMs + motionDuration.reverse;
 
 /**
- * Holds one idea's slot: rises in when it arrives, collapses its height and
- * fades when it leaves, or with `swipe` (a desktop dismiss) slides out to the
- * right first.
+ * Holds one idea's slot. Arriving (or `restored`) rows open their slot, then
+ * the card rises in (on desktop a restored card slides back in from the right,
+ * mirroring the dismiss). Leaving rows collapse and fade, or with `swipe` (a
+ * desktop dismiss) slide out to the right first.
  */
 export function IdeaRow({
   leaving,
   entering,
   swipe = false,
+  restored = false,
   spacing = space[2],
   children,
 }: {
   leaving: boolean;
   entering: boolean;
   swipe?: boolean;
+  /** Restored while the list was showing: animate it in even if it was there at first render. */
+  restored?: boolean;
   /** Space below the row, inside the collapsing slot. */
   spacing?: number;
   children: ReactNode;
@@ -315,7 +326,52 @@ export function IdeaRow({
         {body}
       </Animated.View>
     );
-  return entering ? <Enter distance={8}>{body}</Enter> : body;
+  return entering || restored ? <InsertIn slide={restored && !touch}>{body}</InsertIn> : body;
+}
+
+/**
+ * Opens a slot for its child (height from 0), then brings the child in: from
+ * the right with `slide`, otherwise rising a few points; both fade in. Once in,
+ * the same views lay out normally so the card can still grow (Show more).
+ * JS driver: height is layout.
+ */
+function InsertIn({ slide, children }: { slide: boolean; children: ReactNode }) {
+  const reduced = useReducedMotion();
+  const [size, setSize] = useState({ width: 0, height: 0 });
+  const [open] = useState(() => new Animated.Value(0));
+  const [show] = useState(() => new Animated.Value(0));
+  const [done, setDone] = useState(reduced);
+  const measured = size.height > 0;
+  useEffect(() => {
+    if (done || !measured) return;
+    const animation = Animated.sequence([
+      Animated.timing(open, { toValue: 1, duration: motionDuration.reverse, easing: Easing.out(Easing.quad), useNativeDriver: false }),
+      Animated.timing(show, { toValue: 1, duration: motionDuration.forward, easing: Easing.out(Easing.cubic), useNativeDriver: false }),
+    ]);
+    animation.start(({ finished }) => finished && setDone(true));
+    return () => animation.stop();
+  }, [open, show, done, measured]);
+  return (
+    <Animated.View style={done ? undefined : { overflow: "hidden", height: lerp(open, [0, size.height || 1]) }}>
+      <Animated.View
+        onLayout={done ? undefined : (e) => setSize({ width: e.nativeEvent.layout.width, height: e.nativeEvent.layout.height })}
+        style={
+          done
+            ? undefined
+            : {
+                position: "absolute",
+                top: 0,
+                left: 0,
+                right: 0,
+                opacity: show,
+                transform: slide ? [{ translateX: lerp(show, [Math.max(size.width, 1), 0]) }] : [{ translateY: lerp(show, [8, 0]) }],
+              }
+        }
+      >
+        {children}
+      </Animated.View>
+    </Animated.View>
+  );
 }
 
 /** Slides its child out to the right while fading, then closes the slot. JS driver: desktop only, and height is layout. */

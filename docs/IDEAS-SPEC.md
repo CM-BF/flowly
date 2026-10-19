@@ -99,7 +99,7 @@ idea 不是任务卡：不进泳道、不占 workspace、不改来源卡状态�
   - 右下角按钮（2026-10-19 用户反馈：右对齐，恢复标准尺寸，不再使用紧凑尺寸；与 Show more 并排在同一行以节省空间。Ideas 页的来源行 “From …” 位于该行之下）：**Dismiss**（安静按钮，忽略；2026-10-19 由 Not now 改名）、**Good idea**（主操作，`ThumbsUp` 图标，打开选择菜单，见 §6，位于最右）。无障碍名称分别为 “Dismiss …”、“Good idea: … Choose to do it in this task or start a new task.”。Closed 分组的 Restore 仍使用紧凑尺寸。
   - 元信息行最前面显示 agent 的建议：`CornerDownRight` “Continues this task” 或 `SquarePlus` “New task”。
   - Dismiss 为乐观更新：卡片立即离开。桌面版（非触屏）先向右滑出并淡出（180 ms 加速），再收起所在行高度（160 ms）；手机上在原位收起（高度、透明度与轻微缩放一起过渡 160 ms）。Reduce Motion 下直接移除。保存失败时恢复并弹 error toast。“在本卡继续”同样乐观收起，成功后弹 success toast “Sent to <session>”；idea 被转成卡片后同样收起离开列表。
-  - 抽屉打开时已有的 idea 不播放进场；打开期间新到达（agent 提出）或被 Restore 的 idea 上浮淡入。
+  - 抽屉打开时已有的 idea 不播放进场。打开期间新到达（agent 提出）或被 Restore 的 idea 播放插入动画：先展开所在行高度（160 ms），再进场淡入（220 ms 减速）；桌面版 Restore 的卡片从右侧滑入（与 Dismiss 的滑出对称），其余为轻微上浮。即使该 idea 在抽屉打开时就存在，Restore 也会播放插入动画（2026-10-19 用户反馈）。Reduce Motion 下直接出现。
   - 所有动效使用 `client/motion.tsx` 原语，遵循 Reduce Motion、可打断；收起中的卡片不可交互、对读屏隐藏。
 - 没有 open idea 但有已关闭的 idea 时显示 “No open ideas. Agents add them when they see a worthwhile next step.”
 - 非 open 的 idea 收在默认折叠的 `Closed · N` 分组：
