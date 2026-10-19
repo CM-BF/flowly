@@ -100,4 +100,30 @@ describe.skipIf(!rendererPath)("shared motion primitives (deterministic native c
     expect(motionMockState.animations.at(-1)?.config.duration).toBe(160);
     act(() => tree.unmount());
   });
+
+  test("MotionReveal carries no opacity/transform at rest, so a stale native write can never stay on screen", async () => {
+    const reveal = (key: string, direction = 1) => <MotionProvider><MotionReveal transitionKey={key} direction={direction}>x</MotionReveal></MotionProvider>;
+    const view = () => tree.root.findByType("View" as any);
+    const animated = () => Array.isArray(view().props.style) && view().props.style.some((s: any) => s && "transform" in s);
+    let tree: any;
+    await act(async () => { tree = create(reveal("task|details")); });
+    expect(animated()).toBe(false);
+    await act(async () => { tree.update(reveal("task|session", 1)); });
+    expect(animated()).toBe(true);
+    const forward = motionMockState.animations.length - 1;
+    // Back before the forward reveal ends: the old animation stops, its late end must not reset the new one.
+    await act(async () => { tree.update(reveal("task|details", -1)); });
+    const back = motionMockState.animations.length - 1;
+    expect(back).toBeGreaterThan(forward);
+    expect(motionMockState.animations[forward].stopped).toBe(true);
+    await act(async () => { motionMockState.finish(forward, false); });
+    expect(animated()).toBe(true);
+    await act(async () => { motionMockState.finish(back, true); });
+    expect(animated()).toBe(false);
+    // A stopped (not finished) newest reveal also ends at rest.
+    await act(async () => { tree.update(reveal("task|session", 1)); });
+    await act(async () => { motionMockState.finish(motionMockState.animations.length - 1, false); });
+    expect(animated()).toBe(false);
+    act(() => tree.unmount());
+  });
 });

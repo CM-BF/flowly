@@ -102,6 +102,8 @@ export function useMotionPresence<T>(item: T | undefined | null, key: string, na
   if (item) held.current = item;
   const [retained, setRetained] = useState(!!item);
   const [progress] = useState(() => new Animated.Value(item ? 1 : 0));
+  // Shown and done entering: callers drop their animated props then (see MotionReveal on stale native writes).
+  const [entered, setEntered] = useState(!!item);
   const heldKey = useRef(key);
   const generation = useRef(0);
   useLayoutEffect(() => {
@@ -123,19 +125,26 @@ export function useMotionPresence<T>(item: T | undefined | null, key: string, na
     };
     if (reduced) {
       progress.setValue(key ? 1 : 0);
+      setEntered(!!key);
       finish();
       return () => { alive = false; };
     }
+    setEntered(false);
     const animation = key
       ? timing(progress, 1, motionDuration.forward, nativeDriver)
       : timing(progress, 0, motionDuration.reverse, nativeDriver, exitEasing);
-    play(animation, progress, key ? 1 : 0, nativeDriver, (finished) => { if (finished) finish(); });
+    play(animation, progress, key ? 1 : 0, nativeDriver, (finished) => {
+      if (!finished) return;
+      if (key) {
+        if (alive && generation.current === run) setEntered(true);
+      } else finish();
+    });
     return () => {
       alive = false;
       animation.stop();
     };
   }, [key, reduced, progress, nativeDriver]);
-  return { item: item || (retained ? held.current : undefined), active: !!item, progress };
+  return { item: item || (retained ? held.current : undefined), active: !!item, progress, settled: !!item && entered };
 }
 
 /** Animate navigation identity, never streaming output or a background refetch. */
@@ -149,15 +158,20 @@ export function MotionReveal({
 }: ViewProps & { transitionKey: string; direction?: number; distance?: number }) {
   const reduced = useContext(ReduceMotion);
   // Signed offset: starts at ±1 (the side it comes from) and rests at 0, so
-  // one set of interpolation nodes serves both directions. A direction-keyed
-  // range swapped the props node on every forward/Back, which on Android's new
-  // architecture could restore stale values mid-transition (user report:
-  // returning from a session left the card half faded and offset).
+  // one set of interpolation nodes serves both directions.
   const [offset] = useState(() => new Animated.Value(0));
-  const [, resync] = useState(0);
+  // The reveal in flight (its generation), 0 at rest. At rest the view carries
+  // no opacity or transform at all. On Android's new architecture a native-driven
+  // animation writes the view directly, behind React's back: if that native write
+  // outlives the animation (interrupted, dropped, or overwritten by a commit made
+  // mid-transition), setting the value back to 0 is not a prop change React can
+  // see, and the view stayed offset (user reports: returning from a session left
+  // the card half faded, later shifted ~18 pt). Dropping the props on rest is a
+  // real change, so the commit always resets the view to identity.
+  const [moving, setMoving] = useState(0);
   const previous = useRef<string | undefined>(undefined);
-  const running = useRef(0);
   const generation = useRef(0);
+  const reverse = useRef(false);
   const alive = useRef(true);
   useEffect(() => {
     alive.current = true;
@@ -169,37 +183,30 @@ export function MotionReveal({
     if (previous.current === undefined || previous.current === transitionKey || reduced) {
       previous.current = transitionKey;
       offset.setValue(0);
+      setMoving(0);
       return;
     }
     previous.current = transitionKey;
-    offset.setValue(direction < 0 ? -1 : 1);
-    const native = Platform.OS !== "web";
-    const animation = timing(offset, 0, direction < 0 ? motionDuration.reverse : motionDuration.forward, native);
-    running.current = run;
-    animation.start(() => {
-      if (running.current === run) running.current = 0;
-      if (!native) return;
-      // A native end (finished or stopped) syncs the JS value to where the
-      // native animation stood, after this callback and possibly after a newer
-      // setValue. Unless a newer reveal is moving, put the rest value back on
-      // both sides and commit it, so no stale offset can stay on screen.
-      queueMicrotask(() => {
-        if (running.current !== 0 || !alive.current) return;
-        offset.setValue(0);
-        resync((n) => n + 1);
-      });
-    });
-    return () => {
-      animation.stop();
-      // An interrupted reveal never stays offset.
-      offset.setValue(0);
-    };
+    reverse.current = direction < 0;
+    offset.setValue(reverse.current ? -1 : 1);
+    // Re-renders before paint with the animated props attached; the animation starts once they are.
+    setMoving(run);
   }, [transitionKey, direction, reduced, offset]);
+  useLayoutEffect(() => {
+    if (!moving) return;
+    const run = moving;
+    const animation = timing(offset, 0, reverse.current ? motionDuration.reverse : motionDuration.forward, Platform.OS !== "web");
+    // Finished or stopped, the newest reveal decides; an older one never resets a newer one.
+    animation.start(() => {
+      if (alive.current && generation.current === run) setMoving(0);
+    });
+    return () => animation.stop();
+  }, [moving, offset]);
   return (
-    <Animated.View {...props} style={[style, {
+    <Animated.View {...props} style={moving ? [style, {
       opacity: lerp(offset, [0.65, 1, 0.65], [-1, 0, 1]),
       transform: [{ translateX: lerp(offset, [-distance, 0, distance], [-1, 0, 1]) }],
-    }]}>{children}</Animated.View>
+    }] : style}>{children}</Animated.View>
   );
 }
 
@@ -239,10 +246,23 @@ export function PulseDot({ color, size = 8, active = true }: { color: string; si
 
 /** Mount-in rise for newly appearing items (callouts, queued rows, menus). */
 export function Enter({ children, distance = 6, style }: { children: ReactNode; distance?: number; style?: ViewProps["style"] }) {
-  const progress = useMotionValue(1, motionDuration.forward, 0);
+  const reduced = useContext(ReduceMotion);
+  const [progress] = useState(() => new Animated.Value(reduced ? 1 : 0));
+  // After the entrance the view carries no animated props (see MotionReveal on stale native writes).
+  const [settled, setSettled] = useState(reduced);
+  useLayoutEffect(() => {
+    if (settled) return;
+    let alive = true;
+    const animation = timing(progress, 1, motionDuration.forward);
+    play(animation, progress, 1, Platform.OS !== "web", () => { if (alive) setSettled(true); });
+    return () => {
+      alive = false;
+      animation.stop();
+    };
+  }, [progress, settled]);
   return (
     <Animated.View
-      style={[
+      style={settled ? style : [
         style,
         {
           opacity: progress,

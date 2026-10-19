@@ -1238,8 +1238,8 @@ function BoardContent(
           ? { position: "absolute", top: 0, bottom: 0, left: 0, right: 0, zIndex: 30, backgroundColor: colors.surface0 }
           : { width: width + 8, minHeight: 0, flexShrink: 0 }),
         flexDirection: "row",
-        opacity: drawer.progress,
-        transform: [{ translateX: lerp(drawer.progress, [32, 0]) }],
+        // Only while opening or closing: at rest no animated props, so a stale native write cannot stay (MotionReveal).
+        ...(drawer.settled ? null : { opacity: drawer.progress, transform: [{ translateX: lerp(drawer.progress, [32, 0]) }] }),
       }}
     >
       {!compact && (
