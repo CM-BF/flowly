@@ -734,7 +734,7 @@ const catalog: Catalog = {
   "Manual": "手動",
   "Your drag order": "ドラッグした順",
   "Recent activity": "最近のアクティビティ",
-  "Latest task or session change first": "タスクやセッションが最近変わったものから",
+  "Latest finished session turn first": "セッションのターンが最近終わった順",
   "Urgent first, then manual order": "緊急が先、その後は手動の順",
   "Most recently created first": "作成が新しいものから",
   "A to Z": "A から Z",

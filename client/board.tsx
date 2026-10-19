@@ -95,7 +95,7 @@ import { ProjectTabs } from "./project-tabs";
 import { RemoveProjectDialog } from "./project-remove";
 import { boardOverview } from "./overview";
 import { enabledStatuses, laneName } from "../shared/lanes";
-import { boardSortText, boardSorts, sortTasks, type BoardSort } from "../shared/sort";
+import { boardSortText, boardSorts, latestTurnEnds, sortTasks, turnEndActivity, type BoardSort } from "../shared/sort";
 import { projectTagStats, tagPrefixes, taskMatchesSearch, taskMatchesTagFilter } from "../shared/tags";
 import {
   parseSessionLink,
@@ -474,14 +474,21 @@ function BoardContent(
   useEffect(() => {
     if (!shownStatuses.includes(mobileStatus)) setMobileStatus(shownStatuses.includes("todo") ? "todo" : shownStatuses[0]);
   }, [shownStatuses.join(","), mobileStatus]);
-  // Latest session activity per task (its workspace's newest session update).
+  // Recent activity counts turn ends only (sort.ts turnEndActivity). Sessions that
+  // record no turn events contribute the time they last went idle, remembered
+  // across their next turn so the card holds its place while it runs.
+  const settledAgents = useRef(new Map<string, { workspaceId: string; at: string }>());
+  const turnEnds = useMemo(() => latestTurnEnds(board?.events || []), [board?.events]);
   const taskActivity = useMemo(() => {
-    const byWorkspace = new Map<string, string>();
     for (const a of agents.data || [])
-      if (a.workspaceId && a.updatedAt && (byWorkspace.get(a.workspaceId) || "") < a.updatedAt)
-        byWorkspace.set(a.workspaceId, a.updatedAt);
-    return new Map((board?.tasks || []).flatMap((t) => (byWorkspace.has(t.workspaceId) ? [[t.id, byWorkspace.get(t.workspaceId)!]] : [])));
-  }, [agents.data, board?.tasks]);
+      if (a.workspaceId && a.updatedAt && !turnEnds.agents.has(a.id) && a.status !== "running" && a.status !== "initializing")
+        settledAgents.current.set(a.id, { workspaceId: a.workspaceId, at: a.updatedAt });
+    const byWorkspace = new Map<string, string>();
+    settledAgents.current.forEach(({ workspaceId, at }, id) => {
+      if (!turnEnds.agents.has(id) && (byWorkspace.get(workspaceId) || "") < at) byWorkspace.set(workspaceId, at);
+    });
+    return turnEndActivity(board?.tasks || [], turnEnds.byTask, byWorkspace);
+  }, [agents.data, board?.tasks, turnEnds]);
   // Old Done/Cancelled cards fold to the bottom of their lane (FINISHED-CARDS-SPEC); the open card always shows.
   const hideFinishedDays = view.values?.hideFinishedAfterDays ?? 14;
   const older = useMemo(

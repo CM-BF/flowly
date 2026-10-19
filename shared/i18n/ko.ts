@@ -734,7 +734,7 @@ const catalog: Catalog = {
   "Manual": "수동",
   "Your drag order": "내가 드래그한 순서",
   "Recent activity": "최근 활동",
-  "Latest task or session change first": "작업이나 세션이 최근 바뀐 것부터",
+  "Latest finished session turn first": "세션 턴이 최근에 끝난 순",
   "Urgent first, then manual order": "긴급이 먼저, 그다음은 수동 순서",
   "Most recently created first": "최근에 만든 것부터",
   "A to Z": "가나다순",

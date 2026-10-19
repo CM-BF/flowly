@@ -734,7 +734,7 @@ const catalog: Catalog = {
   "Manual": "手动",
   "Your drag order": "按你的拖动顺序",
   "Recent activity": "最近活动",
-  "Latest task or session change first": "最近有任务或会话变动的在前",
+  "Latest finished session turn first": "最近结束会话轮次的优先",
   "Urgent first, then manual order": "紧急的在前，其余按手动顺序",
   "Most recently created first": "最近创建的在前",
   "A to Z": "A 到 Z",

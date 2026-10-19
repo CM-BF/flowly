@@ -172,7 +172,7 @@ Status: authorized by the user's 2026-10-14 request to redesign the whole Kanban
 
 ## 7o. Board sort mode (2026-10-15, user request)
 
-- A Sort control sits in the board toolbar before Filter. Its menu offers: Manual (default, drag order), Recent activity (the newer of the task's own update and its workspace's latest session update), Priority (urgent first), Newest (created), Title (A–Z, natural numbers). Every mode falls back to the manual order for ties. The same order applies to the compact single-column list.
+- A Sort control sits in the board toolbar before Filter. Its menu offers: Manual (default, drag order), Recent activity (the card's latest finished session turn: the `agent.turn_ended` events Kanban-managed sessions record, and for other sessions in its workspace the time they last went idle, remembered while they run; a card with no finished turn counts from its creation. Streamed messages, mid-turn card writes and task edits do not reorder it, so cards move once per turn instead of jumping while sessions stream), Priority (urgent first), Newest (created), Title (A–Z, natural numbers). Every mode falls back to the manual order for ties. The same order applies to the compact single-column list.
 - The choice is a host-scoped view setting (`boardSort` in `board-view`), so it survives reloads and doesn't touch board data. A non-manual mode shows its name on the button.
 - In a non-manual mode, dragging a card to another column still changes its status; it is appended in manual order with no insertion line. A drop within the same column does nothing and a toast explains that Manual sort is needed.
 - Sorting is `shared/sort.ts` (`sortTasks`), unit-tested for every mode and its fallback.

@@ -734,7 +734,7 @@ const catalog: Catalog = {
   "Manual": "Manuel",
   "Your drag order": "Votre ordre de glisser-déposer",
   "Recent activity": "Activité récente",
-  "Latest task or session change first": "Les plus récemment modifiées (tâche ou session) d’abord",
+  "Latest finished session turn first": "Dernier tour de session terminé d’abord",
   "Urgent first, then manual order": "Urgentes d’abord, puis ordre manuel",
   "Most recently created first": "Les plus récemment créées d’abord",
   "A to Z": "De A à Z",

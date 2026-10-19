@@ -1,5 +1,12 @@
 # Implementation progress
 
+## Recent activity sorts by turn ends — 2026-10-19
+
+- [x] Card request "recent activity排序优化": the Recent activity sort used every session update (each streamed message) and the card's own `updatedAt`, so cards jumped while sessions ran. It now uses only finished turns: `latestTurnEnds`/`turnEndActivity` in `shared/sort.ts` (recorded `agent.turn_ended` events; for sessions that record none, the time they last went idle, remembered client-side while they run); a card without a turn end counts from its creation. Menu detail now "Latest finished session turn first" (all catalogs). [Spec](UI-REFRESH-SPEC.md) Sort bullet updated.
+- [x] PASS: typecheck; full `npm test` 494 passed / 63 skipped (`shared/sort.test.ts`: turn-start and task edits do not move a card, settled non-Kanban sessions count).
+- [ ] UNRUN: watching the live board reorder during a running turn; Luna 6 test session.
+- Onboarding: no tour or tip change, the sort option and its place are unchanged; only its ordering rule.
+
 ## AI mark — 2026-10-19
 
 - [x] Card request "所有AI feature增加星星标记": mark existing AI features with the star like next moves. [Spec](AI-MARK-SPEC.md).

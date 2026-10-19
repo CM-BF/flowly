@@ -307,7 +307,7 @@ function TaskDrawerView({
   const backToTask = useStableCallback(() => setSelected(""));
   const stableRefreshAll = useStableCallback(() => refreshAll());
   // An action next move (NEXT-MOVES-SPEC §7): same path as picking Done in the status menu.
-  const moveToDone = useStableCallback(() => changeStatus("done"));
+  const moveToDone = useStableCallback(() => changeStatus("done", true));
   const refreshAll = () => {
     refresh();
     void sessions.refetch();
@@ -437,8 +437,10 @@ function TaskDrawerView({
       e.action !== nextMovesAction &&
       !(e.action === "agent.turn_ended" && e.outcome !== "failed"),
   );
-  async function perform(action: () => Promise<unknown>, success = "") {
-    if (!detailActive.current || lock.current) return;
+  // `fromSession`: started from the session view (an action next move), where the
+  // detail guard is false and an error shows as a toast, not in the detail area.
+  async function perform(action: () => Promise<unknown>, success = "", fromSession = false) {
+    if ((!fromSession && !detailActive.current) || lock.current) return;
     lock.current = true;
     setSending(true);
     setError("");
@@ -447,14 +449,15 @@ function TaskDrawerView({
       if (success) toast.show(success, { variant: "success" });
       refreshAll();
     } catch (e) {
-      setError(message(e));
+      if (fromSession) toast.show(message(e), { variant: "error" });
+      else setError(message(e));
     } finally {
       lock.current = false;
       setSending(false);
     }
   }
-  function changeStatus(status: Status) {
-    if (statusDisabled || !detailActive.current || status === task.status) return;
+  function changeStatus(status: Status, fromSession = false) {
+    if (statusDisabled || (!fromSession && !detailActive.current) || status === task.status) return;
     const from = task.status;
     void perform(
       async () => {
@@ -462,6 +465,7 @@ function TaskDrawerView({
         onStatusChanged?.(from, status);
       },
       t("Moved to {lane}", { lane: laneName(project, status) }),
+      fromSession,
     );
   }
   // Status, type and priority open a dropdown next to their button (a sheet on phones).

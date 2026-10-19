@@ -734,7 +734,7 @@ const catalog: Catalog = {
   "Manual": "Вручную",
   "Your drag order": "Ваш порядок перетаскивания",
   "Recent activity": "Последняя активность",
-  "Latest task or session change first": "Сначала то, где недавно менялась задача или сессия",
+  "Latest finished session turn first": "Сначала с последним завершённым ходом сессии",
   "Urgent first, then manual order": "Сначала срочные, затем ручной порядок",
   "Most recently created first": "Сначала недавно созданные",
   "A to Z": "От А до Я",
