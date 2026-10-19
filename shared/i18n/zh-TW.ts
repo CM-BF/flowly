@@ -21,6 +21,9 @@ const catalog: Catalog = {
   "Move to": "移動到",
   "Move up": "上移",
   "Move down": "下移",
+  "Move left": "左移",
+  "Move right": "右移",
+  "Remove…": "移除…",
   "Restore card": "恢復卡片",
   "Archive card": "封存卡片",
   "Card restored": "卡片已恢復",
@@ -912,5 +915,6 @@ const catalog: Catalog = {
   "AI generated": "AI 生成",
   "Anything marked with the sparkle was written or suggested by AI.": "帶星星圖示的內容由 AI 撰寫或建議。",
   "When a turn ends, the agent's next steps sit above the message box. Tap one to fill it in, then send it yourself. Once the work is pushed, it can offer Move to Done.": "一輪結束後，agent 建議的下一步會顯示在輸入框上方。點一下填入，再由你自己送出。工作推送後，它還可以提供「移至 Done」。",
+  "Drag a project tab to reorder it. Right-click it for its settings, a new task, Insights, Ideas or Remove.": "拖曳專案分頁即可調整順序；按右鍵可開啟設定、新增任務、洞察、想法或移除。",
 };
 export default catalog;

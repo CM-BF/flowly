@@ -2,12 +2,16 @@ import { useEffect, useRef } from "react";
 import { Pressable, View, type ScrollView as RNScrollView } from "react-native";
 import { Icon, ScrollView } from "@getpaseo/plugin/client/react-native";
 import type { Project } from "../shared/model";
+import { menuHandlers, useMenuOpener, type MenuEntry } from "./context-menu";
+import { SortableList } from "./sortable-list";
 import { IconButton, Label, font, noFocusRing, radius, space, useTheme } from "./ui";
 import { t } from "../shared/i18n";
 
 /**
  * Desktop project tabs (PROJECT-TABS-SPEC): one click switches project; the
  * trailing buttons create a project or open the full chooser (reorder, edit, archive).
+ * Right-click (long-press on touch) a tab for that project's actions; drag a
+ * tab with the mouse to reorder.
  */
 export function ProjectTabs({
   projects,
@@ -16,6 +20,9 @@ export function ProjectTabs({
   onSelect,
   onManage,
   onCreate,
+  menuFor,
+  onMove,
+  reorderDisabled,
 }: {
   projects: readonly Project[];
   activeId: string;
@@ -23,7 +30,13 @@ export function ProjectTabs({
   onSelect(id: string): void;
   onManage(): void;
   onCreate(): void;
+  /** Context menu entries for one tab's project. */
+  menuFor(project: Project, index: number): MenuEntry[];
+  /** Drop a dragged tab at `to`, an index in `projects`. */
+  onMove(id: string, to: number): void;
+  reorderDisabled: boolean;
 }) {
+  const openMenu = useMenuOpener();
   const scroll = useRef<RNScrollView>(null);
   const offsets = useRef(new Map<string, { x: number; width: number }>());
   const viewport = useRef({ x: 0, width: 0 });
@@ -44,23 +57,31 @@ export function ProjectTabs({
         horizontal
         showsHorizontalScrollIndicator={false}
         style={{ flexGrow: 0, flexShrink: 1, minWidth: 0 }}
-        contentContainerStyle={{ alignItems: "center", gap: 2 }}
+        contentContainerStyle={{ alignItems: "center" }}
         scrollEventThrottle={64}
         onScroll={(e) => (viewport.current.x = e.nativeEvent.contentOffset.x)}
         onLayout={(e) => (viewport.current.width = e.nativeEvent.layout.width)}
       >
-        {projects.map((p) => (
-          <Tab
-            key={p.id}
-            project={p}
-            active={p.id === activeId}
-            onPress={() => onSelect(p.id)}
-            onLayout={(x, width) => {
-              offsets.current.set(p.id, { x, width });
-              if (p.id === activeId) reveal(p.id);
-            }}
-          />
-        ))}
+        <SortableList
+          horizontal
+          items={projects}
+          gap={2}
+          disabled={reorderDisabled}
+          onMove={onMove}
+          onItemLayout={(id, x, width) => {
+            offsets.current.set(id, { x, width });
+            if (id === activeId) reveal(id);
+          }}
+          renderItem={(p, index, pressable) => (
+            <Tab
+              project={p}
+              active={p.id === activeId}
+              menu={menuHandlers(openMenu, p.title, () => menuFor(p, index))}
+              // The release that ends a drag is not a click.
+              onPress={() => pressable() && onSelect(p.id)}
+            />
+          )}
+        />
       </ScrollView>
       <IconButton icon="Plus" label={t("New project")} onPress={onCreate} />
       <IconButton
@@ -75,13 +96,13 @@ export function ProjectTabs({
 function Tab({
   project,
   active,
+  menu,
   onPress,
-  onLayout,
 }: {
   project: Project;
   active: boolean;
+  menu: object;
   onPress(): void;
-  onLayout(x: number, width: number): void;
 }) {
   const { colors } = useTheme();
   return (
@@ -90,8 +111,8 @@ function Tab({
       accessibilityLabel={t("Project {title}", { title: project.title })}
       accessibilityState={{ selected: active }}
       {...({ "aria-selected": active } as object)}
+      {...menu}
       onPress={onPress}
-      onLayout={(e) => onLayout(e.nativeEvent.layout.x, e.nativeEvent.layout.width)}
       style={(state) => {
         const { pressed, hovered: hover, focused } = state as typeof state & { hovered?: boolean; focused?: boolean };
         const hovered = hover || focused;

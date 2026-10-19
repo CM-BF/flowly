@@ -21,6 +21,9 @@ const catalog: Catalog = {
   "Move to": "Déplacer vers",
   "Move up": "Monter",
   "Move down": "Descendre",
+  "Move left": "Déplacer à gauche",
+  "Move right": "Déplacer à droite",
+  "Remove…": "Supprimer…",
   "Restore card": "Restaurer la carte",
   "Archive card": "Archiver la carte",
   "Card restored": "Carte restaurée",
@@ -912,5 +915,6 @@ const catalog: Catalog = {
   "AI generated": "Généré par l’IA",
   "Anything marked with the sparkle was written or suggested by AI.": "Tout ce qui porte l’icône étincelle a été écrit ou suggéré par une IA.",
   "When a turn ends, the agent's next steps sit above the message box. Tap one to fill it in, then send it yourself. Once the work is pushed, it can offer Move to Done.": "À la fin d’un tour, les étapes suivantes de l’agent apparaissent au-dessus de la zone de message. Touchez-en une pour la remplir, puis envoyez-la vous-même. Une fois le travail poussé, il peut proposer « Déplacer vers Done ».",
+  "Drag a project tab to reorder it. Right-click it for its settings, a new task, Insights, Ideas or Remove.": "Faites glisser un onglet de projet pour le réordonner. Un clic droit ouvre ses réglages, une nouvelle tâche, les analyses, les idées ou la suppression.",
 };
 export default catalog;

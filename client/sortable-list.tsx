@@ -7,9 +7,10 @@ import { useTheme } from "./ui";
 type Drag = { id: string; from: number; dy: number; to: number };
 
 /**
- * Vertical list reordered by dragging a row with the mouse (desktop). The held
- * row follows the pointer immediately; the rows it passes slide aside. Touch
+ * List reordered by dragging a row with the mouse (desktop). The held row
+ * follows the pointer immediately; the rows it passes slide aside. Touch
  * keeps the rows' own controls (a drag would fight the bottom sheet).
+ * `horizontal` lays the items out in a row and drags along x (project tabs).
  */
 export function SortableList<T extends { id: string }>({
   items,
@@ -18,6 +19,8 @@ export function SortableList<T extends { id: string }>({
   onMove,
   renderItem,
   handle = false,
+  horizontal = false,
+  onItemLayout,
 }: {
   items: readonly T[];
   gap?: number;
@@ -30,6 +33,9 @@ export function SortableList<T extends { id: string }>({
    */
   renderItem(item: T, index: number, pressable: () => boolean, handleProps: object): ReactNode;
   handle?: boolean;
+  horizontal?: boolean;
+  /** Each item's offset and length along the list axis. */
+  onItemLayout?(id: string, offset: number, length: number): void;
 }) {
   const heights = useRef<Record<string, number>>({});
   const [drag, setDragState] = useState<Drag | null>(null);
@@ -70,7 +76,7 @@ export function SortableList<T extends { id: string }>({
   };
   const size = drag ? (heights.current[drag.id] || 0) + gap : 0;
   return (
-    <View style={{ gap }}>
+    <View style={{ gap, ...(horizontal ? { flexDirection: "row", alignItems: "center" } : {}) }}>
       {items.map((item, index) => (
         <SortableRow
           key={item.id}
@@ -81,8 +87,12 @@ export function SortableList<T extends { id: string }>({
           shift={drag ? listShift(index, drag.from, drag.to, size) : 0}
           disabled={disabled || items.length < 2}
           handlers={handlers}
-          onHeight={(h) => (heights.current[item.id] = h)}
+          onLayout={(offset, length) => {
+            heights.current[item.id] = length;
+            onItemLayout?.(item.id, offset, length);
+          }}
           handle={handle}
+          horizontal={horizontal}
           render={(handleProps) => renderItem(item, index, pressable, handleProps)}
         />
       ))}
@@ -98,8 +108,9 @@ function SortableRow({
   shift,
   disabled,
   handlers,
-  onHeight,
+  onLayout,
   handle,
+  horizontal,
   render,
 }: {
   id: string;
@@ -109,8 +120,9 @@ function SortableRow({
   shift: number;
   disabled: boolean;
   handlers: { start(id: string): void; move(dy: number): void; end(dy: number): void; cancel(): void };
-  onHeight(height: number): void;
+  onLayout(offset: number, length: number): void;
   handle: boolean;
+  horizontal: boolean;
   render(handleProps: object): ReactNode;
 }) {
   const { colors } = useTheme();
@@ -129,8 +141,9 @@ function SortableRow({
   const lift = useMotionValue(held ? 1 : 0);
   const mousePress = useRef(false),
     active = useRef(false);
-  const current = useRef({ id, disabled, handlers });
-  current.current = { id, disabled, handlers };
+  const current = useRef({ id, disabled, handlers, horizontal });
+  current.current = { id, disabled, handlers, horizontal };
+  const along = (g: { dx: number; dy: number }) => (current.current.horizontal ? g.dx : g.dy);
   useEffect(
     () => () => {
       if (active.current) current.current.handlers.cancel();
@@ -140,19 +153,19 @@ function SortableRow({
   const pan = useRef(
     PanResponder.create({
       onMoveShouldSetPanResponderCapture: (_e, g) =>
-        !current.current.disabled && mousePress.current && Math.abs(g.dy) >= 6,
+        !current.current.disabled && mousePress.current && Math.abs(along(g)) >= 6,
       onPanResponderGrant: () => {
         active.current = true;
         current.current.handlers.start(current.current.id);
       },
       onPanResponderMove: (_e, g) => {
-        if (active.current) current.current.handlers.move(g.dy);
+        if (active.current) current.current.handlers.move(along(g));
       },
       onPanResponderRelease: (_e, g) => {
         mousePress.current = false;
         if (!active.current) return;
         active.current = false;
-        current.current.handlers.end(g.dy);
+        current.current.handlers.end(along(g));
       },
       onPanResponderTerminationRequest: () => false,
       onPanResponderTerminate: () => {
@@ -175,7 +188,10 @@ function SortableRow({
   return (
     <Animated.View
       {...(handle ? {} : dragProps)}
-      onLayout={(e) => onHeight(e.nativeEvent.layout.height)}
+      onLayout={(e) => {
+        const { x, y, width, height } = e.nativeEvent.layout;
+        onLayout(horizontal ? x : y, horizontal ? width : height);
+      }}
       style={{
         zIndex: held ? 2 : 0,
         borderRadius: 8,
@@ -186,7 +202,9 @@ function SortableRow({
         shadowOffset: { width: 0, height: 4 },
         // The held row tracks the pointer immediately; the others slide.
         transform: [
-          held ? { translateY: dy } : { translateY: slide },
+          horizontal
+            ? held ? { translateX: dy } : { translateX: slide }
+            : held ? { translateY: dy } : { translateY: slide },
           { scale: lerp(lift, [1, 1.01]) },
         ],
         ...(held ? ({ cursor: "grabbing" } as object) : {}),

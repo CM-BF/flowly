@@ -21,6 +21,9 @@ const catalog: Catalog = {
   "Move to": "Переместить в",
   "Move up": "Вверх",
   "Move down": "Вниз",
+  "Move left": "Сдвинуть влево",
+  "Move right": "Сдвинуть вправо",
+  "Remove…": "Удалить…",
   "Restore card": "Восстановить карточку",
   "Archive card": "Архивировать карточку",
   "Card restored": "Карточка восстановлена",
@@ -912,5 +915,6 @@ const catalog: Catalog = {
   "AI generated": "Создано ИИ",
   "Anything marked with the sparkle was written or suggested by AI.": "Всё, что отмечено значком искр, написал или предложил ИИ.",
   "When a turn ends, the agent's next steps sit above the message box. Tap one to fill it in, then send it yourself. Once the work is pushed, it can offer Move to Done.": "После хода следующие шаги агента появляются над полем сообщения. Нажмите на шаг, чтобы вставить его, и отправьте сами. После пуша он может предложить «Переместить в Done».",
+  "Drag a project tab to reorder it. Right-click it for its settings, a new task, Insights, Ideas or Remove.": "Перетащите вкладку проекта, чтобы изменить порядок. Правый щелчок: настройки, новая задача, аналитика, идеи или удаление.",
 };
 export default catalog;

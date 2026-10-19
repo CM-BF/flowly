@@ -128,6 +128,7 @@ const tipText: Record<TipId, () => string> = {
   "agent-question": () => t("An agent is asking you something. Open the card's session to answer it right there, no need to switch to Paseo."),
   "first-tag": () => t("Agents tag their cards by module and direction. Open a card and tap a tag to filter the board by it, or search #tag."),
   "next-move": () => t("When an agent finishes a turn, its suggested next steps sit above the message box. Tap one to fill it in; nothing is sent until you press Send. Some steps act on the card, like Move to Done."),
+  "project-menu": () => t("Drag a project tab to reorder it. Right-click it for its settings, a new task, Insights, Ideas or Remove."),
   "older-finished": () => t("Cards that finished a while ago fold under “Show older” at the bottom of Done and Cancelled. Settings → Workflow sets how long they stay."),
 };
 
@@ -867,6 +868,7 @@ function BoardContent(
           hasAgentTag: !task && projectTasks.some((x) => !x.archivedAt && !!x.tags?.some((tag) => tag.by === "agent")),
           nextMove: projectTasks.some((x) => !x.archivedAt && hasOpenNextMoves(cardIndex.eventsByTask.get(x.id) || noEvents)),
           olderHidden: older.size > 0 && !(olderShown.includes("done") && olderShown.includes("cancelled")),
+          projectTabs: !task && !compact && projects.length > 1,
         },
         blocked: !onboarding.values || welcomeOpen || welcome === "show" || dialogOpen,
       });
@@ -939,6 +941,39 @@ function BoardContent(
         throw e;
       }
     });
+  // Drag reorder from the chooser or the tabs: `to` is an index in the visible list; the server orders all projects.
+  const dropProject = (id: string, to: number) => {
+    const ids = projects.map((q) => q.id);
+    const all = (board?.projects || []).slice().sort(projectOrder).map((q) => q.id);
+    const next = ids.filter((q) => q !== id);
+    next.splice(to, 0, id);
+    setProjectOrderOverride(next);
+    reorderProject(id, { to: all.indexOf(ids[to]) });
+  };
+  // Project tab context menu (PROJECT-TABS-SPEC): actions that need the board switch to that project first.
+  const projectTabMenu = (p: Project, index: number): MenuEntry[] => {
+    const openIn = (open: () => void) => {
+      chooseProject(p.id);
+      open();
+    };
+    return [
+      { id: "settings", label: t("Project settings"), icon: "SlidersHorizontal", onPress: () => openIn(() => setProjectForm("edit")) },
+      { id: "new-task", label: t("New task"), icon: "Plus", disabled: !!p.archivedAt, onPress: () => openIn(() => setTaskForm({ status: "todo" })) },
+      { kind: "separator", id: "pages" },
+      { id: "insights", label: t("Insights"), icon: "Activity", onPress: () => openIn(() => setPage("insights")) },
+      ...(ideasOn
+        ? [{ id: "ideas", label: t("Ideas"), icon: "Lightbulb", onPress: () => openIn(() => { setIdeaCard(""); setPage("ideas"); }) }]
+        : []),
+      { kind: "separator", id: "order" },
+      { id: "left", label: t("Move left"), icon: "ChevronLeft", disabled: index === 0 || pending, onPress: () => reorderProject(p.id, { direction: "up" }) },
+      { id: "right", label: t("Move right"), icon: "ChevronRight", disabled: index === projects.length - 1 || pending, onPress: () => reorderProject(p.id, { direction: "down" }) },
+      ...(p.archivedAt
+        ? [{ id: "restore", label: t("Restore"), icon: "ArchiveRestore", disabled: pending, onPress: () => void doAction(() => updateProject({ id: p.id, revision: p.revision, archived: false })) }]
+        : []),
+      { kind: "separator", id: "danger" },
+      { id: "remove", label: t("Remove…"), icon: "Trash2", danger: true, disabled: pending, onPress: () => setRemoving(p) },
+    ];
+  };
   const shortcutsOn = Platform.OS === "web" && !compact;
   const withKey = (text: string, key: string) =>
     shortcutsOn ? `${text} (${key})` : text;
@@ -1180,6 +1215,9 @@ function BoardContent(
                 onSelect={chooseProject}
                 onManage={() => setMenu("projects")}
                 onCreate={() => setProjectForm("new")}
+                menuFor={projectTabMenu}
+                onMove={dropProject}
+                reorderDisabled={pending}
               />
             )}
             {!compact && !!project && filterCount > 0 && (
@@ -1475,15 +1513,7 @@ function BoardContent(
                 items={projects}
                 gap={space[1]}
                 disabled={pending || touch}
-                onMove={(id, to) => {
-                  const ids = projects.map((q) => q.id);
-                  // `to` is an index in the visible list; the server orders all projects.
-                  const all = (board?.projects || []).slice().sort(projectOrder).map((q) => q.id);
-                  const next = ids.filter((q) => q !== id);
-                  next.splice(to, 0, id);
-                  setProjectOrderOverride(next);
-                  reorderProject(id, { to: all.indexOf(ids[to]) });
-                }}
+                onMove={dropProject}
                 renderItem={(p, index, pressable) => (
                   <Row
                     title={p.title}

@@ -1,5 +1,16 @@
 # Implementation progress
 
+## Project tab context menu — 2026-10-19
+
+- [x] Card request "project tab增加contextual menu、进行编辑、设置等": right-click (long-press on touch) a desktop project tab for Project settings, New task, Insights, Ideas, Move left/right, Restore (archived) and Remove…. Reuses the board's `ContextMenuProvider`; `ProjectTabs` takes `menuFor`, entries built in `client/board.tsx` (`projectTabMenu`). [Spec](PROJECT-TABS-SPEC.md) updated.
+- [x] Onboarding: tip `project-menu` (desktop tabs with ≥2 projects, after `first-card`), ONBOARDING-SPEC tip table; no tour change (project/card/session mapping unchanged). 3 strings in all 9 catalogs.
+- [x] PASS: typecheck; full `npm test` (new tip-order test in `client/onboarding-logic.test.ts`).
+- [x] User follow-up "增加project tab drag n drop调整顺序": tabs reorder by mouse drag. `SortableList` gains `horizontal` (row layout, x axis, `translateX`) and `onItemLayout` (tabs keep auto-reveal offsets); chooser and tabs share `dropProject` in `client/board.tsx`. Tip text now mentions dragging (all 9 catalogs).
+- [x] PASS: typecheck; `npm test` 495 passed / 63 skipped; plugin reloaded.
+- [x] PASS (headless app.paseo.sh web client on the local daemon, own profile, 1440×900; the user's windows untouched): right-click on the 2nd tab lists Project settings, New task, Insights, Ideas, Move left, Move right, Remove… without switching project; outside click closes it. Dragging `Flowly` past `Search System` → order `Search System, Flowly, Tinylink`, Flowly still active; dragged back → original order restored (user's real project order, verified restored). No page errors.
+- [ ] UNRUN: picking each menu item in the UI; Electron desktop app; touch long-press; Luna 6 test session.
+
+
 ## Recent activity sorts by turn ends — 2026-10-19
 
 - [x] Card request "recent activity排序优化": the Recent activity sort used every session update (each streamed message) and the card's own `updatedAt`, so cards jumped while sessions ran. It now uses only finished turns: `latestTurnEnds`/`turnEndActivity` in `shared/sort.ts` (recorded `agent.turn_ended` events; for sessions that record none, the time they last went idle, remembered client-side while they run); a card without a turn end counts from its creation. Menu detail now "Latest finished session turn first" (all catalogs). [Spec](UI-REFRESH-SPEC.md) Sort bullet updated.

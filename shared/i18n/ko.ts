@@ -21,6 +21,9 @@ const catalog: Catalog = {
   "Move to": "이동",
   "Move up": "위로",
   "Move down": "아래로",
+  "Move left": "왼쪽으로 이동",
+  "Move right": "오른쪽으로 이동",
+  "Remove…": "제거…",
   "Restore card": "카드 복원",
   "Archive card": "카드 보관",
   "Card restored": "카드를 복원했습니다",
@@ -912,5 +915,6 @@ const catalog: Catalog = {
   "AI generated": "AI 생성",
   "Anything marked with the sparkle was written or suggested by AI.": "반짝임 아이콘이 붙은 항목은 AI가 작성하거나 제안한 것입니다.",
   "When a turn ends, the agent's next steps sit above the message box. Tap one to fill it in, then send it yourself. Once the work is pushed, it can offer Move to Done.": "턴이 끝나면 에이전트가 제안한 다음 단계가 입력란 위에 표시됩니다. 탭해서 채운 뒤 직접 보내세요. 작업을 푸시하면 「Done으로 이동」을 제안할 수도 있습니다.",
+  "Drag a project tab to reorder it. Right-click it for its settings, a new task, Insights, Ideas or Remove.": "프로젝트 탭을 드래그해 순서를 바꿀 수 있습니다. 오른쪽 클릭하면 설정, 새 작업, 인사이트, 아이디어, 제거를 사용할 수 있습니다.",
 };
 export default catalog;

@@ -21,6 +21,9 @@ const catalog: Catalog = {
   "Move to": "移動先",
   "Move up": "上へ",
   "Move down": "下へ",
+  "Move left": "左へ移動",
+  "Move right": "右へ移動",
+  "Remove…": "削除…",
   "Restore card": "カードを復元",
   "Archive card": "カードをアーカイブ",
   "Card restored": "カードを復元しました",
@@ -912,5 +915,6 @@ const catalog: Catalog = {
   "AI generated": "AI生成",
   "Anything marked with the sparkle was written or suggested by AI.": "きらめきアイコンが付いたものは、AIが書いたか提案したものです。",
   "When a turn ends, the agent's next steps sit above the message box. Tap one to fill it in, then send it yourself. Once the work is pushed, it can offer Move to Done.": "ターンが終わると、エージェントが提案する次のステップが入力欄の上に表示されます。タップして入力し、自分で送信します。作業をプッシュすると「Done へ移動」を提案することもあります。",
+  "Drag a project tab to reorder it. Right-click it for its settings, a new task, Insights, Ideas or Remove.": "プロジェクトタブはドラッグで並べ替えられます。右クリックすると、設定、新しいタスク、インサイト、アイデア、削除を使えます。",
 };
 export default catalog;
