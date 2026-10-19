@@ -81,7 +81,7 @@ Errors distinguish validation, revision conflict, occupied resource, resource mi
 
 ## 8. Packaging and install
 
-Manifest `paseo-ultra-kanban`, display name Ultra Kanban, requirements `>=0.11.2 <0.12.0`; pin SDK types at 0.11.2. TypeScript strict, React Native client; Node server. Code is divided into client UI, server store/resource service and shared models/contracts. Keep `OVERVIEW.md` for the Paseo listing and README for developer commands.
+Manifest `paseo-ultra-kanban`, display name Ultra Kanban, requirements `>=0.11.2`; pin SDK types at 0.11.2. TypeScript strict, React Native client; Node server. Code is divided into client UI, server store/resource service and shared models/contracts. Keep `OVERVIEW.md` for the Paseo listing and README for developer commands.
 
 Register a sidebar screen, a workspace panel showing that workspace's linked card, and Command Center Open Ultra Kanban. No separate global connection. Existing installed plugins and their data remain untouched.
 
