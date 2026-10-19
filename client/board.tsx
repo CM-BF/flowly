@@ -1172,7 +1172,7 @@ function BoardContent(
             />
           }
           trailing={
-            <Label muted size={font.xs} selectable={false}>
+            <Label muted size={font.xs} lines={1} selectable={false}>
               {relativeTime(item.updatedAt)}
             </Label>
           }

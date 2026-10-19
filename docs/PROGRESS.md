@@ -20,6 +20,7 @@
 - [x] Follow-up: one type scale across the sidebar (DRAWER-SPEC, Type scale): list body text 13 (was 12 in Workpad, Artifacts, Links, History), secondary lines 12 (was 11), group labels stay 11.
 - [x] Follow-up: the session view's Subagents chip opens a subagent in the side bar when it is one of the card's sessions (drawer `onOpenSession`), else in a Paseo agent pane; row label `Open {title}` (stale `Open {title} in Paseo` removed from 9 catalogs).
 - [x] Follow-up: list rows (`Row` in `client/ui.tsx`, e.g. the Needs attention list) keep their trailing value ("just now", counts) at full width; titles and details truncate instead. PASS: typecheck, `npm test` 615 / 63 skipped, reload; headless web Needs attention at 1400 px and 360 px: times one line, not clipped.
+- [x] Follow-up: on phones the trailing "just now" still lost its last word (native Android measures a line narrower than it draws). `Label` single-line text uses `textBreakStrategy="simple"`, `relativeTime` joins its words with non-breaking spaces, and the Needs attention time is single-line. PASS: typecheck, `npm test`, reload, web check. UNRUN: native phone (AndroMeld not running).
 - [ ] UNRUN: native apps, compact web, Luna 6 test session.
 
 

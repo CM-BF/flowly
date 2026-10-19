@@ -90,6 +90,9 @@ export function Label({
   return (
     <Text
       numberOfLines={lines}
+      // Android's default ("highQuality") measures a line narrower than it draws, so a short
+      // one-line label beside other content could lose its last word ("just now" → "just").
+      textBreakStrategy={lines === 1 ? "simple" : undefined}
       selectable={selectable}
       style={{
         userSelect: selectable === false ? "none" : undefined,
@@ -789,7 +792,12 @@ export function Actions({ children }: { children: ReactNode }) {
   );
 }
 
+/** "just now", "5m ago": one unit, so its words never wrap apart (non-breaking spaces). */
 export function relativeTime(iso: string | null | undefined, now = Date.now()) {
+  return relativeTimeText(iso, now).replace(/ /g, "\u00a0");
+}
+
+function relativeTimeText(iso: string | null | undefined, now: number) {
   const at = iso ? Date.parse(iso) : NaN;
   if (!Number.isFinite(at)) return "";
   const s = Math.max(0, Math.round((now - at) / 1000));
