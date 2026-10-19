@@ -145,6 +145,13 @@ test("A1r restores review/blocked when a resumed turn ends without any report", 
   expect(applyTurnEnded(store, b, id, done)).toBe(true);
   expect(b.tasks[0]).toMatchObject({ status: "in_review", revision: 3 });
   expect(b.events.at(-1)).toMatchObject({ rule: "A1r", from: "development", to: "in_review" });
+  // suggested next moves alone are not work (NEXT-MOVES-SPEC §3)
+  const n = board("in_review");
+  recordLifecycle(store, n, id, "agent.turn_started");
+  applyTurnStarted(store, n, id, "S");
+  store.event(n, { taskId: "t", actor: "agent", action: "next_moves_suggested", agentId: "a", moves: [{ label: "Commit", prompt: "Commit it" }] });
+  expect(applyTurnEnded(store, n, id, done)).toBe(true);
+  expect(n.tasks[0].status).toBe("in_review");
   // real work reported -> stays in progress
   const w = board("blocked");
   recordLifecycle(store, w, id, "agent.turn_started");

@@ -24,6 +24,7 @@ import {
   artifactRemovalSchema,
   tagsInputSchema,
   typeInputSchema,
+  nextMovesInputSchema,
   progressInputSchema,
   statusInputSchema,
   toolContextSchema,
@@ -251,6 +252,17 @@ export class ToolServer {
           },
           (input) => wrap(() => this.agents.write(identity, "type", input)),
         );
+        mcp.registerTool(
+          "kanban_suggest_next_moves",
+          {
+            description:
+              "When you end a turn and hand control back to the user, offer the 1-3 next messages they are most likely to send you (e.g. verify the change, commit and push, continue to the next stage), recommended first. Flowly shows them above the user's message box; picking one only fills the box, the user edits or sends it. Valid until the user's next message starts a new turn; calling again in the same turn replaces them. Still mention the options in your reply. Not for questions (use kanban_report_progress kind=question) or for divergent work (use kanban_propose_idea). Does not change card status or task revision. Copy revisions/request from get_task.",
+            inputSchema: nextMovesInputSchema,
+            outputSchema: toolResultSchema,
+            annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+          },
+          (input) => wrap(() => this.agents.write(identity, "next_moves", input)),
+        );
         return mcp;
       },
       { responseMode: "json", maxRequestBodySize: 65536 },
@@ -335,7 +347,7 @@ export class ToolServer {
     }
     const body = z
       .strictObject({
-        action: z.enum(["get", "status", "progress", "idea", "artifact", "artifact_remove", "tags", "type"]),
+        action: z.enum(["get", "status", "progress", "idea", "artifact", "artifact_remove", "tags", "type", "next_moves"]),
         input: z.unknown(),
       })
       .parse(JSON.parse(Buffer.concat(chunks).toString("utf8")));

@@ -239,6 +239,13 @@ export const ideaAdoption = z.strictObject({
   send: z.boolean().default(true),
 });
 export type IdeaAdoption = z.input<typeof ideaAdoption>;
+/** One suggested next message for a session (NEXT-MOVES-SPEC §2). */
+export const nextMoveLimits = { count: 3, label: 60, prompt: 2000 } as const;
+export const nextMoveSchema = z.object({
+  label: z.string().trim().min(1).max(nextMoveLimits.label),
+  prompt: z.string().trim().min(1).max(nextMoveLimits.prompt),
+});
+export type NextMove = z.infer<typeof nextMoveSchema>;
 export const eventSchema = z.object({
   id: z.string(),
   taskId: z.string(),
@@ -252,6 +259,8 @@ export const eventSchema = z.object({
   /** Set when a status rule, not a person or an agent tool, made the change. */
   rule: z.string().max(20).optional(),
   outcome: z.enum(["completed", "failed", "canceled"]).optional(),
+  /** next_moves_suggested: the session's suggested next messages (NEXT-MOVES-SPEC §2). */
+  moves: z.array(nextMoveSchema).max(nextMoveLimits.count).optional(),
   at: timestamp,
 });
 export const boardSchema = z.object({
@@ -279,7 +288,7 @@ export const receiptSchema = z.object({
   agentId: z.string(),
   taskId: z.string(),
   payloadHash: z.string(),
-  action: z.enum(["status", "progress", "idea", "artifact", "artifact_remove", "tags", "type"]),
+  action: z.enum(["status", "progress", "idea", "artifact", "artifact_remove", "tags", "type", "next_moves"]),
   /** Empty when an artifact write changed nothing (same target already recorded). */
   eventId: z.string(),
   /** The artifact an artifact write added, updated or removed. */

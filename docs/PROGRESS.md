@@ -1,5 +1,12 @@
 # Implementation progress
 
+## Suggested next moves — 2026-10-19
+
+- [x] Card request "建议next move": agents end turns with "要不要……或者……"; give them a tool to suggest the next move, show this turn's hints above the composer, tap pre-fills (never sends). [Spec](NEXT-MOVES-SPEC.md).
+- [x] Implemented: `kanban_suggest_next_moves` (+ CLI `next-moves --moves <JSON>`, HTTP action `next_moves`, receipts/replay, `TASK_FINISHED` on Done/Cancelled) records `next_moves_suggested` with `moves` on the event, no task revision change. `shared/next-moves.ts` (`openNextMoves`: latest set until the session's next turn starts; `nextMoveDraft`: fill or append). Session view `client/next-moves.tsx` chips above the composer, hidden while running, while a question/approval is pending, after a newer user message, or after ×; native input remounts with the text and focus (no IME breakage), web focuses the controlled input. Hidden from the activity timeline; A1r ignores it. Skill text (both copies), tool description, tip `next-move`, tour feature line, README, 6 strings in all 9 catalogs.
+- [x] PASS: typecheck; full `npm test` 73 files / 461 tests (new `shared/next-moves.test.ts`; agent-service write/replay/limits/finished; CLI flow + bad `--moves`; A1r with only next moves; tool list; tip order).
+- [ ] UNRUN: desktop/phone UI check of the chips in the installed plugin, Luna 6 test session.
+
 ## Answer agent questions in the session — 2026-10-18
 
 - [x] Card request "提问能力接入": an agent's ask-user-question lit up the card but the question was only visible in the native Paseo session. [Spec](SESSION-QUESTION-SPEC.md).

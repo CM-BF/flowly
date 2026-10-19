@@ -906,5 +906,11 @@ const catalog: Catalog = {
   "Done and Cancelled cards that finished longer ago fold under “Show older” at the bottom of their lane. They are not archived.": "完了・キャンセルから時間が経ったカードは、列の下部の「古いものを表示」にまとめられます。アーカイブはされません。",
   "Cards that finished a while ago fold under “Show older” at the bottom of Done and Cancelled. Settings → Workflow sets how long they stay.": "完了から時間が経ったカードは、完了・キャンセル列の下部の「古いものを表示」にまとめられます。日数は 設定 → ワークフロー で変更できます。",
   "Never": "しない",
+  "Suggested next step: {label}": "次のステップの提案：{label}",
+  "Fills the message box. Nothing is sent until you send it.": "入力欄に入力します。送信するまで何も送られません。",
+  "Hide suggestions": "提案を隠す",
+  "When an agent finishes a turn, its suggested next steps sit above the message box. Tap one to fill it in; nothing is sent until you press Send.": "エージェントがターンを終えると、提案された次のステップが入力欄の上に表示されます。タップすると入力されます。「送信」を押すまで送られません。",
+  "Suggested next steps": "次のステップの提案",
+  "When a turn ends, the agent's next steps sit above the message box. Tap one to fill it in, then send it yourself.": "ターンが終わると、エージェントが提案する次のステップが入力欄の上に表示されます。タップして入力し、自分で送信します。",
 };
 export default catalog;

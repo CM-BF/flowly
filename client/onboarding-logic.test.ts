@@ -32,12 +32,12 @@ test("tour paging stays inside the pages", () => {
 });
 
 describe("tips", () => {
-  const none: TipFacts = { hasCard: false, needsYou: false, openIdea: false, movedToFinished: false, hasArtifact: false, hasAgentTag: false, agentQuestion: false, olderHidden: false };
+  const none: TipFacts = { hasCard: false, needsYou: false, openIdea: false, movedToFinished: false, hasArtifact: false, hasAgentTag: false, agentQuestion: false, olderHidden: false, nextMove: false };
   test("nothing to show without a fact", () => {
     expect(nextTip({ tipsSeen: [], facts: none, blocked: false })).toBeNull();
   });
   test("one tip at a time, waiting-for-you first", () => {
-    const facts = { hasCard: true, needsYou: true, openIdea: true, movedToFinished: false, hasArtifact: true, hasAgentTag: true, agentQuestion: false, olderHidden: false };
+    const facts = { hasCard: true, needsYou: true, openIdea: true, movedToFinished: false, hasArtifact: true, hasAgentTag: true, agentQuestion: false, olderHidden: false, nextMove: false };
     expect(nextTip({ tipsSeen: [], facts, blocked: false })).toBe("needs-you");
     expect(nextTip({ tipsSeen: ["needs-you"], facts, blocked: false })).toBe("first-idea");
     expect(nextTip({ tipsSeen: ["needs-you", "first-idea"], facts, blocked: false })).toBe("first-artifact");
@@ -59,6 +59,12 @@ describe("tips", () => {
     expect(nextTip({ tipsSeen: [], facts, blocked: false })).toBe("first-done");
     expect(nextTip({ tipsSeen: ["first-done"], facts, blocked: false })).toBe("older-finished");
     expect(nextTip({ tipsSeen: ["first-done", "older-finished"], facts, blocked: false })).toBe("first-idea");
+  });
+  test("suggested next steps are announced after waiting-for-you tips, before ideas", () => {
+    const facts = { ...none, nextMove: true, openIdea: true, needsYou: true };
+    expect(nextTip({ tipsSeen: [], facts, blocked: false })).toBe("needs-you");
+    expect(nextTip({ tipsSeen: ["needs-you"], facts, blocked: false })).toBe("next-move");
+    expect(nextTip({ tipsSeen: ["needs-you", "next-move"], facts, blocked: false })).toBe("first-idea");
   });
   test("no tip while the tour or another dialog is open", () => {
     expect(nextTip({ tipsSeen: [], facts: { ...none, hasCard: true }, blocked: true })).toBeNull();

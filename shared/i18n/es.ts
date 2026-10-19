@@ -906,5 +906,11 @@ const catalog: Catalog = {
   "Done and Cancelled cards that finished longer ago fold under “Show older” at the bottom of their lane. They are not archived.": "Las tarjetas Hecho y Cancelado terminadas hace más tiempo se pliegan bajo “Mostrar antiguas” al final de su columna. No se archivan.",
   "Cards that finished a while ago fold under “Show older” at the bottom of Done and Cancelled. Settings → Workflow sets how long they stay.": "Las tarjetas terminadas hace tiempo se pliegan bajo “Mostrar antiguas” al final de Hecho y Cancelado. En Ajustes → Flujo de trabajo eliges cuánto tiempo se quedan.",
   "Never": "Nunca",
+  "Suggested next step: {label}": "Siguiente paso sugerido: {label}",
+  "Fills the message box. Nothing is sent until you send it.": "Rellena el cuadro de mensaje. No se envía nada hasta que lo envíes.",
+  "Hide suggestions": "Ocultar sugerencias",
+  "When an agent finishes a turn, its suggested next steps sit above the message box. Tap one to fill it in; nothing is sent until you press Send.": "Cuando un agente termina un turno, sus siguientes pasos sugeridos aparecen sobre el cuadro de mensaje. Toca uno para rellenarlo; no se envía nada hasta que pulses Enviar.",
+  "Suggested next steps": "Siguientes pasos sugeridos",
+  "When a turn ends, the agent's next steps sit above the message box. Tap one to fill it in, then send it yourself.": "Al terminar un turno, los siguientes pasos del agente aparecen sobre el cuadro de mensaje. Toca uno para rellenarlo y envíalo tú.",
 };
 export default catalog;

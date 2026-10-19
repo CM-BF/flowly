@@ -3,6 +3,7 @@ import { enabledStatuses, laneEnabled, laneName } from "../shared/lanes";
 import type { PaseoApi } from "@getpaseo/client";
 import { randomUUID } from "node:crypto";
 import { ideaTitleKey } from "../shared/ideas";
+import { nextMovesAction } from "../shared/next-moves";
 import { isResolved, linksOf } from "../shared/links";
 import { absoluteTarget, artifactsOf } from "../shared/artifacts";
 import { changeTags, normalizeTags, projectTagStats, tagChangeNote } from "../shared/tags";
@@ -16,6 +17,7 @@ import {
   artifactRemovalSchema,
   tagsInputSchema,
   typeInputSchema,
+  nextMovesInputSchema,
   progressInputSchema,
   statusInputSchema,
   type ToolIdentity,
@@ -28,6 +30,7 @@ import {
   type ArtifactRemovalInput,
   type TagsToolInput,
   type TypeToolInput,
+  type NextMovesInput,
 } from "../shared/tools";
 import { BoardStore } from "./store";
 import { BoardService } from "./service";
@@ -232,10 +235,10 @@ export class AgentService {
   }
   async write(
     identity: ToolIdentity,
-    action: "status" | "progress" | "idea" | "artifact" | "artifact_remove" | "tags" | "type",
+    action: "status" | "progress" | "idea" | "artifact" | "artifact_remove" | "tags" | "type" | "next_moves",
     raw: unknown,
   ): Promise<ToolResult> {
-    const input: StatusInput | ProgressInput | IdeaInput | ArtifactToolInput | ArtifactRemovalInput | TagsToolInput | TypeToolInput =
+    const input: StatusInput | ProgressInput | IdeaInput | ArtifactToolInput | ArtifactRemovalInput | TagsToolInput | TypeToolInput | NextMovesInput =
       action === "status"
         ? statusInputSchema.parse(raw)
         : action === "idea"
@@ -248,7 +251,9 @@ export class AgentService {
                 ? tagsInputSchema.parse(raw)
                 : action === "type"
                   ? typeInputSchema.parse(raw)
-                  : progressInputSchema.parse(raw);
+                  : action === "next_moves"
+                    ? nextMovesInputSchema.parse(raw)
+                    : progressInputSchema.parse(raw);
     const signed = this.secrets.validateRequest(
       identity,
       input.request,
@@ -420,10 +425,26 @@ export class AgentService {
               });
             })()
           : undefined;
+      // A session's candidate next messages; the latest of a turn wins (NEXT-MOVES-SPEC §2-3).
+      const movesEvent =
+        action === "next_moves"
+          ? (() => {
+              const moves = (input as NextMovesInput).moves;
+              return this.store.event(board, {
+                taskId: task.id,
+                agentId: identity.agentId,
+                actor: "agent",
+                action: nextMovesAction,
+                note: moves.map((m) => m.label).join(" · "),
+                moves,
+              });
+            })()
+          : undefined;
       const event =
         artifactEvent ??
         tagsEvent ??
         typeEvent ??
+        movesEvent ??
         (action === "idea"
           ? this.store.event(board, {
               taskId: task.id,

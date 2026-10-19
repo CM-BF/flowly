@@ -1,5 +1,6 @@
 # Paseo Kanban Plugin：Spec 大纲与路线图
 
+2026-10-19 下一步建议（已实现）：agent 在一轮结束时用 `kanban_suggest_next_moves`（CLI `next-moves`）给出 1–3 条候选下一条消息（label + 完整 prompt），记为本会话事件 `next_moves_suggested`，不改 revision；Flowly 会话输入框上方显示本轮建议，点按只预填（已有文字则追加），不发送；用户下一条消息开始新一轮后失效，可 × 隐藏。活动时间线不显示，A1r 不把它当作工作汇报。新提示 `next-move` 与欢迎页特色条目。[spec](NEXT-MOVES-SPEC.md)。
 2026-10-18 卡片类型由 agent 补全（已实现）：`kanban_set_type` / CLI `set-type` 仅在卡片没有 type 时写入（+task revision，事件 `type_set`），已有 type 一律保留（`TYPE_ALREADY_SET`）。[spec](CARD-TYPE-SPEC.md)。
 2026-10-18 卡片自定义标签（已实现）：与固定的 type 不同，标签是自由文本、按项目词表复用，标记功能模块与优化方向；agent 用 `kanban_set_tags` 给本卡打标签（只增看板 revision，不能删人打的标签），表单/卡片/侧栏显示，筛选与搜索支持 `#tag`，字段按将来的搜索设计。[增量 spec](CARD-TAGS-SPEC.md)和[验证](verification/card-tags.md)。
 2026-10-16 新用户 onboarding（设计待评审，未实现）：首次打开时的四页欢迎引导（project / 卡片 / session 与 Paseo 的对应关系、基本流程、特色功能、开始使用），空状态增强，可重看入口，以及可选的一次性情境提示；仅新增 host 级 `onboarding` 设置，不改看板数据、RPC 或 agent 工具。[设计 spec](ONBOARDING-SPEC.md)。

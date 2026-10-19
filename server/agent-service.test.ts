@@ -5,6 +5,7 @@ import { BoardStore } from "./store";
 import { ToolSecrets, digest } from "./tool-context";
 import { toolFailure } from "./tool-error";
 import { agentFixture } from "./agent-fixture";
+import { openNextMoves } from "../shared/next-moves";
 
 const roots: string[] = [];
 async function setup() {
@@ -381,4 +382,43 @@ test("an agent sets a missing type once; an existing type is kept", async () => 
   await expect(
     x.service.write(x.identity, "type", { expectedRevision: ctx.revision, request: ctx.request, type: "epic" }),
   ).rejects.toThrow();
+});
+
+test("next moves: recorded per session without a revision change; the latest wins; limits and finished cards refused", async () => {
+  const x = await setup();
+  let ctx = await x.service.get(x.identity);
+  const moves = [
+    { label: "  Verify with Luna ", prompt: "Run the Luna verification for this change." },
+    { label: "Commit", prompt: "Commit and push." },
+  ];
+  const call = { expectedRevision: ctx.revision, request: ctx.request, moves };
+  const first = await x.service.write(x.identity, "next_moves", call);
+  expect(first.receipt.action).toBe("next_moves");
+  expect(first.receipt.taskRevision).toBe(ctx.revision.task);
+  let board = await x.store.read();
+  expect(board.tasks[0].revision).toBe(ctx.revision.task);
+  expect(board.ideas).toHaveLength(0);
+  expect(board.events.at(-1)).toMatchObject({
+    action: "next_moves_suggested",
+    actor: "agent",
+    agentId: x.identity.agentId,
+    note: "Verify with Luna · Commit",
+    moves: [{ label: "Verify with Luna", prompt: "Run the Luna verification for this change." }, { label: "Commit", prompt: "Commit and push." }],
+  });
+  expect((await x.service.write(x.identity, "next_moves", call)).replayed).toBe(true);
+  ctx = await x.service.get(x.identity);
+  await x.service.write(x.identity, "next_moves", { expectedRevision: ctx.revision, request: ctx.request, moves: [{ label: "Push", prompt: "Push it." }] });
+  board = await x.store.read();
+  expect(openNextMoves(board.events, x.identity.agentId)?.moves).toEqual([{ label: "Push", prompt: "Push it." }]);
+  ctx = await x.service.get(x.identity);
+  const bad = (m: unknown) => x.service.write(x.identity, "next_moves", { expectedRevision: ctx.revision, request: ctx.request, moves: m });
+  await expect(bad([])).rejects.toThrow();
+  await expect(bad([1, 2, 3, 4].map((i) => ({ label: `m${i}`, prompt: "p" })))).rejects.toThrow();
+  await expect(bad([{ label: "  ", prompt: "p" }])).rejects.toThrow();
+  await expect(bad([{ label: "x".repeat(61), prompt: "p" }])).rejects.toThrow();
+  await expect(bad([{ label: "ok", prompt: "p".repeat(2001) }])).rejects.toThrow();
+  const task = (await x.store.read()).tasks[0];
+  await x.store.editTask({ id: "t", revision: task.revision, status: "done", actor: "human" });
+  ctx = await x.service.get(x.identity);
+  await expect(bad([{ label: "ok", prompt: "p" }])).rejects.toMatchObject({ code: "TASK_FINISHED" });
 });

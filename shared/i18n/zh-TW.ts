@@ -906,5 +906,11 @@ const catalog: Catalog = {
   "Done and Cancelled cards that finished longer ago fold under “Show older” at the bottom of their lane. They are not archived.": "較早完成的「完成」和「已取消」卡片會收進所在欄底部的「顯示較早」中，不會被封存。",
   "Cards that finished a while ago fold under “Show older” at the bottom of Done and Cancelled. Settings → Workflow sets how long they stay.": "較早完成的卡片會收進「完成」和「已取消」欄底部的「顯示較早」中。在 設定 → 工作流程 中設定保留天數。",
   "Never": "從不",
+  "Suggested next step: {label}": "建議的下一步：{label}",
+  "Fills the message box. Nothing is sent until you send it.": "填入輸入框。你送出前不會傳送任何內容。",
+  "Hide suggestions": "隱藏建議",
+  "When an agent finishes a turn, its suggested next steps sit above the message box. Tap one to fill it in; nothing is sent until you press Send.": "agent 完成一輪後，它建議的下一步會顯示在輸入框上方。點一下即可填入；在你按「傳送」之前不會送出。",
+  "Suggested next steps": "建議的下一步",
+  "When a turn ends, the agent's next steps sit above the message box. Tap one to fill it in, then send it yourself.": "一輪結束後，agent 建議的下一步會顯示在輸入框上方。點一下填入，再由你自己送出。",
 };
 export default catalog;

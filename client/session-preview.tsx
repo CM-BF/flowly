@@ -71,6 +71,9 @@ import { sendCardInstruction, workspaceSession } from "./session";
 import { useStableCallback } from "./stable";
 import { SessionMarkdown } from "./session-content";
 import { PendingRequests } from "./session-question";
+import { NextMoves } from "./next-moves";
+import { nextMoveDraft, openNextMoves } from "../shared/next-moves";
+import type { NextMove } from "../shared/model";
 import { pendingRequests, type PendingRequest, type PermissionReply } from "../shared/permission-question";
 import { coalescedRefresh, useSessionFollowTail } from "./session-follow";
 import { useSessionReads } from "./session-reads";
@@ -184,6 +187,8 @@ function SessionPreviewView({
   useEffect(() => () => reporter.flush(), []);
   const inputRef = useRef<{ clear?(): void; focus?(): void } | null>(null);
   const refocus = useRef(false);
+  // A picked next move remounts the native input with its text: focus that mount.
+  const focusNextMount = useRef(false);
   useEffect(() => {
     // An outside change (restore, clear after send, edit a queued message): show it in the input.
     if (!ownInput || !reporter.external(draft)) return;
@@ -194,7 +199,8 @@ function SessionPreviewView({
       setInputSeed("");
       return;
     }
-    refocus.current = focusedRef.current;
+    refocus.current = focusedRef.current || focusNextMount.current;
+    focusNextMount.current = false;
     setInputSeed(draft);
     setInputKey((k) => k + 1);
   }, [draft]);
@@ -515,6 +521,27 @@ function SessionPreviewView({
       await current.refetch();
       void timeline.refetch();
     });
+  });
+  // This turn's suggested next messages (NEXT-MOVES-SPEC §3-4); × hides one set until the next.
+  const suggestion = openNextMoves(events, sessionId);
+  const [hiddenMoves, setHiddenMoves] = useState("");
+  const showMoves =
+    !!suggestion &&
+    !!active &&
+    !running &&
+    !requests.length &&
+    hiddenMoves !== suggestion.id &&
+    !(active.lastUserMessageAt && Date.parse(active.lastUserMessageAt) > Date.parse(suggestion.at));
+  const pickMove = useStableCallback((move: NextMove) => {
+    noteInteraction();
+    flushReport();
+    const next = nextMoveDraft(move.prompt, draftBuffer.read());
+    if (ownInput) focusNextMount.current = true;
+    onDraftChange(sessionId, next);
+    if (!ownInput) setTimeout(() => inputRef.current?.focus?.(), 0);
+  });
+  const hideMoves = useStableCallback(() => {
+    if (suggestion) setHiddenMoves(suggestion.id);
   });
   const tone = state ? sessionTone(colors, state, !!attention?.unread) : colors.foregroundMuted;
   const canSend = canWrite && (!!draft.trim() || attachments.length > 0);
@@ -1107,6 +1134,9 @@ function SessionPreviewView({
             </Animated.View>
           )}
           <PendingRequests requests={requests} disabled={!canWrite || busy} compact={compact} onRespond={respond} />
+          {showMoves && (
+            <NextMoves key={suggestion.id} moves={suggestion.moves} disabled={!canWrite} onPick={pickMove} onDismiss={hideMoves} />
+          )}
           {renderComposer()}
           {(keyHints || running || queued.length > 0) && (
             <View style={{ flexDirection: "row", alignItems: "center", gap: space[2], minHeight: 20 }}>

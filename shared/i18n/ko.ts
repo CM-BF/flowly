@@ -906,5 +906,11 @@ const catalog: Catalog = {
   "Done and Cancelled cards that finished longer ago fold under “Show older” at the bottom of their lane. They are not archived.": "오래전에 끝난 완료·취소 카드는 열 아래쪽의 “이전 항목 보기”로 접힙니다. 보관되지는 않습니다.",
   "Cards that finished a while ago fold under “Show older” at the bottom of Done and Cancelled. Settings → Workflow sets how long they stay.": "오래전에 끝난 카드는 완료·취소 열 아래쪽의 “이전 항목 보기”로 접힙니다. 기간은 설정 → 워크플로에서 정합니다.",
   "Never": "안 함",
+  "Suggested next step: {label}": "제안된 다음 단계: {label}",
+  "Fills the message box. Nothing is sent until you send it.": "입력란에 채웁니다. 직접 보내기 전에는 아무것도 전송되지 않습니다.",
+  "Hide suggestions": "제안 숨기기",
+  "When an agent finishes a turn, its suggested next steps sit above the message box. Tap one to fill it in; nothing is sent until you press Send.": "에이전트가 턴을 마치면 제안한 다음 단계가 입력란 위에 표시됩니다. 탭하면 입력란에 채워지며, 보내기를 누르기 전에는 전송되지 않습니다.",
+  "Suggested next steps": "제안된 다음 단계",
+  "When a turn ends, the agent's next steps sit above the message box. Tap one to fill it in, then send it yourself.": "턴이 끝나면 에이전트가 제안한 다음 단계가 입력란 위에 표시됩니다. 탭해서 채운 뒤 직접 보내세요.",
 };
 export default catalog;

@@ -3,6 +3,7 @@ import type { PluginSurfaceProps } from "@getpaseo/plugin/client";
 import type { BoardEvent, Task } from "../shared/model";
 import { msg, t, tn } from "../shared/i18n";
 import { asksQuestion } from "../shared/permission-question";
+import { nextMovesAction } from "../shared/next-moves";
 
 export function sessionState(
   agent: Pick<
@@ -166,11 +167,15 @@ export function samePreviewTask(
   return a.id === b.id && a.workspaceId === b.workspaceId && a.archivedAt === b.archivedAt && a.title === b.title;
 }
 
-/** The only events the session view uses: this session's latest turn start/end (sessionState, sessionAttention). */
+/**
+ * The only events the session view uses: this session's latest turn start/end
+ * (sessionState, sessionAttention) or next-move suggestion (NEXT-MOVES-SPEC §3).
+ */
 export function turnEventKey(events: readonly BoardEvent[], agentId: string) {
   for (let i = events.length - 1; i >= 0; i--) {
     const e = events[i];
-    if (e.agentId === agentId && (e.action === "agent.turn_started" || e.action === "agent.turn_ended")) return `${e.id}|${e.taskId}`;
+    if (e.agentId === agentId && (e.action === "agent.turn_started" || e.action === "agent.turn_ended" || e.action === nextMovesAction))
+      return `${e.id}|${e.taskId}`;
   }
   return "";
 }

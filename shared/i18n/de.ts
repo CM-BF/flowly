@@ -906,5 +906,11 @@ const catalog: Catalog = {
   "Done and Cancelled cards that finished longer ago fold under “Show older” at the bottom of their lane. They are not archived.": "Erledigte und abgebrochene Karten, die länger zurückliegen, werden unten in ihrer Spalte unter „Ältere anzeigen“ eingeklappt. Sie werden nicht archiviert.",
   "Cards that finished a while ago fold under “Show older” at the bottom of Done and Cancelled. Settings → Workflow sets how long they stay.": "Länger abgeschlossene Karten werden unten in Erledigt und Abgebrochen unter „Ältere anzeigen“ eingeklappt. Unter Einstellungen → Workflow legst du fest, wie lange sie sichtbar bleiben.",
   "Never": "Nie",
+  "Suggested next step: {label}": "Vorgeschlagener nächster Schritt: {label}",
+  "Fills the message box. Nothing is sent until you send it.": "Füllt das Nachrichtenfeld. Nichts wird gesendet, bevor du es sendest.",
+  "Hide suggestions": "Vorschläge ausblenden",
+  "When an agent finishes a turn, its suggested next steps sit above the message box. Tap one to fill it in; nothing is sent until you press Send.": "Wenn ein Agent einen Durchgang beendet, stehen seine vorgeschlagenen nächsten Schritte über dem Nachrichtenfeld. Tippe auf einen, um ihn einzufügen; gesendet wird erst, wenn du auf Senden drückst.",
+  "Suggested next steps": "Vorgeschlagene nächste Schritte",
+  "When a turn ends, the agent's next steps sit above the message box. Tap one to fill it in, then send it yourself.": "Nach einem Durchgang stehen die nächsten Schritte des Agenten über dem Nachrichtenfeld. Tippe auf einen, um ihn einzufügen, und sende ihn selbst.",
 };
 export default catalog;

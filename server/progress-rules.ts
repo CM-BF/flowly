@@ -2,6 +2,7 @@ import { enabledStatuses, laneEnabled } from "../shared/lanes";
 import type { PluginTurnOutcome } from "@getpaseo/plugin/server";
 import { isWorkStatus, legacyStatus, workStatuses, type Board, type BoardEvent, type Status, type Task } from "../shared/model";
 import type { ToolIdentity } from "../shared/tools";
+import { nextMovesAction } from "../shared/next-moves";
 
 type Store = { event(board: Board, input: Omit<BoardEvent, "id" | "at">): unknown };
 
@@ -127,7 +128,8 @@ export function applyTurnEnded(
   const resumed = turn.find(
     (e) => e.rule === "A1" && (e.from === "in_review" || e.from === "blocked"),
   );
-  if (!resumed?.from || turn.some((e) => e.actor === "agent")) return false;
+  // Suggested next moves are not work (NEXT-MOVES-SPEC §3).
+  if (!resumed?.from || turn.some((e) => e.actor === "agent" && e.action !== nextMovesAction)) return false;
   const restored = resumed.from as Status;
   if (!laneEnabled(project, restored)) return false;
   // Someone else (a person or another session) may have moved it since.

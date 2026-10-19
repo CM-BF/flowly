@@ -906,5 +906,11 @@ const catalog: Catalog = {
   "Done and Cancelled cards that finished longer ago fold under “Show older” at the bottom of their lane. They are not archived.": "Давно завершённые и отменённые карточки сворачиваются в «Показать старые» внизу своей колонки. Они не архивируются.",
   "Cards that finished a while ago fold under “Show older” at the bottom of Done and Cancelled. Settings → Workflow sets how long they stay.": "Давно завершённые карточки сворачиваются в «Показать старые» внизу колонок «Готово» и «Отменено». Срок задаётся в Настройки → Рабочий процесс.",
   "Never": "Никогда",
+  "Suggested next step: {label}": "Предлагаемый следующий шаг: {label}",
+  "Fills the message box. Nothing is sent until you send it.": "Заполняет поле сообщения. Ничего не отправится, пока вы не отправите.",
+  "Hide suggestions": "Скрыть предложения",
+  "When an agent finishes a turn, its suggested next steps sit above the message box. Tap one to fill it in; nothing is sent until you press Send.": "Когда агент завершает ход, предложенные им следующие шаги появляются над полем сообщения. Нажмите на шаг, чтобы вставить его; ничего не отправится, пока вы не нажмёте «Отправить».",
+  "Suggested next steps": "Предлагаемые следующие шаги",
+  "When a turn ends, the agent's next steps sit above the message box. Tap one to fill it in, then send it yourself.": "После хода следующие шаги агента появляются над полем сообщения. Нажмите на шаг, чтобы вставить его, и отправьте сами.",
 };
 export default catalog;

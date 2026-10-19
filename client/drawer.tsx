@@ -1,4 +1,5 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { nextMovesAction } from "../shared/next-moves";
 import type { PaseoAgent } from "@getpaseo/client";
 import { Pressable, View } from "react-native";
 import { Icon, ScrollView, useToast } from "@getpaseo/plugin/client/react-native";
@@ -425,11 +426,13 @@ function TaskDrawerView({
       menu={menuHandlers(openMenu, a.title || t("Session"), () => sessionMenu(a))}
     />
   );
-  // Routine turn start/end records drive rules and markers; the timeline shows
-  // what changed or needs a person (failed turns, permission requests stay).
+  // Routine turn start/end records drive rules and markers, and next-move
+  // suggestions live above the session composer; the timeline shows what
+  // changed or needs a person (failed turns, permission requests stay).
   const meaningful = events.filter(
     (e) =>
       e.action !== "agent.turn_started" &&
+      e.action !== nextMovesAction &&
       !(e.action === "agent.turn_ended" && e.outcome !== "failed"),
   );
   async function perform(action: () => Promise<unknown>, success = "") {

@@ -16,6 +16,7 @@ import {
   taskTypeSchema,
   tagLimits,
   tagInputList,
+  nextMoveLimits,
 } from "./model";
 
 export const agentStatuses = ["design", "development", "test", "blocked", "in_review"] as const;
@@ -99,6 +100,31 @@ export const typeInputSchema = z.strictObject({
   type: taskTypeSchema.describe(
     "feature: new behavior; bugfix: wrong behavior fixed; research: investigation or analysis without a shipped change; refactor: restructuring without behavior change; docs: documentation only; chore: build, tooling, dependencies, maintenance.",
   ),
+});
+/** kanban_suggest_next_moves (NEXT-MOVES-SPEC §2): the session's candidate next messages for the user. */
+export const nextMovesInputSchema = z.strictObject({
+  expectedRevision: revisionSchema,
+  request: requestSchema,
+  moves: z
+    .array(
+      z.strictObject({
+        label: z
+          .string()
+          .trim()
+          .min(1)
+          .max(nextMoveLimits.label)
+          .describe("Button text: a short verb phrase in the user's language, e.g. \"Verify with Luna\" or \"Commit and push\"."),
+        prompt: z
+          .string()
+          .trim()
+          .min(1)
+          .max(nextMoveLimits.prompt)
+          .describe("The message pre-filled into the user's message box when they pick it, written as the user's instruction to you and understandable on its own."),
+      }),
+    )
+    .min(1)
+    .max(nextMoveLimits.count)
+    .describe("1-3 next steps, the one you recommend first."),
 });
 /** kanban_add_artifact (CARD-ARTIFACTS-SPEC §4.1): register an input or a deliverable of this card. */
 export const artifactInputSchema = z.strictObject({
@@ -241,5 +267,6 @@ export type ProgressInput = z.infer<typeof progressInputSchema>;
 export type IdeaInput = z.infer<typeof ideaInputSchema>;
 export type TagsToolInput = z.infer<typeof tagsInputSchema>;
 export type TypeToolInput = z.infer<typeof typeInputSchema>;
+export type NextMovesInput = z.infer<typeof nextMovesInputSchema>;
 export type ArtifactToolInput = z.infer<typeof artifactInputSchema>;
 export type ArtifactRemovalInput = z.infer<typeof artifactRemovalSchema>;

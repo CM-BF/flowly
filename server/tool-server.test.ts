@@ -83,6 +83,7 @@ test("MCP initialize/list can precede actor creation; live calls require SDK con
     "kanban_remove_artifact",
     "kanban_set_tags",
     "kanban_set_type",
+    "kanban_suggest_next_moves",
   ]);
   const cold = await mcp("tools/call", {
     name: "kanban_get_task",
@@ -267,6 +268,10 @@ test("CLI runs a complete scoped flow; replay, wrong env, snapshots and flags", 
   const untagged = await cli("tags", "--request-file", snapshot, "--remove", "perf");
   expect(untagged.current.task.tags.map((t: { tag: string }) => t.tag)).toEqual(["drawer"]);
   await cli("current", "--save-request", snapshot);
+  const suggested = await cli("next-moves", "--request-file", snapshot, "--moves", JSON.stringify([{ label: "Commit", prompt: "Commit and push." }]));
+  expect(suggested.receipt.action).toBe("next_moves");
+  expect(suggested.current.activity.at(-1)).toMatchObject({ action: "next_moves_suggested", moves: [{ label: "Commit", prompt: "Commit and push." }] });
+  await cli("current", "--save-request", snapshot);
   const proposed = await cli(
     "idea",
     "--request-file",
@@ -286,6 +291,8 @@ test("CLI runs a complete scoped flow; replay, wrong env, snapshots and flags", 
   for (const args of [
     ["idea", "--request-file", snapshot, "--title", "No detail", "--rationale", "r"],
     ["note", "--request-file", snapshot, "--note", "n", "--title", "misplaced"],
+    ["next-moves", "--request-file", snapshot, "--moves", "not json"],
+    ["note", "--request-file", snapshot, "--note", "n", "--moves", "[]"],
     ["current", "--unknown", "x"],
     [
       "current",
