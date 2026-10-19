@@ -16,7 +16,7 @@ import { Disclosure } from "./disclosure";
 import { Enter } from "./motion";
 import { localZone, useDigestQuery, useInsightsQuery, useTokensQuery } from "./queries";
 import { StatusIcon } from "./status";
-import { Button, Dot, IconButton, Label, Notice, font, message, noFocusRing, radius, relativeTime, space, touch, useTheme, verticalContent, verticalScroll } from "./ui";
+import { AiMark, Button, Dot, IconButton, Label, Notice, font, message, noFocusRing, radius, relativeTime, space, touch, useTheme, verticalContent, verticalScroll } from "./ui";
 import { formatLocale, t, tn } from "../shared/i18n";
 
 const HOUR_MS = 3_600_000;
@@ -162,7 +162,7 @@ export function dayLabel(day: string, today: string) {
   return d.toLocaleDateString(formatLocale(), { weekday: "short", month: "short", day: "numeric", timeZone: "UTC" });
 }
 
-function Section({ title, detail, trailing, children }: { title: string; detail?: string; trailing?: ReactNode; children: ReactNode }) {
+function Section({ title, detail, ai, trailing, children }: { title: string; detail?: string; ai?: boolean; trailing?: ReactNode; children: ReactNode }) {
   return (
     <Enter distance={4}>
       <View style={{ gap: space[2] }}>
@@ -170,6 +170,7 @@ function Section({ title, detail, trailing, children }: { title: string; detail?
           <Label bold size={font.md} selectable={false}>
             {title}
           </Label>
+          {ai && <AiMark label={t("AI generated")} />}
           {!!detail && (
             <Label muted size={font.sm} selectable={false}>
               {detail}
@@ -451,6 +452,7 @@ function Digest({
   return (
     <Section
       title={t("Summary")}
+      ai
       trailing={
         view && !view.empty ? (
           <Button quiet small icon="RefreshCw" disabled={running} label={t("Regenerate the summary")} onPress={() => void run()}>

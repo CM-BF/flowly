@@ -911,6 +911,8 @@ const catalog: Catalog = {
   "Hide suggestions": "隐藏建议",
   "When an agent finishes a turn, its suggested next steps sit above the message box. Tap one to fill it in; nothing is sent until you press Send.": "agent 完成一轮后，它建议的下一步会显示在输入框上方。点一下即可填入；在你按“发送”之前不会发出。",
   "Suggested next steps": "建议的下一步",
+  "AI generated": "AI 生成",
+  "Anything marked with the sparkle was written or suggested by AI.": "带星星图标的内容由 AI 撰写或建议。",
   "When a turn ends, the agent's next steps sit above the message box. Tap one to fill it in, then send it yourself.": "一轮结束后，agent 建议的下一步会显示在输入框上方。点一下填入，再由你自己发送。",
 };
 export default catalog;

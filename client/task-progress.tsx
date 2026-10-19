@@ -52,7 +52,7 @@ export function TaskProgress({ taskId, active }: { taskId: string; active: boole
   const older = (history.data || []).filter((e) => e.id !== latest?.id);
   return (
     <View style={{ gap: space[2] }}>
-      <SectionHeader title={t("Progress")}>
+      <SectionHeader title={t("Progress")} ai>
         <Button quiet icon="RefreshCw" disabled={!active || running || requesting} onPress={() => void refresh()}>
           {running ? t("Updating…") : t("Refresh")}
         </Button>

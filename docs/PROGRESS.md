@@ -1,5 +1,11 @@
 # Implementation progress
 
+## AI mark — 2026-10-19
+
+- [x] Card request "所有AI feature增加星星标记": mark existing AI features with the star like next moves. [Spec](AI-MARK-SPEC.md).
+- [x] Implemented: `AiMark` + `SectionHeader ai` in `client/ui.tsx`; card progress line (Flag → mark), drawer Progress and Ideas headers, Ideas page title, Insights daily Summary, agent-added artifacts and tags (Bot → mark). Card type `feature` icon Sparkles → Puzzle so Sparkles only means AI. Tour page 3 line; 2 strings in all 9 catalogs. No tip (nothing to do).
+- [ ] UNRUN: desktop/phone UI check in the installed plugin, Luna 6 test session.
+
 ## Suggested next moves — 2026-10-19
 
 - [x] Card request "建议next move": agents end turns with "要不要……或者……"; give them a tool to suggest the next move, show this turn's hints above the composer, tap pre-fills (never sends). [Spec](NEXT-MOVES-SPEC.md).

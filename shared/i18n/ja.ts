@@ -911,6 +911,8 @@ const catalog: Catalog = {
   "Hide suggestions": "提案を隠す",
   "When an agent finishes a turn, its suggested next steps sit above the message box. Tap one to fill it in; nothing is sent until you press Send.": "エージェントがターンを終えると、提案された次のステップが入力欄の上に表示されます。タップすると入力されます。「送信」を押すまで送られません。",
   "Suggested next steps": "次のステップの提案",
+  "AI generated": "AI生成",
+  "Anything marked with the sparkle was written or suggested by AI.": "きらめきアイコンが付いたものは、AIが書いたか提案したものです。",
   "When a turn ends, the agent's next steps sit above the message box. Tap one to fill it in, then send it yourself.": "ターンが終わると、エージェントが提案する次のステップが入力欄の上に表示されます。タップして入力し、自分で送信します。",
 };
 export default catalog;

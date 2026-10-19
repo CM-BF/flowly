@@ -8,7 +8,7 @@ import { groupByCard, ideaTabCounts, visibleIdeas, type IdeaQuery, type IdeaSort
 import { Enter } from "./motion";
 import { StatusIcon } from "./status";
 import { ClosedIdea, IdeaCard, IdeaRow, sessionName, useExitList, useIdeaActions, type IdeaSession } from "./task-ideas";
-import { Button, Choices, Label, TextBox, font, radius, space, tint, touch, useTheme, verticalContent, verticalScroll } from "./ui";
+import { AiMark, Button, Choices, Label, TextBox, font, radius, space, tint, touch, useTheme, verticalContent, verticalScroll } from "./ui";
 import { t, msg, tn } from "../shared/i18n";
 
 const sortLabels: Record<IdeaSort, string> = { newest: msg("Newest"), priority: msg("Priority"), card: msg("Card") };
@@ -156,6 +156,7 @@ export const IdeasPage = memo(function IdeasPage({
         <Icon name="Lightbulb" size={15} color={colors.foregroundMuted} />
         <Label bold size={font.md} selectable={false}>
           {t("Ideas")}</Label>
+        <AiMark label={t("AI generated")} />
         <View style={{ flex: 1 }} />
         {/* Balances the Back button so the title stays centred. */}
         <View style={{ width: compact ? 56 : 72 }} />

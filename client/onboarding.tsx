@@ -210,7 +210,7 @@ function FeaturesPage() {
   ];
   return (
     <View style={{ gap: space[3] }}>
-      <PageTitle title={t("What makes it different")} />
+      <PageTitle title={t("What makes it different")} detail={t("Anything marked with the sparkle was written or suggested by AI.")} />
       <View style={{ gap: space[3] }}>
         {features.map((item) => (
           <View key={item.icon} style={{ flexDirection: "row", gap: space[3], alignItems: "flex-start" }}>

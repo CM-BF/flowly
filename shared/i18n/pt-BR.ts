@@ -911,6 +911,8 @@ const catalog: Catalog = {
   "Hide suggestions": "Ocultar sugestões",
   "When an agent finishes a turn, its suggested next steps sit above the message box. Tap one to fill it in; nothing is sent until you press Send.": "Quando um agente termina um turno, os próximos passos sugeridos aparecem acima da caixa de mensagem. Toque em um para preenchê-la; nada é enviado até você tocar em Enviar.",
   "Suggested next steps": "Próximos passos sugeridos",
+  "AI generated": "Gerado por IA",
+  "Anything marked with the sparkle was written or suggested by AI.": "Tudo o que tem o ícone de brilho foi escrito ou sugerido por IA.",
   "When a turn ends, the agent's next steps sit above the message box. Tap one to fill it in, then send it yourself.": "Ao fim de um turno, os próximos passos do agente aparecem acima da caixa de mensagem. Toque em um para preenchê-la e envie você mesmo.",
 };
 export default catalog;

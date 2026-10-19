@@ -112,7 +112,7 @@
 
 - 标题 `Artifacts`，计数为总数；右侧 `+` 打开 §5.3 表单。没有产物时只显示标题行和 `+`。
 - 按角色分组，顺序 `Outputs`、`Inputs`，组内按 `createdAt` 倒序；空组不显示。每组超过 5 条时折叠为 “Show N more”（`Disclosure`）。
-- 每行：类型图标（`FileText` / 目录 `Folder` / 链接 `Link`）、标题（单行截断）、第二行弱化显示 note（单行截断，没有则显示短路径或主机名）；每行都标明来源：标题右侧显示 `User` 或 `Bot` 小图标（无障碍 “Added by you” / “Added by an agent”）；角色由分组标题标明，无障碍名称以 “Input:” / “Output:” 开头；文件不存在时标题弱化，第二行以 “Missing” 开头。
+- 每行：类型图标（`FileText` / 目录 `Folder` / 链接 `Link`）、标题（单行截断）、第二行弱化显示 note（单行截断，没有则显示短路径或主机名）；每行都标明来源：标题右侧显示 `User` 或 AI 标记（`Sparkles`，AI-MARK-SPEC）小图标（无障碍 “Added by you” / “Added by an agent”）；角色由分组标题标明，无障碍名称以 “Input:” / “Output:” 开头；文件不存在时标题弱化，第二行以 “Missing” 开头。
 - 点击行：url 用 `Linking.openURL`；file 打开 §6.1 预览。行尾两个图标按钮：**Edit**（铅笔，打开 §5.3，可改角色、标题、说明）与 **Remove**（`X`，无确认，乐观移除 160 ms 收起，失败恢复并弹 error toast，成功弹 toast “Artifact removed. The file was not changed.”）。host toast 不支持操作按钮，所以不做 Undo；插件也没有剪贴板 API，不做 Copy path。
 - 卡片或项目已归档时 `+`、编辑与移除禁用，列表照常显示与打开。
 - 增删动效用 `client/motion.tsx` 原语，遵循 Reduce Motion，可打断；抽屉打开时已有行不播放进场。

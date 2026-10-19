@@ -6,7 +6,7 @@ Incremental spec. A card can carry a task type (what kind of work it is), alongs
 
 | Value | Label | Icon |
 | --- | --- | --- |
-| `feature` | Feature | Sparkles |
+| `feature` | Feature | Puzzle (was Sparkles; Sparkles now marks AI content, AI-MARK-SPEC) |
 | `bugfix` | Bug fix | Bug |
 | `research` | Research | FlaskConical |
 | `refactor` | Refactor | Shapes |

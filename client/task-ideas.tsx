@@ -57,7 +57,7 @@ export function TaskIdeas({
   const titleOf = (id: string) => board.data?.tasks.find((t) => t.id === id)?.title;
   return (
     <View style={{ gap: space[2] }}>
-      <SectionHeader title={t("Ideas")} count={open.length}>
+      <SectionHeader title={t("Ideas")} ai count={open.length}>
         {onAllIdeas && (
           <Button small quiet label={t("Show this card's ideas on the project Ideas page")} onPress={onAllIdeas}>
             {t("All ideas")}</Button>

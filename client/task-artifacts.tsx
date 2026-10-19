@@ -11,7 +11,7 @@ import { IdeaRow, useExitList } from "./task-ideas";
 import { boardKey, useBoardQuery } from "./queries";
 import { SessionMarkdown } from "./session-content";
 import { Disclosure } from "./disclosure";
-import { Actions, Button, Choices, Field, IconButton, Label, Notice, SectionHeader, Theme, font, message, space, touch, useTheme } from "./ui";
+import { AiMark, Actions, Button, Choices, Field, IconButton, Label, Notice, SectionHeader, Theme, font, message, space, touch, useTheme } from "./ui";
 import { t, tn } from "../shared/i18n";
 
 const shown = 5;
@@ -150,7 +150,7 @@ const ArtifactRow = memo(function ArtifactRow({
           <Label size={font.sm} muted={missing} lines={1} selectable={false}>{artifact.title}</Label>
           <Label size={font.xs} muted lines={1} selectable={false}>{missing ? `${t("Missing")} · ${detail}` : detail}</Label>
         </View>
-        <Icon name={agent ? "Bot" : "User"} size={12} color={colors.foregroundMuted} />
+        {agent ? <AiMark size={12} /> : <Icon name="User" size={12} color={colors.foregroundMuted} />}
       </Pressable>
       <IconButton icon="Pencil" size={touch ? 36 : 24} label={t("Edit artifact: {title}", { title: artifact.title })} disabled={disabled} onPress={() => onEdit(artifact)} />
       <IconButton icon="X" size={touch ? 36 : 24} label={t("Remove artifact: {title}", { title: artifact.title })} disabled={disabled} onPress={() => onRemove(artifact)} />

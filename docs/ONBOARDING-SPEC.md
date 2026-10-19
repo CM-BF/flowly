@@ -43,6 +43,7 @@ Five numbered steps, one line each, with the lane names the user will actually s
 5. Review, then move it to Done yourself.
 
 **Page 3: What makes it different** — five feature rows (icon, name, one sentence), the same five as the README so promo and product agree:
+The page title has the detail line "Anything marked with the sparkle was written or suggested by AI." ([AI-MARK-SPEC](AI-MARK-SPEC.md)).
 - *Automatic status*: cards follow the agent's work through the lanes. Done stays yours.
 - *Needs-you reminders*: questions, approvals and errors light the card, the Attention menu and the sidebar badge.
 - *Run summaries*: after every turn a cheap model keeps state / target / recap / next on the card.

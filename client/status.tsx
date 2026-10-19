@@ -53,7 +53,7 @@ export function PriorityIcon({ priority, size = 14, always = false }: { priority
 }
 
 const typeIcons: Record<TaskType, string> = {
-  feature: "Sparkles",
+  feature: "Puzzle",
   bugfix: "Bug",
   research: "FlaskConical",
   refactor: "Shapes",

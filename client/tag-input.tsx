@@ -4,7 +4,7 @@ import { Icon } from "@getpaseo/plugin/client/react-native";
 import { t } from "../shared/i18n";
 import { normalizeTag, splitTagInput } from "../shared/tags";
 import { tagLimits } from "../shared/model";
-import { Label, TextBox, font, noFocusRing, radius, space, tint, touch, useTheme } from "./ui";
+import { AiMark, Label, TextBox, font, noFocusRing, radius, space, tint, touch, useTheme } from "./ui";
 import { useShortcutBlock } from "./shortcuts";
 
 type Hoverable = { hovered?: boolean; focused?: boolean; pressed?: boolean };
@@ -64,7 +64,7 @@ export function TagPill({
           minWidth: 0,
         }}
       >
-        {agent && <Icon name="Bot" size={12} color={colors.foregroundMuted} />}
+        {agent && <AiMark size={12} />}
         <Label size={font.sm} lines={1} selectable={false}>{`#${tag}`}</Label>
       </Pressable>
       {!!onRemove && (

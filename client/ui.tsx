@@ -674,13 +674,32 @@ export function Row({
   );
 }
 
+/**
+ * The mark of content an AI wrote or suggested (summaries, digests, ideas,
+ * next steps, agent-added artifacts and tags): the Sparkles icon in the accent
+ * color, the same one the next-move chips lead with. Decorative unless labelled.
+ */
+export function AiMark({ size = 13, label }: { size?: number; label?: string }) {
+  const { colors } = useTheme();
+  return label ? (
+    <View accessible accessibilityRole="image" accessibilityLabel={label}>
+      <Icon name="Sparkles" size={size} color={colors.accent} />
+    </View>
+  ) : (
+    <Icon name="Sparkles" size={size} color={colors.accent} />
+  );
+}
+
 export function SectionHeader({
   title,
   count,
+  ai,
   children,
 }: {
   title: string;
   count?: number;
+  /** The section shows AI-written content: the title gets the AI mark. */
+  ai?: boolean;
   children?: ReactNode;
 }) {
   return (
@@ -692,10 +711,11 @@ export function SectionHeader({
         minHeight: control,
       }}
     >
-      <View style={{ flex: 1, minWidth: 0, flexDirection: "row", gap: space[1.5] }}>
+      <View style={{ flex: 1, minWidth: 0, flexDirection: "row", alignItems: "center", gap: space[1.5] }}>
         <Label bold size={font.md} selectable={false}>
           {title}
         </Label>
+        {ai && <AiMark label={t("AI generated")} />}
         {count !== undefined && (
           <Label muted size={font.md} selectable={false}>
             {count}

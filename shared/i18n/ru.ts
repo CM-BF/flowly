@@ -911,6 +911,8 @@ const catalog: Catalog = {
   "Hide suggestions": "Скрыть предложения",
   "When an agent finishes a turn, its suggested next steps sit above the message box. Tap one to fill it in; nothing is sent until you press Send.": "Когда агент завершает ход, предложенные им следующие шаги появляются над полем сообщения. Нажмите на шаг, чтобы вставить его; ничего не отправится, пока вы не нажмёте «Отправить».",
   "Suggested next steps": "Предлагаемые следующие шаги",
+  "AI generated": "Создано ИИ",
+  "Anything marked with the sparkle was written or suggested by AI.": "Всё, что отмечено значком искр, написал или предложил ИИ.",
   "When a turn ends, the agent's next steps sit above the message box. Tap one to fill it in, then send it yourself.": "После хода следующие шаги агента появляются над полем сообщения. Нажмите на шаг, чтобы вставить его, и отправьте сами.",
 };
 export default catalog;

@@ -2,7 +2,7 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode
 import { Animated, PanResponder, Pressable, View } from "react-native";
 import { Icon } from "@getpaseo/plugin/client/react-native";
 import { taskTypeLabels, type Task } from "../shared/model";
-import { Badge, Dot, IconButton, Label, font, radius, relativeTime, space, tint, touch, useTheme } from "./ui";
+import { AiMark, Badge, Dot, IconButton, Label, font, radius, relativeTime, space, tint, touch, useTheme } from "./ui";
 import { PriorityIcon, TypeIcon, priorityAccent, priorityLabels } from "./status";
 import type { Point } from "./geometry";
 import type { SessionAttentionSummary } from "../shared/session-attention";
@@ -345,11 +345,10 @@ export function TaskCard({
 }
 
 function ProgressLine({ state }: { state: string }) {
-  const { colors } = useTheme();
   return (
-    // One line on the board; the drawer's Progress section shows it in full.
+    // One line on the board; the drawer's Progress section shows it in full. The AI mark: a model wrote it.
     <View style={{ flexDirection: "row", alignItems: "center", gap: space[1.5], minWidth: 0 }}>
-      <Icon name="Flag" size={12} color={colors.foregroundMuted} />
+      <AiMark size={12} />
       <View style={{ flex: 1, minWidth: 0 }}>
         <Label size={font.sm} lines={1} selectable={false}>
           {state}
