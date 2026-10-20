@@ -126,6 +126,7 @@
 ## Answer agent questions in the session — 2026-10-18
 
 - [x] Card request "提问能力接入": an agent's ask-user-question lit up the card but the question was only visible in the native Paseo session. [Spec](SESSION-QUESTION-SPEC.md).
+- [x] Card request "提问方式优化" (2026-10-20): the skill and `flowly_report_progress` description now tell agents to ask through their own question tool (AskUserQuestion etc.) and use `kind=question` only as the fallback, never both for one question. Text-only change. [Spec](SESSION-QUESTION-SPEC.md) §2.2.
 - [x] Capability check: the public SDK already carries `pendingPermissions` on agent snapshots and `agent.respondToPermission`; the answer encoding was read from the installed Paseo 0.11.2 app (answers keyed by header, `", "` joins, dismiss = deny "Dismissed by user") and the Claude provider (maps headers back to question text).
 - [x] Implemented: `shared/permission-question.ts` (pure form logic), `client/session-question.tsx` (question form; Allow/Deny or provider actions for other requests) above the session composer; respond re-checks membership and that the request is still pending. "Waiting for your answer" session label; agent questions count as Needs you / questions, not approvals. Tip `agent-question`, tour feature line, 19 strings in all 9 catalogs.
 - [x] PASS: typecheck; full `npm test` (a `server/tool-server.test.ts` failure seen mid-way came from a parallel session's in-progress edit and passed once it settled). The session-attention verification fixture now expects the new `questions` count.

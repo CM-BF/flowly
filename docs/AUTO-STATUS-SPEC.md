@@ -47,7 +47,7 @@ silentTurn(agentId)   = 卡片 In progress，该 agent 最近一次 turn_ended �
   - 报告 kind 增加 `question`。
 - 旧数据原样可读。
 - `projects.update` 接受 `autoStatus`。项目编辑表单增加开关 “Auto-update status from sessions”。
-- skill 增补：有需要用户回答的问题时用 `kind=question` 写清问题并结束本轮；用户回复后会开始新一轮。
+- skill 增补：有需要用户回答的问题时用 `kind=question` 写清问题并结束本轮；用户回复后会开始新一轮。2026-10-20 起（SESSION-QUESTION-SPEC §2.2）：provider 有自带提问工具（AskUserQuestion 等）时优先用它，`kind=question` 是回退；同一问题只用一种方式问，因为工具里作答不会开始新一轮，同题的 `kind=question` 会一直算作 openQuestion。
 
 ## 4. UI
 

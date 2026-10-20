@@ -11,7 +11,7 @@
 ### 12.2 与本文其余部分的关系（偏离卡片原文的两处）
 
 - **不受 Workflow insights 开关控制**。本节只是规则统计：不调用模型、不花 token、不采集新的内容，读取的就是已有的 flow log。要做到“一天内发现”，它必须对所有人默认可见；放进默认关闭的 Workflow insights 区块就看不到。所以代码在新文件 `shared/agent-habits.ts`，不放进 `shared/workflow-insights.ts`（那是另一个尚未验收的功能，混在一起会让两件事无法分开提交）。Insights 页上它是独立的区块，不属于 Workflow insights。
-- **分母不含 question**。skill 规定提问走 `kind=question`，“not next moves”，所以把提问算进 next moves 的分母会把比率结构性压低。question 的 turn 单独列出。
+- **分母不含 question**。skill 规定提问走 `kind=question`，“not next moves”，所以把提问算进 next moves 的分母会把比率结构性压低。question 的 turn 单独列出。2026-10-20 起 agent 优先用自带提问工具提问（SESSION-QUESTION-SPEC §2.2），这种提问不产生 `kind=question` 事件，所以 question turn 数只统计回退方式的提问。
 
 ### 12.3 口径
 

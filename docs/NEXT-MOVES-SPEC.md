@@ -17,7 +17,7 @@ Agent 完成一段工作后常在回复末尾写“接下来要不要……或�
 - 写入：记录事件 `next_moves_suggested`（actor=agent，`agentId`，`note` 为各 label 用 ` · ` 连接，新字段 `moves` 保存原样的列表）。**不改** task revision、卡片状态，不进 Ideas。
 - 校验与其它写工具一致：签名、revision、过期、归档、Done/Cancelled 拒绝（`TASK_FINISHED`）、精确重放返回原回执，`REQUEST_REUSED`。回执 action=`next_moves`。label/prompt 去掉首尾空白后为空、超长、条数大于 3 为 `INVALID_INPUT`（空列表在 §9.4 之前也是 `INVALID_INPUT`）。
 - CLI：`next-moves --request-file <snapshot> --moves '<JSON 数组>'`（`[{"label":"…","prompt":"…"}]`）。HTTP API action `next_moves`。
-- 何时调用（写进 skill）：一轮工作结束、准备把控制交回用户前，如果有明确的下一步（验证、提交/推送、继续下一阶段、修复刚发现的问题），调用一次；只放用户最可能选的 1–3 个，最推荐的放第一个。不需要用户动作时不调用。仍应在回复正文里简述这些选项（用户可能不在 Flowly 里看）。不要用它提问（提问用 `kind=question`），不要用它代替 idea。§9 把“如果有明确的下一步”改成与交付时刻绑定的规则。
+- 何时调用（写进 skill）：一轮工作结束、准备把控制交回用户前，如果有明确的下一步（验证、提交/推送、继续下一阶段、修复刚发现的问题），调用一次；只放用户最可能选的 1–3 个，最推荐的放第一个。不需要用户动作时不调用。仍应在回复正文里简述这些选项（用户可能不在 Flowly 里看）。不要用它提问（提问用 provider 自带的提问工具，没有时用 `kind=question`，SESSION-QUESTION-SPEC §2.2），不要用它代替 idea。§9 把“如果有明确的下一步”改成与交付时刻绑定的规则。
 
 ## 3. 有效期（“这一轮的”建议）
 
@@ -289,6 +289,8 @@ skill 里“有明确下一步时调用一次”是**可选的第二次调用**�
 ### 9.7 `question` 与 next moves 的关系（措辞决定）
 
 skill 现有一句“Questions go through kind=question … not next moves”。卡片要求 question 回合也以 next moves 结尾。两者不矛盾，但措辞要改清楚：**问题本身仍走 `kind=question`**；next moves 放用户**可能发回的回答**（如“用方案 A”），点按即预填输入框。会话视图在没有待答的原生问题/审批时显示建议，所以回答胶囊与 “Needs you” 并存没有冲突。这是本设计的措辞选择，不改 §4 的界面。
+
+2026-10-20 补充（SESSION-QUESTION-SPEC §2.2）：provider 自带提问工具时问题走该工具，选项就在表单里，不需要 next moves；上述规则只适用于 `kind=question` 的回退提问。
 
 ### 9.8 Skill 文本（`server/skill-source.ts` 与 `skills/flowly/SKILL.md` 同步）
 

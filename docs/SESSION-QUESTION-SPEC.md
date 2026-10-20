@@ -23,6 +23,14 @@ Status: implemented 2026-10-18 (card "提问能力接入"). User request: when a
 - Same rules as the session view: fresh membership check (`workspaceSession(..., true)`), "This request was already answered or withdrawn." when it is gone, `respondToPermission`, toast **Answer sent** / **Response sent**, sessions refetched. The per-session operation lock is shared with the session view, so a send and an answer on the same session cannot overlap. Errors show in the drawer's error notice. Controls are disabled while the drawer is busy, the session is locked, its provider is unavailable or the card is archived.
 - The forms are memoized on the pending requests' content, so board refreshes do not reset a half-filled answer. No new strings.
 
+### 2.2 Which way agents ask (2026-10-20, card "提问方式优化")
+
+- Problem: the Flowly skill named `flowly_report_progress kind=question` as the only way to ask, so agents with AskUserQuestion asked four independent decisions as text and the user could not pick each one.
+- Skill rule (`server/skill-source.ts` = `skills/flowly/SKILL.md`): ask through the provider's own question tool when there is one (options per question, independent decisions in one call, wait and continue in the same turn); it already shows **Needs you** and is answered on the card or in the session (§2, §2.1, §3). `kind=question` is the fallback: no such tool, an open-ended question that needs a written reply, or a decision the user may take long over (end the turn; the reply starts the next one).
+- Ask each question one way only. An answer in the tool form starts no new turn, so a `kind=question` report for the same question would stay open (`openQuestion`, AUTO-STATUS-SPEC) until the agent's next report, showing a second **Needs you** for an answered question.
+- A question asked through the tool needs no next moves (the form holds the choices); next moves and their reminder still apply to `kind=question` (NEXT-MOVES-SPEC).
+- The `flowly_report_progress` description says the same. No server, client, data or string changes; no onboarding change (the tour and the `agent-question` tip already describe answering on the card).
+
 ## 3. Status and attention
 
 - A session whose pending request is a question shows **Waiting for your answer** (MessageCircleQuestion) instead of **Waiting for approval**; both use the warning tone and suppress the "· Unread" suffix.
@@ -47,4 +55,5 @@ Status: implemented 2026-10-18 (card "提问能力接入"). User request: when a
 - PASS (live, user, 2026-10-18): single select "C", multi select "A, B, Z" (two options + Other), Other-only free text, and Dismiss (agent received "Dismissed by user"). User feedback: Enter in the Other box did not submit → fixed (above).
 - PASS (live, user, 2026-10-18): tool approval (create and delete a file) shown and answered from the Flowly session after the user switched the session to an always-ask mode. A read-only command right after the switch ran without an approval request.
 - PASS (live, user, 2026-10-19): a two-question AskUserQuestion, and tool approvals Allow/Deny, answered from the card drawer's Needs-you area (§2.1).
+- PASS (live, 2026-10-20, §2.2): under the new skill a Sonnet 5.5 session on a fresh card asked two independent decisions in one AskUserQuestion call, made no kind=question report, and after the answer continued in the same turn to a kind=result. [Evidence](verification/native-question.md).
 - UNRUN: phone layout, a plan approval from the session, and the Luna 6 test session. See `docs/PROGRESS.md`.

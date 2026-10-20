@@ -58,7 +58,7 @@
 
 2026-10-14 session 原生 chip：从 session 页跳回关联看板卡片，打开侧栏的同一 session 预览；Back 仍回卡片详情。[完整 spec](SESSION-CHIP-SPEC.md)。
 
-2026-10-18 会话内回答提问：agent 的 AskUserQuestion 等提问与其它权限请求显示在 Flowly session 输入框上方，可直接作答/允许/拒绝，编码与 Paseo 原生一致。[完整 spec](SESSION-QUESTION-SPEC.md)。
+2026-10-18 会话内回答提问：agent 的 AskUserQuestion 等提问与其它权限请求显示在 Flowly session 输入框上方，可直接作答/允许/拒绝，编码与 Paseo 原生一致。2026-10-20 skill 改为优先用自带提问工具提问，`kind=question` 作回退，同题不双问（§2.2）。[完整 spec](SESSION-QUESTION-SPEC.md)。
 
 2026-10-14 卡片 session 状态：展示运行、回合结束、未读和待关注数量；原生已读状态优先，插件逐 session 标记当前轮已阅，业务状态保持独立。[完整 spec](SESSION-ATTENTION-SPEC.md)。
 

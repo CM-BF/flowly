@@ -194,7 +194,7 @@ export class ToolServer {
           "flowly_report_progress",
           {
             description:
-              "Append this session's checkpoint/blocker/result/question without changing card status or task revision. kind=question asks the user something and marks the card Needs you until they reply. Copy revisions/request from get_task. Partial contribution does not complete the card. When you ask (kind=question; the moves are the likely answers), report a blocker or give a result, pass nextMoves (same items as flowly_suggest_next_moves, 1-3 recommended first, or [] when nothing needs the user). A question or result that leaves this turn without next moves gets a reminders list in its result: text only, the write succeeded.",
+              "Append this session's checkpoint/blocker/result/question without changing card status or task revision. kind=question asks the user something and marks the card Needs you until they reply; it is the fallback when you have no question tool of your own (such as AskUserQuestion) or the question is open-ended. Never report a question you already asked through that tool. Copy revisions/request from get_task. Partial contribution does not complete the card. When you ask (kind=question; the moves are the likely answers), report a blocker or give a result, pass nextMoves (same items as flowly_suggest_next_moves, 1-3 recommended first, or [] when nothing needs the user). A question or result that leaves this turn without next moves gets a reminders list in its result: text only, the write succeeded.",
             inputSchema: progressInputSchema,
             outputSchema: toolResultSchema,
             annotations: {

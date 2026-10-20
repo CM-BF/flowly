@@ -107,6 +107,8 @@ test("MCP initialize/list can precede actor creation; live calls require SDK con
   expect(skillText).toContain("--no-moves");
   // Delivery-time reminders (NEXT-MOVES-SPEC §9): the instructions, the tool texts and the result schema all know them.
   expect(skillText).toContain("Every turn that delivers (in_review), asks (kind=question) or reports a result (kind=result) ends with next moves");
+  expect(skillText).toContain("ask through your own question tool when you have one");
+  expect(skillText).toContain("Ask each question one way only");
   expect(skillText).toContain("At each delivery (in_review), review what you noticed");
   expect(skillText).toMatch(/reminders array/);
   expect(described("flowly_update_status")).toMatch(/reminders/);
