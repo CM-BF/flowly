@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { Fragment, useLayoutEffect, useState, type ReactNode } from "react";
 import { Animated, Pressable, View } from "react-native";
 import { Icon } from "@getpaseo/plugin/client/react-native";
 import { useMotionPresence, lerp } from "./motion";
@@ -144,3 +144,26 @@ export type SectionState = { open: boolean; onToggle(): void };
 
 /** Rows shown at first and added by each Show more. */
 export const pageSize = 5;
+
+/**
+ * A paged list: the first page as plain rows, each page added by Show more opening
+ * like a section (measured height and fade), so new rows never just pop in.
+ */
+export function PagedRows<T>({ items, limit, gap = 2, render }: { items: readonly T[]; limit: number; gap?: number; render(item: T): ReactNode }) {
+  const end = Math.min(limit, items.length);
+  const pages: T[][] = [];
+  for (let start = 0; start < end; start += pageSize) pages.push(items.slice(start, Math.min(start + pageSize, end)));
+  return (
+    <>
+      {pages.map((page, index) =>
+        index === 0 ? <Fragment key={0}>{page.map(render)}</Fragment> : <RevealPage key={index} gap={gap}>{page.map(render)}</RevealPage>,
+      )}
+    </>
+  );
+}
+
+function RevealPage({ gap, children }: { gap: number; children: ReactNode }) {
+  const [open, setOpen] = useState(false);
+  useLayoutEffect(() => setOpen(true), []);
+  return <Collapse open={open} id="page" style={{ gap }}>{children}</Collapse>;
+}

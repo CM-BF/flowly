@@ -1018,6 +1018,7 @@ function SessionPreviewView({
         onScroll={tail.onScroll}
         onScrollBeginDrag={tail.onScrollBeginDrag}
         onScrollEndDrag={tail.onScrollEndDrag}
+        onMomentumScrollEnd={tail.onMomentumScrollEnd}
         onContentSizeChange={tail.scrollToTail}
         onLayout={tail.scrollToTail}
         contentContainerStyle={{ ...verticalContent, padding: space[4], paddingBottom: space[5] + keyboard.inset, gap: space[4] }}

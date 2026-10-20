@@ -10,7 +10,7 @@ import { Modal } from "./modal";
 import { IdeaRow, useExitList } from "./task-ideas";
 import { boardKey, useBoardQuery } from "./queries";
 import { SessionMarkdown } from "./session-content";
-import { Section, ShowMore, pageSize, type SectionState } from "./disclosure";
+import { PagedRows, Section, ShowMore, pageSize, type SectionState } from "./disclosure";
 import { AiMark, Actions, Button, Choices, Field, IconButton, Label, Notice, Theme, font, message, space, touch, useTheme } from "./ui";
 import { t, tn } from "../shared/i18n";
 import { LinkTicket, TicketPreview, useConnections } from "./tickets";
@@ -119,7 +119,7 @@ export function TaskArtifacts({ task, active, disabled, section }: { task: Task;
         return (
           <View key={group.role} style={{ gap: 2 }}>
             <Label muted size={font.xs} bold selectable={false}>{t(group.title)}</Label>
-            {own.slice(0, limit[group.role]).map((row) => (
+            <PagedRows items={own} limit={limit[group.role]} render={(row) => (
               <IdeaRow key={row.item.id} leaving={row.leaving} entering={row.entering} spacing={0}>
                 <ArtifactRow
                   artifact={row.item}
@@ -131,7 +131,7 @@ export function TaskArtifacts({ task, active, disabled, section }: { task: Task;
                   onRemove={remove}
                 />
               </IdeaRow>
-            ))}
+            )} />
             {rest > 0 && (
               <ShowMore
                 count={Math.min(pageSize, rest)}

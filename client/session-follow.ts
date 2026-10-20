@@ -66,8 +66,14 @@ export function useSessionFollowTail() {
     onScrollBeginDrag() {
       follower.current.beginDrag();
     },
-    onScrollEndDrag() {
+    // The last throttled onScroll can come before the list stops, so re-check where it came to rest:
+    // otherwise a fling to the end could leave "Jump to latest" showing (phones).
+    onScrollEndDrag(event?: { nativeEvent: NativeScrollEvent }) {
       follower.current.endDrag();
+      if (event?.nativeEvent?.contentSize) setFollowing(follower.current.scroll(event.nativeEvent));
+    },
+    onMomentumScrollEnd(event: { nativeEvent: NativeScrollEvent }) {
+      if (event?.nativeEvent?.contentSize) setFollowing(follower.current.scroll(event.nativeEvent));
     },
   };
 }

@@ -7,7 +7,7 @@ import * as rpc from "../shared/rpc";
 import type { AcceptanceItem, CheckState, ConfusionItem, PlanSnapshot, Task, ValidationItem, Workpad } from "../shared/model";
 import { plansOf, validationFreshness, workpadOf } from "../shared/workpad";
 import { boardKey, useBoardQuery, useLiveAgents } from "./queries";
-import { Section, ShowMore, pageSize, type SectionState } from "./disclosure";
+import { PagedRows, Section, ShowMore, pageSize, type SectionState } from "./disclosure";
 import { AiMark, IconButton, Label, font, message, radius, relativeTime, space, touch, useTheme } from "./ui";
 import { t } from "../shared/i18n";
 
@@ -128,7 +128,7 @@ export const TaskWorkpad = memo(function TaskWorkpad({ task, disabled, active, s
         )}
         {!!acceptance.length && (
           <Group title={t("Acceptance")}>
-            {acceptance.slice(0, limit.acceptance).map((item) => (
+            <PagedRows items={acceptance} limit={limit.acceptance} render={(item) => (
               <AcceptanceRow
                 key={item.id}
                 item={item}
@@ -139,13 +139,13 @@ export const TaskWorkpad = memo(function TaskWorkpad({ task, disabled, active, s
                   )
                 }
               />
-            ))}
+            )} />
             {acceptance.length > limit.acceptance && <ShowMore count={Math.min(pageSize, acceptance.length - limit.acceptance)} onPress={() => more("acceptance")} />}
           </Group>
         )}
         {!!checks.length && (
           <Group title={t("Checks")}>
-            {shownChecks.slice(0, limit.checks).map((item) => (
+            <PagedRows items={shownChecks} limit={limit.checks} render={(item) => (
               <CheckRow
                 key={item.id}
                 item={item}
@@ -157,7 +157,7 @@ export const TaskWorkpad = memo(function TaskWorkpad({ task, disabled, active, s
                   )
                 }
               />
-            ))}
+            )} />
             {shownChecks.length > limit.checks && <ShowMore count={Math.min(pageSize, shownChecks.length - limit.checks)} onPress={() => more("checks")} />}
           </Group>
         )}
@@ -170,14 +170,14 @@ export const TaskWorkpad = memo(function TaskWorkpad({ task, disabled, active, s
         )}
         {!!confusions.length && (
           <Group title={t("Confusions")}>
-            {confusions.slice(0, limit.confusions).map((item) => (
+            <PagedRows items={confusions} limit={limit.confusions} render={(item) => (
               <ConfusionRow
                 key={item.id}
                 item={item}
                 disabled={disabled || pending.has(item.id)}
                 onResolve={() => void edit(item.id, "removed", () => resolveRpc({ taskId: task.id, itemId: item.id }))}
               />
-            ))}
+            )} />
             {confusions.length > limit.confusions && <ShowMore count={Math.min(pageSize, confusions.length - limit.confusions)} onPress={() => more("confusions")} />}
           </Group>
         )}
