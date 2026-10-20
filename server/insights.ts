@@ -8,6 +8,7 @@ import type { GitStats } from "./git-stats";
 import type { SummaryStore } from "./summaries";
 import { availableModels } from "./summaries";
 import type { AgentLike, UsageService } from "./usage";
+import { modelId } from "./agent-model";
 import { laneName } from "../shared/lanes";
 import { historyStatusLabel, type Board, type HistoryStatus, type Project } from "../shared/model";
 import { SUMMARIZER_LABELS, isSummarizer, resolveModel, type SummaryEntry, type SummarySettings } from "../shared/summary";
@@ -26,6 +27,7 @@ import {
   type FlowEntry,
   type ProjectInsights,
 } from "../shared/insights";
+import { habits, modellessAgents, withMoveDetails, type InsightsWithHabits } from "../shared/agent-habits";
 import {
   DIGEST_DAYS,
   clipMaterial,
@@ -181,16 +183,40 @@ export class InsightsService {
     return this.git.commits(project.primaryPath, since, this.now());
   }
 
-  async project(input: DayInput, paseo: PaseoApi): Promise<ProjectInsights> {
+  /** Agent habits for the 7 days ending at `day` (WORKFLOW-INSIGHTS-SPEC §12); the agent list is read only for turns that carry no model. */
+  private async habits(entries: readonly FlowEntry[], board: Board, tasks: readonly { workspaceId: string }[], day: string, tz: string | undefined, paseo: PaseoApi) {
+    const full = withMoveDetails(entries, board.events);
+    const wanted = modellessAgents(full, { day, tz });
+    const models = new Map<string, string>();
+    if (wanted.size) {
+      const workspaces = new Set(tasks.map((t) => t.workspaceId));
+      try {
+        let cursor: string | undefined;
+        do {
+          const page = await paseo.agents.list({ filter: { includeArchived: true }, page: { limit: 200, cursor } });
+          for (const { agent } of page.entries) {
+            const model = wanted.has(agent.id) && agent.workspaceId && workspaces.has(agent.workspaceId) ? modelId(agent as Parameters<typeof modelId>[0]) : "";
+            if (model) models.set(agent.id, model);
+          }
+          cursor = page.pageInfo.nextCursor ?? undefined;
+        } while (cursor);
+      } catch {
+        // Turns without a model stay under "Unknown model".
+      }
+    }
+    return habits(full, { day, tz, modelOf: (agentId) => models.get(agentId) });
+  }
+
+  async project(input: DayInput, paseo: PaseoApi): Promise<InsightsWithHabits> {
     const tz = validZone(input.tz);
     const now = this.now();
-    const { project, tasks, entries } = await this.context(input.projectId);
+    const { board, project, tasks, entries } = await this.context(input.projectId);
     const day = input.day && isDay(input.day) ? input.day : dayKey(now, tz);
     const [running, git] = await Promise.all([
       this.runningSessions(new Set(tasks.map((t) => t.workspaceId)), paseo).catch(() => ({ agents: new Set<string>(), workspaces: new Set<string>() })),
       this.commits(project, day, tz),
     ]);
-    return analyze({
+    const insights = analyze({
       tasks,
       entries,
       now,
@@ -202,6 +228,7 @@ export class InsightsService {
       repos: git.repos,
       gitError: git.error,
     });
+    return { ...insights, habits: await this.habits(entries, board, tasks, insights.day, tz, paseo) };
   }
 
   /**

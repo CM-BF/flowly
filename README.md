@@ -81,6 +81,8 @@ One page for the day: cards done, new and reworked, turns, agent time, commits a
 
 </details>
 
+**Agent habits** (always on, no tokens): a small block on the Insights page shows, for the last seven days, how often agents' deliveries come with suggested next steps and ideas, by day and by model, how many suggestions you took, and flags a model or session that made none over ten or more deliveries, so a rule that stops being followed shows up within a day.
+
 ## Languages
 
 The interface follows your device language, or pick one in **Flowly settings → Language**: English, 简体中文, 繁體中文, 日本語, 한국어, Español, Français, Deutsch, Português (Brasil) and Русский. Agent instructions, daemon error details and the text agents and summaries write are not translated.

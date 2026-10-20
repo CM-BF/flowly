@@ -17,12 +17,24 @@ export const flowEntrySchema = z.object({
   outcome: z.string().optional(),
   rule: z.string().optional(),
   agentId: z.string().optional(),
+  /** agent.turn_ended: `provider/model` at the end of the turn (WORKFLOW-INSIGHTS-SPEC §12.4). */
+  model: z.string().optional(),
+  /** agent.turn_ended: the next move the user's message matched (index), -1 for none. */
+  pick: z.number().int().min(-1).optional(),
+  /** next_moves_suggested: how many moves (0 is an explicit "none"), and whether one of them is "Move to Done" (the moves themselves are not kept). */
+  offered: z.number().int().min(0).optional(),
+  offersDone: z.boolean().optional(),
 });
 export type FlowEntry = z.infer<typeof flowEntrySchema>;
 
-export function flowEntry(event: FlowEntry & { note?: string }): FlowEntry {
+export function flowEntry(event: FlowEntry & { note?: string; moves?: readonly { moveTo?: string }[] }): FlowEntry {
   const entry: FlowEntry = { id: event.id, at: event.at, taskId: event.taskId, actor: event.actor, action: event.action };
-  for (const key of ["from", "to", "reportKind", "outcome", "rule", "agentId"] as const) if (event[key]) entry[key] = event[key];
+  for (const key of ["from", "to", "reportKind", "outcome", "rule", "agentId", "model"] as const) if (event[key]) entry[key] = event[key];
+  if (typeof event.pick === "number") entry.pick = event.pick;
+  // An empty list is the session's explicit "no next steps" and stays distinguishable: offered 0.
+  const offered = event.moves ? event.moves.length : event.offered;
+  if (offered !== undefined) entry.offered = offered;
+  if (event.moves ? event.moves.some((m) => m.moveTo === "done") : event.offersDone) entry.offersDone = true;
   return entry;
 }
 

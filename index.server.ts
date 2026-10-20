@@ -29,6 +29,8 @@ import { FlowLog } from "./server/flow-log";
 import { ProjectFolders, snapshotPath } from "./server/project-folder";
 import { GitStats } from "./server/git-stats";
 import { DigestStore, InsightsService } from "./server/insights";
+import { sessionModel } from "./server/agent-model";
+import { turnPick, userTexts } from "./shared/agent-habits";
 
 export default function contribute(server: PluginServerContext) {
   server.registerSettings(boardViewSettings);
@@ -359,8 +361,11 @@ export default function contribute(server: PluginServerContext) {
     const identity = await managedTask(event.agent);
     if (!identity) return;
     const auto = await autoStatusOn();
+    // Agent habits (WORKFLOW-INSIGHTS-SPEC §12.4): the model this turn ran on, and whether the user's message took one of the suggestions that were open.
+    const model = await sessionModel(paseo, event.agent);
+    const texts = userTexts(event.timeline);
     await store.mutate((board) => {
-      recordLifecycle(store, board, identity, "agent.turn_ended", event.outcome);
+      recordLifecycle(store, board, identity, "agent.turn_ended", event.outcome, { model, pick: turnPick(board.events, identity.agentId, texts) });
       if (auto) applyTurnEnded(store, board, identity, event.outcome);
     });
     // The session's plan and the workspace HEAD for the workpad (WORKPAD-SPEC §2.2, §5.2); never blocks the hook.

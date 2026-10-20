@@ -40,8 +40,9 @@ import {
 import { summaryEntrySchema, summaryOverviewSchema } from "./summary";
 import { taskUsageSchema } from "./usage";
 import { tailEntrySchema } from "./session-tail";
-import { projectInsightsSchema, tokenInsightsSchema } from "./insights";
+import { tokenInsightsSchema } from "./insights";
 import { digestViewSchema } from "./digest";
+import { insightsWithHabitsSchema } from "./agent-habits";
 
 /** `{ etag }` in; the value is omitted when it still matches (PERFORMANCE-SPEC §3). */
 const etagInput = z.strictObject({ etag: z.string().max(200).optional() });
@@ -561,7 +562,7 @@ const insightsDay = {
 export const projectInsights = defineRpc({
   name: "insights.project",
   input: z.strictObject({ ...insightsDay, day: z.string().max(10).optional(), etag: z.string().max(200).optional() }),
-  output: z.object({ etag: z.string(), value: projectInsightsSchema.optional() }),
+  output: z.object({ etag: z.string(), value: insightsWithHabitsSchema.optional() }),
 });
 export const projectDigest = defineRpc({
   name: "insights.digest",

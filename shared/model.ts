@@ -372,6 +372,13 @@ export const eventSchema = z.object({
   outcome: z.enum(["completed", "failed", "canceled"]).optional(),
   /** next_moves_suggested: the session's suggested next messages (NEXT-MOVES-SPEC §2). */
   moves: z.array(nextMoveSchema).max(nextMoveLimits.count).optional(),
+  /** agent.turn_ended: the session's `provider/model` when the turn ended (WORKFLOW-INSIGHTS-SPEC §12.4). */
+  model: z.string().max(200).optional(),
+  /**
+   * agent.turn_ended: which of the suggestions open when the turn began the user's message matched
+   * (index), or -1 for none. Absent when none was open or the message was not seen.
+   */
+  pick: z.number().int().min(-1).max(nextMoveLimits.count - 1).optional(),
   /** status_changed into In review by an agent: the workpad's open items then (WORKPAD-SPEC §5.3). */
   workpad: deliverySchema.optional(),
   at: timestamp,

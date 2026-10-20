@@ -9,6 +9,8 @@ import { GitStats } from "./git-stats";
 import { SummaryStore } from "./summaries";
 import { DigestStore, InsightsService } from "./insights";
 import type { SummarySettings } from "../shared/summary";
+import type { BoardEvent } from "../shared/model";
+import { insightsWithHabitsSchema } from "../shared/agent-habits";
 
 const roots: string[] = [];
 afterEach(async () => {
@@ -40,7 +42,10 @@ async function setup(options: { rootWorkspace?: boolean } = {}) {
       listModels: async () => ({ models: [{ id: "claude-haiku-5-5" }], error: null }),
     },
     agents: {
-      list: async () => ({ entries: [{ agent: { id: "a1", workspaceId: "w", status: "running", archivedAt: null, labels: {} } }], pageInfo: { nextCursor: null } }),
+      list: async () => ({
+        entries: [{ agent: { id: "a1", workspaceId: "w", provider: "codex", runtimeInfo: { model: "gpt-6-astra" }, status: "running", archivedAt: null, labels: {} } }],
+        pageInfo: { nextCursor: null },
+      }),
     },
     workspaces: {
       list: async () => ({
@@ -90,6 +95,32 @@ test("project insights backfill the flow log and count running sessions", async 
   // A session is running in the card's workspace: no "nothing is running" suggestion.
   expect(result.insights.map((i) => i.rule)).not.toContain("R7");
   await expect(x.service.project({ projectId: "nope", tz: "UTC" }, x.paseo)).rejects.toThrow("Project not found.");
+});
+
+test("project insights carry the agent habits; turns without a stamped model take the session's current one", async () => {
+  const x = await setup();
+  const a = (id: string, action: string, at: string, extra: Partial<BoardEvent> = {}): BoardEvent => ({ id, taskId: "t", actor: action.startsWith("agent.") ? "system" : "agent", action, agentId: "a1", at, ...extra });
+  await x.board.mutate((b) => {
+    b.events.push(
+      a("h1", "agent.turn_started", "2026-10-16T09:00:00.000Z"),
+      a("h2", "next_moves_suggested", "2026-10-16T09:01:00.000Z", { moves: [{ label: "Verify", prompt: "Verify it." }] }),
+      a("h3", "status_changed", "2026-10-16T09:02:00.000Z", { from: "development", to: "in_review", reportKind: "progress" }),
+      a("h4", "agent.turn_ended", "2026-10-16T09:03:00.000Z", { outcome: "completed" }),
+      a("h5", "agent.turn_started", "2026-10-16T10:00:00.000Z"),
+      a("h6", "status_changed", "2026-10-16T10:01:00.000Z", { from: "development", to: "in_review", reportKind: "progress" }),
+      a("h7", "agent.turn_ended", "2026-10-16T10:02:00.000Z", { outcome: "completed", model: "claude/claude-sonnet-5", pick: 0 }),
+    );
+  });
+  const result = await x.service.project({ projectId: "p", tz: "UTC" }, x.paseo);
+  // The RPC validates its answer against this schema; a mismatch would fail every Insights read.
+  const { habits } = insightsWithHabitsSchema.parse(result);
+  expect(habits.days).toHaveLength(7);
+  expect(habits.days.at(-1)).toMatchObject({ day: "2026-10-16", deliveries: 2, moves: 1, movesAny: 1, offered: 1, picked: 1 });
+  expect(Object.fromEntries(habits.models.map((m) => [m.model, m.deliveries]))).toEqual({ "codex/gpt-6-astra": 1, "claude/claude-sonnet-5": 1 });
+  // The flow log keeps what the counters need from a suggestion, not its text.
+  const logged = (await x.flow.read("p")).find((e) => e.id === "h2");
+  expect(logged).toMatchObject({ offered: 1 });
+  expect(JSON.stringify(logged)).not.toContain("Verify it");
 });
 
 test("a past day's digest is generated once on read; today's only on refresh", async () => {

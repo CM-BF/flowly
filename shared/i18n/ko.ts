@@ -1067,5 +1067,17 @@ const catalog: Catalog = {
   "Reset sidebar layout": "사이드바 초기화",
   "The sidebar uses the default layout": "사이드바가 기본 레이아웃입니다",
   "Arrange an open card your way: reorder its sections and choose which start open in Settings → Cards → Card sidebar.": "열린 카드를 내 방식대로: 설정 → 카드 → 카드 사이드바에서 섹션 순서와 처음에 펼칠 섹션을 고르세요.",
+  "Agent habits": "에이전트 습관",
+  "Next moves {moves}/{base} · Ideas {ideas}": "다음 단계 {moves}/{base} · 아이디어 {ideas}",
+  "No deliveries in these 7 days.": "최근 7일 동안 전달된 작업이 없습니다.",
+  "Next moves": "다음 단계",
+  "None needed {n}": "필요 없음 {n}",
+  "Picked {picked} of {offered}": "채택 {picked}/{offered}",
+  "Picked counts a reply that matches a suggestion, or the card moved to Done while its Move to Done suggestion was open.": "'채택'은 제안과 일치하는 답장, 또는 'Done으로 이동' 제안이 열려 있는 동안 카드가 Done으로 옮겨진 경우를 셉니다.",
+  "{day}: next moves on {moves} of {base} deliveries, {ideas} ideas": "{day}: 전달 {base}건 중 {moves}건에 다음 단계, 아이디어 {ideas}건",
+  "{who}: {reason}. Open card": "{who}: {reason}. 카드 열기",
+  "No next moves in {n} deliveries": "전달 {n}건에 다음 단계 없음",
+  "No ideas in {n} deliveries": "전달 {n}건에 아이디어 없음",
+  "Unknown model": "알 수 없는 모델",
 };
 export default catalog;

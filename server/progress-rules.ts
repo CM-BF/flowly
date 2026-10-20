@@ -21,6 +21,8 @@ export function recordLifecycle(
   identity: ToolIdentity,
   action: "agent.turn_started" | "agent.turn_ended" | "agent.permission_requested",
   outcome?: PluginTurnOutcome,
+  /** WORKFLOW-INSIGHTS-SPEC §12.4: the session's model and the next move the user's message took, on turn_ended. */
+  habits: { model?: string; pick?: number } = {},
 ) {
   const target = bound(board, identity);
   if (!target) return;
@@ -31,6 +33,8 @@ export function recordLifecycle(
     agentId: identity.agentId,
     ...(outcome ? { outcome: outcome.kind } : {}),
     ...(outcome?.kind === "failed" ? { note: outcome.error.message.slice(0, 500) } : {}),
+    ...(habits.model ? { model: habits.model.slice(0, 200) } : {}),
+    ...(habits.pick !== undefined ? { pick: habits.pick } : {}),
   });
 }
 

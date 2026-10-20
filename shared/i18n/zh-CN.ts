@@ -1067,5 +1067,17 @@ const catalog: Catalog = {
   "Reset sidebar layout": "恢复默认侧栏布局",
   "The sidebar uses the default layout": "侧栏为默认布局",
   "Arrange an open card your way: reorder its sections and choose which start open in Settings → Cards → Card sidebar.": "按你的习惯整理卡片侧栏：在 设置 → 卡片 → 卡片侧栏 中调整栏目顺序，并选择哪些默认展开。",
+  "Agent habits": "Agent 使用习惯",
+  "Next moves {moves}/{base} · Ideas {ideas}": "下一步建议 {moves}/{base} · 想法 {ideas}",
+  "No deliveries in these 7 days.": "这 7 天没有交付。",
+  "Next moves": "下一步建议",
+  "None needed {n}": "无需下一步 {n}",
+  "Picked {picked} of {offered}": "采纳 {picked}/{offered}",
+  "Picked counts a reply that matches a suggestion, or the card moved to Done while its Move to Done suggestion was open.": "“采纳”指回复与某条建议一致，或在建议“移至 Done”时卡片被移到了 Done。",
+  "{day}: next moves on {moves} of {base} deliveries, {ideas} ideas": "{day}：{base} 次交付中 {moves} 次有下一步建议，{ideas} 条想法",
+  "{who}: {reason}. Open card": "{who}：{reason}。打开卡片",
+  "No next moves in {n} deliveries": "{n} 次交付都没有下一步建议",
+  "No ideas in {n} deliveries": "{n} 次交付都没有想法",
+  "Unknown model": "未知模型",
 };
 export default catalog;

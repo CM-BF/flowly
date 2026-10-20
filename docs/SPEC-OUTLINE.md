@@ -1,5 +1,6 @@
 # Paseo Kanban Plugin：Spec 大纲与路线图
 
+2026-10-20 Agent 使用习惯（已实现，待验收）：Insights 页新增 **Agent habits** 区块，按天（最近 7 天）、按模型统计 agent 的交付（in_review 交付 + result，question 单列）里带 next moves 的比例、每次交付的 ideas、显式“没有下一步”（`nextMoves: []`）的次数，以及用户采纳建议的比例；某模型或 session 在 ≥10 次交付里 0 次 next moves（或 0 个 ideas）时标出。纯规则统计，读 flow log，不调用模型、不受 Workflow insights 开关控制；`agent.turn_ended` 事件新增 `model` 与 `pick`，在钩子里写入。[设计 spec §12](WORKFLOW-INSIGHTS-SPEC.md)。
 2026-10-19 Attention 暂不处理（已实现）：Attention 列表、卡片菜单和侧栏可按卡片 Dismiss，退出铃铛、侧边栏角标、总览 chip 与 tab 计数；记录当时的信号 key（问题事件、权限请求、错误、未读轮次），出现任何新 key 即自动回来；卡片和侧栏仍显示信号并加 Dismissed 标记，列表底部 Dismissed 分组可 Restore。不是已读、不回答/批准、不改 revision 或 Activity；存 `board.json` 的 `attentionDismissals`。新提示 `attention-dismiss`。[spec](ATTENTION-DISMISS-SPEC.md)。
 2026-10-19 内置工具与 skill 命名：MCP 服务/config key 为 `flowly`，11 个工具统一 `flowly_*`，skill 为 `skills/flowly`，CLI 为 `flowly.mjs`，新环境变量统一 `FLOWLY_*`；仅保留历史数据与既有会话所需的私有兼容入口。[spec](FLOWLY-NAMING-SPEC.md)。
 2026-10-19 卡片显示（已实现）：卡片改为四层——标题上方一行淡色元信息（优先级/类型/工单/标签，去掉 pill 和标签框）、标题、单行活动（默认“摘要，否则输出”）、状态信号行；新增 设置 → Cards 页（host 级 `cardActivity` / `cardHidden`，带实时预览与恢复默认），Sort 菜单末尾“Card display…”直达；需要用户处理的信号始终显示。新提示 `card-display`。[spec](CARD-DISPLAY-SPEC.md)。

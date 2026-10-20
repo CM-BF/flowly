@@ -18,6 +18,7 @@ import { localZone, useDigestQuery, useInsightsQuery, useTokensQuery } from "./q
 import { StatusIcon } from "./status";
 import { AiMark, Button, Dot, IconButton, Label, Notice, font, message, noFocusRing, radius, relativeTime, space, touch, useTheme, verticalContent, verticalScroll } from "./ui";
 import { formatLocale, t, tn } from "../shared/i18n";
+import { AgentHabits, habitsSummary } from "./agent-habits";
 
 const HOUR_MS = 3_600_000;
 /** "7m" / "3h" / "2d": how long something has waited. */
@@ -140,6 +141,9 @@ export const InsightsPage = memo(function InsightsPage({
               {isToday && <Waiting data={data} attention={attention} titleOf={titleOf} nameOf={nameOf} onOpenTask={onOpenTask} />}
               {isToday && <Suggestions insights={data.insights} titleOf={titleOf} onOpenTask={onOpenTask} />}
               <Digest projectId={project.id} day={data.day} isToday={isToday} view={digest.data} error={digest.error} titleOf={titleOf} onOpenTask={onOpenTask} />
+              <Section title={t("Agent habits")} detail={habitsSummary(data.habits)}>
+                <AgentHabits habits={data.habits} today={data.today} compact={compact} titleOf={titleOf} onOpenTask={onOpenTask} />
+              </Section>
               <TokenUse tokens={dayTokens} titleOf={titleOf} onOpenTask={onOpenTask} />
               <Trend data={data} tokens={dayTokens} lanes={lanes} nameOf={nameOf} compact={compact} />
               {data.incomplete > 0 && (

@@ -112,6 +112,21 @@ test("lifecycle records carry the outcome; failures keep a short reason", () => 
   expect(b.events).toHaveLength(1);
 });
 
+test("turn_ended can carry the session's model and the pick; nothing is written for a missing value", () => {
+  const b = board("development");
+  recordLifecycle(store, b, id, "agent.turn_ended", { kind: "completed" }, { model: "codex/gpt-6-luna", pick: 0 });
+  recordLifecycle(store, b, id, "agent.turn_ended", { kind: "completed" }, { model: "", pick: -1 });
+  recordLifecycle(store, b, id, "agent.turn_ended", { kind: "completed" }, {});
+  recordLifecycle(store, b, id, "agent.turn_ended", { kind: "completed" });
+  expect(b.events[0]).toMatchObject({ model: "codex/gpt-6-luna", pick: 0 });
+  expect(b.events[1]).toMatchObject({ pick: -1 });
+  expect(b.events[1]).not.toHaveProperty("model");
+  for (const e of b.events.slice(2)) {
+    expect(e).not.toHaveProperty("model");
+    expect(e).not.toHaveProperty("pick");
+  }
+});
+
 const ev = (action: string, at: number, extra: Partial<BoardEvent> = {}): BoardEvent => ({
   id: `${action}-${at}`, taskId: "t", actor: action.startsWith("agent.") ? "system" : "agent",
   action, agentId: "a", at: new Date(Date.parse(now) + at * 1000).toISOString(), ...extra,
@@ -160,6 +175,16 @@ test("A1r restores review/blocked when a resumed turn ends without any report", 
   store.event(n, { taskId: "t", actor: "agent", action: "next_moves_suggested", agentId: "a", moves: [{ label: "Commit", prompt: "Commit it" }] });
   expect(applyTurnEnded(store, n, id, done)).toBe(true);
   expect(n.tasks[0].status).toBe("in_review");
+  // a report that carries its suggestion in the same write is still a report (NEXT-MOVES-SPEC §8.7)
+  for (const moves of [[{ label: "Commit", prompt: "Commit it" }], []]) {
+    const r = board("in_review");
+    recordLifecycle(store, r, id, "agent.turn_started");
+    applyTurnStarted(store, r, id, "S");
+    store.event(r, { taskId: "t", actor: "agent", action: "progress_reported", agentId: "a", note: "done", reportKind: "result" });
+    store.event(r, { taskId: "t", actor: "agent", action: "next_moves_suggested", agentId: "a", moves });
+    expect(applyTurnEnded(store, r, id, done)).toBe(false);
+    expect(r.tasks[0].status).toBe("development");
+  }
   // real work reported -> stays in progress
   const w = board("blocked");
   recordLifecycle(store, w, id, "agent.turn_started");

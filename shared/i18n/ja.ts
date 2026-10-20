@@ -1067,5 +1067,17 @@ const catalog: Catalog = {
   "Reset sidebar layout": "サイドバーをリセット",
   "The sidebar uses the default layout": "サイドバーは既定のレイアウトです",
   "Arrange an open card your way: reorder its sections and choose which start open in Settings → Cards → Card sidebar.": "開いたカードを自分好みに：設定 → カード → カードのサイドバー で、セクションの順序と最初に開くセクションを選べます。",
+  "Agent habits": "エージェントの習慣",
+  "Next moves {moves}/{base} · Ideas {ideas}": "次のステップ {moves}/{base} · アイデア {ideas}",
+  "No deliveries in these 7 days.": "この7日間に納品はありません。",
+  "Next moves": "次のステップ",
+  "None needed {n}": "不要と回答 {n}",
+  "Picked {picked} of {offered}": "採用 {picked}/{offered}",
+  "Picked counts a reply that matches a suggestion, or the card moved to Done while its Move to Done suggestion was open.": "「採用」は、提案に一致する返信、または「Done に移動」の提案が出ている間にカードが Done に移されたことを数えます。",
+  "{day}: next moves on {moves} of {base} deliveries, {ideas} ideas": "{day}：納品 {base} 件中 {moves} 件に次のステップ、アイデア {ideas} 件",
+  "{who}: {reason}. Open card": "{who}：{reason}。カードを開く",
+  "No next moves in {n} deliveries": "納品 {n} 件で次のステップなし",
+  "No ideas in {n} deliveries": "納品 {n} 件でアイデアなし",
+  "Unknown model": "不明なモデル",
 };
 export default catalog;

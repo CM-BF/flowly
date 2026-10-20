@@ -550,3 +550,11 @@ Phase 2 spec: [PHASE-02-SPEC.md](PHASE-02-SPEC.md). Three current-card tools; au
 - PASS (data, live): a child created from this card's session (`6b58d4ff-1936-4302-83ed-5888480904ea`, claude haiku) carries the parent label; the daemon list returns it as idle / finished / requiresAttention, so the chip shows "1 ready to review".
 - PASS (live, user, 2026-10-19): the user checked the Subagents chip in the side bar; the test child `6b58d4ff-…` was archived afterwards.
 - UNRUN: compact (phone) layout; Luna 6 session.
+
+## 2026-10-20 Agent habits (card "Insights: next-move and idea rates per session and model")
+
+- Done: Insights has an **Agent habits** block (`client/agent-habits.tsx`, counters in `shared/agent-habits.ts`, WORKFLOW-INSIGHTS-SPEC §12): per day for the last 7 days, per model and in total, the share of deliveries (in_review + result; questions listed apart) that came with next moves, ideas, explicit "none", and how many suggestions the user picked; a model or session with 0 next moves (or 0 ideas) over at least 10 deliveries is flagged. Pure rules over the flow log, so it works with Workflow insights off and costs no tokens. `agent.turn_ended` events now carry `model` and `pick` (written by the hook from the session snapshot and the turn's user message); flow entries carry `offered` / `offersDone`. `insights.project` returns `habits`.
+- PASS: `npm run typecheck`; `npm test` (705 passed, 65 skipped); `paseo plugin reload flowly` (running, no errors); counters equal an independent hand count of a frozen flow log for five day/zone combinations (`docs/verification/agent-habits.md`).
+- Correction to the card: its example numbers (10-19: 65 / 11, 10-20: 1 / 0) came from `board.json`, which keeps only the last 100 events per card. Flow log: 10-19 has 79 next-move events across all projects (57 in Flowly, rate 61% of delivery/result turns), 10-20 had 5 by 10:48 (8%).
+- Onboarding upkeep: no welcome-tour change and no new tip. It is a diagnostics block, not a headline capability, and a new tip id would be shown once to every user. README (both languages) got one highlight paragraph.
+- UNRUN: the block in a real desktop or compact window; a live `pick` and a live explicit `none` (NEXT-MOVES-SPEC §8 is another session's unfinished work); Luna 6 session.

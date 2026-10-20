@@ -1067,5 +1067,17 @@ const catalog: Catalog = {
   "Reset sidebar layout": "Seitenleiste zurücksetzen",
   "The sidebar uses the default layout": "Die Seitenleiste nutzt das Standardlayout",
   "Arrange an open card your way: reorder its sections and choose which start open in Settings → Cards → Card sidebar.": "Richte eine geöffnete Karte nach deinem Geschmack ein: Ordne ihre Abschnitte und wähle, welche geöffnet starten, unter Einstellungen → Karten → Kartenseitenleiste.",
+  "Agent habits": "Gewohnheiten der Agents",
+  "Next moves {moves}/{base} · Ideas {ideas}": "Nächste Schritte {moves}/{base} · Ideen {ideas}",
+  "No deliveries in these 7 days.": "In diesen 7 Tagen gab es keine Übergaben.",
+  "Next moves": "Nächste Schritte",
+  "None needed {n}": "Nicht nötig {n}",
+  "Picked {picked} of {offered}": "Übernommen {picked} von {offered}",
+  "Picked counts a reply that matches a suggestion, or the card moved to Done while its Move to Done suggestion was open.": "„Übernommen“ zählt eine Antwort, die zu einem Vorschlag passt, oder die Karte, die nach Done verschoben wurde, solange der Vorschlag „Nach Done verschieben“ offen war.",
+  "{day}: next moves on {moves} of {base} deliveries, {ideas} ideas": "{day}: nächste Schritte bei {moves} von {base} Übergaben, {ideas} Ideen",
+  "{who}: {reason}. Open card": "{who}: {reason}. Karte öffnen",
+  "No next moves in {n} deliveries": "Keine nächsten Schritte bei {n} Übergaben",
+  "No ideas in {n} deliveries": "Keine Ideen bei {n} Übergaben",
+  "Unknown model": "Unbekanntes Modell",
 };
 export default catalog;

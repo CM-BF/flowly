@@ -1067,5 +1067,17 @@ const catalog: Catalog = {
   "Reset sidebar layout": "Сбросить панель",
   "The sidebar uses the default layout": "Панель в макете по умолчанию",
   "Arrange an open card your way: reorder its sections and choose which start open in Settings → Cards → Card sidebar.": "Настройте открытую карточку под себя: порядок разделов и какие из них открыты сразу — в Настройки → Карточки → Панель карточки.",
+  "Agent habits": "Привычки агентов",
+  "Next moves {moves}/{base} · Ideas {ideas}": "Следующие шаги {moves}/{base} · Идеи {ideas}",
+  "No deliveries in these 7 days.": "За эти 7 дней сдач не было.",
+  "Next moves": "Следующие шаги",
+  "None needed {n}": "Не требуется {n}",
+  "Picked {picked} of {offered}": "Принято {picked} из {offered}",
+  "Picked counts a reply that matches a suggestion, or the card moved to Done while its Move to Done suggestion was open.": "«Принято» — ответ, совпадающий с предложением, или карточка, перенесённая в Done, пока было открыто предложение «Переместить в Done».",
+  "{day}: next moves on {moves} of {base} deliveries, {ideas} ideas": "{day}: следующие шаги в {moves} из {base} сдач, идей: {ideas}",
+  "{who}: {reason}. Open card": "{who}: {reason}. Открыть карточку",
+  "No next moves in {n} deliveries": "Нет следующих шагов в {n} сдачах",
+  "No ideas in {n} deliveries": "Нет идей в {n} сдачах",
+  "Unknown model": "Неизвестная модель",
 };
 export default catalog;
