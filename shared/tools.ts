@@ -37,6 +37,48 @@ export const requestSchema = z.strictObject({
   id: z.string().min(1).max(4096),
   issuedAt: z.string().datetime(),
 });
+/**
+ * A set of 0-3 suggested next messages (NEXT-MOVES-SPEC §2, §7, §8.2), the same on every entry: flowly_suggest_next_moves
+ * and the optional nextMoves of flowly_update_status / flowly_report_progress. An empty list is the explicit
+ * "nothing for the user this turn".
+ */
+const nextMoveList = z
+  .array(
+    z.strictObject({
+      label: z
+        .string()
+        .trim()
+        .min(1)
+        .max(nextMoveLimits.label)
+        .describe("Button text: a short verb phrase in the user's language, e.g. \"Verify with Luna\" or \"Commit and push\"."),
+      prompt: z
+        .string()
+        .trim()
+        .min(1)
+        .max(nextMoveLimits.prompt)
+        .optional()
+        .describe("The message pre-filled into the user's message box when they pick it, written as the user's instruction to you and understandable on its own. Required unless moveTo is set."),
+      moveTo: z
+        .enum(nextMoveTargets)
+        .optional()
+        .describe("\"done\": picking it moves the card to Done (the user's decision; nothing is sent, no prompt). Only when all work is delivered and committed and pushed. At most one per call."),
+    }),
+  )
+  .max(nextMoveLimits.count)
+  .superRefine((moves, ctx) => {
+    moves.forEach((m, i) => {
+      if (!m.moveTo && !m.prompt) ctx.addIssue({ code: "custom", path: [i, "prompt"], message: "prompt is required unless moveTo is set" });
+      if (m.moveTo && moves.findIndex((x) => x.moveTo === m.moveTo) !== i)
+        ctx.addIssue({ code: "custom", path: [i, "moveTo"], message: "at most one move per moveTo target" });
+    });
+  });
+/** nextMoves on flowly_update_status / flowly_report_progress (NEXT-MOVES-SPEC §8): recorded in the same write. */
+const deliveryMoves = nextMoveList
+  .optional()
+  .describe(
+    "The next steps for the user, recorded with this call: 1-3 messages they are most likely to send you next, the one you recommend first; [] when nothing needs the user this turn. Leave it out to record nothing. A moveTo=\"done\" move is only accepted together with in_review.",
+  );
+
 const base = {
   expectedRevision: revisionSchema,
   request: requestSchema,
@@ -55,10 +97,12 @@ export const statusInputSchema = z.strictObject({
     .describe(
       "Deliver to in_review although workpad items are still open (WORKPAD_OPEN). Only with a note that explains every open item.",
     ),
+  nextMoves: deliveryMoves,
 });
 export const progressInputSchema = z.strictObject({
   ...base,
   kind: z.enum(["progress", "blocker", "result", "question"]).default("progress"),
+  nextMoves: deliveryMoves,
 });
 /** flowly_propose_idea (IDEAS-SPEC §3): a follow-up outside this card's scope. */
 export const ideaInputSchema = z.strictObject({
@@ -120,38 +164,7 @@ export const typeInputSchema = z.strictObject({
 export const nextMovesInputSchema = z.strictObject({
   expectedRevision: revisionSchema,
   request: requestSchema,
-  moves: z
-    .array(
-      z.strictObject({
-        label: z
-          .string()
-          .trim()
-          .min(1)
-          .max(nextMoveLimits.label)
-          .describe("Button text: a short verb phrase in the user's language, e.g. \"Verify with Luna\" or \"Commit and push\"."),
-        prompt: z
-          .string()
-          .trim()
-          .min(1)
-          .max(nextMoveLimits.prompt)
-          .optional()
-          .describe("The message pre-filled into the user's message box when they pick it, written as the user's instruction to you and understandable on its own. Required unless moveTo is set."),
-        moveTo: z
-          .enum(nextMoveTargets)
-          .optional()
-          .describe("\"done\": picking it moves the card to Done (the user's decision; nothing is sent, no prompt). Only when all work is delivered and committed and pushed. At most one per call."),
-      }),
-    )
-    .min(1)
-    .max(nextMoveLimits.count)
-    .describe("1-3 next steps, the one you recommend first.")
-    .superRefine((moves, ctx) => {
-      moves.forEach((m, i) => {
-        if (!m.moveTo && !m.prompt) ctx.addIssue({ code: "custom", path: [i, "prompt"], message: "prompt is required unless moveTo is set" });
-        if (m.moveTo && moves.findIndex((x) => x.moveTo === m.moveTo) !== i)
-          ctx.addIssue({ code: "custom", path: [i, "moveTo"], message: "at most one move per moveTo target" });
-      });
-    }),
+  moves: nextMoveList.describe("0-3 next steps, the one you recommend first. Pass [] when nothing needs the user this turn."),
 });
 const itemId = workpadItemId
   .optional()

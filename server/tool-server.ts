@@ -178,7 +178,7 @@ export class ToolServer {
           "flowly_update_status",
           {
             description:
-              "Move this card to one of allowedStatuses from get_task (design, development, test, blocked or in_review when they are lanes of this project; lanes lists the names the user sees). Use the work stage that matches what you are doing now: design for plans/specs/research, development for implementation, test for verification; you decide where to start and may skip or go back. Keep it current: switch when the work changes, and at the start of each turn correct the stage the card was automatically resumed in if it does not match the work. Copy revisions and request from get_task, include a note. Done/cancelled are human decisions. Delivering to in_review with open workpad items returns WORKPAD_OPEN and changes nothing; deliver anyway only with acknowledgeOpen=true and a note that explains every open item. Retry identical uncertain requests only.",
+              "Move this card to one of allowedStatuses from get_task (design, development, test, blocked or in_review when they are lanes of this project; lanes lists the names the user sees). Use the work stage that matches what you are doing now: design for plans/specs/research, development for implementation, test for verification; you decide where to start and may skip or go back. Keep it current: switch when the work changes, and at the start of each turn correct the stage the card was automatically resumed in if it does not match the work. Copy revisions and request from get_task, include a note. Done/cancelled are human decisions. Delivering to in_review with open workpad items returns WORKPAD_OPEN and changes nothing; deliver anyway only with acknowledgeOpen=true and a note that explains every open item. When you deliver (in_review), pass nextMoves: the 1-3 messages the user is most likely to send you next (same items as flowly_suggest_next_moves, recommended first; a moveTo=\"done\" move is only accepted together with in_review), or [] when nothing needs the user. Leave it out on mid-work stage changes. A refused call records nothing: resend it with the same nextMoves. Retry identical uncertain requests only.",
             inputSchema: statusInputSchema,
             outputSchema: toolResultSchema,
             annotations: {
@@ -194,7 +194,7 @@ export class ToolServer {
           "flowly_report_progress",
           {
             description:
-              "Append this session's checkpoint/blocker/result/question without changing card status or task revision. kind=question asks the user something and marks the card Needs you until they reply. Copy revisions/request from get_task. Partial contribution does not complete the card.",
+              "Append this session's checkpoint/blocker/result/question without changing card status or task revision. kind=question asks the user something and marks the card Needs you until they reply. Copy revisions/request from get_task. Partial contribution does not complete the card. When you ask (kind=question; the moves are the likely answers), report a blocker or give a result, pass nextMoves (same items as flowly_suggest_next_moves, 1-3 recommended first, or [] when nothing needs the user).",
             inputSchema: progressInputSchema,
             outputSchema: toolResultSchema,
             annotations: {
@@ -281,7 +281,7 @@ export class ToolServer {
           "flowly_suggest_next_moves",
           {
             description:
-              "When you end a turn and hand control back to the user, offer the 1-3 next messages they are most likely to send you (e.g. verify the change, commit and push, continue to the next stage), recommended first. Flowly shows them above the user's message box; picking one only fills the box, the user edits or sends it. Valid until the user's next message starts a new turn; calling again in the same turn replaces them. Still mention the options in your reply. Not for questions (use flowly_report_progress kind=question) or for divergent work (use flowly_propose_idea). Does not change card status or task revision. Copy revisions/request from get_task.",
+              "For updates in the middle of a turn, or when your delivery call had no nextMoves; when you deliver or ask, pass nextMoves on flowly_update_status / flowly_report_progress instead. Offer the 1-3 next messages the user is most likely to send you (e.g. verify the change, commit and push, continue to the next stage), recommended first, or [] when nothing needs the user. Flowly shows them above the user's message box; picking one only fills the box, the user edits or sends it. Valid until the user's next message starts a new turn; calling again in the same turn replaces them. Still mention the options in your reply. Not for questions (use flowly_report_progress kind=question; its nextMoves are the likely answers) or for divergent work (use flowly_propose_idea). Does not change card status or task revision. Copy revisions/request from get_task.",
             inputSchema: nextMovesInputSchema,
             outputSchema: toolResultSchema,
             annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },

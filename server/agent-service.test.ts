@@ -412,7 +412,7 @@ test("next moves: recorded per session without a revision change; the latest win
   expect(openNextMoves(board.events, x.identity.agentId)?.moves).toEqual([{ label: "Push", prompt: "Push it." }]);
   ctx = await x.service.get(x.identity);
   const bad = (m: unknown) => x.service.write(x.identity, "next_moves", { expectedRevision: ctx.revision, request: ctx.request, moves: m });
-  await expect(bad([])).rejects.toThrow();
+  // An empty list is the explicit "nothing for the user" (NEXT-MOVES-SPEC §8.2); see its own test below.
   await expect(bad([1, 2, 3, 4].map((i) => ({ label: `m${i}`, prompt: "p" })))).rejects.toThrow();
   await expect(bad([{ label: "  ", prompt: "p" }])).rejects.toThrow();
   await expect(bad([{ label: "x".repeat(61), prompt: "p" }])).rejects.toThrow();
@@ -585,4 +585,146 @@ test("workpad: off for the project — tool refused, no gate, get_task hides it;
   await x.store.updateProject({ id: "p", revision: 2, workpad: true });
   ctx = await x.service.get(x.identity);
   expect(ctx.workpad).toMatchObject({ revision: 1, validation: [{ id: "e2e" }] });
+});
+
+// Next moves ride on the delivery call (NEXT-MOVES-SPEC §8).
+const commitMove = { label: "Commit", prompt: "Commit and push." };
+const suggestions = (board: Awaited<ReturnType<BoardStore["read"]>>) => board.events.filter((e) => e.action === "next_moves_suggested");
+
+test("next moves on the delivery call: one write records the status change, then the suggestion", async () => {
+  const x = await setup();
+  const ctx = await x.service.get(x.identity);
+  const call = {
+    ...input(ctx, "Delivered"),
+    status: "in_review",
+    nextMoves: [{ label: "  Commit  ", prompt: "Commit and push." }, { label: "Move to Done", moveTo: "done" }],
+  };
+  const res = await x.service.write(x.identity, "status", call);
+  expect(res.receipt).toMatchObject({ action: "status", status: "in_review", taskRevision: ctx.revision.task + 1 });
+  const board = await x.store.read();
+  const [moved, suggested] = board.events.slice(-2);
+  expect(moved).toMatchObject({ action: "status_changed", id: res.receipt.eventId, to: "in_review" });
+  expect(suggested).toMatchObject({
+    action: "next_moves_suggested",
+    actor: "agent",
+    agentId: x.identity.agentId,
+    note: "Commit · Move to Done",
+    moves: [commitMove, { label: "Move to Done", moveTo: "done" }],
+  });
+  expect(openNextMoves(board.events, x.identity.agentId)?.moves).toHaveLength(2);
+  // An exact replay returns the original receipt and records no second suggestion; other moves are a reuse.
+  expect(await x.service.write(x.identity, "status", call)).toMatchObject({ replayed: true, receipt: res.receipt });
+  expect(suggestions(await x.store.read())).toHaveLength(1);
+  await expect(x.service.write(x.identity, "status", { ...call, nextMoves: [commitMove] })).rejects.toMatchObject({ code: "REQUEST_REUSED" });
+});
+
+test("next moves on a report: every kind accepts them and the card status stays put", async () => {
+  const x = await setup();
+  for (const kind of ["question", "blocker", "result", "progress"] as const) {
+    const ctx = await x.service.get(x.identity);
+    const res = await x.service.write(x.identity, "progress", { ...input(ctx, kind), kind, nextMoves: [{ label: `Answer ${kind}`, prompt: `Use option ${kind}.` }] });
+    expect(res.receipt).toMatchObject({ action: "progress", status: "todo", taskRevision: ctx.revision.task });
+    const board = await x.store.read();
+    expect(board.events.slice(-2).map((e) => e.action)).toEqual(["progress_reported", "next_moves_suggested"]);
+    expect(openNextMoves(board.events, x.identity.agentId)?.moves).toEqual([{ label: `Answer ${kind}`, prompt: `Use option ${kind}.` }]);
+  }
+});
+
+test("next moves: [] is an explicit none that replaces this turn's suggestion; leaving it out keeps it", async () => {
+  const x = await setup();
+  let ctx = await x.service.get(x.identity);
+  await x.service.write(x.identity, "next_moves", { expectedRevision: ctx.revision, request: ctx.request, moves: [commitMove] });
+  // Not passing nextMoves records nothing and leaves the suggestion open.
+  ctx = await x.service.get(x.identity);
+  await x.service.write(x.identity, "progress", { ...input(ctx), kind: "result" });
+  let board = await x.store.read();
+  expect(suggestions(board)).toHaveLength(1);
+  expect(openNextMoves(board.events, x.identity.agentId)?.moves).toEqual([commitMove]);
+  // [] on the delivery call: recorded as a none, which shows no chips.
+  ctx = await x.service.get(x.identity);
+  await x.service.write(x.identity, "status", { ...input(ctx, "Delivered"), status: "in_review", nextMoves: [] });
+  board = await x.store.read();
+  expect(board.events.at(-1)).toMatchObject({ action: "next_moves_suggested", actor: "agent", agentId: x.identity.agentId, moves: [], note: "No next steps needed" });
+  expect(openNextMoves(board.events, x.identity.agentId)).toBeNull();
+  // The standalone tool takes [] too, and the latest of the turn wins either way.
+  ctx = await x.service.get(x.identity);
+  await x.service.write(x.identity, "next_moves", { expectedRevision: ctx.revision, request: ctx.request, moves: [commitMove] });
+  expect(openNextMoves((await x.store.read()).events, x.identity.agentId)?.moves).toEqual([commitMove]);
+  ctx = await x.service.get(x.identity);
+  await x.service.write(x.identity, "next_moves", { expectedRevision: ctx.revision, request: ctx.request, moves: [] });
+  board = await x.store.read();
+  expect(board.events.at(-1)).toMatchObject({ action: "next_moves_suggested", moves: [], note: "No next steps needed" });
+  expect(openNextMoves(board.events, x.identity.agentId)).toBeNull();
+});
+
+test("next moves on a status or report: invalid moves are INVALID_INPUT and nothing is written", async () => {
+  const x = await setup();
+  const ctx = await x.service.get(x.identity);
+  const before = await readFile(x.store.path, "utf8");
+  const bad = (nextMoves: unknown) => x.service.write(x.identity, "status", { ...input(ctx), status: "in_review", nextMoves });
+  const badReport = (nextMoves: unknown) => x.service.write(x.identity, "progress", { ...input(ctx), kind: "result", nextMoves });
+  for (const moves of [
+    [1, 2, 3, 4].map((i) => ({ label: `m${i}`, prompt: "p" })),
+    [{ label: "  ", prompt: "p" }],
+    [{ label: "x".repeat(61), prompt: "p" }],
+    [{ label: "ok", prompt: "p".repeat(2001) }],
+    [{ label: "No prompt" }],
+    [{ label: "Done", moveTo: "review" }],
+    [{ label: "Done", moveTo: "done" }, { label: "Done 2", moveTo: "done" }],
+    "not a list",
+  ]) {
+    // The schema error is a ZodError here; toolFailure gives the code the MCP and HTTP callers see.
+    for (const call of [bad(moves), badReport(moves)]) expect(toolFailure(await call.catch((e) => e)).code, JSON.stringify(moves)).toBe("INVALID_INPUT");
+  }
+  expect(await readFile(x.store.path, "utf8")).toBe(before);
+});
+
+test("next moves: a Done move is only accepted with a delivery to In review; nothing is written otherwise", async () => {
+  const x = await setup();
+  const done = [commitMove, { label: "Move to Done", moveTo: "done" }];
+  let ctx = await x.service.get(x.identity);
+  const before = await readFile(x.store.path, "utf8");
+  for (const status of ["design", "development", "test"]) {
+    await expect(x.service.write(x.identity, "status", { ...input(ctx), status, nextMoves: done })).rejects.toMatchObject({ code: "INVALID_INPUT" });
+  }
+  await expect(x.service.write(x.identity, "progress", { ...input(ctx), kind: "result", nextMoves: done })).rejects.toMatchObject({ code: "INVALID_INPUT" });
+  // Refused whole: the status did not move, no event, no receipt.
+  expect(await readFile(x.store.path, "utf8")).toBe(before);
+  // The same call delivering to In review goes through, and so does a later report while the card is there.
+  await x.service.write(x.identity, "status", { ...input(ctx), status: "in_review", nextMoves: done });
+  expect(openNextMoves((await x.store.read()).events, x.identity.agentId)?.moves).toEqual(done);
+  ctx = await x.service.get(x.identity);
+  await x.service.write(x.identity, "progress", { ...input(ctx), kind: "result", nextMoves: done });
+  expect(suggestions(await x.store.read())).toHaveLength(2);
+  // The standalone tool is unchanged: it never looked at the card's lane.
+  await x.service.write(x.identity, "status", { ...input(await x.service.get(x.identity)), status: "development" });
+  ctx = await x.service.get(x.identity);
+  await x.service.write(x.identity, "next_moves", { expectedRevision: ctx.revision, request: ctx.request, moves: done });
+  // A finished card refuses everything, including the moves.
+  const task = (await x.store.read()).tasks[0];
+  await x.store.editTask({ id: "t", revision: task.revision, status: "done", actor: "human" });
+  ctx = await x.service.get(x.identity);
+  await expect(x.service.write(x.identity, "status", { ...input(ctx), status: "in_review", nextMoves: [commitMove] })).rejects.toMatchObject({ code: "TASK_FINISHED" });
+  await expect(x.service.write(x.identity, "progress", { ...input(ctx), kind: "result", nextMoves: [] })).rejects.toMatchObject({ code: "TASK_FINISHED" });
+});
+
+test("next moves: a delivery refused for open workpad items records no suggestion; the resend with the same moves does", async () => {
+  const x = await setup();
+  x.service.git = fakeGit({ head: "aaaaaaaaaaaa" });
+  let ctx = await x.service.get(x.identity);
+  await x.service.write(x.identity, "status", { ...input(ctx), status: "development" });
+  ctx = await x.service.get(x.identity);
+  await x.service.write(x.identity, "workpad", workpadInput(ctx, { validation: [{ id: "e2e", text: "E2E", state: "unrun" }] }));
+  ctx = await x.service.get(x.identity);
+  const call = { ...input(ctx, "Delivered; E2E not run"), status: "in_review", nextMoves: [commitMove] };
+  await expect(x.service.write(x.identity, "status", call)).rejects.toMatchObject({ code: "WORKPAD_OPEN" });
+  let board = await x.store.read();
+  expect(board.tasks[0]!.status).toBe("development");
+  expect(suggestions(board)).toHaveLength(0);
+  const ok = await x.service.write(x.identity, "status", { ...call, acknowledgeOpen: true });
+  board = await x.store.read();
+  expect(board.events.slice(-2).map((e) => e.action)).toEqual(["status_changed", "next_moves_suggested"]);
+  // The delivery snapshot still points at the status event, not at the suggestion.
+  expect(board.workpads[0]!.delivery?.eventId).toBe(ok.receipt.eventId);
+  expect(openNextMoves(board.events, x.identity.agentId)?.moves).toEqual([commitMove]);
 });

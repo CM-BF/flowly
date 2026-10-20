@@ -86,8 +86,25 @@ test("MCP initialize/list can precede actor creation; live calls require SDK con
     "flowly_update_workpad",
   ]);
   // The soft delivery gate and the workpad's own revision are part of the tool schemas (WORKPAD-SPEC §3, §5.3).
-  const listed = (await mcp("tools/list", {})).result.tools as { name: string; inputSchema: { properties: Record<string, unknown> } }[];
+  const listed = (await mcp("tools/list", {})).result.tools as { name: string; description: string; inputSchema: { properties: Record<string, unknown> } }[];
   expect(listed.find((t) => t.name === "flowly_update_status")!.inputSchema.properties).toHaveProperty("acknowledgeOpen");
+  // The delivery call carries the next moves, and an empty list is a valid choice on every entry (NEXT-MOVES-SPEC §8.2).
+  const allowsEmpty = (schema: unknown) => ((schema as { minItems?: number }).minItems ?? 0) === 0;
+  for (const name of ["flowly_update_status", "flowly_report_progress"]) {
+    const nextMoves = listed.find((t) => t.name === name)!.inputSchema.properties.nextMoves;
+    expect(nextMoves, name).toMatchObject({ type: "array", maxItems: 3 });
+    expect(allowsEmpty(nextMoves)).toBe(true);
+  }
+  expect(allowsEmpty(listed.find((t) => t.name === "flowly_suggest_next_moves")!.inputSchema.properties.moves)).toBe(true);
+  // The text agents read says where the next moves go (NEXT-MOVES-SPEC §8.6).
+  const described = (name: string) => listed.find((t) => t.name === name)!.description;
+  expect(described("flowly_update_status")).toMatch(/pass nextMoves/);
+  expect(described("flowly_report_progress")).toMatch(/pass nextMoves/);
+  expect(described("flowly_suggest_next_moves")).toMatch(/middle of a turn/);
+  expect(skillText).toMatch(/pass nextMoves/);
+  expect(skillText).toContain("nextMoves: []");
+  expect(skillText).toContain("--no-moves");
+  expect(skillText).toContain("flowly_suggest_next_moves");
   expect(Object.keys(listed.find((t) => t.name === "flowly_update_workpad")!.inputSchema.properties)).toEqual(
     expect.arrayContaining(["workpadRevision", "acceptance", "validation", "confusions"]),
   );
@@ -130,6 +147,32 @@ test("MCP initialize/list can precede actor creation; live calls require SDK con
   expect(proposed.result.structuredContent.current.ideas).toEqual([
     { id: proposed.result.structuredContent.ideaId, title: "Follow-up", status: "open", scope: "new" },
   ]);
+  // Over MCP the delivery call carries the next moves, and so does an explicit none (NEXT-MOVES-SPEC §8).
+  const moves = [{ label: "Commit", prompt: "Commit and push." }, { label: "Move to Done", moveTo: "done" }];
+  const delivered = await mcp("tools/call", {
+    name: "flowly_update_status",
+    arguments: {
+      expectedRevision: proposed.result.structuredContent.current.revision,
+      request: proposed.result.structuredContent.current.request,
+      status: "in_review",
+      note: "MCP delivery",
+      nextMoves: moves,
+    },
+  });
+  expect(delivered.result.structuredContent.receipt.status).toBe("in_review");
+  expect(delivered.result.structuredContent.current.activity.slice(-2)).toMatchObject([{ action: "status_changed", to: "in_review" }, { action: "next_moves_suggested", moves }]);
+  const none = await mcp("tools/call", {
+    name: "flowly_report_progress",
+    arguments: {
+      expectedRevision: delivered.result.structuredContent.current.revision,
+      request: delivered.result.structuredContent.current.request,
+      kind: "result",
+      note: "Nothing for the user",
+      nextMoves: [],
+    },
+  });
+  expect(none.result.isError).toBeUndefined();
+  expect(none.result.structuredContent.current.activity.slice(-2)).toMatchObject([{ action: "progress_reported" }, { action: "next_moves_suggested", moves: [] }]);
 });
 test("loopback host/origin/credential guards and scoped request validation", async () => {
   const x = await setup();
@@ -291,6 +334,21 @@ test("CLI runs a complete scoped flow; replay, wrong env, snapshots and flags", 
   const suggested = await cli("next-moves", "--request-file", snapshot, "--moves", JSON.stringify([{ label: "Commit", prompt: "Commit and push." }]));
   expect(suggested.receipt.action).toBe("next_moves");
   expect(suggested.current.activity.at(-1)).toMatchObject({ action: "next_moves_suggested", moves: [{ label: "Commit", prompt: "Commit and push." }] });
+  // The calls that end a turn carry the moves, or an explicit none (NEXT-MOVES-SPEC §8.4).
+  await cli("current", "--save-request", snapshot);
+  const delivered = await cli("status", "in_review", "--request-file", snapshot, "--note", "Delivered", "--moves", JSON.stringify([{ label: "Push", prompt: "Push it." }, { label: "Move to Done", moveTo: "done" }]));
+  expect(delivered.receipt.action).toBe("status");
+  expect(delivered.current.activity.slice(-2)).toMatchObject([{ action: "progress_reported" }, { action: "next_moves_suggested", moves: [{ label: "Push", prompt: "Push it." }, { label: "Move to Done", moveTo: "done" }] }]);
+  await cli("current", "--save-request", snapshot);
+  const none = await cli("note", "--request-file", snapshot, "--kind", "result", "--note", "Nothing needed", "--no-moves");
+  expect(none.receipt.action).toBe("progress");
+  expect(none.current.activity.at(-1)).toMatchObject({ action: "next_moves_suggested", moves: [] });
+  await cli("current", "--save-request", snapshot);
+  const answers = await cli("note", "--request-file", snapshot, "--kind", "question", "--note", "Which one?", "--moves", JSON.stringify([{ label: "Option A", prompt: "Use option A." }]));
+  expect(answers.current.activity.at(-1)).toMatchObject({ action: "next_moves_suggested", moves: [{ label: "Option A", prompt: "Use option A." }] });
+  await cli("current", "--save-request", snapshot);
+  const standaloneNone = await cli("next-moves", "--request-file", snapshot, "--moves", "[]");
+  expect(standaloneNone.current.activity.at(-1)).toMatchObject({ action: "next_moves_suggested", moves: [] });
   await cli("current", "--save-request", snapshot);
   const proposed = await cli(
     "idea",
@@ -312,7 +370,13 @@ test("CLI runs a complete scoped flow; replay, wrong env, snapshots and flags", 
     ["idea", "--request-file", snapshot, "--title", "No detail", "--rationale", "r"],
     ["note", "--request-file", snapshot, "--note", "n", "--title", "misplaced"],
     ["next-moves", "--request-file", snapshot, "--moves", "not json"],
-    ["note", "--request-file", snapshot, "--note", "n", "--moves", "[]"],
+    ["note", "--request-file", snapshot, "--note", "n", "--moves", "{}"],
+    ["note", "--request-file", snapshot, "--note", "n", "--moves", "[]", "--no-moves"],
+    ["status", "in_review", "--request-file", snapshot, "--note", "n", "--moves", "not json"],
+    ["next-moves", "--request-file", snapshot, "--no-moves"],
+    ["idea", "--request-file", snapshot, "--title", "t", "--detail", "d", "--rationale", "r", "--moves", "[]"],
+    ["tags", "--request-file", snapshot, "--add", "x", "--no-moves"],
+    ["current", "--no-moves"],
     ["current", "--unknown", "x"],
     [
       "current",
@@ -343,7 +407,7 @@ test("CLI runs a complete scoped flow; replay, wrong env, snapshots and flags", 
   await expect(
     cli("note", "--request-file", snapshot, "--note", "wrong"),
   ).rejects.toMatchObject({ code: 1 });
-});
+}, 30_000); // a long sequence of real CLI processes; slow under a parallel full run
 test("same port and credentials survive cleanup/reload; cold error recovers with SDK callback", async () => {
   const x = await setup();
   x.server.attach(x.paseo);

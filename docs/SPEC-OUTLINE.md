@@ -1,5 +1,6 @@
 # Paseo Kanban Plugin：Spec 大纲与路线图
 
+2026-10-20 下一步建议随交付调用提交（已实现，桌面真实会话已验证）：`flowly_update_status` / `flowly_report_progress` 增加可选 `nextMoves`（与 `flowly_suggest_next_moves` 同一组 0–3 条；没传不记录，`[]` 为显式“本轮没有要用户做的事”并在活动里显示一行），与状态变更或汇报在同一事务里写成第二条 `next_moves_suggested`，一份回执；`moveTo:"done"` 只随交付到 In review 被接受；CLI `status` / `note` 增加 `--moves` / `--no-moves`；独立工具保留给一轮中途的更新。交付时提醒（遗漏时在工具结果里提示）是另一张卡，见 §9。[spec](NEXT-MOVES-SPEC.md) §8。
 2026-10-20 Agent 使用习惯（已实现，待验收）：Insights 页新增 **Agent habits** 区块，按天（最近 7 天）、按模型统计 agent 的交付（in_review 交付 + result，question 单列）里带 next moves 的比例、每次交付的 ideas、显式“没有下一步”（`nextMoves: []`）的次数，以及用户采纳建议的比例；某模型或 session 在 ≥10 次交付里 0 次 next moves（或 0 个 ideas）时标出。纯规则统计，读 flow log，不调用模型、不受 Workflow insights 开关控制；`agent.turn_ended` 事件新增 `model` 与 `pick`，在钩子里写入。[设计 spec §12](WORKFLOW-INSIGHTS-SPEC.md)。
 2026-10-19 Attention 暂不处理（已实现）：Attention 列表、卡片菜单和侧栏可按卡片 Dismiss，退出铃铛、侧边栏角标、总览 chip 与 tab 计数；记录当时的信号 key（问题事件、权限请求、错误、未读轮次），出现任何新 key 即自动回来；卡片和侧栏仍显示信号并加 Dismissed 标记，列表底部 Dismissed 分组可 Restore。不是已读、不回答/批准、不改 revision 或 Activity；存 `board.json` 的 `attentionDismissals`。新提示 `attention-dismiss`。[spec](ATTENTION-DISMISS-SPEC.md)。
 2026-10-19 内置工具与 skill 命名：MCP 服务/config key 为 `flowly`，11 个工具统一 `flowly_*`，skill 为 `skills/flowly`，CLI 为 `flowly.mjs`，新环境变量统一 `FLOWLY_*`；仅保留历史数据与既有会话所需的私有兼容入口。[spec](FLOWLY-NAMING-SPEC.md)。

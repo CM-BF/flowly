@@ -1,0 +1,165 @@
+[
+ {
+  "at": "03:03:52.417",
+  "actor": "system",
+  "session": "s1",
+  "action": "agent.turn_started"
+ },
+ {
+  "at": "03:04:12.591",
+  "actor": "agent",
+  "session": "s1",
+  "action": "status_changed",
+  "kind": "progress",
+  "from": "todo",
+  "to": "test",
+  "note": "Starting live verification."
+ },
+ {
+  "at": "03:04:24.755",
+  "actor": "agent",
+  "session": "s1",
+  "action": "status_changed",
+  "kind": "progress",
+  "from": "test",
+  "to": "in_review",
+  "note": "Verification delivery A"
+ },
+ {
+  "at": "03:04:24.755",
+  "actor": "agent",
+  "session": "s1",
+  "action": "next_moves_suggested",
+  "moves": [
+   "Run the tests",
+   "Commit and push",
+   "[done] Move to Done"
+  ],
+  "note": "Run the tests · Commit and push · Move to Done"
+ },
+ {
+  "at": "03:04:28.396",
+  "actor": "system",
+  "session": "s1",
+  "action": "agent.turn_ended"
+ },
+ {
+  "at": "03:04:38.488",
+  "actor": "system",
+  "session": "s2",
+  "action": "agent.turn_started"
+ },
+ {
+  "at": "03:04:38.488",
+  "actor": "system",
+  "session": "s2",
+  "action": "status_changed",
+  "from": "in_review",
+  "to": "development",
+  "rule": "A1",
+  "note": "Luna s2 (cli) · NM live check resumed after a new message"
+ },
+ {
+  "at": "03:04:50.363",
+  "actor": "agent",
+  "session": "s2",
+  "action": "status_changed",
+  "kind": "progress",
+  "from": "development",
+  "to": "test",
+  "note": "S2 testing via CLI"
+ },
+ {
+  "at": "03:05:00.226",
+  "actor": "agent",
+  "session": "s2",
+  "action": "status_changed",
+  "kind": "progress",
+  "from": "test",
+  "to": "in_review",
+  "note": "Verification delivery B"
+ },
+ {
+  "at": "03:05:00.226",
+  "actor": "agent",
+  "session": "s2",
+  "action": "next_moves_suggested",
+  "moves": [
+   "Run the tests",
+   "Commit and push"
+  ],
+  "note": "Run the tests · Commit and push"
+ },
+ {
+  "at": "03:05:02.676",
+  "actor": "system",
+  "session": "s2",
+  "action": "agent.turn_ended"
+ },
+ {
+  "at": "03:08:45.111",
+  "actor": "system",
+  "session": "s1",
+  "action": "agent.turn_started"
+ },
+ {
+  "at": "03:08:45.112",
+  "actor": "system",
+  "session": "s1",
+  "action": "status_changed",
+  "from": "in_review",
+  "to": "development",
+  "rule": "A1",
+  "note": "Luna s1 (mcp) · NM live check resumed after a new message"
+ },
+ {
+  "at": "03:09:00.028",
+  "actor": "agent",
+  "session": "s1",
+  "action": "progress_reported",
+  "kind": "result",
+  "note": "Verification result A"
+ },
+ {
+  "at": "03:09:00.028",
+  "actor": "agent",
+  "session": "s1",
+  "action": "next_moves_suggested",
+  "moves": [],
+  "note": "No next steps needed"
+ },
+ {
+  "at": "03:09:02.630",
+  "actor": "system",
+  "session": "s1",
+  "action": "agent.turn_ended"
+ },
+ {
+  "at": "03:09:06.850",
+  "actor": "system",
+  "session": "s2",
+  "action": "agent.turn_started"
+ },
+ {
+  "at": "03:09:20.913",
+  "actor": "agent",
+  "session": "s2",
+  "action": "progress_reported",
+  "kind": "result",
+  "note": "Verification result B"
+ },
+ {
+  "at": "03:09:20.913",
+  "actor": "agent",
+  "session": "s2",
+  "action": "next_moves_suggested",
+  "moves": [],
+  "note": "No next steps needed"
+ },
+ {
+  "at": "03:09:23.798",
+  "actor": "system",
+  "session": "s2",
+  "action": "agent.turn_ended"
+ }
+]

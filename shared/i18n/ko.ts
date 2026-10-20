@@ -217,6 +217,7 @@ const catalog: Catalog = {
   "Workspace not restored": "워크스페이스를 복원하지 않았습니다",
   "Restored the sessions": "세션을 복원했습니다",
   "Reported progress": "진행 상황을 보고했습니다",
+  "Suggested no next moves": "다음 단계를 제안하지 않았습니다",
   "Started a turn": "턴을 시작했습니다",
   "Finished a turn": "턴을 마쳤습니다",
   "Asked": "질문했습니다",

@@ -217,6 +217,7 @@ const catalog: Catalog = {
   "Workspace not restored": "未恢复工作区",
   "Restored the sessions": "恢复了会话",
   "Reported progress": "汇报了进展",
+  "Suggested no next moves": "没有建议下一步",
   "Started a turn": "开始了一轮",
   "Finished a turn": "结束了一轮",
   "Asked": "提出了问题",

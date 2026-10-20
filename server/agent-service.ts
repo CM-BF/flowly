@@ -3,7 +3,7 @@ import { enabledStatuses, laneEnabled, laneName } from "../shared/lanes";
 import type { PaseoApi } from "@getpaseo/client";
 import { randomUUID } from "node:crypto";
 import { ideaTitleKey } from "../shared/ideas";
-import { nextMovesAction } from "../shared/next-moves";
+import { nextMovesAction, noMovesNote } from "../shared/next-moves";
 import { isResolved, linksOf } from "../shared/links";
 import { absoluteTarget, artifactsOf } from "../shared/artifacts";
 import { changeTags, normalizeTags, projectTagStats, tagChangeNote } from "../shared/tags";
@@ -13,7 +13,7 @@ import { ArtifactReadStore } from "./artifact-reads";
 import { TicketError, TicketReadStore, type TicketService } from "./tickets";
 import { join } from "node:path";
 import { hostname } from "node:os";
-import type { Artifact, GitHead, Workpad } from "../shared/model";
+import type { Artifact, GitHead, NextMove, Workpad } from "../shared/model";
 import { mergeWorkpad, openItemLines, openItems, plansOf, validationFreshness, workpadEnabled, workpadNote, workpadOf, workpadUpdatedAction } from "../shared/workpad";
 import { defaultGit, readHead, resolveCommit, type Git } from "./workpad";
 import {
@@ -486,6 +486,13 @@ export class AgentService {
           "STATUS_UNAVAILABLE",
           `${laneName(project, next)} is not a lane in this project. Use one of allowedStatuses from get_task.`,
         );
+      // Next moves that ride on a status or report (NEXT-MOVES-SPEC §8.2): a Done move is only offered with a delivery.
+      const carried = action === "status" || action === "progress" ? (input as StatusInput | ProgressInput).nextMoves : undefined;
+      if (carried?.some((m) => m.moveTo === "done") && next !== "in_review")
+        throw new ToolError(
+          "INVALID_INPUT",
+          "A moveTo=\"done\" move is only offered together with a delivery to In review (status in_review). Leave it out, or deliver first.",
+        );
       // Soft delivery gate (WORKPAD-SPEC §5.3): open items need an explicit acknowledgement.
       // Off for the project (WORKPAD-SPEC §9): no gate, and the stored workpad stays as it is.
       const deliveryPad =
@@ -635,21 +642,18 @@ export class AgentService {
               });
             })()
           : undefined;
-      // A session's candidate next messages; the latest of a turn wins (NEXT-MOVES-SPEC §2-3).
-      const movesEvent =
-        action === "next_moves"
-          ? (() => {
-              const moves = (input as NextMovesInput).moves;
-              return this.store.event(board, {
-                taskId: task.id,
-                agentId: identity.agentId,
-                actor: "agent",
-                action: nextMovesAction,
-                note: moves.map((m) => m.label).join(" · "),
-                moves,
-              });
-            })()
-          : undefined;
+      // A session's candidate next messages; the latest of a turn wins (NEXT-MOVES-SPEC §2-3). An empty list is
+      // recorded too: the agent's explicit "nothing for the user this turn" (§8.3).
+      const recordMoves = (moves: readonly NextMove[]) =>
+        this.store.event(board, {
+          taskId: task.id,
+          agentId: identity.agentId,
+          actor: "agent",
+          action: nextMovesAction,
+          note: moves.length ? moves.map((m) => m.label).join(" · ") : noMovesNote,
+          moves: [...moves],
+        });
+      const movesEvent = action === "next_moves" ? recordMoves((input as NextMovesInput).moves) : undefined;
       const event =
         artifactEvent ??
         tagsEvent ??
@@ -676,6 +680,8 @@ export class AgentService {
               ...(deliveryPad ? { workpad: { ...delivered!, revision: deliveryPad.revision } } : {}),
             }));
       if (deliveryPad) deliveryPad.delivery = { ...delivered!, revision: deliveryPad.revision, eventId: event.id, at: event.at };
+      // The suggestion follows the status change or report it rode on, in the same write (NEXT-MOVES-SPEC §8.3).
+      if (carried) recordMoves(carried);
       let ideaId: string | undefined;
       if (action === "idea") {
         const idea = input as IdeaInput;

@@ -1,6 +1,6 @@
 import { expect, test } from "vitest";
 import type { BoardEvent } from "./model";
-import { hasOpenNextMoves, nextMoveDraft, openNextMoves, shownMoves } from "./next-moves";
+import { hasOpenNextMoves, isNoMoves, nextMoveDraft, openNextMoves, shownMoves } from "./next-moves";
 
 const ev = (id: string, action: string, agentId = "a", extra: Partial<BoardEvent> = {}): BoardEvent => ({
   id, taskId: "t", actor: action.startsWith("agent.") ? "system" : "agent", action, agentId,
@@ -37,4 +37,18 @@ test("action moves go once the card is finished; message moves stay", () => {
   expect(shownMoves(list, false)).toEqual(list);
   expect(shownMoves(list, true)).toEqual([list[0]]);
   expect(shownMoves([list[1]], true)).toEqual([]);
+});
+
+test("an empty suggestion after a non-empty one leaves nothing open; isNoMoves tells it apart (NEXT-MOVES-SPEC §8)", () => {
+  const none = ev("3", "next_moves_suggested", "a", { moves: [] });
+  const turn = [ev("1", "agent.turn_started"), ev("2", "next_moves_suggested", "a", moves("Verify")), none];
+  expect(openNextMoves(turn, "a")).toBeNull();
+  expect(hasOpenNextMoves(turn)).toBe(false);
+  // A later non-empty set brings chips back.
+  expect(openNextMoves([...turn, ev("4", "next_moves_suggested", "a", moves("Commit"))], "a")?.moves[0].label).toBe("Commit");
+  // Only an explicit none: not a suggestion, not another action, not an event that has no list at all.
+  expect(isNoMoves(none)).toBe(true);
+  expect(isNoMoves(turn[1])).toBe(false);
+  expect(isNoMoves(ev("5", "progress_reported", "a", { moves: [] }))).toBe(false);
+  expect(isNoMoves(ev("6", "next_moves_suggested", "a"))).toBe(false);
 });

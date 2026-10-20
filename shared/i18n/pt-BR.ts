@@ -217,6 +217,7 @@ const catalog: Catalog = {
   "Workspace not restored": "Não restaurou o espaço de trabalho",
   "Restored the sessions": "Restaurou as sessões",
   "Reported progress": "Relatou o andamento",
+  "Suggested no next moves": "Não sugeriu próximos passos",
   "Started a turn": "Iniciou um turno",
   "Finished a turn": "Encerrou um turno",
   "Asked": "Fez uma pergunta",

@@ -3,7 +3,15 @@ import type { BoardEvent, NextMove } from "./model";
 /** The event an agent's flowly_suggest_next_moves records (NEXT-MOVES-SPEC §2). */
 export const nextMovesAction = "next_moves_suggested";
 
+/** The note stored with an empty suggestion, the agent's explicit "nothing for the user this turn" (NEXT-MOVES-SPEC §8.3). */
+export const noMovesNote = "No next steps needed";
+
 export type NextMovesEvent = BoardEvent & { moves: NextMove[] };
+
+/** An explicit none (NEXT-MOVES-SPEC §8.5): a suggestion event whose list is empty, not one that has no list. */
+export function isNoMoves(e: BoardEvent) {
+  return e.action === nextMovesAction && Array.isArray(e.moves) && e.moves.length === 0;
+}
 
 /**
  * The session's suggested next messages for this turn (NEXT-MOVES-SPEC §3): its

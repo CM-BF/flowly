@@ -1,5 +1,5 @@
 import { Fragment, memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { nextMovesAction } from "../shared/next-moves";
+import { isNoMoves, nextMovesAction } from "../shared/next-moves";
 import { workpadCheckedAction, workpadEnabled, workpadUpdatedAction } from "../shared/workpad";
 import type { PaseoAgent } from "@getpaseo/client";
 import { Pressable, View } from "react-native";
@@ -541,11 +541,12 @@ function TaskDrawerView({
   };
   // Routine turn start/end records drive rules and markers, and next-move
   // suggestions live above the session composer; the timeline shows what
-  // changed or needs a person (failed turns, permission requests stay).
+  // changed or needs a person (failed turns, permission requests stay). An
+  // agent's explicit "no next moves" is a choice worth seeing (NEXT-MOVES-SPEC §8.5).
   const meaningful = events.filter(
     (e) =>
       e.action !== "agent.turn_started" &&
-      e.action !== nextMovesAction &&
+      (e.action !== nextMovesAction || isNoMoves(e)) &&
       // The Workpad section shows the workpad itself (WORKPAD-SPEC §2.3).
       e.action !== workpadUpdatedAction &&
       e.action !== workpadCheckedAction &&
@@ -1248,10 +1249,12 @@ function ActivityItem({
   const question = event.reportKind === "question";
   const verb = question
     ? t("Asked")
-    : event.action === "agent.turn_ended" && event.outcome === "failed"
-      ? t("Turn failed")
-      : activityText[event.action] ||
-        event.action.replace(/[._]/g, " ").replace(/^./, (c) => c.toUpperCase());
+    : isNoMoves(event)
+      ? t("Suggested no next moves")
+      : event.action === "agent.turn_ended" && event.outcome === "failed"
+        ? t("Turn failed")
+        : activityText[event.action] ||
+          event.action.replace(/[._]/g, " ").replace(/^./, (c) => c.toUpperCase());
   return (
     <View style={{ flexDirection: "row", gap: space[3] }}>
       <View style={{ width: 14, alignItems: "center" }}>
@@ -1275,7 +1278,7 @@ function ActivityItem({
             <Badge>{t("Auto")}</Badge>
           </View>
         )}
-        {!!event.note && (
+        {!!event.note && !isNoMoves(event) && (
           <Label muted={!question} size={font.sm} lines={question ? 8 : 4}>
             {event.action === "type_set" && (taskTypes as readonly string[]).includes(event.note) ? taskTypeLabels[event.note as Task["type"] & string] : event.note}
           </Label>
