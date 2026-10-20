@@ -27,6 +27,22 @@ export function openNextMoves(events: readonly BoardEvent[], agentId: string): N
   return null;
 }
 
+/**
+ * The session has not yet decided its next moves in the current turn on this card (NEXT-MOVES-SPEC §9.3): no
+ * suggestion event of its own, an explicit none included, since its latest `agent.turn_started`. Events of other
+ * cards and sessions are skipped, since the board holds all of them. Without a turn start (the lifecycle events
+ * are missing) the retained history is one turn, which can only silence a reminder, never add one.
+ */
+export function needsNextMoves(events: readonly BoardEvent[], taskId: string, agentId: string) {
+  for (let i = events.length - 1; i >= 0; i--) {
+    const e = events[i];
+    if (e.taskId !== taskId || e.agentId !== agentId) continue;
+    if (e.action === "agent.turn_started") return true;
+    if (e.action === nextMovesAction) return false;
+  }
+  return true;
+}
+
 /** The moves to show: action moves (NEXT-MOVES-SPEC §7) go once the card is Done/Cancelled. */
 export function shownMoves(moves: readonly NextMove[], cardFinished: boolean) {
   return cardFinished ? moves.filter((m) => !m.moveTo) : moves;

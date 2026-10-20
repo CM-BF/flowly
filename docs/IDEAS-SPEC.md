@@ -77,10 +77,21 @@ idea 不是任务卡：不进泳道、不占 workspace、不改来源卡状态�
 
 ## 4. Skill 规则（新增一条）
 
-- 工作中发现用户没要求、但值得做的下一步时用 `flowly_propose_idea` 提出，通常在交付时。本卡目标的延伸用 `scope=here`（用户可能把它发回本 session 继续）；发散性工作（顺带发现的 bug、重构、独立功能）用 `scope=new`。本卡本来就要求的工作不是 idea，直接做。
+- 每次交付（`in_review`）时回顾本回合注意到的、用户没要求但值得做的东西（顺带发现的 bug、重构机会、后续功能），最多提 3 个，用 `flowly_propose_idea`；确实没有值得提的可以是 0 个，但要有意识地决定，不是忘了（§4.1 在没提过时提醒）。本卡目标的延伸用 `scope=here`（用户可能把它发回本 session 继续）；发散性工作（顺带发现的 bug、重构、独立功能）用 `scope=new`。本卡本来就要求的工作不是 idea，直接做。
 - 每次交付最多 3 个；先看 `ideas` 避免重复。
 - `context` 写清新任务需要的文件、分支和结论，因为新卡的 agent 看不到本对话。
 - idea 只是建议：不要自行开始、不要建卡。
+
+### 4.1 交付时提醒（已实现，2026-10-20）
+
+2026-10-20 卡片“Delivery-time reminders for missing next moves and ideas”。skill 里“通常在交付时”是可选的第二次调用，agent 做完活后不再想起：2026-10-19 当天 145 个回合里 7 个提了 idea，2026-10-20 截至设计时 26 个回合 0 个提了 idea。机制与 next moves 提醒相同，细节（触发、结果形状 `reminders: string[]`、键顺序、重放、与 next moves 的关系）见 [NEXT-MOVES-SPEC](NEXT-MOVES-SPEC.md) §9；这里只写 ideas 的部分。
+
+- 触发：`flowly_update_status` → `in_review` 成功后。其它调用（`blocked`、`question`、`result`、切换工作阶段）不提醒 ideas。
+- 条件（三者同时满足）：Ideas 设置为开；写入成功；该会话（`agentId`）在本卡**从未**提出过 idea。后者读 `board.ideas`（`taskId` + `agentId`，含已忽略/已采纳的），不读 `idea_proposed` 事件，因为事件按卡片只保留最近 100 条，忙碌的卡上旧事件会被修剪而误报。
+- 这是“卡片级”而非“本轮级”：会话在本卡提过一次后，之后的交付不再提醒（skill 仍写“每次交付”）。理由：没有“我决定提 0 个”的回执，本轮级提醒会让有意识选 0 的卡每次交付都被重复提醒。想改成本轮级，把来源换成 `idea_proposed` 事件并以最近的 `agent.turn_started` 为界即可。
+- Ideas 关闭时静默：不提醒，也不读取 ideas。`IDEAS_DISABLED` 的行为不变。
+- 文案（英文）：`You have proposed no ideas on this card. Consider 0-3 ideas (flowly_propose_idea) for worthwhile follow-ups you noticed: bugs, refactors, next features. Zero is fine; decide on purpose.`
+- 只是文字：写入照常成功，不拦截（不同于 `WORKPAD_OPEN`），不新增错误码，不写入看板，不改 `idea` 的任何校验与上限。
 
 ## 5. UI
 
@@ -213,4 +224,5 @@ agent 建议 `scope=new` 时 “Start a new task · Suggested” 排在最前、
   - `ideas.update` 状态约束；删除卡片与移除项目的级联与备份；旧 `board.json`（无 `ideas`）可读。
   - `ideaDescription()` 输出与截断；`sessionContext` 的来源行。
 - 工具服务：注册 `flowly_propose_idea`；`/api` 的 `idea` 动作；`flowly_get_task` 返回 `ideas`。
+- 交付时提醒（§4.1，`server/agent-service.test.ts`）：`in_review` 且该会话没提过 idea、Ideas 开 → 结果带 ideas 提醒；Ideas 关 → 没有；该会话已提过（含已忽略的）→ 没有；另一个会话提过的不算；旧的 `idea_proposed` 事件被修剪后仍不误报（按 `board.ideas` 判断）；`blocked`/`question`/`result` 不带 ideas 提醒；失败的写入（`WORKPAD_OPEN`）不带。
 - typecheck、全量测试；安装并 reload 本插件；用 Luna 6 全权限测试 session 在 fixture 卡片上走通“提出 → 侧栏显示 → 建卡 → 双向链接”，结束后清理。

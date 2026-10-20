@@ -6,6 +6,7 @@ import { ToolSecrets, digest } from "./tool-context";
 import { toolFailure } from "./tool-error";
 import { agentFixture } from "./agent-fixture";
 import { openNextMoves } from "../shared/next-moves";
+import { answersReminder, ideasReminder, movesReminder } from "./reminders";
 
 const roots: string[] = [];
 async function setup() {
@@ -727,4 +728,133 @@ test("next moves: a delivery refused for open workpad items records no suggestio
   // The delivery snapshot still points at the status event, not at the suggestion.
   expect(board.workpads[0]!.delivery?.eventId).toBe(ok.receipt.eventId);
   expect(openNextMoves(board.events, x.identity.agentId)?.moves).toEqual([commitMove]);
+});
+
+// Delivery-time reminders (NEXT-MOVES-SPEC §9, IDEAS-SPEC §4.1): text in the result, never a refusal.
+type Rig = Awaited<ReturnType<typeof setup>>;
+const turnStarted = (x: Rig, agentId = x.identity.agentId) =>
+  x.store.mutate((board) => {
+    x.store.event(board, { taskId: "t", agentId, actor: "system", action: "agent.turn_started" });
+  });
+const deliver = async (x: Rig, extra: Record<string, unknown> = {}) =>
+  x.service.write(x.identity, "status", { ...input(await x.service.get(x.identity), "Delivered"), status: "in_review", ...extra });
+const reportKind = async (x: Rig, kind: string, extra: Record<string, unknown> = {}) =>
+  x.service.write(x.identity, "progress", { ...input(await x.service.get(x.identity), kind), kind, ...extra });
+const suggest = async (x: Rig, moves: unknown[]) =>
+  x.service.write(x.identity, "next_moves", { ...(({ expectedRevision, request }) => ({ expectedRevision, request }))(input(await x.service.get(x.identity))), moves });
+const proposeIdea = async (x: Rig, agentId = x.identity.agentId) => {
+  const identity = { ...x.identity, agentId };
+  const ctx = await x.service.get(identity);
+  return x.service.write(identity, "idea", {
+    expectedRevision: ctx.revision,
+    request: ctx.request,
+    title: `Follow-up of ${agentId}`,
+    detail: "Do the follow-up.",
+    rationale: "Noticed while working.",
+  });
+};
+
+test("a delivery with no next moves and no ideas gets both reminders ahead of current, also on a replay", async () => {
+  const x = await setup();
+  const ctx = await x.service.get(x.identity);
+  const call = { ...input(ctx, "Delivered"), status: "in_review" };
+  const res = await x.service.write(x.identity, "status", call);
+  expect(res.reminders).toEqual([movesReminder, ideasReminder]);
+  // The reminders sit right after the receipt, before the card's whole context.
+  expect(Object.keys(res)).toEqual(["receipt", "replayed", "reminders", "current"]);
+  expect((await x.store.read()).tasks[0].status).toBe("in_review");
+  // A replay (the first response may have been lost) is judged on the board as it is now.
+  expect(await x.service.write(x.identity, "status", call)).toMatchObject({ replayed: true, reminders: [movesReminder, ideasReminder] });
+  await suggest(x, []);
+  const again = await x.service.write(x.identity, "status", call);
+  expect(again.replayed).toBe(true);
+  expect(again.reminders).toEqual([ideasReminder]);
+});
+
+test("reminders are absent when the call was made already: moves this turn, Ideas off, ideas proposed, moves on the call", async () => {
+  // Moves sent earlier in this turn: only the ideas reminder is left.
+  let x = await setup();
+  await suggest(x, [commitMove]);
+  expect((await deliver(x)).reminders).toEqual([ideasReminder]);
+  // Moves carried by the delivery itself, including an explicit none.
+  for (const nextMoves of [[commitMove], []]) {
+    x = await setup();
+    expect((await deliver(x, { nextMoves })).reminders).toEqual([ideasReminder]);
+  }
+  // Ideas off: no ideas reminder and nothing else changes.
+  x = await setup();
+  x.service.ideasOn = async () => false;
+  expect((await deliver(x)).reminders).toEqual([movesReminder]);
+  // This session already proposed an idea on the card, even when its events were pruned long ago.
+  x = await setup();
+  await proposeIdea(x);
+  await x.store.mutate((board) => {
+    for (let i = 0; i < 120; i++) x.store.event(board, { taskId: "t", actor: "system", action: "edited" });
+  });
+  expect((await x.store.read()).events.some((e) => e.action === "idea_proposed")).toBe(false);
+  expect((await deliver(x)).reminders).toEqual([movesReminder]);
+  // Everything done: the result has no reminders key at all.
+  x = await setup();
+  await proposeIdea(x);
+  expect(await deliver(x, { nextMoves: [] })).not.toHaveProperty("reminders");
+  // Another session's idea or moves do not count for this one.
+  x = await setup();
+  await proposeIdea(x, "second");
+  await x.store.mutate((board) => {
+    x.store.event(board, { taskId: "t", agentId: "second", actor: "agent", action: "next_moves_suggested", note: "Commit", moves: [commitMove] });
+    x.store.event(board, { taskId: "other", agentId: x.identity.agentId, actor: "agent", action: "next_moves_suggested", note: "Commit", moves: [commitMove] });
+  });
+  expect((await deliver(x)).reminders).toEqual([movesReminder, ideasReminder]);
+});
+
+test("a new turn starts over: last turn's moves do not count, this turn's none does", async () => {
+  const x = await setup();
+  await turnStarted(x);
+  await suggest(x, [commitMove]);
+  expect((await reportKind(x, "result")).reminders).toBeUndefined();
+  await turnStarted(x);
+  expect((await reportKind(x, "result")).reminders).toEqual([movesReminder]);
+  await suggest(x, []);
+  expect(await reportKind(x, "result")).not.toHaveProperty("reminders");
+  await turnStarted(x);
+  expect((await reportKind(x, "result")).reminders).toEqual([movesReminder]);
+  // The start of another session's turn does not reopen this one.
+  await suggest(x, [commitMove]);
+  await turnStarted(x, "second");
+  expect(await reportKind(x, "result")).not.toHaveProperty("reminders");
+});
+
+test("only a delivery, an ask or a result reminds: stage changes and plain progress stay quiet", async () => {
+  const x = await setup();
+  const status = async (to: string) => x.service.write(x.identity, "status", { ...input(await x.service.get(x.identity)), status: to });
+  for (const to of ["design", "development", "test"]) expect(await status(to), to).not.toHaveProperty("reminders");
+  for (const kind of ["progress", "blocker"]) expect(await reportKind(x, kind), kind).not.toHaveProperty("reminders");
+  expect((await reportKind(x, "result")).reminders).toEqual([movesReminder]);
+  // A question asks for answers; the question itself stays kind=question.
+  expect((await reportKind(x, "question")).reminders).toEqual([answersReminder]);
+  expect((await status("blocked")).reminders).toEqual([movesReminder]);
+  expect((await status("in_review")).reminders).toEqual([movesReminder, ideasReminder]);
+  // Other tools never remind.
+  expect(await suggest(x, [])).not.toHaveProperty("reminders");
+  expect(await proposeIdea(x)).not.toHaveProperty("reminders");
+  // Nothing was blocked by a reminder: every write above is on the board.
+  expect((await x.store.read()).events.filter((e) => e.action === "status_changed").map((e) => e.to)).toEqual([
+    "design", "development", "test", "blocked", "in_review",
+  ]);
+});
+
+test("a refused call or a finished card carries no reminders", async () => {
+  const x = await setup();
+  const stale = { ...input(await x.service.get(x.identity), "Delivered"), status: "in_review" };
+  await x.service.write(x.identity, "status", { ...input(await x.service.get(x.identity)), status: "development" });
+  await expect(x.service.write(x.identity, "status", stale)).rejects.toMatchObject({ code: "REVISION_CONFLICT" });
+  const call = { ...input(await x.service.get(x.identity), "Delivered"), status: "in_review" };
+  const first = await x.service.write(x.identity, "status", call);
+  expect(first.reminders).toHaveLength(2);
+  // The person moved the card to Done: its replay still returns the receipt, with nothing to remind.
+  const task = (await x.store.read()).tasks[0];
+  await x.store.editTask({ id: "t", revision: task.revision, status: "done", actor: "human" });
+  const replay = await x.service.write(x.identity, "status", call);
+  expect(replay).toMatchObject({ replayed: true, receipt: first.receipt });
+  expect(replay).not.toHaveProperty("reminders");
 });

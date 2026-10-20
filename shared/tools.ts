@@ -379,6 +379,11 @@ export const toolResultSchema = z.object({
     expiresAt: true,
   }),
   replayed: z.boolean(),
+  /**
+   * Calls the agent left out of this delivery, ask or result (NEXT-MOVES-SPEC §9): plain text, the write already
+   * succeeded. Absent when there is nothing to remind.
+   */
+  reminders: z.array(z.string()).optional(),
   /** The proposed idea, for flowly_propose_idea. */
   ideaId: z.string().optional(),
   /** The added, updated or removed artifact, for the artifact tools. */

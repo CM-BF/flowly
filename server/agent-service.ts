@@ -16,6 +16,7 @@ import { hostname } from "node:os";
 import type { Artifact, GitHead, NextMove, Workpad } from "../shared/model";
 import { mergeWorkpad, openItemLines, openItems, plansOf, validationFreshness, workpadEnabled, workpadNote, workpadOf, workpadUpdatedAction } from "../shared/workpad";
 import { defaultGit, readHead, resolveCommit, type Git } from "./workpad";
+import { deliveryReminders, type DeliveryCall } from "./reminders";
 import {
   agentStatuses,
   ideaInputSchema,
@@ -383,7 +384,9 @@ export class AgentService {
       input.expectedRevision,
     );
     const resources = await this.resources(identity);
-    const ideasOn = action === "idea" ? await this.ideasOn() : true;
+    // Read for a proposal, and for a delivery whose result may remind of ideas (IDEAS-SPEC §4.1).
+    const ideasOn =
+      action === "idea" || (action === "status" && (input as StatusInput).status === "in_review") ? await this.ideasOn() : true;
     const artifactWrite = action === "artifact" || action === "artifact_remove";
     const artifactsOn = artifactWrite ? await this.artifactsOn() : true;
     // Paths are checked before the write; the transaction only records the result.
@@ -417,6 +420,20 @@ export class AgentService {
     const tagEdit = action === "tags" || action === "idea" ? normalizeToolTags(action, input as TagsToolInput | IdeaInput) : undefined;
     const key = `${identity.agentId}:${digest(input.request.id)}`,
       payloadHash = digest(JSON.stringify({ action, input }));
+    // What this call left out (NEXT-MOVES-SPEC §9): read from the board as it is after the write, also on a replay
+    // (the first response may have been lost), and only while the card still takes writes.
+    const call: DeliveryCall | undefined =
+      action === "status"
+        ? { action, status: (input as StatusInput).status }
+        : action === "progress"
+          ? { action, kind: (input as ProgressInput).kind }
+          : undefined;
+    const reminders = (board: Board): string[] => {
+      const task = board.tasks.find((t) => t.id === identity.taskId);
+      if (!call || !task || task.archivedAt || ["done", "cancelled"].includes(task.status)) return [];
+      if (board.projects.find((p) => p.id === task.projectId)?.archivedAt) return [];
+      return deliveryReminders(board, { taskId: task.id, agentId: identity.agentId }, call, ideasOn);
+    };
     const result = await this.store.transaction((board) => {
       const existing = board.agentReceipts.find((r) => r.key === key);
       if (existing) {
@@ -426,7 +443,10 @@ export class AgentService {
             "Request already committed with different parameters.",
           );
         const idea = existing.eventId ? board.ideas.find((i) => i.eventId === existing.eventId) : undefined;
-        return { value: { receipt: existing, replayed: true, ideaId: idea?.id, artifactId: existing.artifactId }, changed: false };
+        return {
+          value: { receipt: existing, replayed: true, ideaId: idea?.id, artifactId: existing.artifactId, reminders: reminders(board) },
+          changed: false,
+        };
       }
       const age = this.clock() - Date.parse(signed.issuedAt);
       if (age > 15 * 60 * 1000 || age < -30000)
@@ -722,7 +742,7 @@ export class AgentService {
         expiresAt: new Date(this.clock() + 7 * 86400000).toISOString(),
       };
       board.agentReceipts.push(receipt);
-      return { value: { receipt, replayed: false, ideaId, artifactId }, changed: true };
+      return { value: { receipt, replayed: false, ideaId, artifactId, reminders: reminders(board) }, changed: true };
     });
     const {
       key: _key,
@@ -736,11 +756,12 @@ export class AgentService {
         at: new Date(this.clock()).toISOString(),
         action,
       });
-      return { receipt, replayed: result.replayed, ...ideaField(result.ideaId), ...(result.artifactId ? { artifactId: result.artifactId } : {}), current };
+      return { receipt, replayed: result.replayed, ...remindersField(result.reminders), ...ideaField(result.ideaId), ...(result.artifactId ? { artifactId: result.artifactId } : {}), current };
     } catch (e) {
       return {
         receipt,
         replayed: result.replayed,
+        ...remindersField(result.reminders),
         ...ideaField(result.ideaId), ...(result.artifactId ? { artifactId: result.artifactId } : {}),
         current: null,
         contextError: e instanceof Error ? e.message : "Re-read the task.",
@@ -789,6 +810,8 @@ function normalizeToolTags(action: "tags" | "idea", input: TagsToolInput | IdeaI
 }
 
 const ideaField = (ideaId: string | undefined) => (ideaId ? { ideaId } : {});
+/** `reminders` only when there are some, so other calls' results stay as they were (NEXT-MOVES-SPEC §9.5). */
+const remindersField = (reminders: string[] | undefined) => (reminders?.length ? { reminders } : {});
 
 /** Rejects a duplicate open title or an eleventh open idea on the card (IDEAS-SPEC §3). */
 export function checkIdea(board: Board, taskId: string, title: string) {

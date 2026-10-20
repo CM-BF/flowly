@@ -6,6 +6,7 @@ import { createServer, request } from "node:http";
 import { ToolServer } from "./tool-server";
 import { agentFixture } from "./agent-fixture";
 import { skillText } from "./skill-source";
+import { ideasReminder, movesReminder } from "./reminders";
 
 const run = promisify(execFile),
   cleanups: (() => Promise<unknown>)[] = [];
@@ -104,6 +105,12 @@ test("MCP initialize/list can precede actor creation; live calls require SDK con
   expect(skillText).toMatch(/pass nextMoves/);
   expect(skillText).toContain("nextMoves: []");
   expect(skillText).toContain("--no-moves");
+  // Delivery-time reminders (NEXT-MOVES-SPEC §9): the instructions, the tool texts and the result schema all know them.
+  expect(skillText).toContain("Every turn that delivers (in_review), asks (kind=question) or reports a result (kind=result) ends with next moves");
+  expect(skillText).toContain("At each delivery (in_review), review what you noticed");
+  expect(skillText).toMatch(/reminders array/);
+  expect(described("flowly_update_status")).toMatch(/reminders/);
+  expect(described("flowly_report_progress")).toMatch(/reminders/);
   expect(skillText).toContain("flowly_suggest_next_moves");
   expect(Object.keys(listed.find((t) => t.name === "flowly_update_workpad")!.inputSchema.properties)).toEqual(
     expect.arrayContaining(["workpadRevision", "acceptance", "validation", "confusions"]),
@@ -133,11 +140,25 @@ test("MCP initialize/list can precede actor creation; live calls require SDK con
     },
   });
   expect(updated.result.structuredContent.receipt.status).toBe("development");
-  const proposed = await mcp("tools/call", {
-    name: "flowly_propose_idea",
+  expect(updated.result.structuredContent).not.toHaveProperty("reminders");
+  // A result without next moves says so in the result itself, ahead of the card's whole context (NEXT-MOVES-SPEC §9.5).
+  const reminded = await mcp("tools/call", {
+    name: "flowly_report_progress",
     arguments: {
       expectedRevision: updated.result.structuredContent.current.revision,
       request: updated.result.structuredContent.current.request,
+      kind: "result",
+      note: "A result without next moves",
+    },
+  });
+  expect(reminded.result.isError).toBeUndefined();
+  expect(reminded.result.structuredContent.reminders).toEqual([movesReminder]);
+  expect(Object.keys(JSON.parse(reminded.result.content[0].text)).slice(0, 3)).toEqual(["receipt", "replayed", "reminders"]);
+  const proposed = await mcp("tools/call", {
+    name: "flowly_propose_idea",
+    arguments: {
+      expectedRevision: reminded.result.structuredContent.current.revision,
+      request: reminded.result.structuredContent.current.request,
       title: "Follow-up",
       detail: "Do the next thing.",
       rationale: "Found while working.",
@@ -324,6 +345,9 @@ test("CLI runs a complete scoped flow; replay, wrong env, snapshots and flags", 
     "Ready for human review",
   );
   expect(finished.receipt.status).toBe("in_review");
+  // The CLI prints the whole result, so the reminders follow the receipt (NEXT-MOVES-SPEC §9.5).
+  expect(Object.keys(finished).slice(0, 3)).toEqual(["receipt", "replayed", "reminders"]);
+  expect(finished.reminders).toEqual([movesReminder, ideasReminder]);
   await cli("current", "--save-request", snapshot);
   const tagged = await cli("tags", "--request-file", snapshot, "--add", "Drawer, perf");
   expect(tagged.current.task.tags.map((t: { tag: string }) => t.tag)).toEqual(["drawer", "perf"]);
