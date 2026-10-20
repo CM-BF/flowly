@@ -125,6 +125,12 @@ describe("card signal and delivery (§5.3, §6.1)", () => {
     expect(workpadSignal({ status: "test" }, { ...base, validation: [] }, [])).toEqual({ kind: "acceptance", done: 0, total: 1, count: 0 });
     expect(workpadSignal({ status: "test" }, pad(), [])).toBeNull();
     expect(workpadSignal({ status: "test" }, null, [])).toBeNull();
+    // Finished cards: a pass on an old commit still counts, and "out of date" never shows.
+    const stalePad = { ...base, validation: base.validation.slice(0, 2) };
+    expect(workpadSignal({ status: "done" }, stalePad, [])).toEqual({ kind: "checks", done: 2, total: 2, count: 0 });
+    expect(workpadSignal({ status: "cancelled" }, stalePad, [])?.kind).toBe("checks");
+    expect(workpadSignal({ status: "test", archivedAt: "2026-10-20T00:00:00Z" }, stalePad, [])?.kind).toBe("checks");
+    expect(workpadSignal({ status: "done" }, base, [])?.kind).toBe("failed");
   });
 
   test("the delivery marker belongs to the move into In review that recorded it", () => {

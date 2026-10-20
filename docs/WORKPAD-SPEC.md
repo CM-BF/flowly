@@ -213,6 +213,8 @@ agent 调 `flowly_update_status(status=in_review)` 时（只在 agent 路径；�
 
 `pass` 只数新鲜度不是 `stale` 的通过项。图标 `ListChecks`。所有计数从已在客户端的看板数据算出，不新增请求。
 
+完成的卡（Done、Cancelled 或已归档）不再判断过期（2026-10-20 用户决定）：之后的 commit 不会再让它显示 out of date，旧 commit 上的 pass 照常计入；失败仍显示。卡片内 Workpad 的每项仍标出 `@sha · out of date`，作为历史记录。
+
 ### 6.2 抽屉
 
 在 `TaskProgress` 与 `TaskArtifacts` 之间新增 **Workpad** 段（`client/task-workpad.tsx`，`React.memo`，回调用 `useStableCallback`），默认展开，没有 workpad 也没有 Plan 时整段不显示：

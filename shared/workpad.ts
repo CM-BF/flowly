@@ -213,11 +213,13 @@ export type WorkpadSignal = {
 };
 
 /** The one workpad signal a card shows (§6.1), from data already on the board. */
-export function workpadSignal(task: Pick<Task, "status">, workpad: Workpad | null | undefined, events: readonly BoardEvent[]): WorkpadSignal | null {
+export function workpadSignal(task: Pick<Task, "status"> & { archivedAt?: string | null }, workpad: Workpad | null | undefined, events: readonly BoardEvent[]): WorkpadSignal | null {
   if (!workpad) return null;
   const delivery = currentDelivery(task, workpad, events);
   const checks = workpad.validation;
-  const fresh = (v: ValidationItem) => validationFreshness(v, workpad.head);
+  // A finished card is never re-checked, so later commits do not make its checks "out of date" (user request 2026-10-20).
+  const finished = task.status === "done" || task.status === "cancelled" || !!task.archivedAt;
+  const fresh = (v: ValidationItem) => (finished ? "fresh" : validationFreshness(v, workpad.head));
   const pass = checks.filter((v) => v.state === "pass" && fresh(v) !== "stale").length;
   if (delivery && delivery.total > 0) return { kind: "delivered", done: pass, total: checks.length, count: delivery.total };
   if (checks.length) {
