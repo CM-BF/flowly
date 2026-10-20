@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { catalogs } from "./i18n/catalogs";
+import { catalogs } from "./i18n-all";
 import { deviceLocale, localeCodes, localizedLabels, resolveLocale, setLocale, t, tn, withLocale, type CatalogEntry } from "./i18n";
 import { sourceKeys } from "./i18n-keys";
 import { statusLabels, taskTypeLabels } from "./model";

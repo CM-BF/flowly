@@ -6,8 +6,6 @@
  * complete. Only UI text is translated: agent-facing text (skill, tool
  * descriptions, prompts) and daemon error messages stay English.
  */
-import { catalogs } from "./i18n/catalogs";
-
 export const locales = [
   { code: "en", name: "English" },
   { code: "zh-CN", name: "简体中文" },
@@ -59,6 +57,18 @@ export function localeFor(preference: LanguagePreference | string | null | undef
   if (!preference || preference === "auto") return deviceLocale();
   return localeCodes.includes(preference as LocaleCode) ? (preference as LocaleCode) : deviceLocale();
 }
+
+/**
+ * Loaded catalogs. The client bundle carries none (they were more than half of
+ * its size, and the phone evaluates the whole bundle at every start): the
+ * client asks the daemon for its language's catalog (`i18n.catalog`) and
+ * registers it; tests and the daemon register all of them from `i18n-all.ts`.
+ */
+const catalogs: Partial<Record<LocaleCode, Catalog>> = {};
+export function registerCatalog(code: LocaleCode, catalog: Catalog): void {
+  catalogs[code] = catalog;
+}
+export const hasCatalog = (code: LocaleCode): boolean => code === "en" || !!catalogs[code];
 
 let current: LocaleCode = "en";
 export const getLocale = (): LocaleCode => current;

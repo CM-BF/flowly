@@ -45,6 +45,7 @@ import { useSessionReads } from "./session-reads";
 import { sessionAttention } from "../shared/session-attention";
 import type { SessionEntry } from "./session-link";
 import { Enter, MotionReveal, useSettled } from "./motion";
+import { perfLap } from "./perf";
 import { TaskMetadata } from "./task-metadata";
 import { Chevron, Collapse, Disclosure, Section, type SectionState } from "./disclosure";
 import { WrapupModal } from "./wrapup";
@@ -188,6 +189,11 @@ function TaskDrawerView({
   // Heavy sections and their reads start once the open transition is over.
   const settled = useSettled(task.id);
   const ready = active && settled;
+  // Tap to first frame, and tap to the heavy sections starting (timing log).
+  useEffect(() => perfLap("drawer.open", "drawer.open.mount"), []);
+  useEffect(() => {
+    if (settled) perfLap("drawer.open", "drawer.open.settled", true);
+  }, [settled]);
   // Restore unsent drafts saved on the daemon (once per session, local edits win).
   const composer = useComposer(ready);
   const seeded = useRef(new Set<string>());

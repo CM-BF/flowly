@@ -103,6 +103,22 @@ export function ideasSettingsValues(values: unknown): IdeasSettings {
   return parsed.success ? parsed.data : ideasSettings.schema.parse({});
 }
 
+/**
+ * Developer switch for the phone timing log (PERFORMANCE-SPEC §3, Timing log).
+ * No settings page: set `{ "log": true }` in `~/.paseo/plugin-settings/flowly/performance.json`
+ * on the host and reload the plugin.
+ */
+export const performanceSettings = defineSettings({
+  id: "performance",
+  scope: "host",
+  version: 1,
+  schema: z.object({ log: z.boolean().default(false) }),
+});
+export function performanceLogOn(values: unknown) {
+  const parsed = performanceSettings.schema.safeParse(values ?? {});
+  return parsed.success ? parsed.data.log : false;
+}
+
 /** Interface language: follow the device (default) or one fixed language. Host-scoped. */
 export const languageSettings = defineSettings({
   id: "language",

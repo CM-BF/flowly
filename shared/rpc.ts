@@ -27,6 +27,8 @@ import {
   taskPlacement,
   projectSchema,
   taskSchema,
+  eventSchema,
+  planSnapshotSchema,
 } from "./model";
 import { healthSchema, preparationSchema } from "./tools";
 import { connectionInput, connectionSchema, ticketSummarySchema } from "./tickets";
@@ -42,6 +44,8 @@ import { taskUsageSchema } from "./usage";
 import { tailEntrySchema } from "./session-tail";
 import { tokenInsightsSchema } from "./insights";
 import { digestViewSchema } from "./digest";
+import { perfReportSchema } from "./perf";
+import { localeCodes } from "./i18n";
 import { insightsWithHabitsSchema } from "./agent-habits";
 
 /** `{ etag }` in; the value is omitted when it still matches (PERFORMANCE-SPEC §3). */
@@ -64,15 +68,46 @@ export const markSessionUnread = defineRpc({
   output: sessionReadReceiptSchema,
 });
 
+/** A language's UI catalog, served on demand so the client bundle carries none (PERFORMANCE-SPEC, Cold start). */
+export const i18nCatalog = defineRpc({
+  name: "i18n.catalog",
+  input: z.strictObject({ locale: z.enum(localeCodes.filter((c) => c !== "en") as [string, ...string[]]) }),
+  output: z.record(z.string(), z.union([z.string(), z.record(z.string(), z.string())])),
+});
+
+/** Phone timings for the plugin log; a no-op unless the performance log setting is on. */
+export const perfReport = defineRpc({
+  name: "perf.report",
+  input: perfReportSchema,
+  output: z.object({ logged: z.boolean() }),
+});
+
 export const readBoard = defineRpc({
   name: "board.read",
   input: z.object({}),
   output: boardSchema,
 });
+const collectionPatch = <T extends z.ZodType>(item: T) =>
+  z.object({ set: z.array(item), remove: z.array(z.string()), order: z.array(z.string()).optional() }).optional();
+/** What changed since the board behind the caller's etag (PERFORMANCE-SPEC §3). */
+export const boardPatchSchema = z.object({
+  revision: z.number().int().nonnegative(),
+  events: z.array(eventSchema),
+  plans: z.array(planSnapshotSchema).optional(),
+  projects: collectionPatch(projectSchema),
+  tasks: collectionPatch(taskSchema),
+  ideas: collectionPatch(ideaSchema),
+  links: collectionPatch(linkSchema),
+  artifacts: collectionPatch(artifactSchema),
+  workpads: collectionPatch(workpadSchema),
+  attentionDismissals: collectionPatch(attentionDismissalSchema),
+});
 export const readBoardChanged = defineRpc({
   name: "board.read-changed",
-  input: etagInput,
-  output: z.object({ etag: z.string(), value: boardSchema.optional() }),
+  /** `since`: the caller holds this many events, the last being `lastId`; only newer ones are needed. */
+  input: etagInput.extend({ since: z.strictObject({ count: z.number().int().nonnegative(), lastId: z.string().max(200) }).optional() }),
+  /** `patch`: apply to the board behind the request's etag. `delta`: `value.events` holds only the events after `since`. */
+  output: z.object({ etag: z.string(), value: boardSchema.optional(), delta: z.boolean().optional(), patch: boardPatchSchema.optional() }),
 });
 export const createProject = defineRpc({
   name: "projects.create",

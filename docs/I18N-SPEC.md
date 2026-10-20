@@ -34,6 +34,8 @@ Host-scoped setting `language` (`languageSettings` in `shared/settings.ts`, regi
 
 `shared/i18n/<code>.ts` is `Record<english, translation>`; `shared/i18n/catalogs.ts` registers them. `shared/i18n.test.ts` reads the source with the TypeScript compiler (`shared/i18n-keys.ts`) and fails when, for any language, a string is missing, a catalog entry is stale, a placeholder differs or a translation is empty. It also covers language resolution, fallback, plural selection and restoring the language after `withLocale`.
 
+**Delivery (not in the client bundle).** The client bundle is evaluated from source at every app start, and the nine catalogs were 1.18 MB of its 2.12 MB. They are no longer imported by client code: `shared/i18n.ts` holds an empty registry (`registerCatalog`, `hasCatalog`); the daemon registers all of them (`shared/i18n-all.ts`, daemon and tests only) and serves one language on request (`i18n.catalog { locale }`, 78–127 KB of JSON). `client/catalog.ts` loads the language once per run; `LocaleRoot` (`client/i18n.tsx`) waits up to 400 ms for it before rendering a surface, then shows English and remounts the surface in the language when it arrives; the device language's catalog is also requested at plugin load for the Command Center titles (rebuilt when it lands). English never requests anything. A failed request leaves English and is retried by the next surface that mounts. `client/catalog.test.ts` fails when anything reachable from `index.client.tsx` imports `i18n-all` or `i18n/*`.
+
 Adding text: write `t("…")`, run `npm test`, add the missing entries to each catalog. Adding a language: add it to `locales`, create `shared/i18n/<code>.ts`, register it in `catalogs.ts`.
 
 ## 5. Acceptance

@@ -96,7 +96,7 @@ describe("session chip links", () => {
         return chip;
       }),
     };
-    const dispose = registerSessionChips(client, 100);
+    const dispose = registerSessionChips(client, 100, 0);
     await vi.waitFor(() => expect(pills.size).toBe(2));
     expect(list).toHaveBeenCalledWith({ filter: { includeArchived: false }, page: { limit: 200, cursor: undefined } });
     expect(list).toHaveBeenCalledWith({ filter: { includeArchived: false }, page: { limit: 200, cursor: "next" } });
@@ -130,7 +130,7 @@ describe("session chip links", () => {
         return registration;
       }),
     };
-    const dispose = registerSessionChips(client, 50_000);
+    const dispose = registerSessionChips(client, 50_000, 0);
     await vi.waitFor(() => expect(registrations.size).toBe(1));
     const label = registrations.get(actor.id).item.button.label;
     expect(label.endsWith("😀…")).toBe(true);
@@ -151,7 +151,7 @@ describe("session chip links", () => {
       openScreen: vi.fn(),
       addComposerPill: vi.fn(() => ({ update: vi.fn(), remove: vi.fn() })),
     };
-    const dispose = registerSessionChips(client, 10);
+    const dispose = registerSessionChips(client, 10, 0);
     await Promise.resolve();
     await vi.advanceTimersByTimeAsync(100);
     expect(boardRead).toHaveBeenCalledTimes(1);
@@ -171,7 +171,7 @@ describe("session chip links", () => {
       openScreen: vi.fn(),
       addComposerPill: vi.fn(() => ({ update: vi.fn(), remove: chipRemove })),
     };
-    const stop = registerSessionChips(failureClient, 10);
+    const stop = registerSessionChips(failureClient, 10, 0);
     await vi.waitFor(() => expect(failureClient.addComposerPill).toHaveBeenCalledTimes(1));
     await vi.advanceTimersByTimeAsync(10);
     await vi.waitFor(() => expect(chipRemove).toHaveBeenCalledTimes(1));
@@ -194,7 +194,7 @@ describe("session chip links", () => {
         return reg;
       }),
     };
-    const dispose = registerSessionChips(client, 5000);
+    const dispose = registerSessionChips(client, 5000, 0);
     await vi.waitFor(() => expect(registrations.size).toBe(2));
     const rpcCalls = client.rpc.mock.calls.length;
     await registrations.get("session-b").item.button.behavior.onPress();
@@ -228,7 +228,7 @@ describe("session chip links", () => {
       openScreen,
       addComposerPill: vi.fn(() => ({ update: vi.fn(), remove })),
     };
-    const dispose = registerSessionChips(client, 10);
+    const dispose = registerSessionChips(client, 10, 0);
     dispose();
     resolveBoard(changed(board));
     await Promise.resolve();

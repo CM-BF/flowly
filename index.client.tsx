@@ -1,9 +1,13 @@
+import { bootAt } from "./client/boot";
 import type { PluginClientContext } from "@getpaseo/plugin/client";
 import { BoardScreen, WorkspaceBoard } from "./client/board";
 import { registerSessionChips } from "./client/session-link";
 import { SidebarEntry } from "./client/sidebar";
 import { intentParams, type BoardIntent } from "./client/shortcuts";
 import { deviceLocale, msg, setLocale, t } from "./shared/i18n";
+import { loadCatalog } from "./client/catalog";
+import { perfEarly, perfNow } from "./client/perf";
+import { i18nCatalog } from "./shared/rpc";
 
 const intentItems: { intent: BoardIntent; title: string; icon: string; keywords: string[] }[] = [
   { intent: "new-task", title: msg("Flowly: New task"), icon: "Plus", keywords: ["kanban", "card", "create"] },
@@ -14,9 +18,48 @@ const intentItems: { intent: BoardIntent; title: string; icon: string; keywords:
   { intent: "welcome", title: msg("Flowly: Welcome tour"), icon: "CircleHelp", keywords: ["kanban", "welcome", "tour", "onboarding", "help", "guide"] },
 ];
 
+/** The Command Center entries; their titles follow the device language, so they are built again when its catalog arrives. */
+function registerCommandItems(client: PluginClientContext) {
+  const cleanups: (() => void)[] = [];
+  cleanups.push(
+    client.addCommandCenterItem({
+      id: "open-board",
+      title: t("Open Flowly"),
+      icon: "PanelsTopLeft",
+      context: "global",
+      onSelect: ({ openScreen }) => openScreen({ screenId: "board" }),
+    }),
+  );
+  // forEach, not a for loop: Hermes gives a loop's `const` one binding, so every onSelect would see the last item.
+  intentItems.forEach((item) =>
+    cleanups.push(
+      client.addCommandCenterItem({
+        id: `board-${item.intent}`,
+        title: t(item.title),
+        icon: item.icon,
+        keywords: item.keywords,
+        context: "global",
+        onSelect: ({ openScreen }) =>
+          openScreen({ screenId: "board", params: intentParams(item.intent) }),
+      }),
+    ),
+  );
+  cleanups.push(
+    client.addCommandCenterItem({
+      id: "workspace-board",
+      title: t("Open workspace card"),
+      icon: "PanelsTopLeft",
+      context: "workspace",
+      onSelect: ({ openPanel }) => openPanel("board"),
+    }),
+  );
+  return () => cleanups.forEach((cleanup) => cleanup());
+}
+
 export default function contribute(client: PluginClientContext) {
   // Command Center entries are registered once, before any setting can be read: they follow the device language.
-  setLocale(deviceLocale());
+  const device = deviceLocale();
+  setLocale(device);
   client.addScreen({
     id: "board",
     title: "Flowly",
@@ -34,31 +77,19 @@ export default function contribute(client: PluginClientContext) {
     context: "workspace",
     Component: WorkspaceBoard,
   });
-  client.addCommandCenterItem({
-    id: "open-board",
-    title: t("Open Flowly"),
-    icon: "PanelsTopLeft",
-    context: "global",
-    onSelect: ({ openScreen }) => openScreen({ screenId: "board" }),
-  });
-  // forEach, not a for loop: Hermes gives a loop's `const` one binding, so every onSelect would see the last item.
-  intentItems.forEach((item) =>
-    client.addCommandCenterItem({
-      id: `board-${item.intent}`,
-      title: t(item.title),
-      icon: item.icon,
-      keywords: item.keywords,
-      context: "global",
-      onSelect: ({ openScreen }) =>
-        openScreen({ screenId: "board", params: intentParams(item.intent) }),
-    }),
-  );
-  client.addCommandCenterItem({
-    id: "workspace-board",
-    title: t("Open workspace card"),
-    icon: "PanelsTopLeft",
-    context: "workspace",
-    onSelect: ({ openPanel }) => openPanel("board"),
-  });
-  return registerSessionChips(client);
+  let commandItems = registerCommandItems(client);
+  let stopped = false;
+  // The bundle carries no translations: ask the daemon for the device language, then rebuild the titles.
+  if (device !== "en")
+    void loadCatalog((input) => client.rpc(i18nCatalog, input as { locale: Exclude<typeof device, "en"> }), device).then((ok) => {
+      if (!ok || stopped) return;
+      commandItems();
+      commandItems = registerCommandItems(client);
+    });
+  const stopChips = registerSessionChips(client);
+  perfEarly("plugin.load", perfNow() - bootAt);
+  return () => {
+    stopped = true;
+    stopChips();
+  };
 }

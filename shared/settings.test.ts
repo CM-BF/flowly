@@ -48,3 +48,11 @@ test("card display options default to auto and all shown; a bad value does not r
   expect(boardViewValues({ drawerOpen: { workpad: false } }).drawerOpen).toEqual({ workpad: false });
   expect(boardViewValues({ boardSort: "priority", drawerOpen: { workpad: "no" } })).toMatchObject({ boardSort: "priority", drawerOpen: {} });
 });
+
+test("the timing log is off unless the host setting says so", async () => {
+  const { performanceLogOn } = await import("./settings");
+  expect(performanceLogOn(undefined)).toBe(false);
+  expect(performanceLogOn({})).toBe(false);
+  expect(performanceLogOn({ log: "yes" })).toBe(false);
+  expect(performanceLogOn({ log: true })).toBe(true);
+});

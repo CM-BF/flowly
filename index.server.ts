@@ -4,7 +4,7 @@ import { BoardStore, columnOrder } from "./server/store";
 import { BoardService, dataDirectory, migrateLegacyPluginData } from "./server/service";
 import { NativeDirectoryPicker, detectNativePicker, listDirectories } from "./server/directories";
 import * as rpc from "./shared/rpc";
-import { boardViewSettings, ideasSettings, languageSettings, modelSettings, onboardingSettings, ideasSettingsValues, statusSettings, statusSettingsValues, wrapupSettings, wrapupSettingsValues } from "./shared/settings";
+import { performanceLogOn, performanceSettings, boardViewSettings, ideasSettings, languageSettings, modelSettings, onboardingSettings, ideasSettingsValues, statusSettings, statusSettingsValues, wrapupSettings, wrapupSettingsValues } from "./shared/settings";
 import { ToolServer } from "./server/tool-server";
 import { SessionReadStore, SessionReadService, daemonNativeAttention } from "./server/session-reads";
 import { WrapupService } from "./server/wrapup";
@@ -13,6 +13,10 @@ import { SessionImageService } from "./server/session-images";
 import { SessionTailService } from "./server/session-tail";
 import { ArchivedSessionsService } from "./server/archived-sessions";
 import { ifChanged } from "./server/etag";
+import { BoardDeltas } from "./server/board-delta";
+import { perfLine } from "./shared/perf";
+import { catalogs } from "./shared/i18n-all";
+import type { LocaleCode } from "./shared/i18n";
 import { ComposerService, ComposerStore } from "./server/composer";
 import { adoptIdea } from "./server/ideas";
 import { createLink, deleteLink } from "./server/links";
@@ -41,6 +45,7 @@ export default function contribute(server: PluginServerContext) {
   const wrapupPrefs = server.registerSettings(wrapupSettings);
   const statusPrefs = server.registerSettings(statusSettings);
   const ideasPrefs = server.registerSettings(ideasSettings);
+  const perfPrefs = server.registerSettings(performanceSettings);
   // The global switch for rules A1/A1r; unreadable settings keep the default (on).
   const autoStatusOn = async () => {
     const state = await statusPrefs.read().catch(() => null);
@@ -161,9 +166,17 @@ export default function contribute(server: PluginServerContext) {
     tools.attach(paseo);
     return store.view();
   });
+  const boardDeltas = new BoardDeltas();
+  server.handle(rpc.i18nCatalog, ({ locale }) => (catalogs[locale as LocaleCode] ?? {}) as Record<string, string | Record<string, string>>);
+  server.handle(rpc.perfReport, async (input) => {
+    const state = await perfPrefs.read().catch(() => null);
+    if (state?.status !== "ready" || !performanceLogOn(state.values)) return { logged: false };
+    console.log(perfLine(input));
+    return { logged: true };
+  });
   server.handle(rpc.readBoardChanged, async (input, { paseo }) => {
     tools.attach(paseo);
-    return ifChanged(await store.view(), input.etag);
+    return boardDeltas.read(await store.view(), input);
   });
   server.handle(rpc.managedSessions, () => tools.secrets.managedSessions());
   server.handle(rpc.refreshSummary, async (input, { paseo }) => {

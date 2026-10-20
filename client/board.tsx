@@ -65,14 +65,17 @@ import { DeleteTaskDialog } from "./task-delete";
 import { useBoardQuery, useLiveAgents, useResourcesQuery } from "./queries";
 import { useStableCallback, useStableTheme } from "./stable";
 import { isLegacyScope } from "../shared/scope";
-import { LiveTaskCard, type CardDrag } from "./card";
+import { LaneList } from "./lane-list";
+import { perfConfigure, perfMark, usePerfRender } from "./perf";
+import { laneRows, sameRows } from "./lane-rows";
+import { LiveTaskCard, type CardDrag, type LiveTaskCardProps } from "./card";
 import { useConnections } from "./tickets";
 import { cardProgress, useSummaries } from "./task-progress";
 import { LocaleRoot } from "./i18n";
 import { agentModelFromValues, effectiveAgentModel, startingAgent } from "../shared/agent-defaults";
 import { SettingsFab, SettingsModal } from "./summary-settings";
 import { WrapupModal } from "./wrapup";
-import { ideasSettings, ideasSettingsValues, modelSettings, modelSettingsValues, wrapupSettings, wrapupSettingsValues } from "../shared/settings";
+import { performanceLogOn, performanceSettings, ideasSettings, ideasSettingsValues, modelSettings, modelSettingsValues, wrapupSettings, wrapupSettingsValues } from "../shared/settings";
 import { pickOutputSession } from "./card-output";
 import { cardQuestions } from "../shared/progress";
 import { hasOpenNextMoves } from "../shared/next-moves";
@@ -194,6 +197,7 @@ function BoardContent(
     params?: PluginScreenParams;
   },
 ) {
+  usePerfRender("board.render");
   const toast = useToast();
   const read = useRpc(rpc.readBoard),
     updateProject = useRpc(rpc.updateProject),
@@ -244,6 +248,14 @@ function BoardContent(
   // The Ideas switch (IDEAS-INBOX-SPEC §10); on until the setting has loaded.
   const ideasPrefs = useSettings(ideasSettings);
   const ideasOn = ideasPrefs.status !== "ready" || ideasSettingsValues(ideasPrefs.values).ideas;
+  // Developer timing log (off unless the host setting is on; PERFORMANCE-SPEC §3).
+  const perfPrefs = useSettings(performanceSettings);
+  const sendPerf = useRpc(rpc.perfReport);
+  const perfOn = perfPrefs.status === "ready" && performanceLogOn(perfPrefs.values);
+  useEffect(() => {
+    perfConfigure(perfOn, (report) => void sendPerf(report).catch(() => undefined), Platform.OS);
+    return () => perfConfigure(false, null);
+  }, [perfOn]);
   const [wrapPrompt, setWrapPrompt] = useState("");
   const finished = (status?: Status) => status === "done" || status === "cancelled";
   const askWrapup = (id: string, from: Status | undefined, to: Status) => {
@@ -531,6 +543,8 @@ function BoardContent(
   const laneAll = sortColumn(visible.filter((t) => t.status === mobileStatus));
   const list = laneAll.filter((t) => !older.has(t.id));
   const listOlder = laneAll.filter((t) => older.has(t.id));
+  const laneRowsRef = useRef<ReturnType<typeof laneRows<Task>> | undefined>(undefined);
+  const laneRowList = (laneRowsRef.current = sameRows(laneRowsRef.current, laneRows(list, listOlder, olderShown.includes(mobileStatus))));
   // Status-change flash: remember the last snapshot, emphasize cards that moved.
   const statusMemory = useRef<Map<string, string> | null>(null);
   const [flashing, setFlashing] = useState<ReadonlySet<string>>(new Set());
@@ -816,7 +830,10 @@ function BoardContent(
     return index;
   }, [board?.links, board?.tasks]);
   // Stable for every card (memoized cards; PERFORMANCE-SPEC §3).
-  const openCard = useStableCallback((t: Task) => setTask(t.id));
+  const openCard = useStableCallback((t: Task) => {
+    perfMark("drawer.open");
+    setTask(t.id);
+  });
   const openCardActions = useStableCallback((t: Task) => setActionTask(t));
   const cardMenuFor = useStableCallback((t: Task) => cardMenu(t));
   // Stable drawer callbacks (memoized drawer).
@@ -962,49 +979,64 @@ function BoardContent(
         : current,
     ),
   );
-  const renderCard = (t: Task, drag?: CardDrag, dragging = false) => {
+  const summaryState =
+    agents.isPending || readState.isPending
+      ? "loading"
+      : agents.isError || readState.isError
+        ? agents.data && readState.data
+          ? "stale"
+          : "unavailable"
+        : "ready";
+  // What a card shows, derived from events, sessions and receipts (each scans a
+  // card's whole history). Cached per task object until one of those sources
+  // changes, so opening a card, a menu or a filter does not recompute every
+  // card of the lane in the same frame as its animation.
+  const cardDerived = useMemo(
+    () => new WeakMap<Task, Omit<LiveTaskCardProps, "selected" | "flash" | "drag" | "dragging" | "disabled" | "display" | "onOpen" | "onActions" | "menuFor">>(),
+    [cardIndex, receipts, summaryState, attentionByTask, managedIds, summaries.data, !!board, openIdeaCount, ticketKeys, project, workpadIndex, waitingIndex],
+  );
+  const derivedFor = (t: Task) => {
+    let derived = cardDerived.get(t);
+    if (derived) return derived;
     const sessions = cardIndex.agentsByWorkspace.get(t.workspaceId) || noAgents;
     const events = cardIndex.eventsByTask.get(t.id) || noEvents;
-    const summaryState =
-      agents.isPending || readState.isPending
-        ? "loading"
-        : agents.isError || readState.isError
-          ? agents.data && readState.data
-            ? "stale"
-            : "unavailable"
-          : "ready";
-    return (
-      <LiveTaskCard
-        key={t.id}
-        task={t}
-        selected={taskId === t.id}
-        legacy={!!project && isLegacyScope(t, project)}
-        available={cardIndex.workspaceIds.has(t.workspaceId)}
-        wrapped={(t.status === "done" || t.status === "cancelled") && !!currentWrapup(events, t.id)}
-        running={sessions.filter((a) => a.status === "running").length}
-        sessions={sessions.length}
-        summary={sessionAttentionSummary(sessions, t, receipts, events)}
-        summaryState={summaryState}
-        attentionDismissed={!!attentionByTask.get(t.id)?.dismissed}
-        outputSession={pickOutputSession(sessions, t.workspaceId, managedIds)}
-        progress={cardProgress(summaries.data, t.id)}
-        questions={board ? cardQuestions(t, events).length : 0}
-        ideas={openIdeaCount.get(t.id) || 0}
-        ticketKey={ticketKeys.get(t.id)}
-        workpad={project && workpadEnabled(project) ? workpadSignal(t, workpadIndex.get(t.id), events) : null}
-        waiting={waitingIndex.get(t.id)?.count || 0}
-        waitingTitles={waitingIndex.get(t.id)?.titles || ""}
-        display={display}
-        flash={flashing.has(t.id)}
-        drag={drag}
-        dragging={dragging}
-        disabled={pending || !!project?.archivedAt || !!t.archivedAt}
-        onOpen={openCard}
-        onActions={openCardActions}
-        menuFor={cardMenuFor}
-      />
-    );
+    derived = {
+      task: t,
+      legacy: !!project && isLegacyScope(t, project),
+      available: cardIndex.workspaceIds.has(t.workspaceId),
+      wrapped: (t.status === "done" || t.status === "cancelled") && !!currentWrapup(events, t.id),
+      running: sessions.filter((a) => a.status === "running").length,
+      sessions: sessions.length,
+      summary: sessionAttentionSummary(sessions, t, receipts, events),
+      summaryState,
+      attentionDismissed: !!attentionByTask.get(t.id)?.dismissed,
+      outputSession: pickOutputSession(sessions, t.workspaceId, managedIds),
+      progress: cardProgress(summaries.data, t.id),
+      questions: board ? cardQuestions(t, events).length : 0,
+      ideas: openIdeaCount.get(t.id) || 0,
+      ticketKey: ticketKeys.get(t.id),
+      workpad: project && workpadEnabled(project) ? workpadSignal(t, workpadIndex.get(t.id), events) : null,
+      waiting: waitingIndex.get(t.id)?.count || 0,
+      waitingTitles: waitingIndex.get(t.id)?.titles || "",
+    };
+    cardDerived.set(t, derived);
+    return derived;
   };
+  const renderCard = (t: Task, drag?: CardDrag, dragging = false) => (
+    <LiveTaskCard
+      key={t.id}
+      {...derivedFor(t)}
+      selected={taskId === t.id}
+      display={display}
+      flash={flashing.has(t.id)}
+      drag={drag}
+      dragging={dragging}
+      disabled={pending || !!project?.archivedAt || !!t.archivedAt}
+      onOpen={openCard}
+      onActions={openCardActions}
+      menuFor={cardMenuFor}
+    />
+  );
   const projectMenuClose = () => setMenu(null);
   const moveProjectRpc = useRpc(rpc.moveProject);
   const reorderProject = (id: string, move: { direction: "up" | "down" | "top" } | { to: number }) =>
@@ -1553,48 +1585,38 @@ function BoardContent(
                         onPress={() => setMenu("status")}
                       />
                     </View>
-                    <ScrollView
+                    <LaneList
                       key={mobileStatus}
-                      {...verticalScroll}
-                      style={{ flex: 1, minHeight: 0 }}
-                      nestedScrollEnabled
-                      keyboardShouldPersistTaps="handled"
-                      contentContainerStyle={{
-                        ...verticalContent,
-                        padding: space[3],
-                        paddingTop: space[1],
-                        paddingBottom: space[6] + space[2],
-                        gap: space[2],
-                      }}
-                    >
-                      {list.map((t) => renderCard(t))}
-                      {!list.length && !listOlder.length && (
-                        <View style={{ paddingVertical: space[6], gap: space[3], alignItems: "center" }}>
-                          <Label muted selectable={false}>
-                            {filterCount
-                              ? t("No tasks match these filters.")
-                              : t("No tasks in {lane}.", { lane: nameOf(mobileStatus) })}
-                          </Label>
-                          <Button
-                            icon="Plus"
-                            disabled={!!project.archivedAt}
-                            onPress={() =>
-                              setTaskForm({ status: mobileStatus })
-                            }
-                          >
-                            {t("Add task")}</Button>
-                        </View>
-                      )}
-                      {!list.length && !!listOlder.length && (
-                        <View style={{ paddingVertical: space[4], alignItems: "center" }}>
-                          <Label muted selectable={false}>{t("No recent tasks")}</Label>
-                        </View>
-                      )}
-                      {!!listOlder.length && (
-                        <OlderToggle count={listOlder.length} shown={olderShown.includes(mobileStatus)} onPress={() => toggleOlder(mobileStatus)} />
-                      )}
-                      {olderShown.includes(mobileStatus) && listOlder.map((t) => renderCard(t))}
-                    </ScrollView>
+                      data={laneRowList}
+                      keyOf={(row) => row.key}
+                      renderItem={(row) =>
+                        row.kind === "task" ? (
+                          renderCard(row.task)
+                        ) : row.kind === "older" ? (
+                          <OlderToggle count={listOlder.length} shown={olderShown.includes(mobileStatus)} onPress={() => toggleOlder(mobileStatus)} />
+                        ) : row.hasOlder ? (
+                          <View style={{ paddingVertical: space[4], alignItems: "center" }}>
+                            <Label muted selectable={false}>{t("No recent tasks")}</Label>
+                          </View>
+                        ) : (
+                          <View style={{ paddingVertical: space[6], gap: space[3], alignItems: "center" }}>
+                            <Label muted selectable={false}>
+                              {filterCount
+                                ? t("No tasks match these filters.")
+                                : t("No tasks in {lane}.", { lane: nameOf(mobileStatus) })}
+                            </Label>
+                            <Button
+                              icon="Plus"
+                              disabled={!!project.archivedAt}
+                              onPress={() =>
+                                setTaskForm({ status: mobileStatus })
+                              }
+                            >
+                              {t("Add task")}</Button>
+                          </View>
+                        )
+                      }
+                    />
                   </>
                 ) : (
                   <DesktopColumns

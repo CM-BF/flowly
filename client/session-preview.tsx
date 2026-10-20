@@ -1014,7 +1014,8 @@ function SessionPreviewView({
         // scroll event, including the follow-tail scroll when output arrives,
         // which kicked the user out of the composer while a session ran.
         keyboardDismissMode={Platform.OS === "ios" ? "interactive" : Platform.OS === "web" ? "none" : "on-drag"}
-        scrollEventThrottle={16}
+        // The follower only needs to know where the tail is; a frame-rate callback crosses into JS 60 times a second while scrolling.
+        scrollEventThrottle={100}
         onScroll={tail.onScroll}
         onScrollBeginDrag={tail.onScrollBeginDrag}
         onScrollEndDrag={tail.onScrollEndDrag}

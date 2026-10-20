@@ -8,6 +8,7 @@ import type {
 import type { RpcOutput } from "@getpaseo/plugin";
 import { readBoard, readBoardChanged } from "../shared/rpc";
 import { listAgents } from "./resources";
+import { readBoardDelta, type Board } from "./board-read";
 import { t } from "../shared/i18n";
 
 const id = z.string().min(1).max(200);
@@ -20,7 +21,7 @@ const linkSchema = z.object({
 export type CardSessionLink = z.infer<typeof linkSchema>;
 /** A one-time drawer entry; an empty `sessionId` opens the card overview. */
 export type SessionEntry = { sessionId: string; requestId: string };
-export type LinkBoard = RpcOutput<typeof readBoard>;
+export type LinkBoard = Board;
 
 export function parseSessionLink(
   params?: PluginScreenParams,
@@ -92,9 +93,13 @@ export async function resolveSessionLink(
 let requestSequence = 0;
 const newRequestId = () => `${Date.now()}-${++requestSequence}`;
 
+/** The first chip round waits this long, so it does not compete with the plugin's own first paint (PERFORMANCE-SPEC, Cold start). */
+export const CHIPS_START_DELAY_MS = 2500;
+
 export function registerSessionChips(
   client: PluginClientContext,
   interval = 5000,
+  startDelay = CHIPS_START_DELAY_MS,
 ) {
   const registrations = new Map<
     string,
@@ -149,7 +154,8 @@ export function registerSessionChips(
   async function refresh() {
     try {
       const [boardResult, liveResult] = await Promise.allSettled([
-        client.rpc(readBoardChanged, etag && board ? { etag } : {}),
+        // The daemon may answer an etag with a patch of what changed, which readBoardDelta applies to the board held here.
+        readBoardDelta((input) => client.rpc(readBoardChanged, input), board ?? undefined, etag && board ? etag : undefined),
         listAgents(client.paseo, undefined, false),
       ]);
       if (disposed) return;
@@ -229,7 +235,11 @@ export function registerSessionChips(
         }, interval);
     }
   }
-  void refresh();
+  if (startDelay > 0)
+    timer = setTimeout(() => {
+      void refresh();
+    }, startDelay);
+  else void refresh();
   return () => {
     disposed = true;
     latestClick++;

@@ -5,6 +5,7 @@ import type { PaseoAgent, PaseoApi, PaseoAgentUpdate } from "@getpaseo/client";
 import * as rpc from "../shared/rpc";
 import { isSummarizer } from "../shared/summary";
 import { listAgents } from "./resources";
+import { readBoardDelta, type Board } from "./board-read";
 
 /**
  * Shared query definitions (PERFORMANCE-SPEC §3). Every reader of a key uses the
@@ -60,12 +61,14 @@ export const resourcesKey = ["flowly", "resources"] as const;
 export const summariesKey = ["flowly", "summaries"] as const;
 export const activityKey = ["flowly", "activity"] as const;
 
+export { applyBoardPatch, readBoardDelta, type BoardPatch } from "./board-read";
+
 export function useBoardQuery(options: { refetchInterval?: number; retry?: number; enabled?: boolean } = {}) {
   const read = useRpc(rpc.readBoardChanged);
   const client = useQueryClient();
   return useQuery({
     queryKey: boardKey,
-    queryFn: () => readChanged(client, boardKey, (etag) => read(etag ? { etag } : {})),
+    queryFn: () => readChanged(client, boardKey, (etag) => readBoardDelta(read, client.getQueryData<Board>(boardKey), etag)),
     ...options,
   });
 }
@@ -92,21 +95,51 @@ export function useSummariesQuery(enabled = true) {
   });
 }
 
+/**
+ * Fields a running agent rewrites on every stream event (clock, turn handle,
+ * usage counters) that no Flowly view reads live. An update that differs only
+ * in these is dropped: it would re-render the board, drawer and session view
+ * about twice a second for as long as any agent on the host runs (the phone's
+ * JS thread cannot spare that). The 20 s reconcile still brings them current.
+ */
+const CHURN_KEYS = new Set(["updatedAt", "activeTurn", "lastUsage", "runtimeInfo"]);
+const same = (a: unknown, b: unknown): boolean => {
+  if (Object.is(a, b)) return true;
+  if (!a || !b || typeof a !== "object" || typeof b !== "object") return false;
+  const x = a as Record<string, unknown>,
+    y = b as Record<string, unknown>;
+  const keys = Object.keys(x);
+  if (Array.isArray(a) !== Array.isArray(b) || keys.length !== Object.keys(y).length) return false;
+  return keys.every((k) => same(x[k], y[k]));
+};
+export function onlyChurned(before: PaseoAgent, after: PaseoAgent) {
+  if (after.status !== "running" && after.status !== "initializing") return false;
+  const a = before as unknown as Record<string, unknown>,
+    b = after as unknown as Record<string, unknown>;
+  const keys = new Set([...Object.keys(a), ...Object.keys(b)]);
+  for (const key of keys) if (!CHURN_KEYS.has(key) && !same(a[key], b[key])) return false;
+  return true;
+}
+
 /** Applies live agent updates to a list of live (non-archived, non-summarizer) agents. */
 export function applyAgentUpdates(agents: readonly PaseoAgent[], updates: readonly PaseoAgentUpdate[]): PaseoAgent[] {
   let next: PaseoAgent[] | null = null;
   for (const update of updates) {
     const list: PaseoAgent[] = next ?? agents.slice();
-    next = list;
     const id = update.kind === "upsert" ? update.agent.id : update.agentId;
     const index = list.findIndex((a) => a.id === id);
     if (update.kind === "remove" || update.agent.archivedAt || isSummarizer(update.agent as PaseoAgent)) {
-      if (index >= 0) list.splice(index, 1);
+      if (index >= 0) {
+        list.splice(index, 1);
+        next = list;
+      }
       continue;
     }
     const agent = update.agent as PaseoAgent;
     // Updates can arrive out of order with a poll; never go back in time.
     if (index >= 0 && list[index].updatedAt > agent.updatedAt) continue;
+    if (index >= 0 && onlyChurned(list[index], agent)) continue;
+    next = list;
     if (index >= 0) list[index] = agent;
     else list.push(agent);
   }

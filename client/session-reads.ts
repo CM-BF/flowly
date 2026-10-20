@@ -3,6 +3,8 @@ import { useRpc } from "@getpaseo/plugin/client";
 import { readSessionReceipts, markSessionRead, markSessionUnread } from "../shared/rpc";
 import type { MarkSessionReadInput, MarkSessionUnreadInput } from "../shared/session-attention";
 
+const noReceipts: never[] = [];
+
 export function useSessionReads() {
   const read = useRpc(readSessionReceipts),
     mark = useRpc(markSessionRead),
@@ -14,7 +16,7 @@ export function useSessionReads() {
   });
   return {
     query,
-    receipts: query.data?.receipts || [],
+    receipts: query.data?.receipts || noReceipts,
     async markRead(input: MarkSessionReadInput) {
       const receipt = await mark(input);
       await query.refetch();
