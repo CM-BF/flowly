@@ -1,0 +1,385 @@
+{
+ "s1": {
+  "id": "00560906-e147-4fa1-978c-cbb129850ade",
+  "mcp": true,
+  "calls": [
+   {
+    "via": "CLI",
+    "name": "status",
+    "flags": [],
+    "result": {
+     "_keys": [
+      "receipt",
+      "replayed",
+      "current"
+     ],
+     "reminders": null
+    }
+   },
+   {
+    "via": "CLI",
+    "name": "status",
+    "flags": [
+     "--no-moves"
+    ],
+    "result": {
+     "_keys": [
+      "receipt",
+      "replayed",
+      "reminders",
+      "current"
+     ],
+     "reminders": [
+      "You have proposed no ideas on this card. Consider 0-3 ideas (flowly_propose_idea) for worthwhile follow-ups you noticed: bugs, refactors, next features. Zero is fine; decide on purpose."
+     ]
+    }
+   },
+   {
+    "via": "CLI",
+    "name": "status",
+    "flags": [
+     "--no-moves"
+    ],
+    "result": {
+     "_keys": [
+      "receipt",
+      "replayed",
+      "reminders",
+      "current"
+     ],
+     "reminders": [
+      "You have proposed no ideas on this card. Consider 0-3 ideas (flowly_propose_idea) for worthwhile follow-ups you noticed: bugs, refactors, next features. Zero is fine; decide on purpose."
+     ]
+    }
+   }
+  ]
+ },
+ "s2": {
+  "id": "1ac54164-536a-47a3-b5fd-f60e6a5fa45f",
+  "mcp": true,
+  "calls": [
+   {
+    "via": "MCP",
+    "name": "flowly_get_task",
+    "nextMoves_arg": false,
+    "moves_arg": false,
+    "result": {
+     "_keys": [
+      "identity",
+      "task",
+      "project",
+      "revision",
+      "request",
+      "toolVersion",
+      "writable",
+      "reason",
+      "allowedStatuses",
+      "lanes",
+      "scope",
+      "workspace",
+      "sessions",
+      "activity",
+      "projectTags",
+      "ideas",
+      "artifacts",
+      "workpadEnabled",
+      "workpad",
+      "plan",
+      "links"
+     ],
+     "reminders": null
+    }
+   },
+   {
+    "via": "MCP",
+    "name": "flowly_update_status",
+    "nextMoves_arg": false,
+    "moves_arg": false,
+    "result": {
+     "_keys": [
+      "receipt",
+      "replayed",
+      "current"
+     ],
+     "reminders": null
+    }
+   },
+   {
+    "via": "MCP",
+    "name": "flowly_update_status",
+    "nextMoves_arg": false,
+    "moves_arg": false,
+    "result": {
+     "_keys": [
+      "receipt",
+      "replayed",
+      "reminders",
+      "current"
+     ],
+     "reminders": [
+      "No next moves suggested this turn. Before you end the turn, call flowly_suggest_next_moves with the 1-3 messages the user is most likely to send you next (recommended first), or with moves=[] if nothing needs the user. This write already succeeded.",
+      "You have proposed no ideas on this card. Consider 0-3 ideas (flowly_propose_idea) for worthwhile follow-ups you noticed: bugs, refactors, next features. Zero is fine; decide on purpose."
+     ]
+    }
+   },
+   {
+    "via": "MCP",
+    "name": "flowly_update_status",
+    "nextMoves_arg": false,
+    "moves_arg": false,
+    "result": {
+     "_keys": [
+      "receipt",
+      "replayed",
+      "reminders",
+      "current"
+     ],
+     "reminders": [
+      "No next moves suggested this turn. Before you end the turn, call flowly_suggest_next_moves with the 1-3 messages the user is most likely to send you next (recommended first), or with moves=[] if nothing needs the user. This write already succeeded.",
+      "You have proposed no ideas on this card. Consider 0-3 ideas (flowly_propose_idea) for worthwhile follow-ups you noticed: bugs, refactors, next features. Zero is fine; decide on purpose."
+     ]
+    }
+   }
+  ]
+ },
+ "s3": {
+  "id": "66dc5721-7ec5-4512-a5c8-c6d22129ed4f",
+  "mcp": true,
+  "calls": [
+   {
+    "via": "MCP",
+    "name": "flowly_get_task",
+    "nextMoves_arg": false,
+    "moves_arg": false,
+    "result": {
+     "_keys": [
+      "identity",
+      "task",
+      "project",
+      "revision",
+      "request",
+      "toolVersion",
+      "writable",
+      "reason",
+      "allowedStatuses",
+      "lanes",
+      "scope",
+      "workspace",
+      "sessions",
+      "activity",
+      "projectTags",
+      "ideas",
+      "artifacts",
+      "workpadEnabled",
+      "workpad",
+      "plan",
+      "links"
+     ],
+     "reminders": null
+    }
+   },
+   {
+    "via": "MCP",
+    "name": "flowly_update_status",
+    "nextMoves_arg": false,
+    "moves_arg": false,
+    "result": {
+     "_keys": [
+      "receipt",
+      "replayed",
+      "current"
+     ],
+     "reminders": null
+    }
+   },
+   {
+    "via": "MCP",
+    "name": "flowly_update_status",
+    "nextMoves_arg": false,
+    "moves_arg": false,
+    "result": {
+     "_keys": [
+      "receipt",
+      "replayed",
+      "reminders",
+      "current"
+     ],
+     "reminders": [
+      "No next moves suggested this turn. Before you end the turn, call flowly_suggest_next_moves with the 1-3 messages the user is most likely to send you next (recommended first), or with moves=[] if nothing needs the user. This write already succeeded.",
+      "You have proposed no ideas on this card. Consider 0-3 ideas (flowly_propose_idea) for worthwhile follow-ups you noticed: bugs, refactors, next features. Zero is fine; decide on purpose."
+     ]
+    }
+   },
+   {
+    "via": "MCP",
+    "name": "flowly_suggest_next_moves",
+    "nextMoves_arg": false,
+    "moves_arg": true,
+    "result": {
+     "_keys": [
+      "receipt",
+      "replayed",
+      "current"
+     ],
+     "reminders": null
+    }
+   },
+   {
+    "via": "MCP",
+    "name": "flowly_get_task",
+    "nextMoves_arg": false,
+    "moves_arg": false,
+    "result": {
+     "_keys": [],
+     "reminders": null
+    }
+   },
+   {
+    "via": "MCP",
+    "name": "flowly_update_status",
+    "nextMoves_arg": false,
+    "moves_arg": false,
+    "result": {
+     "_keys": [],
+     "reminders": null
+    }
+   }
+  ]
+ },
+ "s4": {
+  "id": "5d8f03e3-4a1e-49a7-a0aa-7401f5fc0506",
+  "mcp": false,
+  "calls": [
+   {
+    "via": "CLI",
+    "name": "status",
+    "flags": [],
+    "result": {
+     "_keys": [
+      "receipt",
+      "replayed",
+      "current"
+     ],
+     "reminders": null
+    }
+   },
+   {
+    "via": "CLI",
+    "name": "status",
+    "flags": [],
+    "result": {
+     "_keys": [
+      "receipt",
+      "replayed",
+      "reminders",
+      "current"
+     ],
+     "reminders": [
+      "No next moves suggested this turn. Before you end the turn, call flowly_suggest_next_moves with the 1-3 messages the user is most likely to send you next (recommended first), or with moves=[] if nothing needs the user. This write already succeeded.",
+      "You have proposed no ideas on this card. Consider 0-3 ideas (flowly_propose_idea) for worthwhile follow-ups you noticed: bugs, refactors, next features. Zero is fine; decide on purpose."
+     ]
+    }
+   },
+   {
+    "via": "CLI",
+    "name": "next-moves",
+    "flags": [
+     "--moves"
+    ],
+    "result": {
+     "_keys": [
+      "receipt",
+      "replayed",
+      "current"
+     ],
+     "reminders": null
+    }
+   },
+   {
+    "via": "CLI",
+    "name": "status",
+    "flags": [],
+    "result": {
+     "_keys": [
+      "receipt",
+      "replayed",
+      "reminders",
+      "current"
+     ],
+     "reminders": [
+      "You have proposed no ideas on this card. Consider 0-3 ideas (flowly_propose_idea) for worthwhile follow-ups you noticed: bugs, refactors, next features. Zero is fine; decide on purpose."
+     ]
+    }
+   }
+  ]
+ },
+ "s5": {
+  "id": "5a7adaad-6f48-4746-a5f8-98426addab42",
+  "mcp": true,
+  "calls": [
+   {
+    "via": "MCP",
+    "name": "flowly_get_task",
+    "nextMoves_arg": false,
+    "moves_arg": false,
+    "result": {
+     "_keys": [
+      "identity",
+      "task",
+      "project",
+      "revision",
+      "request",
+      "toolVersion",
+      "writable",
+      "reason",
+      "allowedStatuses",
+      "lanes",
+      "scope",
+      "workspace",
+      "sessions",
+      "activity",
+      "projectTags",
+      "ideas",
+      "artifacts",
+      "workpadEnabled",
+      "workpad",
+      "plan",
+      "links"
+     ],
+     "reminders": null
+    }
+   },
+   {
+    "via": "MCP",
+    "name": "flowly_update_status",
+    "nextMoves_arg": false,
+    "moves_arg": false,
+    "result": {
+     "_keys": [
+      "receipt",
+      "replayed",
+      "current"
+     ],
+     "reminders": null
+    }
+   },
+   {
+    "via": "MCP",
+    "name": "flowly_update_status",
+    "nextMoves_arg": true,
+    "moves_arg": false,
+    "result": {
+     "_keys": [
+      "receipt",
+      "replayed",
+      "reminders",
+      "current"
+     ],
+     "reminders": [
+      "You have proposed no ideas on this card. Consider 0-3 ideas (flowly_propose_idea) for worthwhile follow-ups you noticed: bugs, refactors, next features. Zero is fine; decide on purpose."
+     ]
+    }
+   }
+  ]
+ }
+}
