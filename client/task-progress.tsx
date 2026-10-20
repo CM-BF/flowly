@@ -9,7 +9,7 @@ import { CardBody, CardField, CardFootnote, CardHeadline, ContentCard } from "./
 import { Disclosure, Section, type SectionState } from "./disclosure";
 import { summariesKey, useBoardQuery, useSummariesQuery } from "./queries";
 import { workpadEnabled, workpadOf } from "../shared/workpad";
-import { Button, Label, font, message, radius, relativeTime, space, useTheme } from "./ui";
+import { Button, Label, font, message, radius, relativeTime, space, useTheme, noFocusRing } from "./ui";
 import { formatLocale, t, tn } from "../shared/i18n";
 import { compactDateTime } from "../shared/compact-time";
 
@@ -138,7 +138,7 @@ function HistoryItem({ entry }: { entry: SummaryEntry }) {
         accessibilityLabel={`${relativeTime(entry.at)}: ${entry.state}`}
         accessibilityState={{ expanded: open }}
         onPress={() => setOpen(!open)}
-        style={({ pressed }) => ({
+        style={({ pressed }) => ({ ...noFocusRing,
           flexDirection: "row",
           alignItems: "center",
           gap: space[2],

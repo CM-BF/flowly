@@ -14,7 +14,7 @@ import { IdeaRow, useExitList } from "./task-ideas";
 import { Section, type SectionState } from "./disclosure";
 import { boardKey, useBoardQuery } from "./queries";
 import { TypeIcon } from "./status";
-import { Choices, IconButton, Label, Notice, TextBox, Theme, font, message, radius, space, touch, useTheme } from "./ui";
+import { Choices, IconButton, Label, Notice, TextBox, Theme, font, message, radius, space, touch, useTheme, noFocusRing } from "./ui";
 import { t } from "../shared/i18n";
 
 /**
@@ -134,7 +134,7 @@ const LinkRow = memo(function LinkRow({
         accessibilityRole="link"
         accessibilityLabel={`${t("Open task {title}", { title: other.title })}, ${lane}${archived ? `, ${t("archived")}` : ""}`}
         onPress={() => onOpenTask(other.id)}
-        style={({ pressed }) => ({ flex: 1, minWidth: 0, flexDirection: "row", alignItems: "center", gap: space[1.5], opacity: pressed ? 0.7 : 1 })}
+        style={({ pressed }) => ({ ...noFocusRing, flex: 1, minWidth: 0, flexDirection: "row", alignItems: "center", gap: space[1.5], opacity: pressed ? 0.7 : 1 })}
       >
         <TypeIcon type={other.type} size={13} always />
         <View style={{ flexShrink: 1, minWidth: 0 }}>
@@ -177,7 +177,7 @@ export function LinkOrigin({ taskId, onOpenTask }: { taskId: string; onOpenTask(
         accessibilityRole="link"
         accessibilityLabel={t("Open source task {title}", { title: first.other!.title })}
         onPress={() => onOpenTask(first.other!.id)}
-        style={({ pressed }) => ({ flexShrink: 1, opacity: pressed ? 0.7 : 1 })}
+        style={({ pressed }) => ({ ...noFocusRing, flexShrink: 1, opacity: pressed ? 0.7 : 1 })}
       >
         <Label size={font.sm} muted lines={1} selectable={false}>
           {lead}
@@ -275,6 +275,7 @@ export function LinkPicker({ task, project, onClose }: { task: Task; project: Pr
                     style={(state) => {
                       const hovered = (state as typeof state & { hovered?: boolean }).hovered;
                       return {
+                        ...noFocusRing,
                         flexDirection: "row",
                         alignItems: "center",
                         gap: space[2],

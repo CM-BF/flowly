@@ -8,7 +8,7 @@ import { groupByCard, ideaTabCounts, visibleIdeas, type IdeaQuery, type IdeaSort
 import { Enter } from "./motion";
 import { StatusIcon } from "./status";
 import { ClosedIdea, IdeaCard, IdeaRow, sessionName, useExitList, useIdeaActions, type IdeaSession } from "./task-ideas";
-import { AiMark, Button, Choices, Label, TextBox, font, radius, space, tint, touch, useTheme, verticalContent, verticalScroll } from "./ui";
+import { AiMark, Button, Choices, Label, TextBox, font, radius, space, tint, touch, useTheme, verticalContent, verticalScroll, noFocusRing } from "./ui";
 import { t, msg, tn } from "../shared/i18n";
 
 const sortLabels: Record<IdeaSort, string> = { newest: msg("Newest"), priority: msg("Priority"), card: msg("Card") };
@@ -290,7 +290,7 @@ function SourceLine({ task, nameOf, onOpenTask }: { task: Task | undefined; name
       accessibilityRole="link"
       accessibilityLabel={t("From card {title}, {state}. Open it", { title: task.title, state: task.archivedAt ? t("archived") : nameOf(task.status) })}
       onPress={() => onOpenTask(task.id)}
-      style={({ pressed, hovered }: { pressed: boolean; hovered?: boolean }) => ({
+      style={({ pressed, hovered }: { pressed: boolean; hovered?: boolean }) => ({ ...noFocusRing,
         flexDirection: "row",
         alignItems: "center",
         gap: space[1.5],
@@ -322,7 +322,7 @@ function GroupHeader({ task, count, nameOf, onOpenTask }: { task: Task | undefin
       accessibilityRole="link"
       accessibilityLabel={tn(count, "{title}, {state}, {n} idea. Open the card", "{title}, {state}, {n} ideas. Open the card", { title: task.title, state: task.archivedAt ? t("archived") : nameOf(task.status) })}
       onPress={() => onOpenTask(task.id)}
-      style={({ pressed }) => ({ flexDirection: "row", alignItems: "center", gap: space[2], minHeight: touch ? 40 : 30, opacity: pressed ? 0.7 : 1 })}
+      style={({ pressed }) => ({ ...noFocusRing, flexDirection: "row", alignItems: "center", gap: space[2], minHeight: touch ? 40 : 30, opacity: pressed ? 0.7 : 1 })}
     >
       <StatusIcon status={task.status} size={14} />
       <View style={{ flexShrink: 1, minWidth: 0 }}>
@@ -347,7 +347,7 @@ function FilterChip({ on, icon, label, hint, onPress }: { on: boolean; icon: str
       accessibilityState={{ selected: on }}
       onPress={onPress}
       hitSlop={touch ? 6 : 0}
-      style={({ pressed, hovered }: { pressed: boolean; hovered?: boolean }) => ({
+      style={({ pressed, hovered }: { pressed: boolean; hovered?: boolean }) => ({ ...noFocusRing,
         flexDirection: "row",
         alignItems: "center",
         gap: space[1],

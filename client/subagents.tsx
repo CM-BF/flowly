@@ -22,7 +22,9 @@ const segmentText = (bucket: SubagentBucket, n: number) =>
 /** "2 working, 1 needs input", else "3 subagents": the chip text, also used by the sidebar's subagent rows. */
 export function subagentSummary(children: readonly Parameters<typeof subagentBucket>[0][]) {
   const segments = chipSegments(subagentCounts(children));
-  return segments.length ? segments.map((s) => segmentText(s.bucket, s.count)).join(", ") : tn(children.length, "{n} subagent", "{n} subagents");
+  // The total always leads, also while some run or wait: "3 subagents · 2 working, 1 ready to review".
+  const total = tn(children.length, "{n} subagent", "{n} subagents");
+  return segments.length ? `${total} · ${segments.map((s) => segmentText(s.bucket, s.count)).join(", ")}` : total;
 }
 
 /**
@@ -122,6 +124,11 @@ export const SubagentsChip = memo(function SubagentsChip({
         }}
       >
         <Icon name="Bot" size={14} color={open ? colors.foreground : colors.foregroundMuted} />
+        {segments.length > 0 && (
+          <Label size={font.sm} color={open ? colors.foreground : colors.foregroundMuted} lines={1} selectable={false}>
+            {tn(children.length, "{n} subagent", "{n} subagents")}
+          </Label>
+        )}
         {segments.length ? (
           segments.map((s) => (
             <View key={s.bucket} style={{ flexDirection: "row", alignItems: "center", gap: space[1.5] }}>

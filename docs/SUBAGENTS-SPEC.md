@@ -30,7 +30,7 @@ Out of scope (user decision): **provider subagents** (Claude Code Task/Agent, Co
 
 - Placement: a row directly above the message box (inside the composer area, below next moves and pending requests, above queued messages). Hidden when the session has no live children; hidden for archived sessions.
 - Style (aligned with Paseo's composer pill): min height 32, horizontal padding 12, vertical padding 4, radius 16, 1 px border (`border`), background `surface1`, `surface2` on hover/press/open; label `font.sm`, `foregroundMuted`, `foreground` while open.
-- Content: one segment per non-empty bucket in the order running, needs_input, failed, attention. Running shows a pulsing dot (accent); needs input a 6 px warning dot; failed a danger dot; ready to review a success dot. Texts: `{n} working`, `1 needs input` / `{n} need input`, `{n} failed`, `{n} ready to review`. When every child is `done`: `1 subagent` / `{n} subagents`.
+- Content: one segment per non-empty bucket in the order running, needs_input, failed, attention. Running shows a pulsing dot (accent); needs input a 6 px warning dot; failed a danger dot; ready to review a success dot. Texts: `{n} working`, `1 needs input` / `{n} need input`, `{n} failed`, `{n} ready to review`. The total (`1 subagent` / `{n} subagents`) always leads, also while children run or wait (user request 2026-10-20), e.g. `3 subagents · 2 working, 1 ready to review`; when every child is `done` it is the only text. The side bar's subagent row uses the same text.
 - Accessible name: `Subagents: {summary}`; it toggles the list.
 
 ## 5. List
@@ -56,3 +56,7 @@ New one-time tip `subagents`: shown once when a session of the current project h
 3. Clicking the chip opens the list; each row shows status, title and subtitle; clicking a row opens that agent in the side bar (one of the card's sessions) or else in a Paseo agent pane, and closes the list.
 4. Archived children disappear from the chip and list.
 5. Every new string is in all catalogs; `npm test` and `npm run typecheck` pass.
+
+## Subagents and attention (user decision 2026-10-20)
+
+A Paseo subagent (`paseo.parent-agent-id`) is managed by its main agent, so its unseen finished turn never counts as unread: it adds nothing to Needs attention, the bell, the sidebar badge or the card's unread signal (`sessionAttention` in `shared/session-attention.ts`). Its approvals, questions and errors still need the user, and a manual *Mark as unread* still counts. The side bar's subagent row and the Subagents chip still show `ready to review` as information.

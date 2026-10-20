@@ -14,7 +14,7 @@ import { exitRows } from "./idea-rows";
 import { boardKey, useBoardQuery } from "./queries";
 import { useStableCallback } from "./stable";
 import { PriorityIcon, TypeIcon, priorityLabels } from "./status";
-import { Button, Label, font, message, relativeTime, space, touch, useTheme } from "./ui";
+import { Button, Label, font, message, relativeTime, space, touch, useTheme, noFocusRing } from "./ui";
 import { t } from "../shared/i18n";
 
 export type IdeaSession = { id: string; title?: string | null; archivedAt?: string | null };
@@ -514,7 +514,7 @@ export function ClosedIdea({
               accessibilityRole="link"
               accessibilityLabel={t("Open task {title}",  { title: acceptedTitle })}
               onPress={() => onOpenTask(idea.acceptedTaskId!)}
-              style={({ pressed }) => ({ opacity: pressed ? 0.7 : 1 })}
+              style={({ pressed }) => ({ ...noFocusRing, opacity: pressed ? 0.7 : 1 })}
             >
               <Label size={font.xs} color={colors.accent} lines={1} selectable={false}>→ {acceptedTitle}</Label>
             </Pressable>

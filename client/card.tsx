@@ -2,7 +2,7 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode
 import { Animated, PanResponder, Pressable, View } from "react-native";
 import { Icon } from "@getpaseo/plugin/client/react-native";
 import { taskTypeLabels, type Task } from "../shared/model";
-import { AiMark, Badge, Dot, IconButton, Label, font, radius, relativeTime, space, tint, touch, useTheme } from "./ui";
+import { AiMark, Badge, Dot, IconButton, Label, font, radius, relativeTime, space, tint, touch, useTheme, noFocusRing } from "./ui";
 import { PriorityIcon, TypeIcon, priorityAccent, priorityLabels } from "./status";
 import type { Point } from "./geometry";
 import type { SessionAttentionSummary } from "../shared/session-attention";
@@ -278,7 +278,7 @@ export function TaskCard({
         }}
         onFocus={() => setFocused(true)}
         onBlur={() => setFocused(false)}
-        style={({ pressed }) => ({
+        style={({ pressed }) => ({ ...noFocusRing,
           paddingHorizontal: space[3],
           paddingTop: space[2] + 2,
           paddingBottom: space[2] + 2,

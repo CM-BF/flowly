@@ -1140,7 +1140,7 @@ function SessionPreviewView({
                 accessibilityRole="button"
                 accessibilityLabel={t("Jump to latest")}
                 onPress={tail.jumpToLatest}
-                style={{
+                style={{ ...noFocusRing,
                   flexDirection: "row",
                   alignItems: "center",
                   gap: 4,
@@ -1190,7 +1190,7 @@ function SessionPreviewView({
                 accessibilityLabel={t("When running: {label}. Change", { label: t(sendBehaviorText[preferred].label) })}
                 onPress={() => setModePicker(true)}
                 hitSlop={6}
-                style={{ flexDirection: "row", alignItems: "center", gap: 2 }}
+                style={{ ...noFocusRing, flexDirection: "row", alignItems: "center", gap: 2 }}
               >
                 <Label muted size={font.xs} selectable={false}>
                   {t("When running:")}{" "}<Label size={font.xs} medium selectable={false}>{t(sendBehaviorText[preferred].label)}</Label>

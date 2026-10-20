@@ -1126,7 +1126,7 @@ function SubagentToggle({ id, summary, open, onPress }: { id: string; summary: s
       accessibilityLabel={t("Subagents: {summary}", { summary })}
       accessibilityState={{ expanded: open }}
       onPress={onPress}
-      style={({ pressed }) => ({
+      style={(state) => ({ ...noFocusRing,
         flexDirection: "row",
         alignItems: "center",
         gap: space[1.5],
@@ -1135,7 +1135,8 @@ function SubagentToggle({ id, summary, open, onPress }: { id: string; summary: s
         paddingRight: space[3],
         borderTopWidth: 1,
         borderColor: colors.border,
-        backgroundColor: pressed ? colors.surface1 : colors.surface0,
+        // Focus shows as the row's background, not a browser outline the bordered list would clip into a line.
+        backgroundColor: state.pressed || (state as typeof state & { hovered?: boolean; focused?: boolean }).hovered || (state as typeof state & { focused?: boolean }).focused ? colors.surface1 : colors.surface0,
       })}
     >
       <Icon name="CornerDownRight" size={13} color={colors.foregroundMuted} />

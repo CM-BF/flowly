@@ -196,7 +196,7 @@ function SettingsWindow({ open, section, onClose, onTour }: { open: boolean; sec
   const { width } = useWindowDimensions();
   return (
     <View style={{ flex: 1, alignItems: "center", justifyContent: "center", padding: space[4] }}>
-      <Pressable accessible={false} importantForAccessibility="no" onPress={onClose} style={{ ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(0,0,0,0.45)" }} />
+      <Pressable accessible={false} importantForAccessibility="no" onPress={onClose} style={{ ...noFocusRing, ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(0,0,0,0.45)" }} />
       <View
         accessibilityViewIsModal
         style={{

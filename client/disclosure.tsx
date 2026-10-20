@@ -2,7 +2,7 @@ import { Fragment, useLayoutEffect, useState, type ReactNode } from "react";
 import { Animated, Pressable, View } from "react-native";
 import { Icon } from "@getpaseo/plugin/client/react-native";
 import { useMotionPresence, lerp } from "./motion";
-import { Label, SectionHeader, font, space, touch, useTheme } from "./ui";
+import { Label, SectionHeader, font, space, touch, useTheme, noFocusRing } from "./ui";
 import { t, tn } from "../shared/i18n";
 
 export function Disclosure({ title, summary, open, disabled, flush, onChange, children }: {
@@ -24,7 +24,7 @@ export function Disclosure({ title, summary, open, disabled, flush, onChange, ch
         accessibilityState={{ expanded: open, disabled: !!disabled }}
         disabled={disabled}
         onPress={() => onChange(!open)}
-        style={({ pressed }) => ({
+        style={({ pressed }) => ({ ...noFocusRing,
           minHeight: touch ? 44 : 32, flexDirection: "row", alignItems: "center", gap: 6,
           opacity: disabled ? 0.4 : pressed ? 0.7 : 1,
         })}
@@ -131,7 +131,7 @@ export function ShowMore({ count, onPress }: { count: number; onPress(): void })
       accessibilityRole="button"
       accessibilityLabel={label}
       onPress={onPress}
-      style={({ pressed }) => ({ flexDirection: "row", alignItems: "center", gap: space[1.5], minHeight: touch ? 44 : 30, opacity: pressed ? 0.7 : 1 })}
+      style={({ pressed }) => ({ ...noFocusRing, flexDirection: "row", alignItems: "center", gap: space[1.5], minHeight: touch ? 44 : 30, opacity: pressed ? 0.7 : 1 })}
     >
       <Icon name="ChevronDown" size={14} color={colors.foregroundMuted} />
       <Label muted size={font.sm} selectable={false}>{label}</Label>

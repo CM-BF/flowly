@@ -750,7 +750,7 @@ export function SectionHeader({
             accessibilityLabel={title}
             accessibilityState={{ expanded: !!open }}
             onPress={onToggle}
-            style={({ pressed }) => ({ ...row, minHeight: touch ? 44 : control, flexShrink: 1, opacity: pressed ? 0.7 : 1 })}
+            style={({ pressed }) => ({ ...noFocusRing, ...row, minHeight: touch ? 44 : control, flexShrink: 1, opacity: pressed ? 0.7 : 1 })}
           >
             {heading}
           </Pressable>
@@ -893,7 +893,7 @@ export function Toggle({
       accessibilityLabel={title}
       accessibilityState={{ checked: value }}
       onPress={() => onChange(!value)}
-      style={{
+      style={{ ...noFocusRing,
         flexDirection: "row",
         alignItems: "center",
         gap: space[3],

@@ -6,7 +6,7 @@ import { useQuery } from "@tanstack/react-query";
 import { readSessionReceipts } from "../shared/rpc";
 import { attentionBadgeText, attentionFromSources, attentionScreenParams } from "./attention";
 import { useBoardQuery, useLiveAgents } from "./queries";
-import { CountPill, Theme } from "./ui";
+import { CountPill, Theme, noFocusRing } from "./ui";
 import { tn } from "../shared/i18n";
 
 /**
@@ -55,7 +55,7 @@ function SidebarEntryRow({ currentScreen, openScreen, theme }: PluginSidebarItem
       trailing={
         text ? (
           <Theme.Provider value={theme}>
-            <Pressable
+            <Pressable style={noFocusRing}
               accessibilityRole="button"
               accessibilityLabel={tn(count ?? 0, "Open Needs attention, {text} card", "Open Needs attention, {text} cards", { text })}
               hitSlop={10}

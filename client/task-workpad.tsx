@@ -8,7 +8,7 @@ import type { AcceptanceItem, CheckState, ConfusionItem, PlanSnapshot, Task, Val
 import { plansOf, validationFreshness, workpadOf } from "../shared/workpad";
 import { boardKey, useBoardQuery, useLiveAgents } from "./queries";
 import { PagedRows, Section, ShowMore, pageSize, type SectionState } from "./disclosure";
-import { AiMark, IconButton, Label, font, message, radius, relativeTime, space, touch, useTheme } from "./ui";
+import { AiMark, IconButton, Label, font, message, radius, relativeTime, space, touch, useTheme, noFocusRing } from "./ui";
 import { t } from "../shared/i18n";
 
 const firstPage = { acceptance: pageSize, checks: pageSize, confusions: pageSize };
@@ -243,7 +243,7 @@ function AcceptanceRow({ item, disabled, onToggle }: { item: AcceptanceItem; dis
       aria-checked={item.done}
       disabled={disabled}
       onPress={onToggle}
-      style={({ pressed }) => ({ ...rowStyle(), minHeight: touch ? 36 : undefined, opacity: pressed ? 0.7 : 1 })}
+      style={({ pressed }) => ({ ...noFocusRing, ...rowStyle(), minHeight: touch ? 36 : undefined, opacity: pressed ? 0.7 : 1 })}
     >
       <Box checked={item.done} />
       <View style={{ flex: 1, minWidth: 0 }}>
@@ -285,7 +285,7 @@ function CheckRow({ item, workpad, disabled, onCycle }: { item: ValidationItem; 
         disabled={disabled}
         hitSlop={8}
         onPress={onCycle}
-        style={({ pressed }) => ({ marginTop: 1, opacity: pressed ? 0.6 : 1 })}
+        style={({ pressed }) => ({ ...noFocusRing, marginTop: 1, opacity: pressed ? 0.6 : 1 })}
       >
         <Icon name={icon.name} size={16} color={icon.color} />
       </Pressable>
@@ -293,7 +293,7 @@ function CheckRow({ item, workpad, disabled, onCycle }: { item: ValidationItem; 
         <Label size={font.md}>{item.text}</Label>
         {!!item.command && (
           // One line until the output is shown (or the command is tapped), so long commands don't fill the sidebar.
-          <Pressable accessibilityRole="button" accessibilityState={{ expanded: open }} onPress={() => setOpen(!open)}>
+          <Pressable accessibilityRole="button" accessibilityState={{ expanded: open }} onPress={() => setOpen(!open)} style={noFocusRing}>
             <Label size={font.sm} muted mono selectable lines={open ? undefined : 1}>
               {item.command}
             </Label>
@@ -315,7 +315,7 @@ function CheckRow({ item, workpad, disabled, onCycle }: { item: ValidationItem; 
         )}
         {!!item.evidence && (
           <>
-            <Pressable accessibilityRole="button" accessibilityState={{ expanded: open }} onPress={() => setOpen(!open)}>
+            <Pressable accessibilityRole="button" accessibilityState={{ expanded: open }} onPress={() => setOpen(!open)} style={noFocusRing}>
               <Label size={font.sm} color={colors.accent} selectable={false}>
                 {open ? t("Hide output") : t("Show output")}
               </Label>

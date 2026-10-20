@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type { BoardEvent } from "./model";
 import { asksQuestion } from "./permission-question";
+import { parentOf } from "./subagents";
 
 export const sessionReadReceiptSchema = z.strictObject({
   taskId: z.string().min(1).max(200),
@@ -58,6 +59,7 @@ export interface AttentionAgent {
   requiresAttention?: boolean;
   attentionReason?: "finished" | "error" | "permission" | null;
   attentionTimestamp?: string | null;
+  labels?: Record<string, string> | null;
 }
 
 export function nativeAttentionToken(agent: AttentionAgent): string | null {
@@ -87,9 +89,12 @@ export function sessionAttention(
     (r) => r.taskId === taskId && r.workspaceId === agent.workspaceId && r.agentId === agent.id,
   );
   const manualUnread = record?.token === manualUnreadToken;
+  // A Paseo subagent's finished turn is its main agent's to read, not the user's (user decision
+  // 2026-10-20): it never counts as unread unless the user marked it so. Approvals and errors still do.
+  const subagent = !!parentOf(agent);
   const unread =
     !archived &&
-    (manualUnread || (agent.requiresAttention === true && (!token || record?.token !== token)));
+    (manualUnread || (!subagent && agent.requiresAttention === true && (!token || record?.token !== token)));
   const permission =
     !archived &&
     (!!agent.pendingPermissions?.length ||

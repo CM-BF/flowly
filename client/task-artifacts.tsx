@@ -11,7 +11,7 @@ import { IdeaRow, useExitList } from "./task-ideas";
 import { boardKey, useBoardQuery } from "./queries";
 import { SessionMarkdown } from "./session-content";
 import { PagedRows, Section, ShowMore, pageSize, type SectionState } from "./disclosure";
-import { AiMark, Actions, Button, Choices, Field, IconButton, Label, Notice, Theme, font, message, space, touch, useTheme } from "./ui";
+import { AiMark, Actions, Button, Choices, Field, IconButton, Label, Notice, Theme, font, message, space, touch, useTheme, noFocusRing } from "./ui";
 import { t, tn } from "../shared/i18n";
 import { LinkTicket, TicketPreview, useConnections } from "./tickets";
 
@@ -186,7 +186,7 @@ const ArtifactRow = memo(function ArtifactRow({
         accessibilityRole={artifact.kind === "url" && !artifact.ticket ? "link" : "button"}
         accessibilityLabel={`${role}: ${artifact.title}, ${source}${missing ? `, ${t("missing")}` : ""}`}
         onPress={() => onOpen(artifact)}
-        style={({ pressed }) => ({ flex: 1, minWidth: 0, flexDirection: "row", alignItems: "center", gap: space[1.5], opacity: pressed ? 0.7 : 1 })}
+        style={({ pressed }) => ({ ...noFocusRing, flex: 1, minWidth: 0, flexDirection: "row", alignItems: "center", gap: space[1.5], opacity: pressed ? 0.7 : 1 })}
       >
         <Icon name={icon} size={14} color={missing ? colors.foregroundMuted : colors.foreground} />
         <View style={{ flex: 1, minWidth: 0 }}>

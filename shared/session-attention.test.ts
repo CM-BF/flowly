@@ -18,3 +18,15 @@ test("native attention is unread until its token is acknowledged", () => {
   expect(sessionAttention(finished, "t", [record(token)]).unread).toBe(false);
   expect(sessionAttention(finished, "t", [record(manualUnreadToken)]).unread).toBe(true);
 });
+
+test("a subagent's unseen finished turn is not unread; its approvals and errors still need attention", async () => {
+  const { sessionAttention } = await import("./session-attention");
+  const base = { id: "child", workspaceId: "w", status: "idle" as const, requiresAttention: true, attentionReason: "finished" as const, labels: { "paseo.parent-agent-id": "main" } };
+  expect(sessionAttention(base, "t").unread).toBe(false);
+  expect(sessionAttention(base, "t").needsAttention).toBe(false);
+  expect(sessionAttention({ ...base, labels: {} }, "t").unread).toBe(true);
+  expect(sessionAttention({ ...base, attentionReason: "permission" as const, pendingPermissions: [{}] }, "t").needsAttention).toBe(true);
+  expect(sessionAttention({ ...base, status: "error" as const }, "t").needsAttention).toBe(true);
+  const marked = [{ taskId: "t", workspaceId: "w", agentId: "child", token: "manual-unread" }];
+  expect(sessionAttention(base, "t", marked as never).unread).toBe(true);
+});
