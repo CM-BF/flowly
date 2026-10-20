@@ -10,7 +10,12 @@ export type MarkdownBlock =
     }
   | { kind: "code"; text: string; language: string }
   | { kind: "rule" }
-  | { kind: "table"; headers: string[]; rows: string[][] };
+  | {
+      kind: "table";
+      headers: string[];
+      rows: string[][];
+      align: ("left" | "center" | "right")[];
+    };
 
 function tableCells(line: string) {
   let trimmed = line.trim().replace(/^\|/, "");
@@ -55,7 +60,16 @@ function startsBlock(line: string) {
 }
 function isTable(lines: string[], i: number) {
   if (!lines[i]?.includes("|") || !lines[i + 1]?.includes("|")) return false;
-  return tableCells(lines[i + 1]).every((cell) => /^:?-{3,}:?$/.test(cell));
+  const delimiter = tableCells(lines[i + 1]);
+  return (
+    delimiter.length === tableCells(lines[i]).length &&
+    delimiter.every((cell) => /^:?-+:?$/.test(cell))
+  );
+}
+function tableAlign(cell: string) {
+  const left = cell.startsWith(":"),
+    right = cell.endsWith(":");
+  return left && right ? "center" : right ? "right" : "left";
 }
 
 /** A bounded native preview subset; incomplete syntax remains readable while streaming. */
@@ -95,11 +109,12 @@ export function parseSessionMarkdown(text: string): MarkdownBlock[] {
     }
     if (isTable(lines, i)) {
       const headers = tableCells(line),
+        align = tableCells(lines[i + 1]).map(tableAlign),
         rows: string[][] = [];
       i += 2;
       while (i < lines.length && lines[i].includes("|") && lines[i].trim())
         rows.push(tableCells(lines[i++]));
-      blocks.push({ kind: "table", headers, rows });
+      blocks.push({ kind: "table", headers, rows, align });
       continue;
     }
     const h = heading(line),

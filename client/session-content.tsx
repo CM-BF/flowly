@@ -1,7 +1,11 @@
 import { memo, useMemo, useState } from "react";
-import { Linking, Platform, Text, View } from "react-native";
+import { Linking, Platform, ScrollView, Text, View } from "react-native";
 import { Icon } from "@getpaseo/plugin/client/react-native";
-import { parseSessionInline, parseSessionMarkdown } from "./session-markdown";
+import {
+  parseSessionInline,
+  parseSessionMarkdown,
+  type MarkdownBlock,
+} from "./session-markdown";
 import { Label, useTheme } from "./ui";
 import { t } from "../shared/i18n";
 
@@ -69,6 +73,77 @@ const Inline = memo(function Inline({
   );
 });
 
+/** Column width from the longest cell, so short columns stay narrow and long ones wrap. */
+function columnWidth(cells: string[]) {
+  const longest = Math.max(...cells.map((cell) => cell.length), 1);
+  return Math.min(Math.max(longest * 8 + 24, 64), 260);
+}
+
+const TableBlock = memo(function TableBlock({
+  block,
+}: {
+  block: Extract<MarkdownBlock, { kind: "table" }>;
+}) {
+  const { colors } = useTheme();
+  const widths = useMemo(
+    () =>
+      block.headers.map((_, col) =>
+        columnWidth([block.headers[col], ...block.rows.map((r) => r[col] || "")]),
+      ),
+    [block],
+  );
+  const rows = [block.headers, ...block.rows];
+  return (
+    <ScrollView
+      horizontal
+      showsHorizontalScrollIndicator={false}
+      style={{ maxWidth: "100%" }}
+    >
+      <View
+        style={{
+          borderWidth: 1,
+          borderColor: colors.border,
+          borderRadius: 8,
+          overflow: "hidden",
+        }}
+      >
+        {rows.map((row, rowIndex) => (
+          <View
+            key={rowIndex}
+            style={{
+              flexDirection: "row",
+              borderTopWidth: rowIndex ? 1 : 0,
+              borderColor: colors.border,
+              backgroundColor: rowIndex === 0 ? colors.surface1 : undefined,
+            }}
+          >
+            {widths.map((width, col) => (
+              <View
+                key={col}
+                style={{
+                  width,
+                  paddingHorizontal: 10,
+                  paddingVertical: 7,
+                  borderLeftWidth: col ? 1 : 0,
+                  borderColor: colors.border,
+                  alignItems:
+                    block.align[col] === "right"
+                      ? "flex-end"
+                      : block.align[col] === "center"
+                        ? "center"
+                        : "flex-start",
+                }}
+              >
+                <Inline text={row[col] || ""} size={13} bold={rowIndex === 0} />
+              </View>
+            ))}
+          </View>
+        ))}
+      </View>
+    </ScrollView>
+  );
+});
+
 export const SessionMarkdown = memo(function SessionMarkdown({ text }: { text: string }) {
   const { colors } = useTheme();
   const blocks = useMemo(() => parseSessionMarkdown(text), [text]);
@@ -118,41 +193,7 @@ export const SessionMarkdown = memo(function SessionMarkdown({ text }: { text: s
             </View>
           );
         if (block.kind === "table")
-          return (
-            <View key={index} style={{ gap: 12, minWidth: 0 }}>
-              {(block.rows.length
-                ? block.rows
-                : [block.headers.map(() => "")]
-              ).map((row, rowIndex) => (
-                <View
-                  key={rowIndex}
-                  style={{
-                    gap: 8,
-                    paddingVertical: 10,
-                    borderTopWidth: 1,
-                    borderColor: colors.border,
-                  }}
-                >
-                  {Array.from(
-                    { length: Math.max(row.length, block.headers.length) },
-                    (_, cellIndex) => (
-                      <View key={cellIndex} style={{ gap: 2, minWidth: 0 }}>
-                        <Inline
-                          text={
-                            block.headers[cellIndex] ||
-                            t("Column {n}", { n: cellIndex + 1 })
-                          }
-                          size={12}
-                          bold
-                        />
-                        <Inline text={row[cellIndex] || "—"} />
-                      </View>
-                    ),
-                  )}
-                </View>
-              ))}
-            </View>
-          );
+          return <TableBlock key={index} block={block} />;
         if (block.kind === "heading")
           return (
             <View key={index} style={{ paddingTop: 6 }}>

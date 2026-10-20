@@ -443,7 +443,6 @@ const catalog: Catalog = {
   "Unread": "未讀",
   "Provider unavailable": "供應商不可用",
   "Unable to open this link.": "無法開啟此連結。",
-  "Column {n}": "第 {n} 列",
   "Choose an available model.": "選擇一個可用的模型。",
   "Prepared session is unavailable or belongs to a different workspace.": "預先準備的工作階段不可用，或屬於其他工作區。",
   "Recovered the existing session. Its initial instruction was not sent again; check its output before continuing.": "已恢復現有工作階段。它的初始指令沒有再次傳送；繼續前請先檢視它的輸出。",

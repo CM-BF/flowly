@@ -443,7 +443,6 @@ const catalog: Catalog = {
   "Unread": "Não lida",
   "Provider unavailable": "Provedor indisponível",
   "Unable to open this link.": "Não foi possível abrir este link.",
-  "Column {n}": "Coluna {n}",
   "Choose an available model.": "Escolha um modelo disponível.",
   "Prepared session is unavailable or belongs to a different workspace.": "A sessão preparada está indisponível ou pertence a outro espaço de trabalho.",
   "Recovered the existing session. Its initial instruction was not sent again; check its output before continuing.": "A sessão existente foi recuperada. Sua instrução inicial não foi enviada de novo; confira a saída antes de continuar.",

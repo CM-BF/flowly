@@ -443,7 +443,6 @@ const catalog: Catalog = {
   "Unread": "읽지 않음",
   "Provider unavailable": "제공자를 사용할 수 없음",
   "Unable to open this link.": "이 링크를 열 수 없습니다.",
-  "Column {n}": "열 {n}",
   "Choose an available model.": "사용할 수 있는 모델을 선택하세요.",
   "Prepared session is unavailable or belongs to a different workspace.": "준비된 세션을 사용할 수 없거나 다른 워크스페이스에 속해 있습니다.",
   "Recovered the existing session. Its initial instruction was not sent again; check its output before continuing.": "기존 세션을 복구했습니다. 처음 지시는 다시 보내지 않았으니 계속하기 전에 출력을 확인하세요.",
