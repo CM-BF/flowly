@@ -127,6 +127,30 @@
 - [x] Review/publish validation: constructed a rename-only index from HEAD, excluding unrelated Workflow insights/Attention dismiss code. Isolated typecheck PASS; full tests with `--maxWorkers=2`: 534 passed / 63 skipped; candidate diff check PASS. Working-tree byte hashes preserved. [Review evidence](verification/flowly-naming-review.md).
 - UNRUN: desktop/compact visual checks, not required for this naming-only change; no UI actions taken. Existing unrelated work preserved; commit/push completion is recorded on the card.
 
+## Workflow insights — 2026-10-19
+
+- [x] Card request "paseo project settings互通". Researched the SDK first: plugin `PaseoApi` has no project-settings or setup API; the internal `DaemonClient` has `readProjectConfig`/`writeProjectConfig`, setup status/run and workspace scripts. The daemon already runs `worktree.setup` for worktree cards and teardown on archive.
+- [x] Read-only probes over the Flowly card sessions; no raw commands were persisted, and the temporary scripts and session were deleted. Rules over 72 h found only verify-type suggestions that AGENTS.md already has. Over 7 days, `claude/claude-sonnet-5` found 6 suggestions, 5 of them outside paseo.json (i18n tool, Playwright dependency, board inspector, doc-sync and fixture-cleanup checklists). One run took 267 s and cost about $0.80, and `outputSchema` was not honored.
+- [x] User decision: an opt-in feature with a switch, model choice and cadence (daily when tokens allow, longer otherwise). [Spec](WORKFLOW-INSIGHTS-SPEC.md) written.
+- [x] User approved the spec with all §11 decisions kept. Implemented:
+  - `shared/workflow-insights.ts`: settings, normalization, redaction, scheduling, material, prompt, parsing, validation.
+  - `server/command-log.ts`, `server/workflow-insights.ts`: store, service, backfill, 15-min scheduler.
+  - RPC `workflow-insights.*`; `Project.workflowInsights`; `tasks.create` `insightFindingId`; get_task `projectScripts`, plus the skill line in both copies.
+  - Insights section, the settings group under AI features, the project switch, the task seed.
+  - Card delete, project remove and restore paths.
+- [x] Onboarding: tour row *Workflow insights*, tip `first-workflow-insight` (after `first-idea`), ONBOARDING-SPEC table, README (both). 56 strings in all 9 catalogs.
+- [x] PASS: typecheck; `npm test` 567 passed / 63 skipped; plugin reloaded. Live Run now on Flowly with `claude/claude-sonnet-5`: 240 s, $0.63, 7 suggestions, 4 of them matching the probe; the Playwright one did not come back. Details in [verification/workflow-insights.md](verification/workflow-insights.md).
+- [ ] UNRUN: real-window UI (desktop and compact), a scheduled run and an enable-time backfill in the live daemon, Codex shell items, Luna 6 test session.
+- [x] 2026-10-21 review of two days of scheduled runs. 25 open suggestions, about half of them repeats of earlier ones (verify/check, board inspector and DaemonClient helper, each 3 times). Agent SMITH was never analyzed: 990 actions but only 2 cards, under the 3-card quiet rule. The monthly cost estimate used one project's run.
+- [x] Fix on PR #8 (user request), spec §4.1, §4.3–§4.4, §5.1–§5.3, §2.3 and §11 updated:
+  - The model sees existing suggestions with a short id. It marks a repeat with `updates`, which refreshes the existing suggestion (evidence, cards, `seen` + 1) instead of adding one. It lists duplicates among open suggestions in `merges`.
+  - A daemon fallback treats a matching fingerprint, or a similar title (word and CJK-bigram Jaccard: ≥ 0.6 with the same target, ≥ 0.7 with any target), as a repeat.
+  - Quiet rule: under 50 new actions, or under 2 cards unless there are at least 200 new actions.
+  - The monthly estimate sums the latest run cost of each included project.
+  - Insights shows "Seen in N runs".
+  - The existing repeats are merged by the next model run. The data file is not edited directly.
+- [x] PASS: typecheck; `npm test` 839 passed / 65 skipped (the PR branch tree). UNRUN: the merge on real data (the next scheduled run or Run now after the PR is installed), the UI line in a real window.
+
 ## Card display: calmer layout and user-chosen fields — 2026-10-19
 
 - [x] Card request "任务卡片布局调整": cards had too many kinds of information. [Spec](CARD-DISPLAY-SPEC.md).
