@@ -1,4 +1,4 @@
-import { afterEach, expect, test } from "vitest";
+import { afterEach, expect, test, vi } from "vitest";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -267,9 +267,8 @@ test("review loop: changes go back to the implementer, the next delivery is revi
   await expect(x.automation.submitReview({ agentId: impl, taskId: "a", workspaceId: "w-a" }, { verdict: "approve", summary: "self" })).rejects.toMatchObject({ code: "NOT_REVIEWER" });
   const answer = await x.automation.submitReview({ agentId: rev, taskId: "a", workspaceId: "w-a" }, { verdict: "changes", summary: "Tests missing", findings: ["src/a.ts: no test for empty input"] });
   expect(answer).toMatchObject({ accepted: true, verdict: "changes" });
-  await new Promise((r) => setTimeout(r, 20));
+  await vi.waitFor(() => expect(x.sent.at(-1)).toMatchObject({ agentId: impl, text: expect.stringMatching(/requested changes[\s\S]*no test for empty input/) }));
   expect((await x.task("a")).status).toBe("development");
-  expect(x.sent.at(-1)).toMatchObject({ agentId: impl, text: expect.stringMatching(/requested changes[\s\S]*no test for empty input/) });
   // The reviewer's own turn end no longer matters; a repeated verdict is acknowledged once.
   await x.turn(rev, "a");
   expect(await x.automation.submitReview({ agentId: rev, taskId: "a", workspaceId: "w-a" }, { verdict: "changes", summary: "Tests missing" })).toMatchObject({ replayed: true });
@@ -340,6 +339,5 @@ test("a person moving a blocker to Done starts the card it blocked right away", 
   });
   // Card a has no job of its own; the move alone must run the dispatcher.
   await x.automation.cardMoved("a", "in_review", "done");
-  await new Promise((r) => setTimeout(r, 20));
-  expect(x.created.map((c) => c.workspaceId)).toEqual(["w-b"]);
+  await vi.waitFor(() => expect(x.created.map((c) => c.workspaceId)).toEqual(["w-b"]));
 });
