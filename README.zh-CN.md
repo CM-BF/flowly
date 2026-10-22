@@ -75,7 +75,11 @@ agent 工作时发现的后续事项（顺带发现的 bug、现有方案的局�
 
 agent 理解任务后会自己补全卡片元数据：卡片没有**任务类型**时设置类型（feature、bugfix、research、refactor、docs、chore），不会覆盖你已选的类型；同时添加描述所涉模块和方向的**标签**（`drawer`、`performance`、`a11y`），与固定的任务类型分开。agent 会复用项目已有标签而不是另造同义词；你可在卡片或表单里添加、删除标签。可按标签筛选看板，或搜索 `#tag`（`#module/` 匹配前缀）。agent 不能删除你添加的标签。
 
-### 6. Project insights
+### 6. 智能体自动化（可选）
+
+在“编辑项目”里打开 **Agent automation**，然后在卡片上选择 **Run with agent**。Flowly 把卡片排进队列：阻塞它的卡片都 Done、项目还有空闲名额时（优先级高的先），在卡片自己的 workspace 里启动一个 agent，并像 Hermes Kanban 监督 worker 那样监督它：一轮结束却没有交付、提问或 blocker 时提醒，失败的回合退避重试，次数用完就把卡片移到 Blocked 并写明原因。设置了 **reviewer** 模型时，每次交付先由第二个 agent 在同一 workspace 里评审：通过则卡片留在 In review 等你，否则把具体修改意见发回实现者，最多进行你设定的轮数。卡片上会显示 agent 正在做什么（Agent working、Agent reviewing、Agent waiting for you、Agent review passed）；提问照样以 Needs you 找你。Done 仍由你决定，自动化不会打断或归档任何 session。
+
+### 7. Project insights
 
 一页看完当天：完成 / 新建 / 返工的卡片数、回合数、agent 时长、commits、token（含缓存命中率）；**等你处理**的列表、基于规则的建议、AI 生成的日报、每张卡的 token 用量和 7 日趋势。
 
@@ -110,7 +114,7 @@ agent 理解任务后会自己补全卡片元数据：卡片没有**任务类型
 
 - **一个看板 project 对应一个原生 Paseo project 根目录。** 要跨多个仓库工作，可以把它们放进同一个父目录并注册该目录；也可以让插件建一个“链接根目录”，里面为每个仓库放一个软链接（移除链接不会动目标目录）。
 - **一张卡对应一个 workspace**，workspace 里可以有多个 session。由你选择哪个 session 接收指令；普通追问只发送你输入的原文。
-- **Agent 工具。** 从卡片创建的 session 会获得受限 MCP 工具：`flowly_get_task`、`flowly_update_status`、`flowly_report_progress`、`flowly_propose_idea`、`flowly_suggest_next_moves`、`flowly_set_tags`、`flowly_set_type`、`flowly_add_artifact`、`flowly_remove_artifact`、`flowly_update_workpad` 和 `flowly_read_external`（`flowly_read_ticket` 作为旧 session 的别名保留），以及说明它们用法的 `flowly` skill。agent 可以在工作阶段之间和 In review 之间移动自己的卡片；Done 与 Cancelled 由人决定。交付或提问的那次调用（`flowly_update_status`、`flowly_report_progress`）还可以带上 `nextMoves`，即显示在输入框上方的建议下一步；没有需要用户做的事就传 `[]`。没有 MCP 的 session 可使用 CLI 兜底。
+- **Agent 工具。** 从卡片创建的 session 会获得受限 MCP 工具：`flowly_get_task`、`flowly_update_status`、`flowly_report_progress`、`flowly_propose_idea`、`flowly_suggest_next_moves`、`flowly_set_tags`、`flowly_set_type`、`flowly_add_artifact`、`flowly_remove_artifact`、`flowly_update_workpad`、`flowly_read_external`（`flowly_read_ticket` 作为旧 session 的别名保留），智能体自动化的评审 session 另有 `flowly_submit_review`，以及说明它们用法的 `flowly` skill。agent 可以在工作阶段之间和 In review 之间移动自己的卡片；Done 与 Cancelled 由人决定。交付或提问的那次调用（`flowly_update_status`、`flowly_report_progress`）还可以带上 `nextMoves`，即显示在输入框上方的建议下一步；没有需要用户做的事就传 `[]`。没有 MCP 的 session 可使用 CLI 兜底。
 - **卡片业务状态与 session 执行状态相互独立。** 一轮结束不代表卡片完成。
 - **其他能力：** 拖拽（含列内排序）、卡片关联（follow-up、blocks、related）、任务类型与优先级、Done 卡片收尾（预检后归档其 session 和自有 workspace）、键盘快捷键（`?`）、按卡片统计 token、手机紧凑布局，以及在 *设置 → 卡片* 中自选看板卡片显示哪些信息（带实时预览）。
 
