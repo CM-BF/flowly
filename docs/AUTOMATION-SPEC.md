@@ -8,7 +8,7 @@ Hermes Kanban 的 agent 自动化有四块：**dispatcher**（依赖、并发、
 
 | AGENTS.md 原约束 | 变更 |
 | --- | --- |
-| “Automatic assignment, multi-agent handoffs, role orchestration … are outside v1” | 例外（用户要求，2026-10-22）：**按项目开启、默认关闭**的智能体自动化可以自动启动已排队卡片的 session、在实现者与评审者之间交接、对静默/失败的回合发送提醒与重试。跨 host 调度、PR 自动化、agent 自建卡片仍不做。 |
+| “Automatic assignment, multi-agent handoffs, role orchestration … are outside v1” | 例外（用户要求，2026-10-22）：**按项目开启、默认关闭**的智能体自动化可以自动启动已排队卡片的 session、在实现者与评审者之间交接、对静默/失败的回合发送提醒与重试。跨 host 调度、PR 自动化仍不做。agent 建卡与子卡片由 [SUB-CARDS-SPEC](SUB-CARDS-SPEC.md) 补上（用户决定，2026-10-22）。 |
 | “ordinary follow-up sends exactly the user's text” | 不变。自动化发出的消息（开工、提醒、重试、评审、修改要求）是插件发起的显式 Kanban 消息，统一以 `[Flowly automation]` 开头，不冒充用户。 |
 | “A turn ending never automatically completes the card” / Done 由人决定 | 不变。自动化从不把卡片移到 Done/Cancelled。评审通过时卡片留在 In review。 |
 | 自动化可以改卡片状态吗 | 只有两处，均为系统事件并带 rule：放弃时把卡片移到 Blocked（`rule="AUTO"`，同 Hermes 熔断 auto-block）；评审要求修改时从 In review 回到工作阶段（`rule="REVIEW"`，与人的评审反馈触发 A1 落到同一阶段）。 |
@@ -128,7 +128,7 @@ AutomationJob {
 
 ## 9. 不做（本期）与后续
 
-- **编排**：triage 自动拆卡（decomposer）、orchestrator 用工具建子卡并连依赖、完成后唤醒创建者——与 Flowly “agent 不自建卡片，Ideas 由人把关”冲突，需要用户另行决定。
+- **编排**：已由 [SUB-CARDS-SPEC](SUB-CARDS-SPEC.md) 实现（agent 建卡/子卡、依赖、父卡等待与唤醒）。仍不做：triage 列由 LLM 自动拆卡（Hermes decomposer）。
 - goal 模式（每回合由裁判模型判定是否达成）、定时开始（`scheduled_at`）、按卡片指定执行者/模型、per-profile 并发、心跳/超时回收（Paseo 自己的 session 状态已覆盖进程存活；长时间 running 只靠人看）。
 - 依赖 Done 不等于上游代码已进入下游 worktree（此前设计稿指出）：本期由人保证；下游 agent 会在上下文的 links 里看到 blocker 及其状态。
 - 降级到上游 Flowly：旧版本解析 `board.json` 时会丢弃 `automation` 与 `project.automation`（zod 非严格对象），卡片与其它数据不受影响。
