@@ -95,7 +95,15 @@ test("a delivery goes to review while rounds remain, otherwise to the user", () 
 });
 
 test("questions and blockers wait for a person; a silent end is nudged, then blocks the card", () => {
-  expect(decide("blocked", {})).toEqual({ kind: "wait", code: "blocked" });
+  const blocked = board({ tasks: [task("a", "blocked")] });
+  ended(blocked, "impl");
+  blocked.events.push({ id: "b", taskId: "a", actor: "agent", action: "status_changed", agentId: "impl", from: "development", to: "blocked", at });
+  expect(decide("blocked", {}, settings(), { kind: "completed" }, blocked)).toEqual({ kind: "wait", code: "blocked" });
+  // Blocked by someone else (rule A1r restoring it after a silent turn on a re-run card) is a silent turn.
+  const restored = board({ tasks: [task("a", "blocked")] });
+  ended(restored, "impl");
+  restored.events.push({ id: "r", taskId: "a", actor: "system", action: "status_changed", agentId: "impl", rule: "A1r", from: "design", to: "blocked", at });
+  expect(decide("blocked", {}, settings(), { kind: "completed" }, restored)).toEqual({ kind: "nudge", count: 1 });
   const b = board({ tasks: [task("a", "development")] });
   ended(b, "impl");
   b.events.push({ id: "q", taskId: "a", actor: "agent", action: "progress_reported", agentId: "impl", reportKind: "question", at });

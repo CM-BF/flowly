@@ -109,8 +109,8 @@ export type TurnDecision =
   /** Limits exhausted. `blockCard`: the card moves to Blocked so it stops looking active. */
   | { kind: "give_up"; code: AutomationCode; blockCard: boolean };
 
-/** Whether `agentId` asked the user something or reported a blocker during its latest turn. */
-export function askedThisTurn(board: Pick<Board, "events">, taskId: string, agentId: string) {
+/** `agentId`'s events since its latest turn started. */
+function thisTurn(board: Pick<Board, "events">, taskId: string, agentId: string) {
   const mine = board.events.filter((e) => e.taskId === taskId && e.agentId === agentId);
   let start = mine.length;
   for (let i = mine.length - 1; i >= 0; i--)
@@ -118,8 +118,20 @@ export function askedThisTurn(board: Pick<Board, "events">, taskId: string, agen
       start = i;
       break;
     }
-  return mine.slice(start + 1).some((e) => e.reportKind === "question" || e.reportKind === "blocker");
+  return mine.slice(start + 1);
 }
+
+/** Whether `agentId` asked the user something or reported a blocker during its latest turn. */
+export const askedThisTurn = (board: Pick<Board, "events">, taskId: string, agentId: string) =>
+  thisTurn(board, taskId, agentId).some((e) => e.reportKind === "question" || e.reportKind === "blocker");
+
+/**
+ * Whether the agent itself set the card to Blocked during its latest turn. A card that is
+ * Blocked for another reason (rule A1r restoring it after a silent turn, automation having
+ * given up earlier) is not the agent asking for a person.
+ */
+export const blockedThisTurn = (board: Pick<Board, "events">, taskId: string, agentId: string) =>
+  thisTurn(board, taskId, agentId).some((e) => e.actor === "agent" && e.action === "status_changed" && e.to === "blocked");
 
 /**
  * What a supervised session's turn end means (Hermes worker protocol): a
@@ -156,7 +168,7 @@ export function turnDecision(
       if (!settings.reviewer) return { kind: "deliver" };
       return job.reviewRounds < settings.maxReviewRounds ? { kind: "review" } : { kind: "deliver", code: "review_rounds" };
     }
-    if (task.status === "blocked") return { kind: "wait", code: "blocked" };
+    if (task.status === "blocked" && blockedThisTurn(board, task.id, agentId)) return { kind: "wait", code: "blocked" };
     if (askedThisTurn(board, task.id, agentId)) return { kind: "wait", code: "question" };
   }
   if (job.nudges < settings.nudgeLimit) return { kind: "nudge", count: job.nudges + 1 };

@@ -73,7 +73,7 @@ AutomationJob {
 | 回合失败 | `failures+1`；未到上限 → `retry_wait`，退避 30 s·2^(n−1)，最长 5 分钟，到期在同一 session 发“上次失败：…，从当前状态继续”；到上限 → 实现者：`failed` + 卡片移到 Blocked；评审者：见下 |
 | 回合被中断 | `needs_human` / `interrupted` |
 | 实现者交付（卡片在 In review） | 有评审者且轮次未满 → 开始评审（§5）；否则 `delivered`（轮次用完记 `review_rounds`） |
-| 实现者把卡片设为 Blocked | `needs_human` / `blocked` |
+| 实现者本回合自己把卡片设为 Blocked | `needs_human` / `blocked`（卡片因别的原因停在 Blocked，例如重新运行时 A1r 在静默回合后把它恢复为 Blocked，按静默结束处理） |
 | 本回合提了问题或报了 blocker（`kind=question/blocker`） | `needs_human` / `question` |
 | 其它（静默结束） | 提醒未满 → `nudges+1`，发提醒；满了 → 实现者：`failed` / `no_delivery`，卡片移到 Blocked；评审者：见 §5 |
 
