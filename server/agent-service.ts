@@ -61,6 +61,8 @@ import { ToolError } from "./tool-error";
 import { ideaLimits, isWorkStatus, legacyStatus, type Board, type Idea, type Receipt, type Status } from "../shared/model";
 import { isLegacyScope } from "../shared/scope";
 import { MemoryError, type MemoryService } from "./memory";
+import type { AutomationService } from "./automation";
+import type { ReviewInput } from "../shared/automation-schema";
 
 /** A project-memory refusal as the tool error agents read (PROJECT-MEMORY-SPEC §4.1). */
 function memoryToolError(e: unknown): unknown {
@@ -90,6 +92,16 @@ export class AgentService {
   connectors?: ConnectorService;
   /** Project memory (PROJECT-MEMORY-SPEC); set by the plugin entry. */
   memory?: MemoryService;
+  /** Agent automation (AUTOMATION-SPEC); set by the plugin entry. */
+  automation?: AutomationService;
+  /** flowly_submit_review (AUTOMATION-SPEC §5): the verdict of the reviewer session automation started for this card. */
+  async review(identity: ToolIdentity, input: ReviewInput) {
+    await this.resources(identity);
+    if (!this.automation) throw new ToolError("NOT_REVIEWER", "Agent automation is unavailable in this Flowly build.");
+    const result = await this.automation.submitReview(identity, input);
+    this.accesses.set(identity.agentId, { at: new Date(this.clock()).toISOString(), action: "review" });
+    return result;
+  }
   /** flowly_recall (PROJECT-MEMORY-SPEC §6.4): read-only. */
   async recall(identity: ToolIdentity, raw: RecallInput) {
     const input = recallInputSchema.parse(raw);

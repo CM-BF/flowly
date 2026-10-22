@@ -25,6 +25,7 @@ function board(status: Status, extra: { autoStatus?: boolean; archived?: boolean
     workpads: [],
     attentionDismissals: [],
     plans: [],
+    automation: [],
     agentReceipts: [],
   } as Board;
 }

@@ -38,6 +38,7 @@ import {
   type ToolIdentity,
   type ToolPreparation,
 } from "../shared/tools";
+import { reviewInputSchema, reviewResultSchema } from "../shared/automation-schema";
 import { AgentService } from "./agent-service";
 import { BoardStore } from "./store";
 import { BoardService } from "./service";
@@ -343,6 +344,17 @@ export class ToolServer {
           },
           (input) => wrap(() => this.agents.write(identity, "workpad", input)),
         );
+        mcp.registerTool(
+          "flowly_submit_review",
+          {
+            description:
+              "Only for the reviewer session that Flowly's agent automation started for this card (your first instruction says so); every other session gets NOT_REVIEWER. Call it exactly once per review round, after you inspected the changes and ran the relevant checks: verdict=approve when the acceptance criteria are met and the checks pass (the card stays In review for the user to accept); verdict=changes with a summary and concrete findings (file, problem, expected fix) that Flowly sends to the implementer, moving the card back to work. Do not change the card status yourself. Repeating the same verdict is acknowledged (replayed); REVIEW_CLOSED means the round is over or the card left In review, so end your turn. No revisions or request needed.",
+            inputSchema: reviewInputSchema,
+            outputSchema: reviewResultSchema,
+            annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+          },
+          (input) => wrap(() => this.agents.review(identity, input)),
+        );
         return mcp;
       },
       // A full workpad with multi-byte text can exceed 64 KiB (WORKPAD-SPEC §3).
@@ -428,7 +440,7 @@ export class ToolServer {
     }
     const body = z
       .strictObject({
-        action: z.enum(["get", "status", "progress", "idea", "remember", "recall", "artifact", "artifact_remove", "tags", "type", "next_moves", "workpad", "external", "ticket"]),
+        action: z.enum(["get", "status", "progress", "idea", "remember", "recall", "artifact", "artifact_remove", "tags", "type", "next_moves", "workpad", "external", "ticket", "review"]),
         input: z.unknown(),
       })
       .parse(JSON.parse(Buffer.concat(chunks).toString("utf8")));
@@ -440,7 +452,9 @@ export class ToolServer {
           ? await this.agents.readExternal(identity, readExternalInputSchema.parse(body.input))
           : body.action === "recall"
             ? await this.agents.recall(identity, recallInputSchema.parse(body.input))
-            : await this.agents.write(identity, body.action, body.input);
+            : body.action === "review"
+              ? await this.agents.review(identity, reviewInputSchema.parse(body.input))
+              : await this.agents.write(identity, body.action, body.input);
     this.json(res, { ok: true, result: value });
   }
   private async prepare(

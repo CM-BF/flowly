@@ -340,6 +340,7 @@ export class BoardStore {
       if (input.workpad !== undefined) p.workpad = input.workpad;
       if (input.workflowInsights !== undefined) p.workflowInsights = input.workflowInsights;
       if (input.memory !== undefined) p.memory = input.memory;
+      if (input.automation !== undefined) p.automation = input.automation;
       if (input.agentModel !== undefined) {
         if (input.agentModel) p.agentModel = input.agentModel;
         else delete p.agentModel;
@@ -389,6 +390,7 @@ export class BoardStore {
       board.workpads = board.workpads.filter((w) => !taskIds.has(w.taskId));
       board.plans = board.plans.filter((p) => !taskIds.has(p.taskId));
       board.attentionDismissals = board.attentionDismissals.filter((d) => !taskIds.has(d.taskId));
+      board.automation = board.automation.filter((j) => !taskIds.has(j.taskId));
       return { id: project.id, removedTasks: taskIds.size, backup };
     });
   }
@@ -498,6 +500,7 @@ export class BoardStore {
       board.workpads = board.workpads.filter((w) => w.taskId !== task.id);
       board.plans = board.plans.filter((p) => p.taskId !== task.id);
       board.attentionDismissals = board.attentionDismissals.filter((d) => d.taskId !== task.id);
+      board.automation = board.automation.filter((j) => j.taskId !== task.id);
       return { id: task.id, backup };
     });
   }

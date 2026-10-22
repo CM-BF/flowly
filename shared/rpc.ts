@@ -50,6 +50,7 @@ import { perfReportSchema } from "./perf";
 import { localeCodes } from "./i18n";
 import { workflowOverviewSchema, workflowViewSchema } from "./workflow-insights";
 import { insightsWithHabitsSchema } from "./agent-habits";
+import { automationJobSchema } from "./automation-schema";
 
 /** `{ etag }` in; the value is omitted when it still matches (PERFORMANCE-SPEC §3). */
 const etagInput = z.strictObject({ etag: z.string().max(200).optional() });
@@ -106,6 +107,7 @@ export const boardPatchSchema = z.object({
   artifacts: collectionPatch(artifactSchema),
   workpads: collectionPatch(workpadSchema),
   attentionDismissals: collectionPatch(attentionDismissalSchema),
+  automation: collectionPatch(automationJobSchema),
 });
 export const readBoardChanged = defineRpc({
   name: "board.read-changed",
@@ -757,4 +759,16 @@ export const reviewForMemory = defineRpc({
   name: "memory.retro",
   input: z.strictObject({ taskId: z.string().min(1).max(200) }),
   output: z.object({ queued: z.boolean() }),
+});
+/** "Run with agent": queue the card for the project's agent automation (AUTOMATION-SPEC §4). */
+export const queueAutomation = defineRpc({
+  name: "automation.queue",
+  input: z.strictObject({ taskId: z.string().min(1) }),
+  output: automationJobSchema,
+});
+/** "Stop automation": no more dispatch, reminders or reviews; sessions are left alone (AUTOMATION-SPEC §4). */
+export const stopAutomation = defineRpc({
+  name: "automation.stop",
+  input: z.strictObject({ taskId: z.string().min(1) }),
+  output: automationJobSchema.nullable(),
 });

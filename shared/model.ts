@@ -3,6 +3,7 @@ import { agentModelSchema } from "./agent-defaults";
 import { connectorLimits, externalRefSchema, itemTypeSchema } from "./connectors";
 import { z } from "zod";
 import { attentionDismissLimits, attentionDismissalSchema } from "./attention-dismiss";
+import { automationJobSchema, automationSettingsSchema } from "./automation-schema";
 
 export const statuses = [
   "backlog",
@@ -116,6 +117,8 @@ export const projectSchema = z.object({
   agentModel: agentModelSchema.optional(),
   /** Linked multi-repo project: symlinks the plugin created inside its own root (PROJECT-PICKER-SPEC). */
   links: z.array(z.object({ name: z.string(), target: z.string() })).optional(),
+  /** Agent automation (AUTOMATION-SPEC). Absent means off. */
+  automation: automationSettingsSchema.optional(),
 });
 export const taskSchema = z.object({
   id: z.string(),
@@ -408,6 +411,8 @@ export const boardSchema = z.object({
   plans: z.array(planSnapshotSchema).default([]),
   /** Cards dismissed from Attention (ATTENTION-DISMISS-SPEC §4); absent in older files. */
   attentionDismissals: z.array(attentionDismissalSchema).max(attentionDismissLimits.records).default([]),
+  /** One automation job per queued card (AUTOMATION-SPEC §3); absent in older files. */
+  automation: z.array(automationJobSchema).default([]),
 });
 export const previousBoardSchema = boardSchema.extend({
   version: z.literal(2),
@@ -464,6 +469,7 @@ export const emptyBoard = (): Board => ({
   workpads: [],
   plans: [],
   attentionDismissals: [],
+  automation: [],
   agentReceipts: [],
 });
 export const projectInput = z.strictObject({
@@ -516,6 +522,8 @@ export const projectEdit = z.strictObject({
   lanes: lanesSchema.optional(),
   /** A model sets the project default; null removes it (the global default applies again). */
   agentModel: agentModelSchema.nullable().optional(),
+  /** Agent automation settings, replaced as a whole (AUTOMATION-SPEC §2). */
+  automation: automationSettingsSchema.optional(),
 });
 export const taskInput = z.strictObject({
   projectId: z.string(),

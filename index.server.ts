@@ -4,7 +4,7 @@ import { BoardStore, columnOrder } from "./server/store";
 import { BoardService, dataDirectory, migrateLegacyPluginData } from "./server/service";
 import { NativeDirectoryPicker, detectNativePicker, listDirectories } from "./server/directories";
 import * as rpc from "./shared/rpc";
-import { performanceLogOn, performanceSettings, boardViewSettings, ideasSettings, languageSettings, languageSettingsValues, aiLanguageSettings, aiLanguageSettingsValues, deviceLanguageSettings, deviceLanguageValue, modelSettings, onboardingSettings, ideasSettingsValues, statusSettings, statusSettingsValues, wrapupSettings, wrapupSettingsValues, nativeSessionSettings, nativeSessionSettingsValues } from "./shared/settings";
+import { performanceLogOn, performanceSettings, boardViewSettings, ideasSettings, languageSettings, languageSettingsValues, aiLanguageSettings, aiLanguageSettingsValues, deviceLanguageSettings, deviceLanguageValue, modelSettings, modelSettingsValues, onboardingSettings, ideasSettingsValues, statusSettings, statusSettingsValues, wrapupSettings, wrapupSettingsValues, nativeSessionSettings, nativeSessionSettingsValues } from "./shared/settings";
 import { ToolServer } from "./server/tool-server";
 import { SessionReadStore, SessionReadService, daemonNativeAttention } from "./server/session-reads";
 import { WrapupService } from "./server/wrapup";
@@ -43,13 +43,16 @@ import { workflowInsightsSettings, workflowSettingsValues } from "./shared/workf
 import { sessionModel } from "./server/agent-model";
 import { turnPick, userTexts } from "./shared/agent-habits";
 import { MemoryService } from "./server/memory";
+import { AutomationService } from "./server/automation";
+import { reviewingJob } from "./shared/automation";
+import { agentModelFromValues } from "./shared/agent-defaults";
 
 export default function contribute(server: PluginServerContext) {
   server.registerSettings(boardViewSettings);
   const languagePrefs = server.registerSettings(languageSettings);
   const aiLanguagePrefs = server.registerSettings(aiLanguageSettings);
   const devicePrefs = server.registerSettings(deviceLanguageSettings);
-  server.registerSettings(modelSettings);
+  const modelPrefs = server.registerSettings(modelSettings);
   server.registerSettings(onboardingSettings);
   const summaryPrefs = server.registerSettings(summarySettings);
   const wrapupPrefs = server.registerSettings(wrapupSettings);
@@ -220,6 +223,29 @@ export default function contribute(server: PluginServerContext) {
   );
   server.handle(rpc.wrapup, (input, { paseo }) => wrapups.run(input, paseo));
   const tools = new ToolServer(store);
+  // Agent automation (AUTOMATION-SPEC): Hermes Kanban's dispatcher, supervision and review loop, per project.
+  const automation = new AutomationService(store, {
+    prepare: (taskId, operationId, paseo) => tools.prepareSession(taskId, operationId, paseo),
+    globalModel: async () => {
+      const state = await modelPrefs.read().catch(() => null);
+      return agentModelFromValues(state?.status === "ready" ? modelSettingsValues(state.values) : null);
+    },
+  });
+  tools.agents.automation = automation;
+  automation.start();
+  // Every handler and hook hands its Paseo connection on: the tools use it, and the dispatcher runs on the latest.
+  const attach = (paseo: PaseoApi) => {
+    tools.attach(paseo);
+    automation.attach(paseo);
+  };
+  server.handle(rpc.queueAutomation, (input, { paseo }) => {
+    attach(paseo);
+    return automation.queue(input.taskId);
+  });
+  server.handle(rpc.stopAutomation, (input, { paseo }) => {
+    attach(paseo);
+    return automation.stopJob(input.taskId);
+  });
   tools.agents.connectors = connectors;
   // Project memory (PROJECT-MEMORY-SPEC): confirmed knowledge shared across a project's cards.
   const memory = new MemoryService(store, summaries.store, summaries.settings, aiLanguage, (taskId) => summaries.settled(taskId));
@@ -254,7 +280,7 @@ export default function contribute(server: PluginServerContext) {
       ),
     );
   server.handle(rpc.readBoard, (_, { paseo }) => {
-    tools.attach(paseo);
+    attach(paseo);
     return store.view();
   });
   const boardDeltas = new BoardDeltas(32, (reason, info) => {
@@ -271,7 +297,7 @@ export default function contribute(server: PluginServerContext) {
     return { logged: true };
   });
   server.handle(rpc.readBoardChanged, async (input, { paseo }) => {
-    tools.attach(paseo);
+    attach(paseo);
     return boardDeltas.read(await store.view(), input);
   });
   server.handle(rpc.managedSessions, () => tools.managedSessions());
@@ -297,7 +323,7 @@ export default function contribute(server: PluginServerContext) {
     return summaries.refresh(input.taskId, managed.map((s) => s.agentId), paseo);
   });
   server.handle(rpc.toolsHealth, async (_, { paseo }) => {
-    tools.attach(paseo);
+    attach(paseo);
     await tools.start().catch(() => undefined);
     return tools.health();
   });
@@ -328,6 +354,10 @@ export default function contribute(server: PluginServerContext) {
   // Moving a card back out of Done/Cancelled restores the workspace its
   // wrap-up archived (WORKSPACE-RESTORE-SPEC), also in the background.
   const afterStatus = (previous: string | undefined, task: { id: string; status: string }, paseo: PaseoApi) => {
+    // A person moving the card can end its automation (AUTOMATION-SPEC §4.3).
+    void automation.humanMoved(task.id, previous, task.status).catch((e) =>
+      console.error("Flowly automation not updated after a move:", e instanceof Error ? e.message : String(e)),
+    );
     if (finished(previous) && !finished(task.status)) {
       void restores.restoreAfterReopen(task.id).catch((e) =>
         console.error("Kanban workspace restore failed:", e instanceof Error ? e.message : String(e)),
@@ -498,7 +528,7 @@ export default function contribute(server: PluginServerContext) {
     return identity;
   };
   server.on("agent.turn_started", async (event, { paseo }) => {
-    tools.attach(paseo);
+    attach(paseo);
     const identity = await managedTask(event.agent);
     if (!identity) {
       // A session Flowly does not manage: its Next moves card goes and its suggestion ends (NATIVE-SESSION-SPEC §12.2).
@@ -510,13 +540,17 @@ export default function contribute(server: PluginServerContext) {
     const auto = await autoStatusOn();
     await store.mutate((board) => {
       recordLifecycle(store, board, identity, "agent.turn_started");
-      if (auto) applyTurnStarted(store, board, identity, event.agent.title);
+      // An automation reviewer's turn is not work on the card: it stays In review (AUTOMATION-SPEC §5).
+      if (auto && !reviewingJob(board, identity.agentId)) applyTurnStarted(store, board, identity, event.agent.title);
     });
+    void automation.turnStarted(identity.agentId).catch((e) =>
+      console.error("Flowly automation turn start not handled:", e instanceof Error ? e.message : String(e)),
+    );
   });
   server.on("agent.turn_ended", async (event, { paseo }) => {
     // Before any await: a turn of this session that starts later skips its summary row (NATIVE-SESSION-SPEC §5.1).
     const endedAt = new Date().toISOString();
-    tools.attach(paseo);
+    attach(paseo);
     const identity = await managedTask(event.agent);
     if (!identity) {
       // A session Flowly does not manage (NATIVE-SESSION-SPEC §12): insights after a completed turn, when switched on.
@@ -538,6 +572,10 @@ export default function contribute(server: PluginServerContext) {
       recordLifecycle(store, board, identity, "agent.turn_ended", event.outcome, { model, pick: turnPick(board.events, identity.agentId, texts) });
       if (auto) applyTurnEnded(store, board, identity, event.outcome);
     });
+    // After the status rules: automation reads where the card ended up (AUTOMATION-SPEC §4.2).
+    void automation.turnEnded(identity.agentId).catch((e) =>
+      console.error("Flowly automation turn end not handled:", e instanceof Error ? e.message : String(e)),
+    );
     // The user's own words of this turn, kept for the finished-card review (PROJECT-MEMORY-SPEC §4.0); never blocks the hook.
     void store
       .read()
@@ -562,16 +600,27 @@ export default function contribute(server: PluginServerContext) {
     );
   });
   server.on("agent.permission_requested", async (event, { paseo }) => {
-    tools.attach(paseo);
+    attach(paseo);
     const identity = await managedTask(event.agent);
     if (!identity) return;
     await store.mutate((board) =>
       recordLifecycle(store, board, identity, "agent.permission_requested"),
     );
+    void automation.permission(identity.agentId, true).catch(() => undefined);
+  });
+  server.on("agent.permission_resolved", async (event, { paseo }) => {
+    attach(paseo);
+    const identity = await managedTask(event.agent);
+    if (identity) await automation.permission(identity.agentId, false).catch(() => undefined);
+  });
+  // A session archived under a running job: the next pass notices it.
+  server.on("agent.archived", (_event, { paseo }) => {
+    attach(paseo);
+    void automation.kick();
   });
   console.log("Flowly store ready:", store.directory);
   server.before("agent.session_open", async ({ request }, { paseo }) => {
-    tools.attach(paseo);
+    attach(paseo);
     if (request.purpose !== "interactive") return;
     try {
       const contextFile = await tools.sessionContext(
@@ -597,6 +646,7 @@ export default function contribute(server: PluginServerContext) {
     }
   });
   return () => {
+    automation.stop();
     workflow.stop();
     stopWorkflowPrefs();
     folders.stop();

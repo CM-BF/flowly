@@ -19,6 +19,10 @@ Use this skill when working in the workspace of an attached Flowly card.
 
 Any write's result may carry reminders about missing setup; make those calls before you continue.
 
+## Automated runs
+
+When your first instruction starts with [Flowly automation], Flowly's agent automation started you and nobody watches the session live. Work the card to a delivery without stopping to report plans or wait for confirmation. End every turn with a delivery (in_review), a question (your question tool or kind=question) or blocked with the reason: a turn that ends with none of them gets a reminder, and after the last reminder automation stops and the card moves to Blocked. Reminders, retries and review findings arrive as [Flowly automation] messages; follow them. When the instruction says you are the reviewer, review only: never edit files, commit, push or change the card status, and finish the round with flowly_submit_review (approve, or changes with concrete findings).
+
 ## Details
 
 - Read flowly_get_task before starting a work phase and before reporting after long work. The connection identifies your card/session. Do not choose another card or infer the task from cwd, title, or labels.
