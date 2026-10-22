@@ -1,5 +1,18 @@
 # Implementation progress
 
+## Agent automation (user: "integrate Hermes Kanban's agent automation into Flowly") — 2026-10-22
+
+Spec: [AUTOMATION-SPEC](AUTOMATION-SPEC.md). Builds on the user's earlier decision on the card "设计 Flowly × Kanban 整合" to build execution into the CM-BF/flowly fork (explicit enqueue, no auto Done, no PR automation).
+
+- [x] Spec, AGENTS.md exception (per project, off by default; Done stays human), SPEC-OUTLINE entry, README highlight in both languages.
+- [x] Daemon: `project.automation`, board `automation` jobs (etag/patch, removed with cards and projects), dispatcher (blockers Done, slots, priority), unattended managed sessions through `prepareSession`, Hermes worker supervision (reminders, retries with backoff, give-up to Blocked), review loop with `flowly_submit_review` (MCP; API action `review`), reconcile pass, rule A1 skips live reviewer sessions (`server/automation.ts`, `shared/automation*.ts`).
+- [x] UI: Edit project → Agent automation; Run with agent / Stop automation in the card menu, phone action sheet and drawer menu; card signal; drawer row with reason, reviewer summary and counters; activity labels; nine catalogs.
+- [x] Onboarding: tip `agent-automation` (after first-card), welcome tour More features entry, skill section "Automated runs".
+- [x] Tests: `shared/automation.test.ts` (8), `server/automation.test.ts` (12); typecheck; `npm test` 927 passed, 65 skipped.
+- [x] Live on the user's daemon through the web UI ([report](verification/automation.md)): dependencies, unattended Claude implementer, Codex reviewer approve and changes → fix → round 2, reminders → give-up → Blocked, Stop, Run again, plugin reload mid-turn, phone width. Three bugs found and fixed (project create on a desktop-managed daemon, Done not releasing at once, A1r's Blocked read as the agent's). Fixtures cleaned up.
+- [ ] UNRUN: real provider failure and retry, permission waiting, daemon restart mid-turn, slot contention live, Android device.
+- [ ] Not built (spec §9): Hermes decomposition/orchestrator cards, goal mode, scheduled starts, per-card assignee or model.
+
 ## Registry listing art (card "发布v1.5.0") — 2026-10-21
 
 - [x] Researched the Paseo registry (getpaseo/plugins README, PROTOCOL, REVIEW, publishing guide): icon and screenshots come from `icon`/`media` in `paseo-plugin.json` (package-relative PNG icon; PNG/JPG/WebP/GIF/MP4/WebM media; first image is the thumbnail; SVG rejected), or from `listing.*` overrides a reviewer adds. The two screenshots in the previous listing were reviewer-added overrides.
