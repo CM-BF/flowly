@@ -1162,7 +1162,7 @@ function BoardContent(
       workpad: project && workpadEnabled(project) ? workpadSignal(t, workpadIndex.get(t.id), events) : null,
       waiting: waitingIndex.get(t.id)?.count || 0,
       waitingTitles: waitingIndex.get(t.id)?.titles || "",
-      automation: automationSignal(automationIndex.get(t.id)),
+      automation: automationSignal(automationIndex.get(t.id), t),
       subCards: subCardIndex.get(t.id) ?? null,
     };
     cardDerived.set(t, derived);

@@ -33,9 +33,9 @@ const reasons: Record<AutomationCode, string> = localizedLabels({
   sub_cards: msg("It handed its work to sub-cards and waits for them"),
 });
 
-/** The card's automation in a few words; null when the lane already says it (stopped, or delivered without a review). */
-export function automationSignal(job: AutomationJob | undefined): AutomationSignal | null {
-  if (!job) return null;
+/** The card's automation in a few words; null when the lane already says it (stopped, delivered without a review, or the card is finished). */
+export function automationSignal(job: AutomationJob | undefined, task: Pick<Task, "status">): AutomationSignal | null {
+  if (!job || (isFinished(task) && !isLive(job))) return null;
   switch (job.state) {
     case "queued":
       return { text: t("Queued for agent"), icon: "Clock", tone: "info" };
@@ -60,6 +60,8 @@ export function automationSignal(job: AutomationJob | undefined): AutomationSign
       return null;
   }
 }
+
+const isFinished = (task: Pick<Task, "status">) => task.status === "done" || task.status === "cancelled";
 
 export function SignalMark({ signal }: { signal: AutomationSignal }) {
   const { colors } = useTheme();
@@ -96,7 +98,7 @@ export function useAutomationActions() {
 /** The card's menu entries: Run with agent while the project has automation on, Stop while a job is live. */
 export function automationMenu(project: Project | undefined, task: Task, job: AutomationJob | undefined, locked: boolean, actions: ReturnType<typeof useAutomationActions>) {
   if (isLive(job)) return [{ id: "automation-stop", label: t("Stop automation"), icon: "CircleStop", disabled: locked || actions.pending, onPress: () => void actions.stop(task.id) }];
-  if (!automationOf(project) || task.status === "done" || task.status === "cancelled") return [];
+  if (!automationOf(project) || isFinished(task)) return [];
   return [{ id: "automation-run", label: t("Run with agent"), icon: "Bot", disabled: locked || actions.pending, onPress: () => void actions.queue(task.id) }];
 }
 
@@ -111,11 +113,13 @@ export function TaskAutomation({ task, project, active }: { task: Task; project:
   const job = board.data?.automation.find((j) => j.taskId === task.id);
   const settings = automationOf(project);
   if (!settings && !job) return null;
-  const signal = automationSignal(job);
+  const signal = automationSignal(job, task);
   const live = isLive(job);
   const locked = !active || !!task.archivedAt || !!project.archivedAt;
-  const finished = task.status === "done" || task.status === "cancelled";
-  const status = signal?.text ?? (job?.state === "stopped" ? t("Automation stopped") : job?.state === "delivered" ? t("Delivered; your review") : t("Not running"));
+  const finished = isFinished(task);
+  // A delivery someone accepted (or a parent's agent, for a sub-card) is no longer waiting for a review.
+  const status =
+    signal?.text ?? (job?.state === "stopped" || job?.state === "failed" ? t("Automation stopped") : job?.state === "delivered" ? (finished ? t("Finished") : t("Delivered; your review")) : t("Not running"));
   const counters = [
     job?.reviewRounds && settings?.reviewer ? t("Review round {n} of {max}", { n: job.reviewRounds, max: settings.maxReviewRounds }) : "",
     job?.nudges && settings ? t("Reminder {n} of {max}", { n: job.nudges, max: settings.nudgeLimit }) : "",
