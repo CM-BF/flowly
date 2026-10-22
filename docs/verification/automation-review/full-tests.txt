@@ -1,0 +1,13 @@
+
+> paseo-flowly@1.5.0 test
+> vitest run
+
+
+ RUN  v4.1.11 /Users/citrine/Projects/flowly-kanban/1-paseo-plugins-daemon-5635/flowly
+
+
+ Test Files  119 passed | 13 skipped (132)
+      Tests  980 passed | 65 skipped (1045)
+   Start at  16:26:04
+   Duration  8.01s (transform 6.97s, setup 0ms, import 24.46s, tests 29.68s, environment 7ms)
+

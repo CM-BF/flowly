@@ -1,5 +1,13 @@
 # Implementation progress
 
+## Automation/sub-card review hardening — 2026-10-22
+
+- [x] Recovered completed Workflow review/verification/critic results; synthesized and deduplicated 118 kept entries into 20 coherent batches, preserving rejected/plausible distinctions.
+- [x] Hardened session roles, pending instructions, ownership races, revision/receipt/lineage limits, dependency/workspace scheduling, handoffs, review lifecycle, provider cooldown, CLI parity, client signals and attribution. Specs/skills/onboarding/nine catalogs updated.
+- [x] Typecheck; 980 tests passed / 65 pre-existing skipped; 25 targeted regressions failed on d143a86. Native daemon project inventory unchanged by offline tests.
+- [ ] Live acceptance on the actual daemon and desktop/compact Web UI; Luna full-access session a0c74ff7-e334-4309-9aad-965ea5f93d01.
+- Evidence and host limitations: [report](verification/automation-review.md).
+
 ## Agent-created cards and sub-cards (user: "agents should create cards and sub-cards themselves, like Multica") — 2026-10-22
 
 Spec: [SUB-CARDS-SPEC](SUB-CARDS-SPEC.md). The user owns the fork and decides which upstream rules apply (AGENTS.md "Fork ownership"); top-level Done stays human.

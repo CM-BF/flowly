@@ -1,6 +1,6 @@
 import { expect, test } from "vitest";
 import type { Board, Project, Status, Task } from "./model";
-import { automationSettingsSchema, dispatchPlan, readiness, reviewingJob, turnDecision, type AutomationJob, type AutomationSettings } from "./automation";
+import { automationSettingsSchema, subCardActive, dispatchPlan, readiness, reviewingJob, turnDecision, type AutomationJob, type AutomationSettings } from "./automation";
 
 const at = "2026-10-22T00:00:00.000Z";
 const now = Date.parse(at);
@@ -134,4 +134,14 @@ test("only a live reviewer session is exempt from rule A1", () => {
   expect(reviewingJob(b, "rev")?.taskId).toBe("a");
   b.automation[0].state = "delivered";
   expect(reviewingJob(b, "rev")).toBeUndefined();
+});
+
+
+test("a transitive sibling dependency can settle so its parent can accept the delivered prerequisite", () => {
+  const sub = (from: string) => ({ id: `sub-${from}`, projectId: "p", kind: "subtask" as const, from, to: "parent", createdBy: "human" as const, createdAt: at });
+  const b = board({ tasks: [task("parent"), task("a", "in_review"), task("b"), task("c")], links: [sub("a"), sub("b"), sub("c"), blocks("a", "b"), blocks("b", "c")], automation: [job("a", { state: "delivered" }), job("b"), job("c")] });
+  expect(subCardActive(b, "b")).toBe(false);
+  expect(subCardActive(b, "c")).toBe(false);
+  b.tasks[1].status = "done";
+  expect(subCardActive(b, "c")).toBe(true);
 });

@@ -144,3 +144,8 @@ Covered by unit tests: the pure logic (fresh user shows; existing user silently 
 3. No sample project is created.
 4. Tips are a separate, optional stage and can be dropped without affecting the tour.
 5. Onboarding state is per host (setting), not per account.
+
+
+### Agent automation and sub-cards amendment (2026-10-22)
+
+Welcome → More features now includes Agent automation and Sub-cards. It explains per-project opt-in, Run with agent, separate workspaces, supervised parent wait/check/accept, and human Run again after failures or Stop. Existing one-time tips `agent-automation` (project with Backlog/Todo cards, after first-card) and `sub-cards` (project with parent/child links, before subagents) announce these capabilities to existing users. Their ids, copy and priority are implemented in onboarding-logic/board and translated in all catalogs. This review adds no new tip id: it clarifies the existing feature and failure boundary.

@@ -1,11 +1,12 @@
-import { useState } from "react";
+import { laneName } from "../shared/lanes";
+import { useState, type Dispatch, type SetStateAction } from "react";
 import { View } from "react-native";
 import { Icon, useToast } from "@getpaseo/plugin/client/react-native";
 import { useRpc } from "@getpaseo/plugin/client";
 import { useQueryClient } from "@tanstack/react-query";
 import * as rpc from "../shared/rpc";
 import type { Project, Task } from "../shared/model";
-import { automationOf, isLive, type AutomationCode, type AutomationJob, type AutomationSettings } from "../shared/automation";
+import { automationOf, isLive, readiness, type AutomationCode, type AutomationJob, type AutomationSettings } from "../shared/automation";
 import type { AgentModel } from "../shared/agent-defaults";
 import { boardKey, useBoardQuery } from "./queries";
 import { PulseDot } from "./motion";
@@ -30,6 +31,7 @@ const reasons: Record<AutomationCode, string> = localizedLabels({
   session_unavailable: msg("The agent's session is no longer available"),
   review_rounds: msg("All review rounds were used"),
   review_incomplete: msg("The reviewer gave no verdict"),
+  cooldown: msg("Provider limit reached; retrying later"),
   sub_cards: msg("It handed its work to sub-cards and waits for them"),
 });
 
@@ -52,6 +54,7 @@ export function automationSignal(job: AutomationJob | undefined, task: Pick<Task
     case "waiting":
       return { text: t("Waiting on sub-cards"), icon: "ListTree", tone: "info" };
     case "delivered":
+      if (task.status !== "in_review") return null;
       if (job.verdict === "approved") return { text: t("Agent review passed"), icon: "BadgeCheck", tone: "success" };
       return job.verdict ? { text: t("Review needs you"), icon: "TriangleAlert", tone: "warning" } : null;
     case "failed":
@@ -96,17 +99,17 @@ export function useAutomationActions() {
 }
 
 /** The card's menu entries: Run with agent while the project has automation on, Stop while a job is live. */
-export function automationMenu(project: Project | undefined, task: Task, job: AutomationJob | undefined, locked: boolean, actions: ReturnType<typeof useAutomationActions>) {
-  if (isLive(job)) return [{ id: "automation-stop", label: t("Stop automation"), icon: "CircleStop", disabled: locked || actions.pending, onPress: () => void actions.stop(task.id) }];
+export function automationMenu(project: Project | undefined, task: Task, job: AutomationJob | undefined, locked: boolean, actions: ReturnType<typeof useAutomationActions>, runUnavailable = false) {
+  if (isLive(job)) return [{ id: "automation-stop", label: t("Stop automation"), icon: "CircleStop", disabled: actions.pending, onPress: () => void actions.stop(task.id) }];
   if (!automationOf(project) || isFinished(task)) return [];
-  return [{ id: "automation-run", label: t("Run with agent"), icon: "Bot", disabled: locked || actions.pending, onPress: () => void actions.queue(task.id) }];
+  return [{ id: "automation-run", label: t("Run with agent"), icon: "Bot", disabled: locked || runUnavailable || actions.pending, onPress: () => void actions.queue(task.id) }];
 }
 
 /**
  * The drawer's automation row (AUTOMATION-SPEC §6.2): what the agent is doing
  * or why it stopped, the counters behind it, and Run / Stop.
  */
-export function TaskAutomation({ task, project, active }: { task: Task; project: Project; active: boolean }) {
+export function TaskAutomation({ task, project, active, unavailable = false }: { task: Task; project: Project; active: boolean; unavailable?: boolean }) {
   const { colors } = useTheme();
   const board = useBoardQuery();
   const actions = useAutomationActions();
@@ -115,11 +118,13 @@ export function TaskAutomation({ task, project, active }: { task: Task; project:
   if (!settings && !job) return null;
   const signal = automationSignal(job, task);
   const live = isLive(job);
-  const locked = !active || !!task.archivedAt || !!project.archivedAt;
+  const locked = !active || unavailable || !!task.archivedAt || !!project.archivedAt;
+  const ready = board.data && job?.state === "queued" ? readiness(board.data, task.id) : null;
+  const held = ready && !ready.ready && ready.reason === "blockers" ? [...ready.waiting, ...ready.cancelled] : [];
   const finished = isFinished(task);
   // A delivery someone accepted (or a parent's agent, for a sub-card) is no longer waiting for a review.
   const status =
-    signal?.text ?? (job?.state === "stopped" || job?.state === "failed" ? t("Automation stopped") : job?.state === "delivered" ? (finished ? t("Finished") : t("Delivered; your review")) : t("Not running"));
+    signal?.text ?? (job?.state === "stopped" || job?.state === "failed" ? t("Automation stopped") : job?.state === "delivered" ? (finished ? t("Finished") : task.status === "in_review" ? t("Delivered; your review") : t("Not running")) : t("Not running"));
   const counters = [
     job?.reviewRounds && settings?.reviewer ? t("Review round {n} of {max}", { n: job.reviewRounds, max: settings.maxReviewRounds }) : "",
     job?.nudges && settings ? t("Reminder {n} of {max}", { n: job.nudges, max: settings.nudgeLimit }) : "",
@@ -136,10 +141,11 @@ export function TaskAutomation({ task, project, active }: { task: Task; project:
           <Label medium size={font.md}>{t("Agent automation")}</Label>
           {` · ${status}`}
         </Label>
+        {!!held.length && <Label muted size={font.sm}>{t("Waiting for blockers to be Done: {cards}", { cards: held.map((card) => `${card.title} (${laneName(project, card.status)})`).join(", ") })}</Label>}
         {!!job?.code && (job.state !== "needs_human" || job.code !== "permission") && (
           <Label muted size={font.sm}>{reasons[job.code]}</Label>
         )}
-        {!!job?.detail && (
+        {!!job?.detail && !["working", "reviewing", "starting"].includes(job.state) && (
           <Label muted size={font.sm} lines={3}>
             {job.detail}
           </Label>
@@ -148,7 +154,7 @@ export function TaskAutomation({ task, project, active }: { task: Task; project:
         {!settings && <Label muted size={font.sm}>{t("Agent automation is off for this project.")}</Label>}
       </View>
       {live ? (
-        <Button small quiet icon="CircleStop" disabled={locked || actions.pending} onPress={() => void actions.stop(task.id)}>
+        <Button small quiet icon="CircleStop" label={t("Stop automation")} disabled={!active || actions.pending} onPress={() => void actions.stop(task.id)}>
           {t("Stop")}
         </Button>
       ) : settings && !finished ? (
@@ -168,13 +174,15 @@ export function AutomationSettingsGroup({
   onChange,
 }: {
   value: AutomationSettings | null;
-  onChange(next: AutomationSettings): void;
+  onChange: Dispatch<SetStateAction<AutomationSettings | null>>;
 }) {
   const current = value ?? { ...defaults, enabled: false };
-  const set = (patch: Partial<AutomationSettings>) => onChange({ ...current, ...patch });
+  const set = (patch: Partial<AutomationSettings>) => onChange((previous) => ({ ...(previous ?? { ...defaults, enabled: false }), ...patch }));
   const model = (key: "implementer" | "reviewer", next: AgentModel | null) => {
-    const { [key]: _drop, ...rest } = current;
-    onChange(next ? { ...rest, [key]: next } : rest);
+    onChange((previous) => {
+      const { [key]: _drop, ...rest } = previous ?? { ...defaults, enabled: false };
+      return next ? { ...rest, [key]: next } : rest;
+    });
   };
   return (
     <View style={{ gap: space[3] }}>
@@ -186,6 +194,7 @@ export function AutomationSettingsGroup({
       />
       {current.enabled && (
         <>
+          <Label muted size={font.sm}>{t("Agent automation requires the In review lane.")}</Label>
           <Choices
             title={t("Cards at once")}
             value={String(current.maxRunning)}

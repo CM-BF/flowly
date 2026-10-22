@@ -1320,6 +1320,7 @@ function BoardContent(
   }, [props.params?.intent, props.params?.at, data.isPending]);
   const attentionDetail = (item: AttentionItem) =>
     `${item.project.title} · ${laneName(item.project, item.task.status)} · ${[
+      item.automation && t("Agent waiting for you"),
       item.questions && tn(item.questions, "{n} question", "{n} questions"),
       item.permissions && tn(item.permissions, "{n} approval", "{n} approvals"),
       item.errors && tn(item.errors, "{n} error", "{n} errors"),

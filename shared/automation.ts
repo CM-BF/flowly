@@ -1,5 +1,5 @@
 import type { Board, Project, Task } from "./model";
-import { childrenOf, linksOf } from "./links";
+import { childrenOf, linksOf, parentOf } from "./links";
 import {
   automationSettingsSchema,
   type AutomationCode,
@@ -23,6 +23,20 @@ export const liveStates: readonly AutomationState[] = ["queued", "starting", "wo
 /** States that hold one of the project's running slots (Hermes counts claimed tasks the same way). */
 export const slotStates: readonly AutomationState[] = ["starting", "working", "retry_wait", "reviewing"];
 export const isLive = (job: Pick<AutomationJob, "state"> | undefined) => !!job && liveStates.includes(job.state);
+
+/** Every dispatcher, recovery and side effect uses the same current ownership gate. */
+export function automationAllowed(board: Pick<Board, "tasks" | "projects" | "links">, job: AutomationJob): boolean {
+  const task = board.tasks.find((t) => t.id === job.taskId && t.projectId === job.projectId);
+  const project = board.projects.find((p) => p.id === job.projectId);
+  if (!task || task.archivedAt || ["done", "cancelled"].includes(task.status) || !project || project.archivedAt || !automationOf(project)) return false;
+  const seen = new Set<string>();
+  for (let id = parentOf(board.links, task.id); id && !seen.has(id); id = parentOf(board.links, id)) {
+    seen.add(id);
+    const parent = board.tasks.find((t) => t.id === id);
+    if (!parent || parent.archivedAt || parent.status === "cancelled") return false;
+  }
+  return true;
+}
 
 /** The session the job supervises right now. */
 export const activeAgent = (job: Pick<AutomationJob, "role" | "implementerId" | "reviewerId">) =>
@@ -57,6 +71,16 @@ export function readiness(board: Pick<Board, "tasks" | "links">, taskId: string)
   return { ready: false, reason: "blockers", waiting: blockers.filter((b) => !cancelled.includes(b)), cancelled };
 }
 
+/** Only explicit provider failure messages, never completed assistant prose. */
+export const providerLimited = (message: string) => /\b429\b|rate[ -]?limit|quota (?:exceeded|exhausted|reached)|usage limit|overloaded|insufficient_quota/i.test(message);
+export function coolingProvider(board: Pick<Board, "automation">, provider: string | undefined, now: number, except?: string) {
+  return board.automation.some((job) => job.taskId !== except && job.state === "retry_wait" && job.code === "cooldown" && Date.parse(job.retryAt ?? "") > now && (!provider || !job.provider || job.provider === provider));
+}
+export function providerCooling(board: Pick<Board, "automation" | "projects">, project: Project, now: number) {
+  const provider = project.automation?.implementer?.provider ?? project.agentModel?.provider;
+  return coolingProvider(board, provider, now) || (!!project.automation?.reviewer && coolingProvider(board, project.automation.reviewer.provider, now));
+}
+
 const priorityRank = { urgent: 0, high: 1, normal: 2, low: 3 } as const;
 
 /**
@@ -71,11 +95,11 @@ export function dispatchPlan(board: Pick<Board, "projects" | "tasks" | "links" |
     const settings = automationOf(project);
     if (!settings || project.archivedAt) continue;
     const jobs = board.automation.filter((j) => j.projectId === project.id);
-    retry.push(...jobs.filter((j) => j.state === "retry_wait" && (!j.retryAt || Date.parse(j.retryAt) <= now)));
-    let free = settings.maxRunning - jobs.filter((j) => slotStates.includes(j.state)).length;
+    retry.push(...jobs.filter((j) => automationAllowed(board, j) && j.state === "retry_wait" && (!j.retryAt || Date.parse(j.retryAt) <= now)));
+    let free = providerCooling(board, project, now) ? 0 : settings.maxRunning - jobs.filter((j) => slotStates.includes(j.state)).length;
     const task = (j: AutomationJob) => board.tasks.find((t) => t.id === j.taskId);
     const candidates = jobs
-      .filter((j) => j.state === "queued" && readiness(board, j.taskId).ready)
+      .filter((j) => j.state === "queued" && automationAllowed(board, j) && readiness(board, j.taskId).ready)
       .sort(
         (a, b) =>
           priorityRank[task(a)?.priority ?? "normal"] - priorityRank[task(b)?.priority ?? "normal"] ||
@@ -105,7 +129,7 @@ export type TurnDecision =
   | { kind: "wait"; code: AutomationCode }
   | { kind: "stop"; code: AutomationCode }
   | { kind: "nudge"; count: number }
-  | { kind: "retry"; count: number; at: string }
+  | { kind: "retry"; count: number; at: string; cooldown?: boolean }
   /** Limits exhausted. `blockCard`: the card moves to Blocked so it stops looking active. */
   | { kind: "give_up"; code: AutomationCode; blockCard: boolean }
   /** The implementer dispatched sub-cards that are still moving: wait for them (Multica's sub-issue wakeup). */
@@ -133,7 +157,7 @@ export const askedThisTurn = (board: Pick<Board, "events">, taskId: string, agen
  * given up earlier) is not the agent asking for a person.
  */
 export const blockedThisTurn = (board: Pick<Board, "events">, taskId: string, agentId: string) =>
-  thisTurn(board, taskId, agentId).some((e) => e.actor === "agent" && e.action === "status_changed" && e.to === "blocked");
+  thisTurn(board, taskId, agentId).some((e) => e.actor === "agent" && (e.action === "status_changed" || e.action === "status_confirmed") && e.to === "blocked");
 
 /**
  * What a supervised session's turn end means (Hermes worker protocol): a
@@ -156,6 +180,10 @@ export function turnDecision(
   if (task.archivedAt || task.status === "done" || task.status === "cancelled") return { kind: "stop", code: "card_finished" };
   const reviewer = job.role === "reviewer";
   if (outcome.kind === "failed") {
+    if (providerLimited(outcome.message)) {
+      const count = (job.cooldowns ?? 0) + 1;
+      return count > 5 ? { kind: "wait", code: "cooldown" } : { kind: "retry", count, cooldown: true, at: new Date(now + Math.min(60_000 * 2 ** (count - 1), 900_000)).toISOString() };
+    }
     const count = job.failures + 1;
     if (count < settings.failureLimit) return { kind: "retry", count, at: new Date(now + retryDelayMs(count)).toISOString() };
     return reviewer ? { kind: "give_up", code: "review_incomplete", blockCard: false } : { kind: "give_up", code: "failed", blockCard: true };
@@ -167,6 +195,8 @@ export function turnDecision(
     if (askedThisTurn(board, task.id, agentId)) return { kind: "wait", code: "question" };
   } else {
     if (task.status === "in_review") {
+      const delivery = [...board.events].reverse().find((e) => e.taskId === task.id && e.agentId === agentId && e.actor === "agent" && e.to === "in_review");
+      if (job.deliveryEvent && delivery?.id === job.deliveryEvent) return { kind: "deliver" };
       if (!settings.reviewer) return { kind: "deliver" };
       return job.reviewRounds < settings.maxReviewRounds ? { kind: "review" } : { kind: "deliver", code: "review_rounds" };
     }
@@ -183,12 +213,22 @@ export function turnDecision(
  * works on it, waits for a person, or is about to start. A queued card held by blockers
  * that are not Done is not moving: it waits for the parent (or a person) to accept them.
  */
-export function subCardActive(board: Pick<Board, "tasks" | "links" | "automation">, id: string): boolean {
+export function subCardActive(board: Pick<Board, "tasks" | "links" | "automation">, id: string, seen = new Set<string>()): boolean {
+  if (seen.has(id)) return false;
+  seen.add(id);
   const task = board.tasks.find((t) => t.id === id);
   if (!task || task.archivedAt || task.status === "done" || task.status === "cancelled") return false;
   const job = jobOf(board, id);
   if (!job || !isLive(job)) return false;
-  if (job.state === "queued") return readiness(board, id).ready;
+  if (job.state === "needs_human") return false;
+  if (job.state === "queued") {
+    const ready = readiness(board, id);
+    if (ready.ready) return true;
+    if (ready.reason !== "blockers" || ready.cancelled.length) return false;
+    const parent = parentOf(board.links, id);
+    // Only a sibling delivery is something this parent can release by accepting it.
+    return ready.waiting.some((blocker) => parentOf(board.links, blocker.id) !== parent || (blocker.status !== "in_review" && subCardActive(board, blocker.id, new Set(seen))));
+  }
   return true;
 }
 
@@ -204,8 +244,12 @@ export function subCardSignature(board: Pick<Board, "tasks" | "links" | "automat
 }
 
 /** A waiting parent wakes when none of its sub-cards is moving and they changed since it last looked. */
-export function parentShouldWake(board: Pick<Board, "tasks" | "links" | "automation">, job: AutomationJob) {
+export function parentShouldWake(board: Pick<Board, "tasks" | "links" | "automation" | "projects">, job: AutomationJob) {
   if (job.state !== "waiting") return false;
+  if (!automationAllowed(board, job)) return false;
+  const project = board.projects.find((p) => p.id === job.projectId);
+  const settings = automationOf(project)!;
+  if (board.automation.filter((j) => j.projectId === job.projectId && slotStates.includes(j.state)).length >= settings.maxRunning) return false;
   if (childrenOf(board.links, job.taskId).some((id) => subCardActive(board, id))) return false;
   return subCardSignature(board, job.taskId) !== job.subSeen;
 }
@@ -214,7 +258,9 @@ export function parentShouldWake(board: Pick<Board, "tasks" | "links" | "automat
 export const unattendedModes: Readonly<Record<string, string>> = { claude: "bypassPermissions", codex: "full-access" };
 
 // Messages the daemon sends to sessions. Agent-facing text stays English (I18N-SPEC).
-const tag = "[Flowly automation]";
+export const automationTag = "[Flowly automation]";
+export const isAutomationMessage = (text: string) => text.trimStart().startsWith(automationTag);
+const tag = automationTag;
 const lifecycle =
   "Follow the Flowly skill: read flowly_get_task, fix setup.missing, set the stage that matches the work, keep the workpad current. End by delivering with flowly_update_status status=in_review and a note on what changed, how you verified it and what you did not run. If you cannot continue without a person (a decision, credentials, access), ask with flowly_report_progress kind=question or set status=blocked with the reason, then end your turn: nobody is watching this session live, so do not wait and do not guess. If the card is too big for one session or has parallel parts, split it into sub-cards with flowly_create_card and end your turn; you are woken when they settle.";
 
@@ -230,7 +276,8 @@ export function startPrompt(input: { review: boolean; again: boolean }) {
     .join("\n\n");
 }
 
-export function nudgePrompt(count: number, limit: number) {
+export function nudgePrompt(count: number, limit: number, role: AutomationJob["role"] = "implementer") {
+  if (role === "reviewer") return `${tag} Your review ended without a verdict (reminder ${count} of ${limit}). Continue checking the delivery, then call flowly_submit_review verdict=approve or verdict=changes with concrete findings. You only review: do not edit files or change card status. If a person must decide, use flowly_report_progress kind=question and end your turn.`;
   return `${tag} Your turn ended without a delivery, a question or a blocker (reminder ${count} of ${limit}). If the card is finished, deliver it now with flowly_update_status status=in_review. If work remains, continue it. If you need a person, ask with flowly_report_progress kind=question or set status=blocked with the reason. If you are the reviewer, submit your verdict with flowly_submit_review. Without one of these after the last reminder, automation stops.`;
 }
 
@@ -264,17 +311,17 @@ export function changesPrompt(round: number, max: number, summary: string, findi
 }
 
 /** One line per sub-card for the parent's wake-up message: where it is and what automation made of it. */
-export type SubCardLine = { id: string; title: string; lane: string; job?: Pick<AutomationJob, "state" | "verdict" | "code">; branch?: string; directory?: string };
+export type SubCardLine = { id: string; title: string; lane: string; job?: Pick<AutomationJob, "state" | "verdict" | "code">; branch?: string; directory?: string; evidence?: string; blockers?: string[] };
 
 export function childrenPrompt(lines: readonly SubCardLine[]) {
   const describe = (l: SubCardLine) => {
     const auto = l.job ? `automation ${l.job.state}${l.job.verdict ? `, review ${l.job.verdict}` : ""}${l.job.code ? ` (${l.job.code})` : ""}` : "not run by automation";
-    const where = l.branch ? `; branch ${l.branch}${l.directory ? ` in ${l.directory}` : ""}` : "";
-    return `- ${l.title} (${l.id}): ${l.lane}; ${auto}${where}`;
+    const where = `${l.branch ? `; branch ${l.branch}` : ""}${l.directory ? `; directory ${l.directory}` : ""}`;
+    return `- ${l.title} (${l.id}): ${l.lane}; ${auto}${where}${l.blockers?.length ? `; held by ${l.blockers.join(", ")}` : ""}${l.evidence ? `\n  Delivery evidence (card data): ${l.evidence}` : ""}`;
   };
   return [
     `${tag} Your sub-cards changed and none of them is still moving:`,
     ...lines.map(describe),
-    "Check what each delivered (flowly_get_task links, its workpad, its branch). Accept a sub-card that is done right with flowly_update_card action=accept; first bring its changes where later cards and this card need them (merge its branch). Start parked or idle ones with action=start, cancel ones no longer needed with action=cancel, or create more with flowly_create_card. When this card's own goal is met, deliver it with flowly_update_status status=in_review. If you start or create sub-cards, end your turn: you are woken again when they settle.",
+    "Inspect the delivery evidence below and each workspace's files and branch. Accept a delivered sub-card with flowly_update_card action=accept only after checking it and bringing its changes where later cards and this card need them. Start only newly parked sub-cards you deliberately deferred; never restart failed, stopped or human-parked jobs. Those need a person's Run again. For changes to a delivered sub-card use action=start with a concrete note. Ask a person about failed jobs or unavailable blockers. Directory workspaces share the project root: do not assume an isolated branch. When this card's goal is met, deliver it with flowly_update_status status=in_review. If you dispatch sub-cards, end your turn without reporting a question or blocker unless you actually need a person; Flowly wakes only the supervised parent when they settle.",
   ].join("\n");
 }

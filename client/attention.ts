@@ -1,3 +1,4 @@
+import { jobOf, type AutomationJob } from "../shared/automation";
 import type { Project, Task, BoardEvent } from "../shared/model";
 import { openQuestion, silentTurn } from "../shared/progress";
 import { pendingRequests } from "../shared/permission-question";
@@ -18,6 +19,7 @@ export type AttentionItem = {
   unread: number;
   /** Open agent questions awaiting your reply (AUTO-STATUS M1). */
   questions: number;
+  automation?: boolean;
   /** Sessions waiting on an agent question (AskUserQuestion), answerable in the session. */
   asks: number;
   /** Unread sessions whose last turn ended without any Kanban report (M2). */
@@ -33,7 +35,7 @@ export type AttentionItem = {
 
 /** Cards across all active projects whose sessions need a human. Running alone does not count. */
 export function attentionItems(
-  board: { projects: Project[]; tasks: Task[]; events: BoardEvent[]; attentionDismissals?: readonly AttentionDismissal[] },
+  board: { projects: Project[]; tasks: Task[]; events: BoardEvent[]; automation?: AutomationJob[]; attentionDismissals?: readonly AttentionDismissal[] },
   agents: readonly Agent[],
   receipts: readonly SessionReadReceipt[],
   readUnavailable: boolean,
@@ -74,11 +76,14 @@ export function attentionItems(
         };
       })
       .filter((s) => s.permission || s.error || s.question || s.unread);
-    if (!flagged.length) continue;
-    const signals = flagged.flatMap((s) => s.signals);
+    const job = jobOf({ automation: board.automation ?? [] }, task.id);
+    const automation = !!job && !["done", "cancelled"].includes(task.status) && (job.state === "needs_human" || job.state === "failed" || (task.status === "in_review" && job.state === "delivered" && (job.verdict === "incomplete" || job.code === "review_rounds")));
+    if (!flagged.length && !automation) continue;
+    const signals = [...flagged.flatMap((s) => s.signals), ...(automation ? [`automation:${job!.generation}:${job!.state}:${job!.updatedAt}`] : [])];
     items.push({
       task,
       project,
+      automation,
       permissions: flagged.filter((s) => s.permission).length,
       errors: flagged.filter((s) => s.error).length,
       unread: flagged.filter((s) => s.unread && !s.question).length,
@@ -86,7 +91,7 @@ export function attentionItems(
       asks: flagged.filter((s) => s.asks).length,
       silent: flagged.filter((s) => s.silent && !s.question).length,
       sessionId: flagged.length === 1 ? flagged[0].agent.id : null,
-      updatedAt: flagged
+      updatedAt: automation ? job!.updatedAt : flagged
         .map((s) => s.agent.updatedAt || "")
         .sort()
         .at(-1) || "",

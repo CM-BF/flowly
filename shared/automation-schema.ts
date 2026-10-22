@@ -68,6 +68,7 @@ export const automationCodes = [
   "review_rounds",
   "review_incomplete",
   "sub_cards",
+  "cooldown",
 ] as const;
 export type AutomationCode = (typeof automationCodes)[number];
 
@@ -94,6 +95,16 @@ export const automationJobSchema = z.object({
   turnAt: z.string().optional(),
   /** The preparation of a session being created; after a restart the same id is created again, never a second one. */
   pendingOp: z.string().optional(),
+  /** Session preparations belong to one role; they can never be reused by its peer. */
+  pendingRole: z.enum(["implementer", "reviewer"]).optional(),
+  /** An instruction survives reloads and send failures with its original payload and identity. */
+  instruction: z.object({ id: z.string(), role: z.enum(["implementer", "reviewer"]), text: z.string(), fresh: z.string() }).optional(),
+  /** The reviewed delivery, used to distinguish new work from a casual follow-up. */
+  deliveryEvent: z.string().optional(),
+  feedback: z.string().max(4000).optional(),
+  reopened: z.boolean().optional(),
+  provider: z.string().optional(),
+  cooldowns: z.number().int().nonnegative().optional(),
   /** What the sub-cards looked like when the parent last saw them (SUB-CARDS-SPEC §5); a change wakes it. */
   subSeen: z.string().max(20000).optional(),
   queuedAt: z.string(),

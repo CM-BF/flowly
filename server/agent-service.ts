@@ -1,3 +1,6 @@
+import { cardHandoff } from "./automation-handoff";
+import { resumeStage } from "./progress-rules";
+import { authorizeCardActor, checkAgentCardBudget, type AgentCardActor } from "./agent-card-guard";
 import { isSummarizer } from "../shared/summary";
 import { outputLanguage } from "../shared/ai-language";
 import type { LocaleCode } from "../shared/i18n";
@@ -55,7 +58,7 @@ import {
   type ReadExternalInput,
 } from "../shared/tools";
 import { BoardStore } from "./store";
-import { BoardService } from "./service";
+import { BoardService, preflightCardLinks } from "./service";
 import { ToolSecrets, digest } from "./tool-context";
 import { ToolError } from "./tool-error";
 import { ideaLimits, isWorkStatus, legacyStatus, type Board, type Idea, type Receipt, type Status } from "../shared/model";
@@ -75,7 +78,6 @@ function memoryToolError(e: unknown): unknown {
 }
 
 /** Cards the agents of one card may create before they have to ask the user (SUB-CARDS-SPEC §3). */
-const agentCardLimit = 50;
 const requestReused = () =>
   new ToolError("REQUEST_REUSED", "Request already committed with different parameters. Each card needs its own request: call flowly_get_task again before the next flowly_create_card.");
 
@@ -105,7 +107,7 @@ export class AgentService {
   /** Agent automation (AUTOMATION-SPEC); set by the plugin entry. */
   automation?: AutomationService;
   /** Creates a card with its workspace (BoardService.createTask); set by the plugin entry. */
-  createTask?: (input: TaskInput, paseo: PaseoApi, agent: { agentId: string; taskId: string }) => Promise<Task>;
+  createTask?: (input: TaskInput, paseo: PaseoApi, agent: AgentCardActor) => Promise<Task>;
   /** What a status move by a person triggers (automation, wrap-up, memory review); set by the plugin entry. */
   onStatusChange?: (previous: string | undefined, task: Task, paseo: PaseoApi) => void;
   /** A signed request no older than 15 minutes (the same window as write()). */
@@ -150,9 +152,9 @@ export class AgentService {
     }
     this.fresh(issuedAt);
     if (r.task.archivedAt || r.project.archivedAt) throw new ToolError("ARCHIVED", "Task or project is archived.");
-    if (r.task.status === "done" || r.task.status === "cancelled") throw new ToolError("TASK_FINISHED", "A finished card can't create cards.");
-    if (before.tasks.filter((t) => t.createdByAgent?.taskId === r.task.id).length >= agentCardLimit)
-      throw new ToolError("CARD_LIMIT", `Agents on this card already created ${agentCardLimit} cards. Ask the user before creating more.`);
+    if (["done", "cancelled"].includes(r.task.status)) throw new ToolError("TASK_FINISHED", "A finished card cannot manage cards.");
+    if (!r.context.available) throw new ToolError("WORKSPACE_INCOMPATIBLE", r.context.reason || "Workspace is unavailable.");
+    const actor: AgentCardActor = { ...identity, expectedRevision: input.expectedRevision, key: `${identity.agentId}:${digest(input.request.id)}`, payloadHash: digest(JSON.stringify({ action: "create_card", input })), start: input.start };
     if (!this.createTask) throw new ToolError("TOOLS_UNAVAILABLE", "Card creation is unavailable in this Flowly build.", true);
     const preferred: Status = input.start === "later" ? "backlog" : "todo";
     const status = [preferred, preferred === "backlog" ? "todo" : "backlog"].find((s) => laneEnabled(r.project, s as Status)) as Status | undefined;
@@ -160,8 +162,7 @@ export class AgentService {
     const mode = input.workspace ?? (existsSync(join(r.project.primaryPath, ".git")) ? "worktree" : "directory");
     let task: Task;
     try {
-      task = await this.createTask(
-        taskInput.parse({
+      const draft = taskInput.parse({
           projectId: r.project.id,
           operationId,
           title: input.title,
@@ -174,24 +175,28 @@ export class AgentService {
           baseRef: input.baseRef ?? "",
           ...(input.subCard ? { subCardOf: r.task.id } : {}),
           ...(input.blockedBy.length ? { blockedBy: input.blockedBy } : {}),
-        }),
+        });
+      authorizeCardActor(before, actor);
+      checkAgentCardBudget(before, actor.taskId);
+      preflightCardLinks(this.store, before, draft);
+    await this.store.transaction((board) => {
+      this.cardReceipt(board, actor, "create_card");
+      authorizeCardActor(board, actor);
+      return { value: null, changed: true };
+    });
+      task = await this.createTask(draft,
         r.paseo,
-        { agentId: identity.agentId, taskId: r.task.id },
+        actor,
       );
     } catch (e) {
+      if (e instanceof ToolError) throw e;
       throw new ToolError("CARD_INVALID", e instanceof Error ? e.message : String(e));
     }
-    let queued = false;
-    let note = "";
-    if (input.start === "now")
-      if (this.automation && automationOf(r.project))
-        try {
-          await this.automation.queue(task.id, { agentId: identity.agentId });
-          queued = true;
-        } catch (e) {
-          note = ` Not queued: ${e instanceof Error ? e.message : String(e)}`;
-        }
-      else note = " Agent automation is off for this project, so a person starts it.";
+    const queued = isLive(jobOf(await this.store.read(), task.id));
+    const note = input.start === "now" && !queued ? " Agent automation is off for this project, so a person starts it." : "";
+    if (queued) void this.automation?.kick();
+    const parentJob = jobOf(await this.store.read(), r.task.id);
+    const supervised = input.subCard && parentJob?.implementerId === identity.agentId && isLive(parentJob) && automationOf(r.project);
     this.accesses.set(identity.agentId, { at: new Date(this.clock()).toISOString(), action: "create_card" });
     return {
       cardId: task.id,
@@ -200,7 +205,7 @@ export class AgentService {
       ...(input.subCard ? { subCardOf: r.task.id } : {}),
       queued,
       message: queued
-        ? "Created and queued for agent automation. When you have dispatched what you need, end your turn; you are woken when your sub-cards settle."
+        ? `Created and queued for agent automation.${supervised ? " End your turn after dispatching; Flowly wakes this supervised parent when its sub-cards settle." : " This session is not a supervised parent; check the card yourself or ask the user to run its automation."}${mode === "directory" ? " Directory workspaces share the project root and have no isolated branch; order conflicting work." : " Worktree starts at the project root branch by default; pass baseRef explicitly for parent-dependent work."}`
         : input.start === "later"
           ? `Created in ${laneName(r.project, task.status)} (parked). Start it later with flowly_update_card action=start.${note}`
           : `Created in ${laneName(r.project, task.status)}.${note}`,
@@ -210,55 +215,67 @@ export class AgentService {
    * flowly_update_card (SUB-CARDS-SPEC §4): this session's card manages one of its direct
    * sub-cards: start (queue it), accept (In review → Done) or cancel. Repeats are acknowledged.
    */
+  private cardReceipt(board: Board, actor: AgentCardActor, action: "create_card" | "update_card") {
+    const previous = board.agentReceipts.find((r) => r.key === actor.key);
+    if (previous) {
+      if (previous.payloadHash !== actor.payloadHash || previous.action !== action) throw requestReused();
+      return previous;
+    }
+    board.agentReceipts = board.agentReceipts.filter((r) => Date.parse(r.expiresAt) > this.clock());
+    if (board.agentReceipts.length >= 5000) throw new ToolError("RECEIPTS_FULL", "Agent receipt capacity is full.", true);
+    const { task, project } = authorizeCardActor(board, actor);
+    const receipt: Receipt = { key: actor.key, agentId: actor.agentId, taskId: actor.taskId, payloadHash: actor.payloadHash, action, eventId: "", taskRevision: task.revision, projectRevision: project.revision, status: task.status, at: new Date(this.clock()).toISOString(), expiresAt: new Date(this.clock() + 7 * 86400000).toISOString() };
+    board.agentReceipts.push(receipt);
+    return receipt;
+  }
+
   async updateCard(identity: ToolIdentity, raw: UpdateCardInput) {
     const input = updateCardInputSchema.parse(raw);
     const signed = this.secrets.validateRequest(identity, input.request, input.expectedRevision);
     const r = await this.resources(identity);
-    const board = await this.store.read();
-    const child = board.tasks.find((t) => t.id === input.cardId);
-    if (!child || parentOf(board.links, child.id) !== r.task.id)
-      throw new ToolError("NOT_PARENT", "flowly_update_card only manages direct sub-cards of this session's card (links with relation sub_card in flowly_get_task).");
-    if (child.archivedAt) throw new ToolError("ARCHIVED", "That sub-card is archived.");
-    const result = (status: Status, queued: boolean, message: string, replayed = false) => ({ cardId: child.id, status, queued, ...(replayed ? { replayed } : {}), message });
-    const target: Status = input.action === "accept" ? "done" : input.action === "cancel" ? "cancelled" : child.status === "backlog" ? "todo" : child.status;
-    if (input.action === "accept" && child.status === "done") return result("done", false, "Already accepted.", true);
-    if (input.action === "cancel" && child.status === "cancelled") return result("cancelled", false, "Already cancelled.", true);
-    if (input.action === "start" && isLive(jobOf(board, child.id))) return result(child.status, true, "It is already queued or running.", true);
-    this.fresh(signed.issuedAt);
-    if (child.status === "done" || child.status === "cancelled") throw new ToolError("TASK_FINISHED", `That sub-card is already ${laneName(r.project, child.status)}.`);
-    if (input.action === "accept" && child.status !== "in_review")
-      throw new ToolError("NOT_DELIVERED", `Only a sub-card delivered to ${laneName(r.project, "in_review")} can be accepted; it is in ${laneName(r.project, child.status)}.`);
-    let moved = child;
-    if (target !== child.status) {
-      if (!laneEnabled(r.project, target)) throw new ToolError("STATUS_UNAVAILABLE", `${laneName(r.project, target)} is not a lane in this project.`);
-      const note =
-        input.note ||
-        (input.action === "accept" ? `Accepted by the parent card ${r.task.title}` : input.action === "cancel" ? `Cancelled by the parent card ${r.task.title}` : `Started by the parent card ${r.task.title}`);
-      moved = await this.store.transaction((b) => {
-        const t = b.tasks.find((x) => x.id === child.id)!;
-        if (t.status !== child.status) throw new ToolError("REVISION_CONFLICT", "That sub-card changed meanwhile. Re-read and decide again.");
-        const from = t.status;
-        t.status = target;
-        t.revision++;
-        t.updatedAt = new Date(this.clock()).toISOString();
-        this.store.event(b, { taskId: t.id, actor: "agent", agentId: identity.agentId, action: "status_changed", from, to: target, note });
-        return { value: { ...t }, changed: true };
-      });
-      this.onStatusChange?.(child.status, moved, r.paseo);
-    }
-    let queued = false;
-    let message = input.action === "accept" ? "Accepted: the sub-card is Done." : input.action === "cancel" ? "Cancelled." : "";
-    if (input.action === "start") {
-      if (this.automation && automationOf(r.project)) {
-        await this.automation.queue(child.id, { agentId: identity.agentId }).catch((e) => {
-          throw new ToolError("CARD_INVALID", e instanceof Error ? e.message : String(e));
-        });
-        queued = true;
-        message = "Queued for agent automation. End your turn when you have dispatched what you need.";
-      } else message = `Moved to ${laneName(r.project, moved.status)}; agent automation is off for this project, so a person starts it.`;
-    }
+    if (r.task.archivedAt || r.project.archivedAt) throw new ToolError("ARCHIVED", "Task or project is archived.");
+    if (["done", "cancelled"].includes(r.task.status)) throw new ToolError("TASK_FINISHED", "A finished card cannot manage cards.");
+    if (!r.context.available) throw new ToolError("WORKSPACE_INCOMPATIBLE", r.context.reason || "Workspace is unavailable.");
+    const actor: AgentCardActor = { ...identity, expectedRevision: input.expectedRevision, key: `${identity.agentId}:${digest(input.request.id)}`, payloadHash: digest(JSON.stringify({ action: "update_card", input })), start: "later" };
+    type Answer = { cardId: string; status: Status; queued: boolean; replayed?: boolean; message: string; previous?: Status; moved?: Task };
+    const result = await this.store.transaction<Answer>((board) => {
+      const existing = board.agentReceipts.find((receipt) => receipt.key === actor.key);
+      if (existing) {
+        if (existing.payloadHash !== actor.payloadHash || existing.action !== "update_card") throw requestReused();
+        return { value: { cardId: existing.cardId!, status: existing.status === "in_progress" ? "development" : existing.status, queued: !!existing.queued, replayed: true, message: "This sub-card action was already recorded." }, changed: false };
+      }
+      this.fresh(signed.issuedAt);
+      const { task: parent, project } = authorizeCardActor(board, actor);
+      const child = board.tasks.find((t) => t.id === input.cardId);
+      if (!child || child.projectId !== project.id || parentOf(board.links, child.id) !== parent.id) throw new ToolError("NOT_PARENT", "Only direct sub-cards of this session's card can be managed.");
+      if (child.archivedAt) throw new ToolError("ARCHIVED", "That sub-card is archived.");
+      const job = jobOf(board, child.id);
+      if (input.action === "start" && job?.state === "failed") throw new ToolError("NEEDS_PERSON", "This job failed. A person must choose Run again.");
+      if (input.action === "start" && job?.state === "stopped") throw new ToolError("TAKEN_BY_PERSON", "This job was stopped or moved. A person must choose Run again.");
+      const replayed = (input.action === "accept" && child.status === "done") || (input.action === "cancel" && child.status === "cancelled") || (input.action === "start" && isLive(job));
+      if (!replayed && ["done", "cancelled"].includes(child.status)) throw new ToolError("TASK_FINISHED", "That sub-card is already finished.");
+      if (!replayed && input.action === "accept" && child.status !== "in_review") throw new ToolError("NOT_DELIVERED", "Only a delivered sub-card in In review can be accepted.");
+      if (input.action === "start" && child.status === "in_review" && !input.note?.trim()) throw new ToolError("FEEDBACK_REQUIRED", "Describe the changes required when restarting a delivered sub-card.");
+      const target: Status = replayed ? child.status : input.action === "accept" ? "done" : input.action === "cancel" ? "cancelled" : child.status === "in_review" ? resumeStage(board, child, project) ?? child.status : child.status === "backlog" && laneEnabled(project, "todo") ? "todo" : child.status;
+      if (!laneEnabled(project, target)) throw new ToolError("STATUS_UNAVAILABLE", "The target lane is disabled.");
+      const previous = child.status;
+      if (!replayed && (target !== previous || input.note)) {
+        child.status = target;
+        child.revision++;
+        child.updatedAt = new Date(this.clock()).toISOString();
+        this.store.event(board, { taskId: child.id, actor: "agent", agentId: identity.agentId, action: target !== previous ? "status_changed" : "progress_reported", from: previous, to: target, note: input.note || `Parent card ${input.action}: ${parent.title}` });
+      }
+      if (!replayed && input.action === "start" && this.automation && automationOf(project)) this.automation.queueIn(board, child.id, { agentId: identity.agentId }, input.note);
+      const queued = isLive(jobOf(board, child.id));
+      const receipt = this.cardReceipt(board, actor, "update_card");
+      receipt.cardId = child.id; receipt.status = child.status; receipt.queued = queued;
+      return { value: { cardId: child.id, status: child.status, queued, ...(replayed ? { replayed: true } : {}), message: replayed ? "This sub-card is already in the requested state." : input.action === "accept" ? "Accepted: the sub-card is Done." : input.action === "cancel" ? "Cancelled." : queued ? "Queued for automation. End your turn only if this parent is supervised; otherwise check progress yourself." : "Agent automation is off; a person starts the card.", previous, moved: { ...child } }, changed: true };
+    });
+    if (result.moved && result.previous !== result.status) this.onStatusChange?.(result.previous, result.moved, r.paseo);
+    void this.automation?.kick();
     this.accesses.set(identity.agentId, { at: new Date(this.clock()).toISOString(), action: "update_card" });
-    return result(moved.status, queued, message);
+    const { previous: _previous, moved: _moved, ...answer } = result;
+    return answer;
   }
   /** flowly_submit_review (AUTOMATION-SPEC §5): the verdict of the reviewer session automation started for this card. */
   async review(identity: ToolIdentity, input: ReviewInput) {
@@ -495,6 +512,7 @@ export class AgentService {
       },
       sessions: { entries: entries.slice(0, 20), partial, unavailableReason },
       ...(await this.store.read().then(async (board) => {
+        const handoffs = new Map(await Promise.all(linksOf(board, r.task.id).filter((v) => v.other && (v.relation === "sub_card" || v.relation === "blocked_by")).map(async (v) => [v.other!.id, await cardHandoff(board, v.other!.id, r.paseo)] as const)));
         setup = setupContext(setupMissing(r.task, workpadOf(board.workpads, r.task.id), workpadEnabled(r.project)), r.task.status);
         return {
           activity: board.events.filter((e) => e.taskId === r.task.id).slice(-20),
@@ -548,6 +566,7 @@ export class AgentService {
               status: other!.status,
               laneName: laneName(r.project, other!.status),
               archived: !!other!.archivedAt,
+              ...(handoffs.get(other!.id) ? { handoff: { branch: handoffs.get(other!.id)!.branch, directory: handoffs.get(other!.id)!.directory, evidence: handoffs.get(other!.id)!.evidence ?? "", blockers: handoffs.get(other!.id)!.blockers ?? [] } } : {}),
               ...(relation === "blocked_by" ? { resolved: isResolved(other) } : {}),
             })),
         };
@@ -960,8 +979,8 @@ export class AgentService {
               action: next !== previous ? "status_changed" : "progress_reported",
               note: (input as StatusInput | ProgressInput).note,
               reportKind:
-                action === "progress" ? (input as ProgressInput).kind : "progress",
-              ...(next !== previous ? { from: previous, to: next } : {}),
+                action === "progress" ? (input as ProgressInput).kind : next === "blocked" ? "blocker" : "progress",
+              ...(action === "status" ? { from: previous, to: next } : {}),
               ...(deliveryPad ? { workpad: { ...delivered!, revision: deliveryPad.revision } } : {}),
               ...(setupGap.length ? { setup: { missing: setupGap } } : {}),
             }));

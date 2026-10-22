@@ -432,7 +432,9 @@ export const receiptSchema = z.object({
   agentId: z.string(),
   taskId: z.string(),
   payloadHash: z.string(),
-  action: z.enum(["status", "progress", "idea", "remember", "artifact", "artifact_remove", "tags", "type", "next_moves", "workpad"]),
+  action: z.enum(["status", "progress", "idea", "remember", "artifact", "artifact_remove", "tags", "type", "next_moves", "workpad", "create_card", "update_card"]),
+  cardId: z.string().optional(),
+  queued: z.boolean().optional(),
   /** Empty when an artifact write changed nothing (same target already recorded). */
   eventId: z.string(),
   /** The artifact an artifact write added, updated or removed. */

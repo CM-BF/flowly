@@ -1,3 +1,7 @@
+import { authorizeCardActor, checkAgentCardBudget, type AgentCardActor } from "./agent-card-guard";
+import type { AutomationService } from "./automation";
+import { automationOf, isLive, jobOf } from "../shared/automation";
+import { ToolError } from "./tool-error";
 import { laneName, laneProblem } from "../shared/lanes";
 import { resolvePaseoCli } from "./paseo-cli";
 import { childrenOf, depthOf, linkContextLines, linksOf, subCardLimits } from "../shared/links";
@@ -16,7 +20,7 @@ import { promisify } from "node:util";
 import { BoardStore } from "./store";
 import { readSnapshot, SnapshotInvalidError, type ProjectSnapshot } from "./project-folder";
 import { linkLimits } from "../shared/model";
-import type { ProjectInput, TaskInput, Board, LinkedProjectInput, ProjectLinksEdit, Project, ProjectRemoval } from "../shared/model";
+import type { ProjectInput, TaskInput, Board, LinkedProjectInput, ProjectLinksEdit, Project, ProjectRemoval, Task } from "../shared/model";
 import { effectiveRepos, sessionContext } from "../shared/scope";
 import { setupContextLine, setupMissing } from "../shared/card-setup";
 import { workpadEnabled, workpadOf } from "../shared/workpad";
@@ -146,6 +150,7 @@ export async function directory(path: string): Promise<string> {
 }
 
 export class BoardService {
+  automation?: AutomationService;
   private provision = Promise.resolve<unknown>(undefined);
   /** Reads external items added at creation (EXTERNAL-TRACKER-SPEC §5.4); set by the plugin entry. */
   connectors?: ConnectorService;
@@ -455,7 +460,7 @@ export class BoardService {
    * leaves the card and the suggestion open (logged).
    */
   /** `agent`: an agent working on another card creates this one (SUB-CARDS-SPEC §3). */
-  async createTask(input: TaskInput, paseo: PaseoApi, agent?: { agentId: string; taskId: string }) {
+  async createTask(input: TaskInput, paseo: PaseoApi, agent?: AgentCardActor) {
     const findingId = input.insightFindingId;
     if (findingId) {
       if (!this.insightFindings) throw new Error("Workflow insights are unavailable.");
@@ -470,13 +475,14 @@ export class BoardService {
       );
     return task;
   }
-  private createCard(input: TaskInput, paseo: PaseoApi, agent?: { agentId: string; taskId: string }) {
+  private createCard(input: TaskInput, paseo: PaseoApi, agent?: AgentCardActor) {
     return this.serialize(async () => {
       const board = await this.store.read();
       const previous = board.tasks.find(
         (t) => t.operationId === input.operationId,
       );
       if (previous) return previous;
+      if (agent) { authorizeCardActor(board, agent); checkAgentCardBudget(board, agent.taskId); }
       const project = board.projects.find((p) => p.id === input.projectId);
       if (!project || project.archivedAt)
         throw new Error("Project is unavailable or archived.");
@@ -491,6 +497,7 @@ export class BoardService {
       if (input.followUpOf) followUpSource(board, input.followUpOf, project.id);
       if (input.subCardOf) subCardParent(board, input.subCardOf, project.id);
       if (input.blockedBy?.length) blockers(board, input.blockedBy, project.id);
+      preflightCardLinks(this.store, board, input);
       // Each external item is read before any workspace exists; one that can't be read refuses the card.
       const externals = input.externals?.length
         ? await (async () => {
@@ -577,6 +584,7 @@ export class BoardService {
           const p = current.projects.find((p) => p.id === project.id);
           if (!p || p.archivedAt || p.primaryPath !== sourcePath)
             throw new Error("Project changed during workspace creation.");
+          if (agent) { authorizeCardActor(current, agent); checkAgentCardBudget(current, agent.taskId); }
           const idea = input.ideaId ? openIdea(current, input.ideaId, project.id) : undefined;
           if (input.followUpOf) followUpSource(current, input.followUpOf, project.id);
           if (input.subCardOf) subCardParent(current, input.subCardOf, project.id);
@@ -611,7 +619,7 @@ export class BoardService {
             archivedAt: null,
             ownsWorkspace: input.mode !== "existing",
             ...(idea ? { origin: { taskId: idea.taskId, ideaId: idea.id } } : {}),
-            ...(agent ? { createdByAgent: agent } : {}),
+            ...(agent ? { createdByAgent: { agentId: agent.agentId, taskId: agent.taskId } } : {}),
           };
           current.tasks.push(task);
           this.store.event(current, {
@@ -644,9 +652,18 @@ export class BoardService {
               note: `${idea.title} → ${task.title}`,
             });
           }
+          if (agent) {
+            if (agent.start === "now" && this.automation && automationOf(p)) this.automation.queueIn(current, task.id, { agentId: agent.agentId });
+            const receipt = current.agentReceipts.find((r) => r.key === agent.key && r.payloadHash === agent.payloadHash);
+            if (!receipt) throw new ToolError("REQUEST_REUSED", "Card request reservation is missing.");
+            receipt.cardId = task.id;
+            receipt.status = task.status;
+            receipt.queued = isLive(jobOf(current, task.id));
+          }
           return task;
         });
       } catch (error) {
+        if (error instanceof ToolError) throw error;
         throw new Error(
           `Card was not saved. Workspace ${id} remains available; retry with the same operation or link it. ${error instanceof Error ? error.message : String(error)}`,
         );
@@ -748,4 +765,15 @@ export function openIdea(board: Board, id: string, projectId: string) {
   if (!idea || idea.status !== "open" || idea.projectId !== projectId)
     throw new Error("This idea is no longer open.");
   return idea;
+}
+
+
+/** Validate the entire prospective link set before provisioning native resources. */
+export function preflightCardLinks(store: BoardStore, board: Board, input: TaskInput) {
+  const pending = structuredClone(board);
+  const id = `pending:${input.operationId}`;
+  pending.tasks.push({ id, projectId: input.projectId, status: input.status, archivedAt: null } as Task);
+  if (input.subCardOf) addLink(store, pending, { kind: "subtask", from: id, to: input.subCardOf }, { events: false });
+  for (const blocker of new Set(input.blockedBy ?? [])) addLink(store, pending, { kind: "blocks", from: blocker, to: id }, { events: false });
+  if (input.followUpOf) addLink(store, pending, { kind: "derived", from: id, to: input.followUpOf }, { events: false });
 }

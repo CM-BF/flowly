@@ -1,4 +1,4 @@
-import { laneName, laneProblem } from "../shared/lanes";
+import { laneEnabled, laneName, laneProblem } from "../shared/lanes";
 import { mkdir, readFile, writeFile, rename, copyFile } from "node:fs/promises";
 import { join } from "node:path";
 import { constants } from "node:fs";
@@ -341,6 +341,7 @@ export class BoardStore {
       if (input.workflowInsights !== undefined) p.workflowInsights = input.workflowInsights;
       if (input.memory !== undefined) p.memory = input.memory;
       if (input.automation !== undefined) p.automation = input.automation;
+      if (p.automation?.enabled && !laneEnabled(p, "in_review")) throw new Error("Agent automation requires the In review lane.");
       if (input.agentModel !== undefined) {
         if (input.agentModel) p.agentModel = input.agentModel;
         else delete p.agentModel;

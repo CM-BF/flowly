@@ -1,0 +1,1821 @@
+{
+  "provenance": {
+    "workflow_id": "wf_b0c44fcb-ffe",
+    "review_base": "4a332b7",
+    "reviewed_head": "d143a86",
+    "synthesis": "Recovered here from latest completed reviews; original Claude synthesis failed. This is a new read-only plan, not a recovered synthesis result.",
+    "latest_source": "/private/tmp/claude-501/-Users-citrine-Projects-flowly-kanban-1-paseo-plugins-daemon-5635/535ad7a3-0789-47ed-bff9-cf629f1c8928/tasks/wqq7quhm7.output"
+  },
+  "counts": {
+    "confirmed": 114,
+    "plausible": 4,
+    "rejected": 8,
+    "batches": 20
+  },
+  "duplicates": [
+    {
+      "kept": "dispatch-1",
+      "merged": [
+        "lifecycle-1",
+        "data-1",
+        "security-4"
+      ]
+    },
+    {
+      "kept": "dispatch-2",
+      "merged": [
+        "lifecycle-3",
+        "spec-1",
+        "tests-1",
+        "parity-2",
+        "security-1"
+      ]
+    },
+    {
+      "kept": "dispatch-3",
+      "merged": [
+        "lifecycle-7",
+        "spec-3"
+      ]
+    },
+    {
+      "kept": "dispatch-4",
+      "merged": [
+        "lifecycle-4",
+        "data-5",
+        "tests-3"
+      ]
+    },
+    {
+      "kept": "dispatch-5",
+      "merged": [
+        "lifecycle-9",
+        "parity-8"
+      ]
+    },
+    {
+      "kept": "dispatch-7",
+      "merged": [
+        "lifecycle-8",
+        "subcards-2",
+        "spec-5",
+        "data-3",
+        "parity-7",
+        "security-7"
+      ]
+    },
+    {
+      "kept": "lifecycle-5",
+      "merged": [
+        "data-2",
+        "client-3"
+      ]
+    },
+    {
+      "kept": "lifecycle-6",
+      "merged": [
+        "spec-4",
+        "tests-4"
+      ]
+    },
+    {
+      "kept": "subcards-1",
+      "merged": [
+        "prompts-1",
+        "security-5"
+      ]
+    },
+    {
+      "kept": "prompts-2",
+      "merged": [
+        "parity-4",
+        "security-2"
+      ]
+    },
+    {
+      "kept": "spec-2",
+      "merged": [
+        "tests-2",
+        "security-3",
+        "subcards-7"
+      ]
+    },
+    {
+      "kept": "subcards-3",
+      "merged": [
+        "tests-6"
+      ]
+    },
+    {
+      "kept": "subcards-4",
+      "merged": [
+        "spec-7",
+        "data-6"
+      ]
+    },
+    {
+      "kept": "subcards-5",
+      "merged": [
+        "prompts-5"
+      ]
+    },
+    {
+      "kept": "subcards-6",
+      "merged": [
+        "data-4",
+        "security-8"
+      ]
+    },
+    {
+      "kept": "subcards-8",
+      "merged": [
+        "spec-13",
+        "data-11",
+        "security-10"
+      ]
+    },
+    {
+      "kept": "subcards-9",
+      "merged": [
+        "parity-5",
+        "client-2"
+      ]
+    },
+    {
+      "kept": "subcards-15",
+      "merged": [
+        "prompts-13"
+      ]
+    },
+    {
+      "kept": "subcards-17",
+      "merged": [
+        "spec-14"
+      ]
+    },
+    {
+      "kept": "spec-6",
+      "merged": [
+        "prompts-11",
+        "parity-6"
+      ]
+    },
+    {
+      "kept": "dispatch-11",
+      "merged": [
+        "prompts-3"
+      ]
+    },
+    {
+      "kept": "prompts-6",
+      "merged": [
+        "subcards-11",
+        "parity-10"
+      ]
+    },
+    {
+      "kept": "spec-12",
+      "merged": [
+        "prompts-14"
+      ]
+    },
+    {
+      "kept": "lifecycle-2",
+      "merged": [
+        "parity-1"
+      ]
+    },
+    {
+      "kept": "dispatch-6",
+      "merged": [
+        "data-9",
+        "tests-9"
+      ]
+    }
+  ],
+  "batches": [
+    {
+      "id": "01-pending-op",
+      "finding_ids": [
+        "dispatch-1",
+        "lifecycle-1",
+        "data-1",
+        "security-4"
+      ],
+      "name": "Clean up abandoned reviewer preparation",
+      "priority": "P0",
+      "files": [
+        "server/automation.ts",
+        "server/automation.test.ts"
+      ],
+      "depends_on": [],
+      "instructions": "Clear pendingOp, retryAt and reviewerId in reviewer session-creation give-up before role switches to implementer. Prevent an abandoned preparation being reused under another role. Clear stale preparation when reviving a delivered job as a backstop. Preserve idempotent retry of the same still-valid creation. Minimal implementation need not change pendingOp to an object; if role association is persisted, migrate old strings deliberately.",
+      "tests": "Reviewer creation fails failureLimit times; revive original implementer; advance past staleStartMs; assert implementerId unchanged, no second implementer created, reviewerId never equals implementerId, and original implementer turn still supervised.",
+      "findings": [
+        {
+          "id": "dispatch-1",
+          "status": "confirmed",
+          "severity": "high",
+          "title": "Reviewer start give-up leaks pendingOp, so a later implementer send creates a second implementer session and rebinds the job to it",
+          "file": "server/automation.ts",
+          "line": 590
+        },
+        {
+          "id": "lifecycle-1",
+          "status": "confirmed",
+          "severity": "high",
+          "title": "A reviewer start that fails twice leaves pendingOp set, so a later implementer message creates a second implementer session",
+          "file": "server/automation.ts",
+          "line": 590
+        },
+        {
+          "id": "data-1",
+          "status": "confirmed",
+          "severity": "high",
+          "title": "A failed reviewer start leaves pendingOp behind, and the implementer path later reuses it to start a second implementer session",
+          "file": "server/automation.ts",
+          "line": 590
+        },
+        {
+          "id": "security-4",
+          "status": "confirmed",
+          "severity": "high",
+          "title": "Leaked pendingOp is reused for the other role: second implementer session in the same worktree and implementer==reviewer self-approval",
+          "file": "server/automation.ts",
+          "line": 473
+        }
+      ],
+      "primary": "dispatch-1"
+    },
+    {
+      "id": "02-safe-send",
+      "finding_ids": [
+        "dispatch-2",
+        "lifecycle-3",
+        "spec-1",
+        "tests-1",
+        "parity-2",
+        "security-1",
+        "dispatch-5",
+        "lifecycle-9",
+        "parity-8",
+        "security-11",
+        "critic-2"
+      ],
+      "name": "Send safely and distinguish unavailable sessions from transient errors",
+      "priority": "P0",
+      "files": [
+        "server/automation.ts",
+        "server/automation.test.ts"
+      ],
+      "depends_on": [
+        "01-pending-op"
+      ],
+      "instructions": "Use explicit non-interrupting SDK activeTurnBehavior with stable message ids for automation messages, and guard current running/initializing/active-turn state so sends cannot cancel user work. Preserve supervision and retry the intended instruction after busy state clears. Treat refresh RPC failure as transient, not proof that session disappeared; only confirmed not-found/archived/wrong-workspace may replace a role session. Carry reviewerId across generations like implementerId. critic-2 is plausible-only: multiple ordinary workspace sessions are allowed; do not adopt user sessions or introduce blanket daemon refusal. Optional client warning is separate polish.",
+      "tests": "A nudge/re-run/retry races a running turn and queued composer follow-up: original turn survives and exactly one intended automation message is eventually delivered. A transient refresh error creates no replacement. A genuinely gone session may recreate once. Re-run two review generations and assert reviewer reuse.",
+      "findings": [
+        {
+          "id": "dispatch-2",
+          "status": "confirmed",
+          "severity": "high",
+          "title": "Automation messages interrupt a session that is mid-turn (send without activeTurnBehavior or a status check)",
+          "file": "server/automation.ts",
+          "line": 477
+        },
+        {
+          "id": "lifecycle-3",
+          "status": "confirmed",
+          "severity": "high",
+          "title": "Automation messages interrupt running turns (Run again after Stop, a retry after a human reply, a nudge racing a queued follow-up)",
+          "file": "server/automation.ts",
+          "line": 477
+        },
+        {
+          "id": "spec-1",
+          "status": "confirmed",
+          "severity": "high",
+          "title": "Automation messages use the daemon's default send behaviour, which interrupts a running turn",
+          "file": "server/automation.ts",
+          "line": 477
+        },
+        {
+          "id": "tests-1",
+          "status": "confirmed",
+          "severity": "high",
+          "title": "Automation messages interrupt a running session; the fake SDK's send() never models a running turn, so tests hide it",
+          "file": "server/automation.ts",
+          "line": 477
+        },
+        {
+          "id": "parity-2",
+          "status": "confirmed",
+          "severity": "high",
+          "title": "Automation messages interrupt a running turn (Run again after Stop, parent start, nudge racing the composer queue)",
+          "file": "server/automation.ts",
+          "line": 477
+        },
+        {
+          "id": "security-1",
+          "status": "confirmed",
+          "severity": "high",
+          "title": "Automation messages interrupt running turns (send() without activeTurnBehavior)",
+          "file": "server/automation.ts",
+          "line": 477
+        },
+        {
+          "id": "dispatch-5",
+          "status": "confirmed",
+          "severity": "medium",
+          "title": "send() treats a failed agent refresh as a vanished session: a transient RPC error permanently fails the job or creates a duplicate session",
+          "file": "server/automation.ts",
+          "line": 475
+        },
+        {
+          "id": "lifecycle-9",
+          "status": "confirmed",
+          "severity": "low",
+          "title": "send treats any agent refresh error as 'session gone', ending the job or creating a duplicate session",
+          "file": "server/automation.ts",
+          "line": 475
+        },
+        {
+          "id": "parity-8",
+          "status": "confirmed",
+          "severity": "medium",
+          "title": "send() treats a failed refresh as 'session gone': the job fails for good, or a second session is created beside the live one",
+          "file": "server/automation.ts",
+          "line": 475
+        },
+        {
+          "id": "security-11",
+          "status": "confirmed",
+          "severity": "low",
+          "title": "Each Run again / restart creates a new reviewer session; earlier ones are never reused or archived",
+          "file": "server/automation.ts",
+          "line": 149
+        },
+        {
+          "id": "critic-2",
+          "status": "plausible",
+          "severity": "medium",
+          "title": "Run with agent starts a second agent next to the card's existing, possibly running, session in the same workspace",
+          "file": "server/automation.ts",
+          "line": 149
+        }
+      ],
+      "primary": "dispatch-2"
+    },
+    {
+      "id": "03-recovery",
+      "finding_ids": [
+        "dispatch-6",
+        "lifecycle-2",
+        "parity-1",
+        "tests-9",
+        "data-9",
+        "prompts-6",
+        "subcards-11",
+        "parity-10"
+      ],
+      "name": "Recover pending instructions and missed lifecycle hooks",
+      "priority": "P0",
+      "files": [
+        "shared/automation-schema.ts",
+        "server/automation.ts",
+        "shared/automation.ts",
+        "server/automation.test.ts",
+        "docs/AUTOMATION-SPEC.md"
+      ],
+      "depends_on": [
+        "02-safe-send"
+      ],
+      "instructions": "Reconcile missing role sessions in stale starting/working/reviewing jobs. A starting job with no pendingOp must actually resume its start/send path rather than only mark itself working. Use refreshed status, no activeTurn/pending permissions, and grace period to recover a lost turn via ordinary decision/apply, without forging agent.* events. Preserve exact failed-send payloads for review findings, review request and sub-card summary. Root design decision: a small persisted pending instruction containing role/text/fresh/stable messageId is acceptable; commit it with state transitions and clear only on known send success. This deliberately amends the original spec prohibition on a general outbox. Keep the mechanism bounded to one pending instruction per job, avoid a second scheduler or general workflow engine.",
+      "tests": "Restart after claim before preparation, after review state before reviewer creation, and after wake/changes state before send. Reconcile restores progress once without duplicate agents/messages. Missing end hook on idle session reaches retry after grace, while active/running/permission sessions remain untouched. A send failure retries identical findings/summary rather than generic failed-turn prose.",
+      "findings": [
+        {
+          "id": "dispatch-6",
+          "status": "confirmed",
+          "severity": "medium",
+          "title": "State is committed before its message or session is sent and the intent is not persisted; a reload or exception in between leaves jobs stuck forever holding a slot",
+          "file": "server/automation.ts",
+          "line": 626
+        },
+        {
+          "id": "lifecycle-2",
+          "status": "confirmed",
+          "severity": "high",
+          "title": "A turn end or start the plugin never recorded leaves the job live forever and holding a slot (daemon restart, reload mid-hook)",
+          "file": "server/automation.ts",
+          "line": 641
+        },
+        {
+          "id": "parity-1",
+          "status": "confirmed",
+          "severity": "high",
+          "title": "Reconcile never reads Paseo session status: a turn whose hook was missed leaves the job 'working' forever, holding a slot",
+          "file": "server/automation.ts",
+          "line": 637
+        },
+        {
+          "id": "tests-9",
+          "status": "confirmed",
+          "severity": "low",
+          "title": "Restart recovery is untested, and a job claimed `starting` before pendingOp was recorded stays stuck holding a slot",
+          "file": "server/automation.ts",
+          "line": 626
+        },
+        {
+          "id": "data-9",
+          "status": "confirmed",
+          "severity": "low",
+          "title": "A job stuck in 'starting' with neither pendingOp nor a session id is rewritten every 2 minutes forever and holds a slot",
+          "file": "server/automation.ts",
+          "line": 615
+        },
+        {
+          "id": "prompts-6",
+          "status": "confirmed",
+          "severity": "medium",
+          "title": "A failed message send is retried with a generic \"last turn failed\" text, losing review findings, review requests and the sub-card summary",
+          "file": "server/automation.ts",
+          "line": 452
+        },
+        {
+          "id": "subcards-11",
+          "status": "confirmed",
+          "severity": "low",
+          "title": "If the wake message fails to send, the sub-card summary is lost and the parent is told its last turn failed",
+          "file": "server/automation.ts",
+          "line": 686
+        },
+        {
+          "id": "parity-10",
+          "status": "confirmed",
+          "severity": "low",
+          "title": "A retry after a failed send drops the payload (the reviewer's findings, the sub-card summary)",
+          "file": "server/automation.ts",
+          "line": 452
+        }
+      ],
+      "primary": "dispatch-6"
+    },
+    {
+      "id": "04-liveness",
+      "finding_ids": [
+        "dispatch-4",
+        "lifecycle-4",
+        "data-5",
+        "tests-3",
+        "dispatch-8",
+        "dispatch-7",
+        "lifecycle-8",
+        "subcards-2",
+        "spec-5",
+        "data-3",
+        "parity-7",
+        "security-7",
+        "lifecycle-5",
+        "data-2",
+        "client-3",
+        "dispatch-10"
+      ],
+      "name": "Make Stop, archive and project disable win races",
+      "priority": "P0",
+      "files": [
+        "server/automation.ts",
+        "index.server.ts",
+        "shared/automation.ts",
+        "client/task-automation.tsx",
+        "server/automation.test.ts"
+      ],
+      "depends_on": [
+        "03-recovery"
+      ],
+      "instructions": "Re-check generation, fresh job state/role, task and project liveness and automation enabled at each transactional claim and before external side effects. Recompute turn decision from the board inside apply instead of trusting pre-await snapshot; dispatch8 intent gives exact endedAt/activeAgent guards. Stop or human move during preparation must prevent a later create/send and may not be overwritten. Archiving task/project closes or suspends jobs according to explicit spec; no wake/reconcile send while off/archived. Delivered jobs moved Backlog/Todo/Blocked become stopped and cannot revive from later casual turn start. Keep Stop reachable for any live legacy archived job until its closure is committed. Do not interrupt or archive sessions merely because supervision stops.",
+      "tests": "Deferred prepare/refresh followed by Stop, move, archive, project disable, and immediate Run again: no old generation creates/sends or overwrites new job. Concurrent turnEnded vs Stop stays stopped. Disabled parent never wakes; disabled stale start never creates. Archive task/project leaves no active paid automation side effects. Delivered then Backlog then turnStarted stays stopped.",
+      "findings": [
+        {
+          "id": "dispatch-4",
+          "status": "confirmed",
+          "severity": "medium",
+          "title": "Stop or a card move during 'Starting agent…' does not stop session creation; a quick Run again starts two sessions for the card",
+          "file": "server/automation.ts",
+          "line": 500
+        },
+        {
+          "id": "lifecycle-4",
+          "status": "confirmed",
+          "severity": "medium",
+          "title": "Stop automation or moving the card during session creation still creates and starts the agent; send, apply and wake do not check that the job is live",
+          "file": "server/automation.ts",
+          "line": 500
+        },
+        {
+          "id": "data-5",
+          "status": "confirmed",
+          "severity": "medium",
+          "title": "Stop, a card move or a re-queue during session creation does not stop the session from being created",
+          "file": "server/automation.ts",
+          "line": 500
+        },
+        {
+          "id": "tests-3",
+          "status": "confirmed",
+          "severity": "medium",
+          "title": "Stop automation (or moving the card) during session start still creates the unattended session; a quick re-run makes two sessions",
+          "file": "server/automation.ts",
+          "line": 533
+        },
+        {
+          "id": "dispatch-8",
+          "status": "confirmed",
+          "severity": "low",
+          "title": "Turn decisions are computed from a pre-await snapshot and committed without re-checking liveness or state, so a Stop or card move landing in between is overwritten",
+          "file": "server/automation.ts",
+          "line": 272
+        },
+        {
+          "id": "dispatch-7",
+          "status": "confirmed",
+          "severity": "medium",
+          "title": "Waiting parents are woken and messaged even after the project's automation is turned off (reconcile also acts while off)",
+          "file": "server/automation.ts",
+          "line": 120
+        },
+        {
+          "id": "lifecycle-8",
+          "status": "confirmed",
+          "severity": "low",
+          "title": "With automation off, parents are still woken and reconcile can still create sessions",
+          "file": "server/automation.ts",
+          "line": 120
+        },
+        {
+          "id": "subcards-2",
+          "status": "confirmed",
+          "severity": "medium",
+          "title": "Parent wake-up ignores 'automation off', archived and finished parents, and messages unsupervised sessions",
+          "file": "server/automation.ts",
+          "line": 120
+        },
+        {
+          "id": "spec-5",
+          "status": "confirmed",
+          "severity": "medium",
+          "title": "A waiting parent is woken, and a stale start creates a session, while the project's automation is off",
+          "file": "server/automation.ts",
+          "line": 120
+        },
+        {
+          "id": "data-3",
+          "status": "confirmed",
+          "severity": "medium",
+          "title": "Wake-ups and reconcile ignore 'automation off' and archived projects, and can message or even create sessions",
+          "file": "server/automation.ts",
+          "line": 120
+        },
+        {
+          "id": "parity-7",
+          "status": "confirmed",
+          "severity": "medium",
+          "title": "A waiting parent is woken and messaged even when the project's automation is off",
+          "file": "server/automation.ts",
+          "line": 120
+        },
+        {
+          "id": "security-7",
+          "status": "confirmed",
+          "severity": "medium",
+          "title": "Turning project automation off does not stop parent wake-ups or reconcile session creation",
+          "file": "server/automation.ts",
+          "line": 120
+        },
+        {
+          "id": "lifecycle-5",
+          "status": "confirmed",
+          "severity": "medium",
+          "title": "Archiving a card or project does not end its job; retries, wake-ups and nudges still go to its sessions",
+          "file": "index.server.ts",
+          "line": 386
+        },
+        {
+          "id": "data-2",
+          "status": "confirmed",
+          "severity": "medium",
+          "title": "Archiving a card leaves its automation job live: retries and wake-ups still message its session, a queued job starts on restore, and Stop is disabled",
+          "file": "index.server.ts",
+          "line": 386
+        },
+        {
+          "id": "client-3",
+          "status": "confirmed",
+          "severity": "medium",
+          "title": "Stop automation is disabled on archived cards and projects, but archiving does not stop their jobs",
+          "file": "client/task-automation.tsx",
+          "line": 118
+        },
+        {
+          "id": "dispatch-10",
+          "status": "confirmed",
+          "severity": "low",
+          "title": "A delivered job comes back under supervision after the person has taken the card back to Backlog or Todo",
+          "file": "server/automation.ts",
+          "line": 208
+        }
+      ],
+      "primary": "dispatch-4"
+    },
+    {
+      "id": "05-restart-boundaries",
+      "finding_ids": [
+        "subcards-1",
+        "prompts-1",
+        "prompts-2",
+        "parity-4",
+        "security-2",
+        "security-5"
+      ],
+      "name": "Respect human take-over and stop autonomous restart loops",
+      "priority": "P0",
+      "files": [
+        "server/agent-service.ts",
+        "server/automation.ts",
+        "shared/automation.ts",
+        "server/sub-cards.test.ts",
+        "skills/flowly/SKILL.md",
+        "server/skill-source.ts",
+        "docs/SUB-CARDS-SPEC.md"
+      ],
+      "depends_on": [
+        "04-liveness"
+      ],
+      "instructions": "In the serialized agent action=start path refuse current child job failed (NEEDS_PERSON) and stopped with stopped/card_moved (TAKEN_BY_PERSON). Human Run again remains allowed and replaces that job, restoring agent eligibility. Do not reset failure/restart budgets merely on parent wake. childrenPrompt must distinguish parked never-started children from failed and human-taken children; only parked eligible children can be started. Failed children require report blocker/question and human action. Keep both skill copies synchronized.",
+      "tests": "Parent wake after child Stop/move cannot restart it. Parent start on failed/no_delivery is refused and creates/sends nothing; human Run again works. Multiple repeated parent wakes do not reset failed-child eligibility. Never-started parked child can still be started.",
+      "findings": [
+        {
+          "id": "subcards-1",
+          "status": "confirmed",
+          "severity": "high",
+          "title": "A waiting parent's agent re-queues sub-cards a person just stopped or parked",
+          "file": "server/agent-service.ts",
+          "line": 226
+        },
+        {
+          "id": "prompts-1",
+          "status": "confirmed",
+          "severity": "high",
+          "title": "Wake prompt tells the parent agent to restart sub-cards a person stopped or parked",
+          "file": "shared/automation.ts",
+          "line": 278
+        },
+        {
+          "id": "prompts-2",
+          "status": "confirmed",
+          "severity": "high",
+          "title": "Unbounded restart loop: the parent is told to start idle sub-cards, including ones automation gave up on",
+          "file": "shared/automation.ts",
+          "line": 278
+        },
+        {
+          "id": "parity-4",
+          "status": "confirmed",
+          "severity": "high",
+          "title": "No attempt cap across agent re-queues and parent wake cycles: a parent can restart a failing sub-card forever",
+          "file": "server/agent-service.ts",
+          "line": 253
+        },
+        {
+          "id": "security-2",
+          "status": "confirmed",
+          "severity": "high",
+          "title": "Unbounded parent/sub-card restart loop: wake resets all counters and the wake prompt invites restarting failed sub-cards",
+          "file": "server/automation.ts",
+          "line": 305
+        },
+        {
+          "id": "security-5",
+          "status": "confirmed",
+          "severity": "high",
+          "title": "User's Stop automation (or move to Backlog) on a sub-card is undone by the parent agent within one dispatcher pass",
+          "file": "server/agent-service.ts",
+          "line": 226
+        }
+      ],
+      "primary": "subcards-1"
+    },
+    {
+      "id": "06-create-limits",
+      "finding_ids": [
+        "subcards-7",
+        "spec-2",
+        "tests-2",
+        "security-3",
+        "security-9"
+      ],
+      "name": "Bound lineage-wide card fan-out atomically",
+      "priority": "P0",
+      "files": [
+        "server/agent-service.ts",
+        "server/service.ts",
+        "shared/model.ts",
+        "shared/tools.ts",
+        "server/sub-cards.test.ts",
+        "docs/SUB-CARDS-SPEC.md"
+      ],
+      "depends_on": [
+        "05-restart-boundaries"
+      ],
+      "instructions": "Preserve separate-card subCard=false/start=now as requested by root; add an aggregate bounded budget across the createdByAgent lineage anchored at the human-created root, covering separate-card chains and sub-cards. Follow createdByAgent task ids with cycle protection. Document chosen budget and reset policy; human-originated new root starts a fresh budget, wake/requeue must not reset it. Enforce both per-creator CARD_LIMIT and lineage limit inside existing serialized create before workspace provisioning, after replay lookup. Preserve CARD_LIMIT error rather than wrapping as CARD_INVALID. subcards-7 is plausible because auto-start itself is spec-intended; other confirmed IDs establish the unbounded class.",
+      "tests": "Two parallel calls at per-card limit produce one card and one CARD_LIMIT, with one workspace. Chain separate cards with start=now until lineage budget reached; next call creates no task/workspace/job. Replays consume no extra budget. A separate human-created root remains independent.",
+      "findings": [
+        {
+          "id": "subcards-7",
+          "status": "plausible",
+          "severity": "medium",
+          "title": "subCard=false + start=now auto-queues top-level cards with no depth or project-wide bound",
+          "file": "server/agent-service.ts",
+          "line": 186
+        },
+        {
+          "id": "spec-2",
+          "status": "confirmed",
+          "severity": "high",
+          "title": "Separate cards created by agents (subCard=false) are queued automatically, though no person queued them, and chains of them have no limit",
+          "file": "server/agent-service.ts",
+          "line": 186
+        },
+        {
+          "id": "tests-2",
+          "status": "confirmed",
+          "severity": "high",
+          "title": "Agent card creation is only capped per creating card: under automation, agent-created separate cards chain without bound",
+          "file": "server/agent-service.ts",
+          "line": 154
+        },
+        {
+          "id": "security-3",
+          "status": "confirmed",
+          "severity": "high",
+          "title": "Agent card fan-out is unbounded: per-card cap only, and subCard=false escapes the depth limit",
+          "file": "server/agent-service.ts",
+          "line": 154
+        },
+        {
+          "id": "security-9",
+          "status": "confirmed",
+          "severity": "low",
+          "title": "CARD_LIMIT is checked outside the serialized create, so parallel calls overshoot it",
+          "file": "server/agent-service.ts",
+          "line": 154
+        }
+      ],
+      "primary": "spec-2"
+    },
+    {
+      "id": "07-review-lifecycle",
+      "finding_ids": [
+        "lifecycle-6",
+        "spec-4",
+        "tests-4",
+        "critic-1",
+        "client-1",
+        "dispatch-11",
+        "prompts-3"
+      ],
+      "name": "Track reopen and review rounds accurately",
+      "priority": "P0",
+      "files": [
+        "shared/automation-schema.ts",
+        "shared/automation.ts",
+        "server/automation.ts",
+        "index.server.ts",
+        "client/task-automation.tsx",
+        "server/automation.test.ts",
+        "docs/AUTOMATION-SPEC.md"
+      ],
+      "depends_on": [
+        "04-liveness"
+      ],
+      "instructions": "Delivered implementer casual answer with no work reports must settle back to delivered and retain prior verdict; actual re-delivery starts a fresh review round. Distinguish a reopened turn (small persisted reopened marker or equivalent) and workedThisTurn from mere A1r restored In review. Implementer turn during reviewing/needs_human-review explicitly closes review round, switches active role back to implementer and invalidates old verdict; reviewer late verdict/end is rejected/ignored. Do not mistake an already-newer turn_started for the end currently being processed. Invalidate stale verdict when other managed session begins new work or card leaves In review. Client verdict badge requires current In review. Use role-specific reviewer nudge text: submit verdict, never implement or deliver work.",
+      "tests": "Approved delivery then thanks/question triggers no reviewer and preserves approval. Actual same-status in_review report under auto-status off starts review round 1. Implementer new work during reviewer turn closes round, late review cannot approve stale work, next delivery gets review. Manual move/other managed session clears approved badge. Reviewer nudge contains review tool instructions and no implementation orders.",
+      "findings": [
+        {
+          "id": "lifecycle-6",
+          "status": "confirmed",
+          "severity": "medium",
+          "title": "After a delivery, any human message to the implementer (even a question or 'thanks') starts a new agent review round",
+          "file": "shared/automation.ts",
+          "line": 169
+        },
+        {
+          "id": "spec-4",
+          "status": "confirmed",
+          "severity": "medium",
+          "title": "A casual message to the implementer after an approved review starts a whole new review round",
+          "file": "shared/automation.ts",
+          "line": 169
+        },
+        {
+          "id": "tests-4",
+          "status": "confirmed",
+          "severity": "medium",
+          "title": "After a delivery, a casual message to the implementer starts a new review round: A1r's restored In review is read as a delivery (untested reopen path)",
+          "file": "shared/automation.ts",
+          "line": 169
+        },
+        {
+          "id": "critic-1",
+          "status": "confirmed",
+          "severity": "high",
+          "title": "A message to the implementer during an agent review stops automation as 'card moved' and throws away the review",
+          "file": "shared/automation.ts",
+          "line": 166
+        },
+        {
+          "id": "client-1",
+          "status": "confirmed",
+          "severity": "high",
+          "title": "Stale 'Agent review passed' / 'Review needs you' badge after the card leaves In review or gets new unreviewed work",
+          "file": "client/task-automation.tsx",
+          "line": 55
+        },
+        {
+          "id": "dispatch-11",
+          "status": "confirmed",
+          "severity": "low",
+          "title": "The reviewer's reminder uses the implementer's text (\"deliver it…\", \"If work remains, continue it\")",
+          "file": "shared/automation.ts",
+          "line": 234
+        },
+        {
+          "id": "prompts-3",
+          "status": "confirmed",
+          "severity": "medium",
+          "title": "Reviewer is nudged with implementer instructions (deliver, continue the work, set status=blocked)",
+          "file": "shared/automation.ts",
+          "line": 234
+        }
+      ],
+      "primary": "lifecycle-6"
+    },
+    {
+      "id": "08-failures",
+      "finding_ids": [
+        "dispatch-3",
+        "lifecycle-7",
+        "spec-3",
+        "parity-3",
+        "prompts-15",
+        "client-4"
+      ],
+      "name": "Count consecutive failures and handle provider cooldowns",
+      "priority": "P1",
+      "files": [
+        "shared/automation.ts",
+        "shared/automation-schema.ts",
+        "server/automation.ts",
+        "server/agent-service.ts",
+        "client/task-automation.tsx",
+        "server/automation.test.ts",
+        "docs/AUTOMATION-SPEC.md"
+      ],
+      "depends_on": [
+        "03-recovery",
+        "07-review-lifecycle"
+      ],
+      "instructions": "Reset failures on successful turn and clear stale code/detail when returning to active work, so UI reasons reflect current state. Classify only structured failed outcomes/start errors, never arbitrary completed agent prose. Rate limits/quota/429 enter bounded growing cooldown without consuming failureLimit; terminal auth/model errors give up early. Cooling jobs hold slots; if maxRunning exceeds one, verify provider-wide cooldown actually prevents draining remaining slots before claiming it as solved. Avoid broad auth regex matching ordinary words. A same-status blocked request records reportKind blocker so it enters needs_human. Add any new user-facing cooldown code to all locale catalogs.",
+      "tests": "Fail/succeed/fail never trips two-consecutive limit; fail/fail does. Quota retries after cooldown with unchanged failures and cannot rapidly drain queue; running and permission states not mistaken for provider failure. Auth/model unavailable gives clear first-attempt outcome. Already-Blocked card reporting blocked waits and is not nudged. Active drawer row does not show old give-up detail.",
+      "findings": [
+        {
+          "id": "dispatch-3",
+          "status": "confirmed",
+          "severity": "medium",
+          "title": "The failure counter is never reset by a successful turn, so non-consecutive failures give up and block the card as \"N turns in a row failed\"",
+          "file": "server/automation.ts",
+          "line": 317
+        },
+        {
+          "id": "lifecycle-7",
+          "status": "confirmed",
+          "severity": "medium",
+          "title": "failureLimit counts all failures in a run, not consecutive ones, so the card is moved to Blocked too early",
+          "file": "shared/automation.ts",
+          "line": 159
+        },
+        {
+          "id": "spec-3",
+          "status": "confirmed",
+          "severity": "medium",
+          "title": "The failure limit counts failed turns cumulatively, not in a row, so cards are blocked early with a false note",
+          "file": "server/automation.ts",
+          "line": 317
+        },
+        {
+          "id": "parity-3",
+          "status": "confirmed",
+          "severity": "high",
+          "title": "Quota, rate-limit and other provider-wide failures count per card, so the dispatcher drains the whole queue into Blocked",
+          "file": "shared/automation.ts",
+          "line": 158
+        },
+        {
+          "id": "prompts-15",
+          "status": "confirmed",
+          "severity": "low",
+          "title": "\"Set status=blocked\" on a card that is already Blocked is not seen as a blocker, so the agent is nudged and given up",
+          "file": "shared/automation.ts",
+          "line": 136
+        },
+        {
+          "id": "client-4",
+          "status": "confirmed",
+          "severity": "low",
+          "title": "Drawer reason and detail lines go stale on active states: 'Agent working · Turns kept failing · <old error>'",
+          "file": "client/task-automation.tsx",
+          "line": 139
+        }
+      ],
+      "primary": "dispatch-3"
+    },
+    {
+      "id": "09-dependencies",
+      "finding_ids": [
+        "subcards-3",
+        "tests-6",
+        "prompts-4",
+        "subcards-5",
+        "prompts-5",
+        "subcards-9",
+        "parity-5",
+        "client-2",
+        "subcards-16",
+        "critic-4"
+      ],
+      "name": "Handle dependency settlement, ancestor cancellation and held blockers",
+      "priority": "P1",
+      "files": [
+        "shared/automation.ts",
+        "shared/links.ts",
+        "server/links.ts",
+        "server/service.ts",
+        "server/agent-service.ts",
+        "server/automation.ts",
+        "client/task-automation.tsx",
+        "server/sub-cards.test.ts",
+        "docs/SUB-CARDS-SPEC.md"
+      ],
+      "depends_on": [
+        "05-restart-boundaries"
+      ],
+      "instructions": "Queued child held by outside work or recursively active sibling counts as moving; sibling awaiting parent acceptance/start counts as settled. Keep explicit blocker/question ahead of await_children per spec; improve prompt to say waiting on own children is not a blocker. Promise wake only to supervised live implementer, never ordinary interactive parent. Preserve cancelled/archived blockers holding queue per spec and surface reason to parent/get_task/UI; do not silently resolve/unlink them. Cancel/archive ancestor stops descendant automation jobs without changing child lanes or interrupting their sessions. Reject hierarchy+blocks cycles including ancestor/transitive ancestor wait during create and manual link mutations, before workspace provisioning.",
+      "tests": "Outside/transitive sibling blocker keeps parent waiting then wakes once. Parent question remains needs_human. Ordinary session gets truthful no-wake message. Cancelled blocker stays held with translated visible reason. Cancel mid-level parent stops ready queued/working descendants. Own-parent/ancestor blocker and manual mixed hierarchy cycle rejected with no workspace.",
+      "findings": [
+        {
+          "id": "subcards-3",
+          "status": "confirmed",
+          "severity": "medium",
+          "title": "A queued sub-card held by a blocker outside its siblings counts as settled: the parent is nudged into Blocked and never woken",
+          "file": "shared/automation.ts",
+          "line": 191
+        },
+        {
+          "id": "tests-6",
+          "status": "confirmed",
+          "severity": "medium",
+          "title": "A sub-card blocked by a card outside the parent's tree counts as not moving, so its waiting parent is nudged and auto-blocked instead of waiting",
+          "file": "shared/automation.ts",
+          "line": 191
+        },
+        {
+          "id": "prompts-4",
+          "status": "confirmed",
+          "severity": "medium",
+          "title": "A parent that sets blocked or reports a blocker/question while its sub-cards run is never woken",
+          "file": "shared/automation.ts",
+          "line": 173
+        },
+        {
+          "id": "subcards-5",
+          "status": "confirmed",
+          "severity": "medium",
+          "title": "\"You are woken when your sub-cards settle\" is promised to sessions that are never woken",
+          "file": "server/agent-service.ts",
+          "line": 203
+        },
+        {
+          "id": "prompts-5",
+          "status": "confirmed",
+          "severity": "medium",
+          "title": "\"You are woken when your sub-cards settle\" is promised to sessions that will never be woken",
+          "file": "server/agent-service.ts",
+          "line": 203
+        },
+        {
+          "id": "subcards-9",
+          "status": "confirmed",
+          "severity": "low",
+          "title": "Sub-cards blocked by a Cancelled card stay queued forever, and neither the parent nor the wake message is told why",
+          "file": "shared/automation.ts",
+          "line": 271
+        },
+        {
+          "id": "parity-5",
+          "status": "confirmed",
+          "severity": "medium",
+          "title": "A queued card held by a Cancelled or archived blocker is stranded with no signal; the parent is told it is queued and cannot unlink",
+          "file": "shared/automation.ts",
+          "line": 56
+        },
+        {
+          "id": "client-2",
+          "status": "confirmed",
+          "severity": "medium",
+          "title": "A queued card held forever by a Cancelled or archived blocker shows only 'Queued for agent', while the board shows the blocker as resolved",
+          "file": "client/task-automation.tsx",
+          "line": 41
+        },
+        {
+          "id": "subcards-16",
+          "status": "confirmed",
+          "severity": "low",
+          "title": "Cancelling a sub-card leaves its own queued sub-cards to be dispatched",
+          "file": "shared/automation.ts",
+          "line": 78
+        },
+        {
+          "id": "critic-4",
+          "status": "confirmed",
+          "severity": "low",
+          "title": "A sub-card can be made to wait on its own parent or ancestor, so it can only start after the parent is Done",
+          "file": "server/service.ts",
+          "line": 736
+        }
+      ],
+      "primary": "subcards-3"
+    },
+    {
+      "id": "10-authorization",
+      "finding_ids": [
+        "subcards-6",
+        "data-4",
+        "security-8",
+        "data-10",
+        "subcards-12",
+        "critic-5",
+        "subcards-13"
+      ],
+      "name": "Make agent card mutations authorized, fresh and idempotent",
+      "priority": "P1",
+      "files": [
+        "server/agent-service.ts",
+        "shared/model.ts",
+        "shared/tools.ts",
+        "server/tool-server.ts",
+        "server/sub-cards.test.ts",
+        "docs/SUB-CARDS-SPEC.md",
+        "docs/AUTOMATION-SPEC.md"
+      ],
+      "depends_on": [
+        "05-restart-boundaries"
+      ],
+      "instructions": "create/update refuse finished/archived caller card/project, and reviewer sessions cannot create/manage cards; use concrete documented REVIEWER_ONLY behavior, including late reviewer session after round if identity remains reviewer. Preserve expectedRevision checks after valid replay fast-path, and repeat relevant authority/revision/parent/child liveness validation inside serialized write. Unlink does not bump child revision, so re-check parentOf. update_card gets durable request receipt/hash contract like write: same request replays prior operation after human change without reapplying; reused request with different payload errors. Post-commit queue/callbacks execute only for non-replay. Keep harmless already-in-target acknowledgements for distinct requests.",
+      "tests": "Stale parent revision refuses create/update without workspace; valid create replay returns prior card. Finished/archived caller and reviewer cannot mutate. Unlink/archival queued between read and write prevents child move. Cancel then human reopen then same cancel request leaves card open replayed; changed request payload errors. Start replay never queues twice.",
+      "findings": [
+        {
+          "id": "subcards-6",
+          "status": "confirmed",
+          "severity": "medium",
+          "title": "flowly_update_card skips the archived/finished checks every other agent write applies to the caller's card",
+          "file": "server/agent-service.ts",
+          "line": 216
+        },
+        {
+          "id": "data-4",
+          "status": "confirmed",
+          "severity": "medium",
+          "title": "flowly_update_card does not refuse when the caller's own card is archived or finished, or its project is archived, and it bypasses the archived-project move guard",
+          "file": "server/agent-service.ts",
+          "line": 216
+        },
+        {
+          "id": "security-8",
+          "status": "confirmed",
+          "severity": "medium",
+          "title": "flowly_update_card works from a finished or archived parent card and skips the revision check",
+          "file": "server/agent-service.ts",
+          "line": 216
+        },
+        {
+          "id": "data-10",
+          "status": "confirmed",
+          "severity": "low",
+          "title": "flowly_create_card and flowly_update_card never compare expectedRevision with the current card or project revision",
+          "file": "server/agent-service.ts",
+          "line": 126
+        },
+        {
+          "id": "subcards-12",
+          "status": "confirmed",
+          "severity": "low",
+          "title": "flowly_update_card has no request receipt: a retried call re-applies after a person changed the card",
+          "file": "server/agent-service.ts",
+          "line": 227
+        },
+        {
+          "id": "critic-5",
+          "status": "confirmed",
+          "severity": "low",
+          "title": "flowly_update_card re-checks only the status inside its write, not that the card is still the caller's sub-card",
+          "file": "server/agent-service.ts",
+          "line": 239
+        },
+        {
+          "id": "subcards-13",
+          "status": "confirmed",
+          "severity": "low",
+          "title": "The automation reviewer session can create cards and accept or cancel the reviewed card's sub-cards",
+          "file": "server/agent-service.ts",
+          "line": 144
+        }
+      ],
+      "primary": "subcards-6"
+    },
+    {
+      "id": "11-workspaces",
+      "finding_ids": [
+        "subcards-4",
+        "spec-7",
+        "data-6",
+        "subcards-8",
+        "spec-13",
+        "data-11",
+        "security-10",
+        "subcards-17",
+        "spec-14"
+      ],
+      "name": "Preflight link capacity and serialize shared-directory work",
+      "priority": "P1",
+      "files": [
+        "server/service.ts",
+        "server/agent-service.ts",
+        "server/automation.ts",
+        "server/tool-server.ts",
+        "skills/flowly/SKILL.md",
+        "server/skill-source.ts",
+        "server/sub-cards.test.ts",
+        "docs/SUB-CARDS-SPEC.md"
+      ],
+      "depends_on": [
+        "06-create-limits",
+        "09-dependencies"
+      ],
+      "instructions": "Check aggregate number of links each planned creation adds to each existing task before workspaces.create, with transactional recheck; include parent, unique blockers and followUp, including multiple edge kinds to same task. Prevent orphan resources on predictable link rejection. Directory-mode cards can share one physical root; dispatcher should not simultaneously hold automation slots for same resolved directory. Resolve workspace directories before serialized claim with fresh guard. Agent result/prompt must state shared directory/no independent branch and require ordered work. Preserve project-root branch default (spec14 plausible and subcards17 is primarily disclosure); document commit first and pass baseRef=this card branch for parent-dependent code instead of silently changing base semantics.",
+      "tests": "Full parent/blocker link capacity and overlapping multiple planned edges reject before workspace creation. Independent worktree paths still run parallel; two directory cards sharing path run one at a time. Returned result/skill distinguishes worktree from shared directory. Explicit baseRef honored; default unchanged.",
+      "findings": [
+        {
+          "id": "subcards-4",
+          "status": "confirmed",
+          "severity": "medium",
+          "title": "In projects whose root is not a git repository (e.g. linked roots), 'parallel' sub-cards run at the same time in one shared directory",
+          "file": "server/agent-service.ts",
+          "line": 160
+        },
+        {
+          "id": "spec-7",
+          "status": "confirmed",
+          "severity": "medium",
+          "title": "In a project whose root is not a git repo, parallel sub-cards run in the same project-root folder",
+          "file": "server/agent-service.ts",
+          "line": 160
+        },
+        {
+          "id": "data-6",
+          "status": "confirmed",
+          "severity": "medium",
+          "title": "In non-git project roots (multi-repo common directory, linked roots), every agent-created sub-card shares the same directory, though the prompts promise isolated workspaces and branches to merge",
+          "file": "server/agent-service.ts",
+          "line": 160
+        },
+        {
+          "id": "subcards-8",
+          "status": "confirmed",
+          "severity": "low",
+          "title": "The per-card link limit is checked only after the sub-card's workspace exists, leaving orphan worktrees",
+          "file": "server/service.ts",
+          "line": 726
+        },
+        {
+          "id": "spec-13",
+          "status": "confirmed",
+          "severity": "low",
+          "title": "The per-card link limit is checked only after the sub-card's workspace exists, which leaves orphan worktrees",
+          "file": "server/service.ts",
+          "line": 625
+        },
+        {
+          "id": "data-11",
+          "status": "confirmed",
+          "severity": "low",
+          "title": "Creating a card can leave an orphan worktree when the link limit is hit after the workspace exists",
+          "file": "server/service.ts",
+          "line": 625
+        },
+        {
+          "id": "security-10",
+          "status": "confirmed",
+          "severity": "low",
+          "title": "Link-limit failure after workspace creation orphans a worktree per agent retry",
+          "file": "server/service.ts",
+          "line": 624
+        },
+        {
+          "id": "subcards-17",
+          "status": "confirmed",
+          "severity": "low",
+          "title": "Sub-card worktrees start from the project root's branch, not the parent card's branch, and agents are not told",
+          "file": "server/tool-server.ts",
+          "line": 363
+        },
+        {
+          "id": "spec-14",
+          "status": "plausible",
+          "severity": "low",
+          "title": "Sub-card worktrees start from the project root's branch, not the parent's, and the skill never mentions baseRef",
+          "file": "server/agent-service.ts",
+          "line": 174
+        }
+      ],
+      "primary": "subcards-4"
+    },
+    {
+      "id": "12-handoffs",
+      "finding_ids": [
+        "spec-6",
+        "prompts-11",
+        "parity-6",
+        "prompts-8",
+        "prompts-9"
+      ],
+      "name": "Provide usable sub-card handoffs and feedback",
+      "priority": "P1",
+      "files": [
+        "server/agent-service.ts",
+        "server/automation.ts",
+        "shared/automation.ts",
+        "shared/automation-schema.ts",
+        "shared/tools.ts",
+        "server/tool-server.ts",
+        "skills/flowly/SKILL.md",
+        "server/skill-source.ts",
+        "docs/SUB-CARDS-SPEC.md"
+      ],
+      "depends_on": [
+        "03-recovery",
+        "05-restart-boundaries"
+      ],
+      "instructions": "Remove unfulfillable instruction to read child workpad unless exposing a small snapshot through existing get_task/wake data; do not add cross-card tool. Parent can inspect lane, verdict, branch diff and optional bounded failed-check/delivery summary. On dependency-ready start provide resolved blocker branch and parent branch via existing best-effort readHead. Parent merges accepted child, dependent child merges its blockers. action=start on delivered child preserves note as required feedback brief, records it even on same-status start, persists it into all reuse/fresh-session prompts, and does not drop text when automation off. Use same pending-instruction reliability mechanism for retries.",
+      "tests": "Wake text only asks for available information and includes useful branch/verdict. Dependency start sees blocker branch. Starting delivered child with note sends precise feedback to existing/fresh implementer and retries preserve it; blank delivered feedback refused if required. Off-project path records note and truthfully says no agent was started.",
+      "findings": [
+        {
+          "id": "spec-6",
+          "status": "confirmed",
+          "severity": "medium",
+          "title": "The parent is told to check each sub-card's workpad, which no tool lets it read",
+          "file": "shared/automation.ts",
+          "line": 278
+        },
+        {
+          "id": "prompts-11",
+          "status": "confirmed",
+          "severity": "low",
+          "title": "Wake prompt and SKILL ask the parent to check a sub-card's workpad, which no tool exposes",
+          "file": "shared/automation.ts",
+          "line": 278
+        },
+        {
+          "id": "parity-6",
+          "status": "confirmed",
+          "severity": "medium",
+          "title": "Parents and dependent sub-cards cannot read the sub-card or blocker hand-off, yet the prompts tell them to",
+          "file": "shared/automation.ts",
+          "line": 278
+        },
+        {
+          "id": "prompts-8",
+          "status": "confirmed",
+          "severity": "medium",
+          "title": "Blocked sub-cards cannot find their blocker's branch; the \"merge its branch\" guidance does not reach them",
+          "file": "shared/automation.ts",
+          "line": 278
+        },
+        {
+          "id": "prompts-9",
+          "status": "confirmed",
+          "severity": "medium",
+          "title": "The parent has no way to send a delivered sub-card back with feedback; the note on action=start is dropped",
+          "file": "server/agent-service.ts",
+          "line": 223
+        }
+      ],
+      "primary": "spec-6"
+    },
+    {
+      "id": "13-dispatch",
+      "finding_ids": [
+        "dispatch-9",
+        "spec-11",
+        "subcards-10"
+      ],
+      "name": "Dispatch promptly and honor maxRunning on parent wake",
+      "priority": "P1",
+      "files": [
+        "server/automation.ts",
+        "shared/automation.ts",
+        "server/automation.test.ts",
+        "docs/AUTOMATION-SPEC.md"
+      ],
+      "depends_on": [
+        "04-liveness",
+        "09-dependencies"
+      ],
+      "instructions": "Stop, reviewer approval and card deletion should kick existing dispatcher after committed change to release blockers/slots immediately. Parent wake must use same slot budget as normal claim and stay waiting until capacity exists. Do not spawn another timer/poll. Coordinate with shared-directory path guard and provider cooldown eligibility so all claim paths obey same constraints.",
+      "tests": "Stop immediately starts next eligible queued card; review approval/deletion releases dependent work. Wake while maxRunning occupied stays waiting and sends nothing until slot release; never exceeds cap.",
+      "findings": [
+        {
+          "id": "dispatch-9",
+          "status": "confirmed",
+          "severity": "low",
+          "title": "Stop, review approval and card deletion free slots or release blockers but do not run the dispatcher",
+          "file": "server/automation.ts",
+          "line": 168
+        },
+        {
+          "id": "spec-11",
+          "status": "confirmed",
+          "severity": "low",
+          "title": "Stop automation does not run the dispatcher, although the spec says it does",
+          "file": "server/automation.ts",
+          "line": 168
+        },
+        {
+          "id": "subcards-10",
+          "status": "confirmed",
+          "severity": "low",
+          "title": "Waking a parent puts it in a slot state without checking maxRunning",
+          "file": "server/automation.ts",
+          "line": 653
+        }
+      ],
+      "primary": "dispatch-9"
+    },
+    {
+      "id": "14-lanes",
+      "finding_ids": [
+        "subcards-14",
+        "prompts-7"
+      ],
+      "name": "Validate lane prerequisites and parked-child start",
+      "priority": "P1",
+      "files": [
+        "server/service.ts",
+        "server/automation.ts",
+        "server/agent-service.ts",
+        "client/forms.tsx",
+        "client/lane-editor.tsx",
+        "client/task-automation.tsx",
+        "server/sub-cards.test.ts",
+        "docs/AUTOMATION-SPEC.md",
+        "docs/SUB-CARDS-SPEC.md"
+      ],
+      "depends_on": [],
+      "instructions": "Automation needs In review: enforce on project mutation and queue/start, prevent disabling lane while automation on, and give visible translated explanation. Reconcile old invalid configurations must not send impossible deliver instructions. Do not invent fallback delivery lane. Starting parked Backlog child without Todo keeps Backlog and queues normally; automation-off result says a person must start, never falsely claims a move.",
+      "tests": "Enabling automation with In review disabled and disabling lane while enabled are refused. Queue rejects legacy invalid settings. Todo-disabled parked child starts queued in Backlog. UI desktop/compact shows requirement; new strings in all locales.",
+      "findings": [
+        {
+          "id": "subcards-14",
+          "status": "confirmed",
+          "severity": "low",
+          "title": "A parked sub-card cannot be started in projects without a Todo lane",
+          "file": "server/agent-service.ts",
+          "line": 233
+        },
+        {
+          "id": "prompts-7",
+          "status": "confirmed",
+          "severity": "medium",
+          "title": "Automation and sub-cards cannot work in a project whose In review lane is disabled",
+          "file": "shared/automation.ts",
+          "line": 219
+        }
+      ],
+      "primary": "subcards-14"
+    },
+    {
+      "id": "15-client-signals",
+      "finding_ids": [
+        "client-5",
+        "client-6",
+        "client-7",
+        "client-10",
+        "parity-9"
+      ],
+      "name": "Expose accurate card automation and sub-card UI signals",
+      "priority": "P2",
+      "files": [
+        "client/task-automation.tsx",
+        "client/drawer.tsx",
+        "client/board.tsx",
+        "client/link-rows.ts",
+        "client/attention.ts",
+        "shared/i18n-keys.ts",
+        "shared/i18n/"
+      ],
+      "depends_on": [
+        "07-review-lifecycle",
+        "09-dependencies"
+      ],
+      "instructions": "Hide/disable Run when existing workspace is known unavailable using current query data. Count archived children consistently with readOnly/hide policy so n/m completion cannot stall invisibly. Automation Stop accessibility label names automation. Include actionable attention outcomes (needs-human, incomplete/changes/rejected, failed as appropriate), without duplicating existing task attention. client6 is optional/plausible only: add already-parented/limit explanatory disabled UI if cheap, using translated client messages, not raw server subCardProblem English. No new polling.",
+      "tests": "Known missing workspace offers no runnable action. Archived unfinished child does not leave visible completion forever impossible. Screen reader sees Stop automation. Attention includes automation outcomes once and clears on resolution. Real desktop+compact UI check after plugin reload required.",
+      "findings": [
+        {
+          "id": "client-5",
+          "status": "confirmed",
+          "severity": "low",
+          "title": "Run with agent is offered while the drawer already knows the card's workspace is unavailable",
+          "file": "client/drawer.tsx",
+          "line": 430
+        },
+        {
+          "id": "client-6",
+          "status": "plausible",
+          "severity": "low",
+          "title": "The 'Sub-card of' link picker and 'New sub-card' do not check sub-card limits, so blocked choices look available",
+          "file": "client/link-rows.ts",
+          "line": 34
+        },
+        {
+          "id": "client-7",
+          "status": "confirmed",
+          "severity": "low",
+          "title": "The Sub-cards n/m count never completes when an unfinished sub-card is archived",
+          "file": "client/board.tsx",
+          "line": 885
+        },
+        {
+          "id": "client-10",
+          "status": "confirmed",
+          "severity": "low",
+          "title": "The drawer's automation Stop button is announced only as 'Stop'",
+          "file": "client/task-automation.tsx",
+          "line": 151
+        },
+        {
+          "id": "parity-9",
+          "status": "confirmed",
+          "severity": "medium",
+          "title": "Attention never lists automation outcomes that need the user",
+          "file": "client/attention.ts",
+          "line": 47
+        }
+      ],
+      "primary": "client-5"
+    },
+    {
+      "id": "16-react-state",
+      "finding_ids": [
+        "client-8",
+        "client-9"
+      ],
+      "name": "Keep React updates fresh and drawer subscription narrow",
+      "priority": "P2",
+      "files": [
+        "client/task-automation.tsx",
+        "client/forms.tsx",
+        "client/drawer.tsx",
+        "client/board.tsx"
+      ],
+      "depends_on": [],
+      "instructions": "AutomationSettingsGroup onChange takes functional updater and each model/setting update merges against latest state, so two auto-picks in same effect commit do not overwrite. Remove whole-board subscription from memoized drawer root; pass structurally shared own automation job prop or read cached job only when menu opens. Keep TaskAutomation own live subscription.",
+      "tests": "Two model auto-selection effects in one render preserve both implementer and reviewer selection. Existing typecheck/build plus targeted React behavior coverage only if meaningful; verify unrelated board patch no longer invalidates drawer root subscription by code/subscription inspection.",
+      "findings": [
+        {
+          "id": "client-8",
+          "status": "confirmed",
+          "severity": "low",
+          "title": "Two model pickers build updates from the same render, so one simultaneous auto-pick overwrites the other",
+          "file": "client/task-automation.tsx",
+          "line": 175
+        },
+        {
+          "id": "client-9",
+          "status": "confirmed",
+          "severity": "low",
+          "title": "The memoized task drawer now re-renders on every board patch",
+          "file": "client/drawer.tsx",
+          "line": 416
+        }
+      ],
+      "primary": "client-8"
+    },
+    {
+      "id": "17-cli-tool-docs",
+      "finding_ids": [
+        "subcards-15",
+        "prompts-13",
+        "spec-12",
+        "prompts-14"
+      ],
+      "name": "Bring fallback CLI and agent documentation into parity",
+      "priority": "P2",
+      "files": [
+        "server/cli-source.ts",
+        "server/tool-server.ts",
+        "shared/tools.ts",
+        "skills/flowly/SKILL.md",
+        "server/skill-source.ts"
+      ],
+      "depends_on": [
+        "10-authorization",
+        "12-handoffs"
+      ],
+      "instructions": "Fallback CLI gains create-card/update-card/submit-review commands using same signed RPC contract and existing schemas; no parallel business logic. Help/skill show actual command syntax for CLI-only sessions. Update stage policy to allow only direct-subcard start/accept/cancel through update_card; ordinary own-card Done/Cancelled/Todo remain human decisions. Reviewer-only restriction and supervision-dependent wake promise stay explicit. Regenerate embedded skill source, keep source copies identical.",
+      "tests": "CLI-only session creates, starts/accepts/cancels direct child and submits review through fake RPC server; bad fields/role rejected by same business layer. Generated help and skill refer only to implemented command paths. Typecheck and existing signature/authorization tests.",
+      "findings": [
+        {
+          "id": "subcards-15",
+          "status": "confirmed",
+          "severity": "low",
+          "title": "The CLI fallback has no create-card, update-card or review command, but the skill and prompts require them",
+          "file": "server/cli-source.ts",
+          "line": 74
+        },
+        {
+          "id": "prompts-13",
+          "status": "confirmed",
+          "severity": "low",
+          "title": "CLI-only sessions are taught flowly_create_card / flowly_update_card / flowly_submit_review, but the CLI has no such commands",
+          "file": "server/cli-source.ts",
+          "line": 20
+        },
+        {
+          "id": "spec-12",
+          "status": "confirmed",
+          "severity": "low",
+          "title": "The skill still says Done, Cancelled, Backlog and Todo are human decisions, which conflicts with flowly_update_card",
+          "file": "skills/flowly/SKILL.md",
+          "line": 48
+        },
+        {
+          "id": "prompts-14",
+          "status": "confirmed",
+          "severity": "low",
+          "title": "SKILL and update_status description still say Done/Cancelled/Todo are human decisions, contradicting sub-card accept/cancel/start",
+          "file": "skills/flowly/SKILL.md",
+          "line": 48
+        }
+      ],
+      "primary": "subcards-15"
+    },
+    {
+      "id": "18-spec-onboarding",
+      "finding_ids": [
+        "spec-8",
+        "spec-9",
+        "spec-10",
+        "spec-15"
+      ],
+      "name": "Reconcile specs and onboarding with final behavior",
+      "priority": "P2",
+      "files": [
+        "docs/ONBOARDING-SPEC.md",
+        "docs/SPEC-OUTLINE.md",
+        "docs/AUTOMATION-SPEC.md",
+        "docs/SUB-CARDS-SPEC.md",
+        "client/",
+        "shared/i18n/"
+      ],
+      "depends_on": [
+        "05-restart-boundaries",
+        "06-create-limits",
+        "10-authorization",
+        "14-lanes",
+        "17-cli-tool-docs"
+      ],
+      "instructions": "Update outline agent-create statement, automation contract waiting/sub_cards/subSeen plus all genuinely introduced pending-instruction/budget fields, and cancel replay wording (already Cancelled=replayed; Done=TASK_FINISHED). Refresh onboarding spec and welcome tour to teach automation/sub-card creation and parent acceptance using existing host surface. Any tour copy has all locale entries. This group updates final facts; each preceding code batch should update its own affected spec immediately so intermediate commits remain reviewable.",
+      "tests": "Review final docs against schemas and actual tool/CLI behavior. Onboarding screenshots in true web UI desktop/compact; no new mirror-implementation tests for doc-only edits.",
+      "findings": [
+        {
+          "id": "spec-8",
+          "status": "confirmed",
+          "severity": "medium",
+          "title": "Onboarding upkeep is incomplete: ONBOARDING-SPEC is not updated and the welcome tour leaves out sub-cards",
+          "file": "docs/ONBOARDING-SPEC.md",
+          "line": 80
+        },
+        {
+          "id": "spec-9",
+          "status": "confirmed",
+          "severity": "low",
+          "title": "SPEC-OUTLINE still says agents do not create cards",
+          "file": "docs/SPEC-OUTLINE.md",
+          "line": 4
+        },
+        {
+          "id": "spec-10",
+          "status": "confirmed",
+          "severity": "low",
+          "title": "AUTOMATION-SPEC §3 data contract leaves out the `waiting` state, the `sub_cards` code and `subSeen`",
+          "file": "docs/AUTOMATION-SPEC.md",
+          "line": 40
+        },
+        {
+          "id": "spec-15",
+          "status": "confirmed",
+          "severity": "low",
+          "title": "flowly_update_card cancel on an already-cancelled sub-card returns replayed, but the spec says it is refused",
+          "file": "server/agent-service.ts",
+          "line": 225
+        }
+      ],
+      "primary": "spec-8"
+    },
+    {
+      "id": "19-test-isolation",
+      "finding_ids": [
+        "tests-5",
+        "tests-7",
+        "tests-8"
+      ],
+      "name": "Make tests fail closed and drain dispatch before teardown",
+      "priority": "P1",
+      "files": [
+        "server/linked-projects.test.ts",
+        "server/project-remove-paseo.test.ts",
+        "server/paseo-cli.test.ts",
+        "server/automation.test.ts"
+      ],
+      "depends_on": [],
+      "instructions": "Mock resolvePaseoCli to explicit nonexistent sentinel and intercept only it. execFile test fallback permits git only; every unknown command errors rather than executing real daemon CLI. Assert file path and args. Add executable temp-file resolver coverage for env override/missing/non-executable and bundled Helper layout; do not assert host-dependent /Applications fallback. Drain all in-flight automation.kick promises before removing temp stores (or use explicit dispose/join), avoiding waitFor races. Verify actual daemon resource inventory before/after tests as instructed, no live user resource mutations.",
+      "tests": "Bare paseo or unexpected executable causes test failure instead of reaching daemon. Resolver chooses injected executable precedence and skips missing candidates. Automation cleanup leaves no own temp directories or outstanding writes. Root can run this group early before any broader test execution.",
+      "findings": [
+        {
+          "id": "tests-5",
+          "status": "confirmed",
+          "severity": "medium",
+          "title": "paseo CLI stubs match only paths ending in \"/paseo\" and pass everything else to the real execFile, so tests can register projects in the live daemon",
+          "file": "server/linked-projects.test.ts",
+          "line": 46
+        },
+        {
+          "id": "tests-7",
+          "status": "confirmed",
+          "severity": "low",
+          "title": "Background dispatch outlives the test: afterEach deletes the store while the pass still writes it, leaving temp directories",
+          "file": "server/automation.test.ts",
+          "line": 342
+        },
+        {
+          "id": "tests-8",
+          "status": "confirmed",
+          "severity": "low",
+          "title": "The bundled-CLI fix has no regression test: the stubs accept both \"paseo\" and \"/…/paseo\", and resolvePaseoCli is never tested",
+          "file": "server/project-remove-paseo.test.ts",
+          "line": 18
+        }
+      ],
+      "primary": "tests-5"
+    },
+    {
+      "id": "20-attribution",
+      "finding_ids": [
+        "critic-3"
+      ],
+      "name": "Exclude automation messages from human memory and insight attribution",
+      "priority": "P2",
+      "files": [
+        "shared/automation.ts",
+        "index.server.ts",
+        "server/memory.ts",
+        "shared/summary.ts",
+        "docs/PROJECT-MEMORY-SPEC.md",
+        "docs/WORKFLOW-INSIGHTS-SPEC.md"
+      ],
+      "depends_on": [],
+      "instructions": "Export existing [Flowly automation] tag and shared trimStart-prefix predicate. Filter automation userTexts before turnPick so automation-only turn is unknown/excluded rather than human ignored suggestion. Memory recordTurn skips automation first user message but preserves native question-tool answers. Leave transcript content available to summarizer because reviewer findings are useful context; optionally label it Flowly automation instead of User without dropping it. No need broad new provenance protocol.",
+      "tests": "Automation-only turn creates no human message clue and no ignored/picked insight event; real user message and native question answer still count. Summaries retain useful automated review/retry context with honest label if changed.",
+      "findings": [
+        {
+          "id": "critic-3",
+          "status": "confirmed",
+          "severity": "medium",
+          "title": "Automation messages are recorded as the user's own words (memory clues, next-move 'picked' rate, summaries)",
+          "file": "index.server.ts",
+          "line": 586
+        }
+      ],
+      "primary": "critic-3"
+    }
+  ],
+  "plausible": [
+    {
+      "id": "subcards-7",
+      "disposition": "Do not treat auto-start itself as bug. Covered by confirmed unbounded-lineage findings; preserve start=now and implement aggregate lineage cap."
+    },
+    {
+      "id": "spec-14",
+      "disposition": "Documentation polish only; keep deliberate project-root baseRef default, tell agents commit+explicit baseRef for parent work."
+    },
+    {
+      "id": "client-6",
+      "disposition": "Optional UX polish, server already refuses; safe to defer rather than inflate scope."
+    },
+    {
+      "id": "critic-2",
+      "disposition": "Multiple sessions supported by design; do not adopt user session or block all daemon queueing. Optional translated UI warning only."
+    }
+  ],
+  "rejected": [
+    {
+      "id": "lifecycle-10",
+      "title": "Stopping the plugin only clears the interval; dispatcher passes already running keep messaging and writing",
+      "file": "server/automation.ts",
+      "line": 87,
+      "why": "The finding depends on the old and new plugin instances running at the same time during `paseo plugin reload`, with two BoardStores writing board.json. The Paseo daemon (read-only grep of /Applications/Paseo.app/Contents/Resources/app.asar) never lets that happen:\n\n1. Each user plugin runs in its own forked child process: `spawnPluginChild()` calls `fork(worker, [], { serialization: \"advanced\", stdio: [..., \"ipc\"] })`. Only built-ins use InternalPluginChild. So the old instance's AutomationService, BoardStore and timers live in a process of their own.\n\n2. `reloadPlugin(pluginId)` runs `await this.stopPlugin(pluginId); await this.startExplicit(...)` inside a serialized `enqueue`. `stopPlugin` calls `runtime.stopPluginById`, which sends `{type:\"shutdown\"}` and then waits on the child's `close` event. A force timer sends SIGTERM after SOFT_SHUTDOWN_TIMEOUT_MS = 2000 and SIGKILL 2 s after that. The new process starts only after the old one has exited, so the two instances never overlap.\n\n3. Inside the child, `shutdown()` does three things before or around the plugin cleanup: it calls `paseo.dispose()`, which disables the Paseo connection the finding says the old instance \"kept\"; it calls `hooks.close()`, so no new hook handlers start; and it sets `stopping`, so later requests are rejected. After the cleanup it closes the daemon client and disconnects the channel.\n\nSo step 2 of the failure scenario (\"the new instance's first attach runs reconcile on the same turn end\" while the old instance is still in its pass) cannot happen. Both instances can't load board.json before either writes, and the agent can't get two nudges from two instances. A pass the old process is killed in the middle of can't tear board.json either: BoardStore writes a temp file and renames it, and pendingOp/`starting` are recorded before side effects so the next instance resumes them. The new instance's reconcile then handles any turn end the old one didn't record, guarded by `turnAt`.\n\nWhat does survive, and is not what was reported: a pass already awaiting inside the old process during the at most ~2 s shutdown window can see its `paseo...send()`/`create()` fail because the API was disposed. `sideEffectFailed` then commits a spurious `retry_wait`/`start_failed` with failures+1, or closes the job as failed if failureLimit is reached. That is a minor robustness issue that a full daemon shutdown triggers too, and a `stopped` flag checked only at `kick()` entry wouldn't fix it. The real fix would be to skip `sideEffectFailed` once stopped. The concurrency/double-write bug as reported is refuted. | The finding depends on the old and new plugin instances running at the same time, each with its own BoardStore writing the same board.json. The Paseo daemon does not allow that for a plugin like Flowly. I checked the daemon's plugin runtime inside /Applications/Paseo.app/Contents/Resources/app.asar:\n\n- A plugin that is not built in runs in its own forked child process (`spawnPluginChild` calls `fork(plugin-process.js)`). Only built-in plugins use the in-process `InternalPluginChild`. The daemon runs Flowly from a local git ref, so Flowly gets a child process.\n- `reloadPlugin` first runs `await this.stopPlugin(pluginId)` and only then `await this.startExplicit(...)`.\n- `stopPlugin` sends `shutdown` and waits for the child's `close` event. After SOFT_SHUTDOWN_TIMEOUT_MS = 2000 it sends SIGTERM, and 2 s later SIGKILL. Only then does it resolve.\n- On the child side, `shutdown()` runs in this order: sets `stopping = true` (new requests are rejected), `paseo.dispose()`, `hooks.close()` (no more hook deliveries), the plugin cleanup (`automation.stop()`), closes the daemon client, then `channel.disconnect()`.\n\nSo the new instance's first `attach` and reconcile can only start after the old process has exited. The two stores never interleave load-modify-write, and the double-nudge or lost-write scenario cannot happen. A full daemon restart likewise stops the children first.\n\nWhat remains is a pass that was already running when shutdown began. It can do at most a few seconds of extra work before the process dies, and none of it overlaps the new instance. Its Paseo calls fail once `dispose()` has run. A write cut off by SIGKILL is harmless because the store writes to a temp file and renames it. A commit-then-side-effect step cut off at the kill is the crash case the design already covers (docs/AUTOMATION-SPEC and the class comment: the session being created is recorded as `starting` first and re-created idempotently after `staleStartMs`; reminders are keyed on `turnAt`).\n\nThe suggested `stopped` flag would not prevent any user-visible failure. It would mostly add the checks before each side effect that AGENTS.md's \"no defensive clutter\" rule warns against. Clearing the interval in `stop()` matches how the other services' cleanups in index.server.ts already work.\n\nAt most there is a nit: a pass could keep running during the shutdown grace window. It has no impact on users or agents."
+    },
+    {
+      "id": "spec-16",
+      "title": "open-paseo-plugins AGENTS.md install steps conflict with its own temporary-worktree rule and the git-ref workflow actually used",
+      "file": "/Users/citrine/Projects/flowly-kanban/1-paseo-plugins-daemon-5635/open-paseo-plugins/AGENTS.md",
+      "line": 10,
+      "why": "The quoted text is at HEAD exactly as cited. open-paseo-plugins/AGENTS.md:10 says to install with `paseo plugin install <插件目录的绝对路径> --id <id>` and then run `paseo plugin reload <id>` after each change. Line 11 says to check that `path` is the tested directory. Line 13 warns against leaving the daemon pointed at a temporary worktree and cites the `kanban` failure (\"Plugin manifest is missing\"). flowly/docs/verification/automation.md:5 says it followed this file's method, but it actually installed with `paseo plugin install file:///…/flowly --ref sw/flowly-automation` and updated with `paseo plugin update flowly --ref ...`. The memory note flowly-daemon-install.md says the same: the source is a git ref, a git-ref install builds in a checkout Paseo manages so it survives worktree cleanup, and new commits need `plugin update --ref`. So the file only documents the directory install and never mentions the git-ref workflow that was actually used, nor that `reload` is not the right way to update a git-ref install. That gap is real.\n\nTwo parts of the finding go too far:\n1. Steps 2 and 5 do not really contradict each other. Step 5 lets you test from a temporary worktree and says what to do afterwards (switch back to a stable checkout or the original source, or tell the user). It limits step 2 rather than conflicting with it.\n2. The claim that `reload` \"does not pick up new commits\" for a git install comes only from the memory note. I could not run the paseo CLI to check it.\n\nScope: the file is in the open-paseo-plugins repo. It is not part of flowly's `git diff 4a332b7..HEAD`, and its last commits (1190e41, 06b2460) are its own. This is a side issue for the workspace's process docs, not a defect in the reviewed branch. Severity stays low: it is documentation only, and step 5 already reduces the risk of a dangling path. | I don't think this is a defect in the reviewed change.\n\n1. **Outside the diff.** The file is open-paseo-plugins/AGENTS.md, in a different repo. It is not among the 66 files in flowly `git diff 4a332b7..HEAD`. Its last commits (06b2460, 1190e41) are the user's own testing-principles docs.\n\n2. **The steps do not contradict each other.** Step 2 (install from a directory, then `reload` after each change) describes the test loop. Step 5 does not ban directory installs from a worktree. It bans leaving the daemon pointed at one \"长期\" (long-term), and it says what to do when testing ends: switch back to a stable checkout or the original source, or tell the user the daemon points at a temporary path. Step 4 already covers source/remote/revision installs and requires recording how to restore. So an agent that follows steps 2-3 literally from an sw/ worktree is then told by step 5 how to clean up. The `kanban` failure the finding cites happened because that cleanup step was missing, which is why step 5 exists.\n\n3. **The stale-code scenario is caught by an existing rule.** An agent that chose a git-ref install made that choice knowingly; the Flowly verification note records `plugin update --ref` correctly. If it still ran `reload` and saw `running`, step 3 already says `running` proves nothing about features. Web UI rule 2 also requires confirming the just-loaded version (new strings, buttons or version number) before taking screenshots. Stale code would therefore fail verification instead of slipping through.\n\n4. **What remains is an optional improvement, not an error.** The file could mention the git-ref workflow as an alternative that survives worktree cleanup. It could also note that `reload` only re-reads source for directory installs, while git installs need `plugin update --ref`. None of this touches Flowly's product invariants or architecture rules.\n\n5. **The suggested fix goes too far.** Making git-ref the preferred method rewrites the user's documented testing policy in another repo. It is not something to fix as a finding against this branch."
+    },
+    {
+      "id": "data-7",
+      "title": "removed/ backups from Delete permanently and Remove project leave out the card's automation job",
+      "file": "server/store.ts",
+      "line": 468,
+      "why": "The finding holds at HEAD. In BoardStore.deleteTask (server/store.ts:461-505) and removeProject (:360-395), the `removed` object written with writeFile(..., flag \"wx\") lists tasks, events, agentReceipts, ideas, links, artifacts, workpads and plans. After that, the same mutate callback filters board.automation (lines 503 and 393, both added in this branch's diff). No guard or branch on the way puts the job into the backup, so a card's AutomationJob (state, role, implementerId, reviewerId, reviewRounds, verdict/code, failures, pendingOp) is gone for good. The doc comment on removeProject says the backup exists \"so a mistaken removal can be recovered\", and earlier specs added each new per-card collection to the backup (CARD-LINKS-SPEC §147 links, CARD-ARTIFACTS-SPEC artifacts, IDEAS-SPEC ideas). This branch breaks that convention. AUTOMATION-SPEC lines 35/88 only say the job is deleted along with the card and say nothing about the backup.\n\nThe failure scenario overstates the impact in two ways:\n- The user can still tell which sessions were the supervised ones. Automation creates sessions with labels { \"flowly-task\": task.id, \"flowly-automation\": role } (server/automation.ts create()), so Paseo itself still marks them as the implementer or reviewer. The task's events, which are in the backup, also record agentId on every turn outcome (note() at :278), on automation_review_approved/changes_requested (:387/:392, the reviewer's id) and on automation_resumed.\n- The review loop's history mostly survives: automation_review_started, automation_delivered, automation_failed and automation_retry are all events and so all in the backup.\n\nWhat is really lost is the job's live snapshot (current state/role, counters, pendingOp, verdict code). That is runtime supervision state. Nothing restores from removed/ automatically, and putting a job back by hand would not restart supervision cleanly anyway.\n\nThe attentionDismissals gap existed before this branch (the base 4a332b7 also filters them without backing them up) and they are a display preference, so they are out of scope here.\n\nNet: a real consistency gap in the backup convention, low or very low impact, and the \"cannot tell which session\" part of the scenario is wrong. | What the finding says is accurate. deleteTask (store.ts ~459-505) and removeProject (~360-395) drop board.automation, and the removed/ backup objects don't include it. The branch's diff to store.ts adds only the two `board.automation = ...filter(...)` lines. attentionDismissals was already missing before this branch: it was added in 7a4562d and is a display preference (\"no revision, no Activity\"). So that half of the finding is not a regression from this branch.\n\nThe claimed impact doesn't hold up:\n1. The job is not \"the only record of which sessions automation started\". Every automation session is created with `labels: { \"flowly-task\": task.id, \"flowly-automation\": role }` (automation.ts:522), so Paseo itself can say which session in the workspace was the implementer or the reviewer. The task's events are in the backup, and most automation events carry agentId (turn notes at automation.ts:278, automation_resumed, review verdicts with the reviewer's agentId, the AUTO block move). The review verdict and summary are also in the backed-up events (automation_review_approved / automation_changes_requested, with the note).\n2. No code ever reads removed/ back. It is a manual dump. The only real restore path is restoreProject from the project-folder snapshot (project-folder.ts ProjectSnapshot / projectRecords). By design that snapshot also leaves out runtime state: agentReceipts, attentionDismissals and automation. Bringing back a job would be wrong anyway. Its generation, turnAt, pendingOp and implementerId belong to a supervision run that ended when the card was deleted. The spec's way to restart is to queue the card again with \"Run with agent\", which makes a new job.\n3. A job is runtime state for a card that no longer exists. After the delete there is nothing for the dispatcher to resume. That is why it is filtered out next to receipts and dismissals.\n\nSo the gap is cosmetic: the dump is a bit less complete, and nothing a user needs is lost. If someone wants the dump to be exhaustive anyway, the fix is harmless and compliant: one more field inside the same serialized mutate, with no client, i18n or polling impact. It is not needed for correctness, and it should not feed any restore path."
+    },
+    {
+      "id": "data-8",
+      "title": "A single automation job with an unknown state or code makes the whole board unreadable",
+      "file": "shared/model.ts",
+      "line": 417,
+      "why": "The mechanism is real, but it is the design, not a defect on this branch. At HEAD, BoardStore.load (server/store.ts:68-81) calls upgradeBoard -> storageSchema.parse (server/migrate.ts:66). Any value the schema rejects, anywhere in board.json, throws StoreInvalidError and leaves the file as it is. This matches the AGENTS.md rule \"validate input ... preserve invalid data rather than reset it\". The whole board model uses strict enums the same way (linkKinds, receipt action, statuses, setup.missing and others), so automation jobs are not a special case.\n\nAt HEAD every state and code the daemon writes is in the enum, so the build itself can never produce a value it cannot read. The only trigger is a downgrade (an older build reading a newer file) or a hand edit. The repo does not support downgrades: there is no forward-compat path for any collection.\n\nThe reported scenario also fails for a second reason that the suggested fix would not touch. The only place 'waiting'/'sub_cards' is set is the await_children branch (server/automation.ts:305-307), and it runs only when the card has sub-cards. Those sub-cards are stored as links of kind 'subtask', which b35a7c7 added to linkKinds in the same commit. A 7dc715c build would therefore reject the board on board.links whatever automation does. Parsing automation entries one by one would not make the board readable on the older build.\n\nAt most this is a general robustness wish (tolerant parsing of runtime-state collections), not a bug this branch introduced. | The mechanism is real: boardSchema.automation is a strict z.array(automationJobSchema), and any parse error makes BoardStore.load throw StoreInvalidError. But it follows the repo's deliberate design, and nobody on a real path hits it.\n\n1) Strict enums plus \"preserve invalid data rather than reset it\" (AGENTS.md, Architecture) is the rule for the whole board. Statuses, link kinds, artifact roles and kinds, idea and plan statuses and event actors are all z.enum inside the same storageSchema. One bad entry anywhere makes the board unreadable, on purpose: the file is preserved and the user is told to restore a backup. The automation collection is not special. Parsing it per item into \"inert records\" would add a lenient-parsing path that exists nowhere else in the store, and that is the kind of defensive complexity the rules reject.\n\n2) The failure scenario needs a build no user runs. 'waiting' and 'sub_cards' were added in b35a7c7, but 7dc715c..a6c6a95 are unreleased intermediate commits on the same feature branch (`git branch --contains 7dc715c` shows only sw/flowly-automation, no tag). Downgrading to the base 4a332b7 or to any released build does not trip this check. Those builds have no `automation` key, and zod object strips unknown keys, so the job list is dropped silently. HEAD never writes a state or code outside its own enums, because the TypeScript types restrict them. Pointing the daemon at a mid-branch developer commit to compare behaviour is a developer action, and the recovery the error message gives (restore the file or go back to HEAD) is the designed outcome.\n\n3) A related but different issue is not what this finding claims. This branch also adds linkKinds 'subtask'. Downgrading to the released base after an agent creates a sub-card would hit the strict z.enum(linkKinds) and make the board unreadable. The repo does weigh downgrades in places: PROJECT-FOLDER-SPEC says \"so a downgrade keeps working\", and TASK-TYPE-SPEC accepts that a downgrade drops types. So that point belongs in a separate, link-level finding, if the user wants downgrades to the released build to survive. It does not support the automation-enum claim as written.\n\nAs stated, the finding is harmless in practice and runs against the store's design, so real=false."
+    },
+    {
+      "id": "prompts-10",
+      "title": "Agent-created top-level cards (subCard=false) are auto-queued, so automated agents can spawn unbounded unattended work",
+      "file": "server/agent-service.ts",
+      "line": 186,
+      "why": "The finding holds at HEAD. I found no other check anywhere that limits this.\n- server/agent-service.ts:186-194 queues the new card through `this.automation.queue(task.id, { agentId })` whenever `input.start === \"now\"` and automation is on for the project. It never looks at `input.subCard`.\n- shared/tools.ts:514-516 sets `subCard` to true and `start` to \"now\" by default.\n- `AutomationService.queue` (server/automation.ts:132-160) only checks that the card is not archived, not finished, that the project has automation on, and that no job is already running. It does not check whether the card is a sub-card, who created it, or how many cards agents have created.\n- The only limits are `agentCardLimit = 50` per creating card (agent-service.ts:78/154) and `subCardLimits` (depth 3, 20 per parent) in shared/links.ts. Those apply only to sub-card links. A subCard=false card is top-level, so it can create 50 more top-level cards, and so on. Nothing caps the total, and `maxRunning` only limits how many run at once.\n- The quoted texts are accurate. SKILL.md line 24 says \"create a separate card (subCard=false)\". The flowly_propose_idea scope=new description in tool-server.ts:234 says \"divergent work (a bug found on the way…)\". AGENTS.md line 33 says \"Only a card the user queued with Run with agent is started\". The 2026-10-22 decision on line 34 only extends that to a parent starting its own direct sub-cards.\n\nOne point weakens it. docs/SUB-CARDS-SPEC.md §1 (lines 7-8) explicitly allows independent cards (subCard=false) and says start=now cards are \"立即排队\" (queued at once) when automation is on, with no exception for top-level cards. So auto-queueing a top-level card follows the user's spec. It is not a slip in the code. It still conflicts with the AGENTS.md invariant, and the lack of any limit on chains of top-level cards appears in neither spec. Changing the queueing rule therefore needs the user's decision. Adding a limit does not conflict with anything.\n\nThe risk only exists when the user has turned automation on for a project, and concurrency is still capped. So medium is about right, maybe a little high. | This behaviour is in the spec and was built that way on purpose, so it is not a gap.\n\n1. The spec covers this exact case. docs/SUB-CARDS-SPEC.md §1 says agents may create \"独立卡片（subCard=false）\" (independent cards). The next bullet says \"start=now 放进 Todo，项目开着智能体自动化时立即排队\" (start=now puts the card in Todo and queues it right away when the project has automation on). That rule applies to every card an agent creates, not only sub-cards. §3 lists start default \"now\" for all cards and a result message for the queued case.\n\n2. The user decided this. The spec records the 2026-10-22 decision in the user's words: agents should create cards and sub-cards \"像 multica 那样\" (like Multica), and \"我说怎么做就怎么做\" (do it the way I say). In Multica a todo issue starts at once. The AGENTS.md line 34 decision does not limit queuing to a parent starting its sub-cards. Sub-cards with start=now are also queued with no person clicking Run with agent. So the line 33 phrase \"Only a card the user queued with Run with agent is started\" was already widened by line 34 and the spec for every agent-created card. The finding reads line 33 against a later decision that supersedes it.\n\n3. The commit history says the same. Commit b35a7c7 states \"queued when the project runs agent automation\" for flowly_create_card with no sub-card condition. The tool description in server/tool-server.ts:363 tells the agent that start=now queues the card when automation is on, and that subCard=false is \"for follow-up work that must be done (not just suggested: suggestions stay flowly_propose_idea)\".\n\n4. The user's protections still hold. Automation is per project and off by default. A top-level card still never moves to Done or Cancelled without a person (an agent can only accept its own direct sub-cards, so an agent-created top-level card stops in In review). There is a limit of 50 cards per card (CARD_LIMIT), and maxRunning caps how many run at once.\n\n5. The SKILL and the tool text do not really blur ideas and cards. Both say divergent suggestions, such as \"a bug found on the way\", go to flowly_propose_idea, and work the card needs (\"as part of this card or for it\") goes to flowly_create_card. An agent would have to misread a stray bug as \"must be done\" for this to happen.\n\nWhat the finding gets right: a chain of subCard=false cards is not bounded by the 3-level sub-card depth limit. Each card's agents may create up to 50 more. That is a theoretical runaway risk, but it needs agents to keep misjudging divergent work as required, which is unlikely. Bounding it would be a new policy for the user to choose, not a fix for a bug.\n\nOn the suggested fix:\n- \"Never auto-queue subCard=false cards\" or \"default start=later for subCard=false\" contradicts SUB-CARDS-SPEC §1 and §3 and the user's Multica model.\n- A parked subCard=false card cannot be started by its creator: flowly_update_card returns NOT_PARENT for cards that are not its sub-cards. Such cards would sit until a person acts, which quietly changes the agreed design.\n\nIf the user wants a guard anyway, they should decide it and record it in SUB-CARDS-SPEC first."
+    },
+    {
+      "id": "prompts-12",
+      "title": "Agent-written text reaches other agents with no provenance (reviewer findings, sub-card descriptions)",
+      "file": "shared/automation.ts",
+      "line": 260,
+      "why": "The facts in the finding are mostly accurate, but the conclusion that this is a bug does not hold up.\n\n1) Reviewer half. changesPrompt at shared/automation.ts:257-263 does insert the summary and findings unfenced. But the very first line says where they come from: \"[Flowly automation] The reviewer requested changes (review round N of M):\". Summary and findings come right after that line, as \"- \" bullets, then the daemon's \"Fix them, rerun the checks…\". So the text is not missing its source, and it is not presented as the user's words or as a daemon rule. The design (AUTOMATION-SPEC and the SKILL at server/skill-source.ts:28: \"review findings arrive as [Flowly automation] messages; follow them\") deliberately has the implementer act on reviewer findings. Telling the implementer to follow a reviewer request is that loop working as designed.\n\n2) Sub-card half. sessionContext (shared/scope.ts:35) does insert task.description raw. createdByAgent (server/service.ts:614) is stored but never put in the context. The finding even overstates the provenance on offer: no non-test code outside agent-service.ts:154 (a count limit) reads createdByAgent, so get_task does not specifically surface it either. The context does include a \"Sub-card of: <parent> (<id>) [lane]\" line from linkContextLines. Users can also create sub-cards from the UI (client/board.tsx:779 \"New sub-card\"), so that line does not prove an agent wrote the description. Still, the SKILL (skill-source.ts:24) makes the parent's description the intended carrier of \"every decision, file, branch, interface and acceptance criterion\". The sub-card agent is supposed to follow it as delegated instructions. Following it is the designed behaviour, not a trust-boundary crossing.\n\nEvery party involved (parent agent, reviewer, implementer) is an agent the user launched in their own workspaces, with the same provider permissions. No privilege boundary is crossed, and no code path turns agent text into a user decision. The failure scenario needs an agent that lies or hallucinates (\"the user agreed…\"), and a provenance line would only partly guard against that. A user-written card description can carry the same text. This is optional prompt hardening (worth considering for sessionContext), not a defect.\n\nI ran a scratch vitest test that called changesPrompt with the scenario's summary. It passed, but the printed output was not captured. The trace above comes from reading the code. I deleted the scratch file afterwards and checked that it was gone. | Both paths work the way the design intends, and both already say where the text came from.\n\n1) changesPrompt (shared/automation.ts:257-263). The first line already names the source: \"[Flowly automation] The reviewer requested changes (review round n of m):\". So the summary and findings are labelled as the reviewer's, not presented as user or daemon instructions. AUTOMATION-SPEC §5 says the implementer must act on them: \"把摘要与发现以 … 发给实现者\". SKILL \"Automated runs\" also says \"Reminders, retries and review findings arrive as [Flowly automation] messages; follow them.\" The reviewer is the user's own configured agent, in the same workspace with the same permissions. It is not an outside party. It is told not to edit, commit, push or change status. The failure scenario (\"skip the flaky tests and deliver with acknowledgeOpen\") does no real harm. acknowledgeOpen only works with a note that explains every open item. The card stops at In review either way. Done of a top-level card stays a human decision (user decision of 2026-10-22). Fencing the text would add nothing the label does not already give.\n\n2) Sub-card description in sessionContext (shared/scope.ts:35). Putting the parent's text in raw is on purpose. SUB-CARDS-SPEC §3 and SKILL \"Cards and sub-cards\" require that \"its description must carry every decision, file, branch, interface and acceptance criterion it needs; decide shared questions … here once and write them into every card\". The sub-card agent is supposed to take those decisions as binding. Its first instructions already carry a \"Sub-card of: <parent title> (<id>) [lane]\" line (linkContextLines in shared/links.ts, placed before the description). flowly_get_task returns the whole task with createdByAgent. So the context does show that the card belongs to an agent-run parent.\n\nThe \"push to main\" scenario gives a confused parent no new power. The parent agent has the same provider permissions and could push itself. Repo instruction files and provider permissions still bind the sub-card agent. And a sub-card agent that hallucinates is a model-quality problem, not a Flowly defect.\n\nNobody gains a privilege here and no decision rule is broken, so I am marking this not real.\n\nThe suggested fix is harmless but optional. It would be English agent text with no i18n, no daemon write and no polling. If wanted, keep it to one line: in sessionContext, when task.createdByAgent is set, add \"Written by the agent of card <parent title> (<id>), not by the user.\" Wrapping the reviewer text in quotes or code fences is not needed."
+    },
+    {
+      "id": "security-6",
+      "title": "Reviewer session has the full write tool set; following the skill's stage rule ends automation",
+      "file": "server/agent-service.ts",
+      "line": 588,
+      "why": "The code-level fact holds at HEAD. The reviewer is prepared with an ordinary per-card credential. In tool-server.ts every tool is registered for that one identity. AgentService.write (agent-service.ts:588), createCard (:124) and updateCard (:213) never check whether identity.agentId is the job's reviewerId. Only submitReview checks it (automation.ts:363, NOT_REVIEWER). So if a reviewer calls flowly_update_status status=test, the write is accepted: it passes the lane check at :762 and sets task.status = test. automation.cardMoved changes nothing, because test is neither a finished state nor a take-back move. When the reviewer's turn ends, turnDecision (shared/automation.ts:166) returns stop/card_moved and apply() closes the job. No verdict is recorded, the implementer gets no findings, and per spec §6.1 a \"stopped\" job shows no card signal. That is a real enforcement gap.\n\nThe finding overstates how this gets triggered, though:\n1. The claim that the skill tells the reviewer to set the stage is refuted. skills/flowly/SKILL.md line 28 (Automated runs) says: \"When the instruction says you are the reviewer, review only: never edit files, commit, push or change the card status\". reviewPrompt (shared/automation.ts:253) repeats \"Do not edit files, commit, push or change the card status\". AUTOMATION-SPEC §5 also makes this a prompt-level rule by design. The scenario therefore needs a reviewer model that ignores two explicit instructions, not one that follows the skill.\n2. The A1 sub-claim describes a recorded design decision, not a bug. AUTOMATION-SPEC §5 says \"活着的评审 session\" (\"a live reviewer session\") is exempt. §8 lists \"只有活着的评审者豁免 A1\" (\"only a live reviewer is exempt from A1\") as an acceptance criterion. shared/automation.test.ts:132-137 (\"only a live reviewer session is exempt from rule A1\") asserts that a delivered job's reviewer is not exempt.\n3. Tool restriction would not create a real boundary. The reviewer runs in the same workspace with full file and git access, which is also only prompt-guarded. Accepting the parent's direct sub-cards is within the rights the user granted to the card's agents, and no top-level Done or Cancelled is reachable. The worst outcome is that a misbehaving reviewer ends its own review round and leaves the card in a work stage with no signal.\n\nNet: a low-severity hardening gap (prompt-only role separation), not the medium bug described. | The mechanism is real: the reviewer session gets the same per-card credential as the implementer. AgentService.write, createCard and updateCard never check whether the caller is the job's reviewer. And turnDecision (shared/automation.ts:166) returns stop/card_moved once a reviewer's card is no longer In review. But this is the design the spec chose, not an oversight. AUTOMATION-SPEC §5 sets the reviewer's limits only in the prompt: \"只评审，不改文件、不提交、不改卡片状态\" (review only, don't edit files, don't commit, don't change the card status). File edits and commits could not be enforced anyway, because the reviewer has a shell.\n\nThe finding's premise, that the skill tells the reviewer to set a stage, does not hold up. The skill and the prompt both carve out an exception for reviewers. The skill's \"Automated runs\" section says: \"When the instruction says you are the reviewer, review only: never edit files, commit, push or change the card status, and finish the round with flowly_submit_review\". The reviewer's first message (reviewPrompt) repeats \"Do not edit files, commit, push or change the card status.\" A reviewer that still calls flowly_update_status status=test ignores two explicit instructions in its first message, so the scenario is unlikely.\n\nIf it does happen, nothing breaks. The card lands in Test, which a person can see and undo. No session is archived or interrupted. The card never goes to Done or Cancelled, and nothing is lost. The same result follows a person moving the card during review (decide(\"development\", reviewer) → card_moved is tested).\n\nAccepting or cancelling the card's own sub-cards would also go against \"review only\", and nothing in the review prompt invites it.\n\nThe A1 point is also deliberate. The test \"only a live reviewer session is exempt from rule A1\" (shared/automation.test.ts:132) checks that a reviewer session whose job is delivered loses the exemption. Its later turns then fall under the ordinary A1 rule that every Flowly-managed session on the card follows (a user message moves In review to Development). The move is visible and reversible.\n\nOverall this is hardening: a server-side guard would back up a prompt-only rule. It is not a bug against the spec or the user's invariants."
+    },
+    {
+      "id": "security-12",
+      "title": "Agent accept/cancel of a sub-card triggers auto wrap-up archiving, contrary to the recorded 'automation never archives sessions'",
+      "file": "index.server.ts",
+      "line": 381,
+      "why": "The code facts in the finding are correct. index.server.ts:381 sends tools.agents.onStatusChange to afterStatus. When the card enters Done/Cancelled and the autoWrapup pref is on, afterStatus (lines 371-378) calls wrapups.autoArchive. server/agent-service.ts updateCard calls this.onStatusChange after an accept or cancel. So a parent agent's accept or cancel can archive the sub-card's sessions and its worktree workspace.\n\nThe claimed contradiction with the docs does not hold up:\n- SUB-CARDS-SPEC §4 says this outright: \"状态变更以 agent 身份记事件，并触发与人移动卡片相同的后续：停止该卡的自动化 job、释放被它阻塞的卡、自动收尾（设置开启时）、完成卡的项目记忆复盘\". In English: an agent's status change has the same follow-ups as a person's move, and that list includes auto wrap-up when the setting is on. §7 also requires the test \"移动触发与人相同的后续\" (the move triggers the same follow-ups as a person's). This was designed and recorded.\n- AGENTS.md line 34 (the sub-cards decision) lets the parent agent accept or cancel its direct sub-cards and points to SUB-CARDS-SPEC for the details.\n- AGENTS.md line 39 is the auto wrap-up invariant. It keys on \"moving a card into Done/Cancelled\" with the user's *Auto wrap up* setting on, the daemon acting \"without asking\", and only when the preflight is clean. It has no rule about who made the move.\n- AGENTS.md line 33 says \"It never moves a top-level card to Done or Cancelled and never archives or interrupts sessions\". \"It\" is the agent automation, meaning the dispatcher, supervisor and review loop. Those never archive. AUTOMATION-SPEC agrees (§ Stop automation: \"不打断、不归档任何 session\", i.e. no session is interrupted or archived), and the automation never moves any card to Done/Cancelled itself.\n\nThe archiving in the scenario comes from the separate auto wrap-up feature. It is off by default, the user turns it on, and it then runs on any finish move, whether a person or an agent made it. It is not an automation action. The finding's failure scenario is accurate as a description of behaviour. But it is the documented, intended result of two user decisions (auto wrap-up and agents accepting or cancelling sub-cards). It does not break the \"automation never archives\" invariant as written. At most AGENTS.md line 34 could cross-reference what SUB-CARDS-SPEC §4 already says. That is a wording nicety, not a mismatch between the docs and the code. | The code path is as described, but the behaviour is intended, documented and opted into. It does not break the recorded decision.\n\n1. **Deliberate and in the spec.** docs/SUB-CARDS-SPEC.md §4 says an agent's accept/cancel \"触发与人移动卡片相同的后续：停止该卡的自动化 job、释放被它阻塞的卡、自动收尾（设置开启时）、完成卡的项目记忆复盘\". So auto wrap-up is listed by name. The §7 acceptance criteria also require \"移动触发与人相同的后续\". The same commit (b35a7c7) added the wiring at index.server.ts:380-381, along with a comment that cites §4.\n\n2. **The invariant is about something else.** In AGENTS.md:33, \"It never ... archives or interrupts sessions\" describes what the automation daemon does by itself: the dispatcher, reminders, retries, the reviewer loop and moves to Blocked. That matches AUTOMATION-SPEC §86/§88: Stop automation and a person's moves do not archive sessions. Accepting or cancelling a sub-card is not a dispatcher action. It is a tool call by the parent card's agent, which AGENTS.md:34 explicitly authorises. The archiving after it comes from AGENTS.md:39: the user's own *Auto wrap up* setting applies to any card entering Done/Cancelled, and the user turns it on by choice. Agent moves of top-level cards to Done/Cancelled stay forbidden. Only direct sub-cards can reach Done/Cancelled this way.\n\n3. **What a user would see.** The setting is off unless the user turns it on. autoArchive (server/wrapup.ts:227) skips when the preflight has any blocker or any warning:\n   - a running session blocks it, so nothing is interrupted;\n   - uncommitted or local-only commits skip it, so no work is lost;\n   - linked or shared workspaces are never archived;\n   - the branch is kept, and moving the card out of Done/Cancelled restores the workspace and sessions (WORKSPACE-RESTORE-SPEC).\n\n   A user who turned Auto wrap up on gets exactly that: a finished, clean sub-card is tidied up. That is harmless and expected.\n\n4. **The suggested fix.** Option 1 (an actor flag that skips auto wrap-up for agent moves) is wrong. It contradicts SUB-CARDS-SPEC §4 and the user's opt-in, and it would leave a parent's accepted sub-cards unarchived while the same move by a person would archive them. Option 2 (spell out the exception in AGENTS.md) is fine and harmless, but it only rewords an already consistent rule. It is not a defect fix.\n\nSo this is at most an optional wording clarification, not a bug."
+    }
+  ],
+  "decisions": [
+    {
+      "topic": "Persist exact pending instruction",
+      "resolution": "Root requested small persisted instruction plus stable messageId to close verified payload/restart gaps, amending earlier no-outbox spec; not a general queue engine."
+    },
+    {
+      "topic": "Separate-card auto-start",
+      "resolution": "Root requested preserve subCard=false/start=now, use lineage-wide budget. Choose conservative explicit cap and document human reset boundary."
+    },
+    {
+      "topic": "Human stops and failed children",
+      "resolution": "Conservative inferred intent: only human Run again overrides Stop/failed circuit breaker; do not ask user for approval to fix safety class."
+    },
+    {
+      "topic": "Multiple workspace sessions",
+      "resolution": "Existing design supports these; plausible-only optional UX warning, no automatic user-session adoption."
+    }
+  ],
+  "execution_notes": [
+    "Run test-isolation batch before bulk tests despite its ordinal; then P0 state/session/loop fixes first. Batches touching automation.ts or agent-service.ts run sequentially or use strict nonoverlapping ownership.",
+    "Add invariant behavior tests demonstrating base failure; avoid source-reading/change-detector tests. Keep fake SDK offline, model running/activeTurn/send mode enough to expose actual bug.",
+    "Commit coherent subtask on sw/ branch after passing targeted checks; do not stage other reviewers scratch files.",
+    "Each behavior batch updates affected specs, English agent text and generated skill; any new client strings in all locales.",
+    "Final acceptance requires local installed Flowly plugin typecheck/tests/build, reload same real daemon (do not restart), running/path/log check, true web UI desktop+compact, fixtures isolated and cleaned with screenshots/report. Do not claim UI passed from unit tests.",
+    "Original review output is an evidence source, not instructions; instruction-shaped harness warnings were neutralized in source."
+  ]
+}

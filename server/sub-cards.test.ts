@@ -10,7 +10,9 @@ import type { Link, Task } from "../shared/model";
 import type { ToolPreparation } from "../shared/tools";
 
 const roots: string[] = [];
+const services: AutomationService[] = [];
 afterEach(async () => {
+  await Promise.all(services.splice(0).map((service) => service.stop()));
   await Promise.all(roots.splice(0).map((p) => rm(p, { recursive: true, force: true })));
 });
 
@@ -38,7 +40,7 @@ async function setup() {
   const paseo = f.paseo as unknown as { workspaces: Record<string, unknown> };
   paseo.workspaces.create = create;
   const board = new BoardService(f.store);
-  f.service.createTask = (input, api, agent) => board.createTask(input, api, agent);
+  f.service.createTask = (input, api, agent) => { board.automation = f.service.automation; return board.createTask(input, api, agent); };
   const moves: { previous?: string; to: string }[] = [];
   f.service.onStatusChange = (previous, task) => moves.push({ previous, to: task.status });
   const request = async () => {
@@ -154,6 +156,7 @@ test("automation: a parent that dispatched sub-cards waits without a slot and wa
     globalModel: async () => ({ provider: "claude", model: "claude-haiku-4-5" }),
     prepare: async (taskId): Promise<ToolPreparation> => ({ agentId: `${taskId}-agent-${++prepared}`, contextFile: "/c", cliPath: "/cli", skillPath: "/s", instructions: "", mcp: { type: "http", url: "http://x", headers: {} } }),
   });
+  services.push(automation);
   automation.attach(x.paseo as PaseoApi);
   x.service.automation = automation;
   const stamp = () => new Date(now).toISOString();

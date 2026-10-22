@@ -11,11 +11,13 @@ import type { BoardEvent, Status, Task } from "../shared/model";
 import { randomUUID } from "node:crypto";
 
 const roots: string[] = [];
+const services: AutomationService[] = [];
 afterEach(async () => {
+  await Promise.all(services.splice(0).map((service) => service.stop()));
   await Promise.all(roots.splice(0).map((p) => rm(p, { recursive: true, force: true })));
 });
 
-type Agent = { id: string; workspaceId: string; archivedAt: string | null; status: string };
+type Agent = { id: string; workspaceId: string; archivedAt: string | null; status: string; provider?: string };
 type Created = { workspaceId: string; agentId: string; provider: string; modeId?: string; prompt: string; title: string; labels: Record<string, string> };
 
 /** A board with cards a, b (todo) and a fake Paseo that records created sessions and sent messages. */
@@ -62,11 +64,15 @@ async function setup(automation: Partial<AutomationSettings> | null = { enabled:
   const sent: { agentId: string; text: string }[] = [];
   const prepared = new Map<string, string>();
   let failCreate = 0;
+  const hooks: { prepare?: () => Promise<void>; refresh?: () => Promise<void>; send?: () => Promise<void>; created?: (id: string) => Promise<void> } = {};
   const paseo = {
     agents: {
       ref: (id: string) => ({
-        refresh: async () => (agents.has(id) ? { agent: agents.get(id) } : null),
-        send: async (text: string) => {
+        refresh: async () => { await hooks.refresh?.(); return agents.has(id) ? { agent: agents.get(id) } : null; },
+        send: async (text: string, options: { activeTurnBehavior?: string; messageId?: string } = {}) => {
+          await hooks.send?.();
+          expect(options.activeTurnBehavior).toBe("steer");
+          expect(options.messageId).toBeTruthy();
           if (!agents.has(id)) throw new Error("no such agent");
           sent.push({ agentId: id, text });
         },
@@ -74,13 +80,15 @@ async function setup(automation: Partial<AutomationSettings> | null = { enabled:
     },
     workspaces: {
       ref: (workspaceId: string) => ({
+        refresh: async () => ({ workspaceDirectory: join(root, workspaceId) }),
         agents: {
           create: async (o: { agentId: string; config: { provider: string; modeId?: string }; prompt: string; title: string; labels: Record<string, string> }) => {
             if (failCreate > 0) {
               failCreate--;
               throw new Error("provider down");
             }
-            agents.set(o.agentId, { id: o.agentId, workspaceId, archivedAt: null, status: "running" });
+            agents.set(o.agentId, { id: o.agentId, workspaceId, archivedAt: null, status: "running", provider: o.config.provider.split("/")[0] });
+            await hooks.created?.(o.agentId);
             created.push({ workspaceId, agentId: o.agentId, provider: o.config.provider, modeId: o.config.modeId, prompt: o.prompt, title: o.title, labels: o.labels });
             return { id: o.agentId };
           },
@@ -97,10 +105,12 @@ async function setup(automation: Partial<AutomationSettings> | null = { enabled:
     clock: () => now,
     globalModel: async () => null,
     prepare: async (taskId: string, op: string): Promise<ToolPreparation> => {
+      await hooks.prepare?.();
       if (!prepared.has(op)) prepared.set(op, `${taskId}-agent-${prepared.size + 1}`);
       return { agentId: prepared.get(op)!, contextFile: "/ctx", cliPath: "/cli", skillPath: "/skill", instructions: `card ${taskId}`, mcp: { type: "http", url: "http://x/mcp", headers: {} } };
     },
   });
+  services.push(automationService);
   automationService.attach(paseo);
   await automationService.kick();
   const task = async (id: string) => (await store.read()).tasks.find((t) => t.id === id)!;
@@ -119,8 +129,10 @@ async function setup(automation: Partial<AutomationSettings> | null = { enabled:
         work(board.tasks.find((x) => x.id === taskId)!);
       });
     now += 1000;
-    await record(taskId, { actor: "system", action: "agent.turn_ended", agentId, outcome, ...(outcome === "failed" ? { note: "model overloaded" } : {}) });
+    await record(taskId, { actor: "system", action: "agent.turn_ended", agentId, outcome, ...(outcome === "failed" ? { note: "worker crashed" } : {}) });
     now += 1000;
+    const ended = agents.get(agentId);
+    if (ended) ended.status = "idle";
     await automationService.turnEnded(agentId);
     await automationService.kick();
   };
@@ -130,6 +142,7 @@ async function setup(automation: Partial<AutomationSettings> | null = { enabled:
   };
   return {
     store,
+    hooks,
     automation: automationService,
     agents,
     created,
@@ -230,12 +243,12 @@ test("a failed turn is retried in the same session after a backoff, then gives u
   await x.automation.kick();
   const impl = x.created[0].agentId;
   await x.turn(impl, "a", "failed", x.setStatus("development"));
-  expect(await x.job("a")).toMatchObject({ state: "retry_wait", failures: 1, detail: "model overloaded" });
+  expect(await x.job("a")).toMatchObject({ state: "retry_wait", failures: 1, detail: "worker crashed" });
   await x.automation.kick();
   expect(x.sent).toHaveLength(0);
   x.advance(30_000);
   await x.automation.kick();
-  expect(x.sent.map((s) => s.text)).toEqual([expect.stringMatching(/The last turn failed: model overloaded/)]);
+  expect(x.sent.map((s) => s.text)).toEqual([expect.stringMatching(/The last turn failed: worker crashed/)]);
   await x.turn(impl, "a", "failed");
   expect(await x.job("a")).toMatchObject({ state: "failed", code: "failed" });
   expect((await x.task("a")).status).toBe("blocked");
@@ -267,6 +280,8 @@ test("review loop: changes go back to the implementer, the next delivery is revi
   await expect(x.automation.submitReview({ agentId: impl, taskId: "a", workspaceId: "w-a" }, { verdict: "approve", summary: "self" })).rejects.toMatchObject({ code: "NOT_REVIEWER" });
   const answer = await x.automation.submitReview({ agentId: rev, taskId: "a", workspaceId: "w-a" }, { verdict: "changes", summary: "Tests missing", findings: ["src/a.ts: no test for empty input"] });
   expect(answer).toMatchObject({ accepted: true, verdict: "changes" });
+  x.agents.get(rev)!.status = "idle";
+  await x.automation.kick();
   await vi.waitFor(() => expect(x.sent.at(-1)).toMatchObject({ agentId: impl, text: expect.stringMatching(/requested changes[\s\S]*no test for empty input/) }));
   expect((await x.task("a")).status).toBe("development");
   // The reviewer's own turn end no longer matters; a repeated verdict is acknowledged once.
@@ -296,6 +311,7 @@ test("a person finishing or taking back the card stops its automation; sessions 
   await x.store.mutate((board) => {
     board.tasks.find((t) => t.id === "b")!.status = "todo";
   });
+  x.agents.get((await x.job("b")).implementerId!)!.status = "idle";
   await x.automation.queue("b");
   await x.automation.kick();
   expect(x.created).toHaveLength(2);
@@ -340,4 +356,180 @@ test("a person moving a blocker to Done starts the card it blocked right away", 
   // Card a has no job of its own; the move alone must run the dispatcher.
   await x.automation.cardMoved("a", "in_review", "done");
   await vi.waitFor(() => expect(x.created.map((c) => c.workspaceId)).toEqual(["w-b"]));
+});
+
+
+test("Stop while prepare is suspended prevents the old generation from creating a session", async () => {
+  const x = await setup();
+  let release!: () => void;
+  let entered!: () => void;
+  const preparing = new Promise<void>((resolve) => { entered = resolve; });
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+  x.hooks.prepare = async () => { entered(); await gate; };
+  await x.automation.queue("a");
+  await preparing;
+  await x.automation.stopJob("a");
+  release();
+  await x.automation.kick();
+  expect(x.created).toHaveLength(0);
+  expect(await x.job("a")).toMatchObject({ state: "stopped" });
+});
+
+test("busy sessions defer the exact instruction instead of interrupting a running turn", async () => {
+  const x = await setup();
+  await x.automation.queue("a");
+  await x.automation.kick();
+  const impl = x.created[0].agentId;
+  await x.automation.stopJob("a");
+  await x.automation.queue("a");
+  await x.automation.kick();
+  const pending = (await x.job("a")).instruction!;
+  expect(x.sent).toHaveLength(0);
+  expect(pending.text).toMatch(/queued this card again/);
+  x.agents.get(impl)!.status = "idle";
+  await x.automation.kick();
+  expect(x.sent).toEqual([{ agentId: impl, text: pending.text }]);
+  expect((await x.job("a")).instruction).toBeUndefined();
+});
+
+test("reviewer creation exhaustion cannot reuse its preparation for the implementer", async () => {
+  const x = await setup({ enabled: true, reviewer: { provider: "codex", model: "gpt-6-luna" } });
+  await x.automation.queue("a");
+  await x.automation.kick();
+  const impl = x.created[0].agentId;
+  x.failNextCreates(2);
+  await x.turn(impl, "a", "completed", x.setStatus("in_review"));
+  x.advance(30_000);
+  await x.automation.kick();
+  expect(await x.job("a")).toMatchObject({ state: "delivered", verdict: "incomplete", implementerId: impl });
+  expect((await x.job("a")).pendingOp).toBeUndefined();
+  await x.automation.turnStarted(impl);
+  x.advance(121_000);
+  await x.automation.kick();
+  expect(x.created).toHaveLength(1);
+  expect((await x.job("a")).implementerId).toBe(impl);
+});
+
+test("disabled automation freezes pending starts and archived cards stop supervision", async () => {
+  const x = await setup();
+  let release!: () => void;
+  let entered!: () => void;
+  const started = new Promise<void>((resolve) => { entered = resolve; });
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+  x.hooks.prepare = async () => { entered(); await gate; };
+  await x.automation.queue("a");
+  await started;
+  await x.store.mutate((b) => { b.projects[0].automation!.enabled = false; });
+  release();
+  await x.automation.kick();
+  expect(x.created).toHaveLength(0);
+  expect((await x.job("a")).instruction).toBeTruthy();
+  await x.store.mutate((b) => { b.projects[0].automation!.enabled = true; b.tasks[0].archivedAt = new Date().toISOString(); });
+  await x.automation.kick();
+  expect((await x.job("a")).state).toBe("stopped");
+  expect(x.created).toHaveLength(0);
+});
+
+test("transient refresh errors retry the same session and payload without creating a replacement", async () => {
+  const x = await setup();
+  await x.automation.queue("a");
+  await x.automation.kick();
+  const impl = x.created[0].agentId;
+  x.agents.get(impl)!.status = "idle";
+  x.hooks.refresh = async () => { throw new Error("temporary RPC failure"); };
+  await x.automation.stopJob("a");
+  await x.automation.queue("a");
+  await x.automation.kick();
+  const pending = (await x.job("a")).instruction!;
+  expect(await x.job("a")).toMatchObject({ state: "retry_wait", implementerId: impl });
+  x.hooks.refresh = undefined;
+  x.advance(30_000);
+  await x.automation.kick();
+  expect(x.created).toHaveLength(1);
+  expect(x.sent.at(-1)).toEqual({ agentId: impl, text: pending.text });
+});
+
+test("successful turns reset the consecutive-failure counter", async () => {
+  const x = await setup({ enabled: true, failureLimit: 2, nudgeLimit: 3 });
+  await x.automation.queue("a");
+  await x.automation.kick();
+  const impl = x.created[0].agentId;
+  await x.turn(impl, "a", "failed");
+  x.advance(30_000);
+  await x.automation.kick();
+  await x.turn(impl, "a");
+  await x.turn(impl, "a", "failed");
+  expect(await x.job("a")).toMatchObject({ state: "retry_wait", failures: 1 });
+});
+
+test("an unrecorded idle outcome releases the slot conservatively after a grace period", async () => {
+  const x = await setup({ enabled: true, maxRunning: 1 });
+  await x.automation.queue("a");
+  await x.automation.kick();
+  await x.automation.queue("b");
+  x.agents.get(x.created[0].agentId)!.status = "idle";
+  x.advance(121_000);
+  await x.automation.kick();
+  expect(await x.job("a")).toMatchObject({ state: "needs_human", code: "interrupted" });
+  expect(x.created).toHaveLength(2);
+  expect((await x.store.read()).events.filter((e) => e.action === "agent.turn_ended")).toHaveLength(0);
+});
+
+
+test("a native turn starting before the create reply acknowledges its preparation", async () => {
+  const x = await setup();
+  x.hooks.created = (id) => x.automation.turnStarted(id);
+  await x.automation.queue("a");
+  await x.automation.kick();
+  expect(await x.job("a")).toMatchObject({ state: "working" });
+  expect((await x.job("a")).pendingOp).toBeUndefined();
+  await x.turn(x.created[0].agentId, "a");
+  expect(x.sent).toHaveLength(1);
+  expect(x.sent[0].text).toMatch(/reminder/);
+});
+
+test("provider limits cool down without exhausting cards or draining more project slots", async () => {
+  const x = await setup({ enabled: true, maxRunning: 2 });
+  await x.automation.queue("a");
+  await x.automation.kick();
+  const impl = x.created[0].agentId;
+  x.advance(1000);
+  await x.record("a", { actor: "system", action: "agent.turn_started", agentId: impl });
+  x.advance(1000);
+  await x.record("a", { actor: "system", action: "agent.turn_ended", agentId: impl, outcome: "failed", note: "429 rate limit reached" });
+  await x.automation.turnEnded(impl);
+  await x.automation.queue("b");
+  await x.automation.kick();
+  expect(await x.job("a")).toMatchObject({ state: "retry_wait", code: "cooldown", failures: 0, cooldowns: 1 });
+  expect((await x.job("b")).state).toBe("queued");
+  expect(x.created).toHaveLength(1);
+});
+
+test("approved delivery followed by a casual answer does not open another review", async () => {
+  const x = await setup({ enabled: true, reviewer: { provider: "codex", model: "gpt-6-luna" } });
+  await x.automation.queue("a"); await x.automation.kick();
+  const impl = x.created[0].agentId;
+  await x.record("a", { actor: "agent", action: "status_changed", agentId: impl, to: "in_review" });
+  await x.turn(impl, "a", "completed", x.setStatus("in_review"));
+  const reviewer = x.created[1].agentId;
+  await x.automation.submitReview({ agentId: reviewer, taskId: "a", workspaceId: "w-a" }, { verdict: "approve", summary: "Checked" });
+  await x.automation.turnStarted(impl);
+  await x.turn(impl, "a");
+  expect(await x.job("a")).toMatchObject({ state: "delivered", verdict: "approved", reviewRounds: 1 });
+  expect(x.created).toHaveLength(2);
+});
+
+
+test("unknown send outcome pauses rather than reusing or replacing a message blindly", async () => {
+  const x = await setup();
+  await x.automation.queue("a"); await x.automation.kick();
+  const impl = x.created[0].agentId;
+  x.agents.get(impl)!.status = "idle";
+  x.hooks.send = async () => { throw Object.assign(new Error("agent_request_outcome_unknown"), { code: "agent_request_outcome_unknown" }); };
+  await x.automation.stopJob("a"); await x.automation.queue("a"); await x.automation.kick();
+  expect(await x.job("a")).toMatchObject({ state: "needs_human", code: "interrupted", failures: 0 });
+  const id = (await x.job("a")).instruction!.id;
+  x.advance(1_000_000); await x.automation.kick();
+  expect((await x.job("a")).instruction!.id).toBe(id);
+  expect(x.created).toHaveLength(1);
 });

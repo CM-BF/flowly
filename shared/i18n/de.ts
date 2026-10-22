@@ -1,6 +1,10 @@
 import type { Catalog } from "../i18n";
 
 const catalog: Catalog = {
+  "Provider limit reached; retrying later": "Anbieterlimit erreicht; späterer Neuversuch",
+  "Waiting for blockers to be Done: {cards}": "Wartet auf abgeschlossene Blocker: {cards}",
+  "Agent automation requires the In review lane.": "Die Agentenautomatisierung benötigt die Spalte „In Prüfung“.",
+  "Agents can split work into sub-cards with their own workspaces. A supervised parent waits, checks their deliveries and accepts them. Failed or stopped jobs need your Run again.": "Agenten können Arbeit in Unterkarten mit eigenen Arbeitsbereichen aufteilen. Eine betreute Elternkarte wartet, prüft und akzeptiert die Ergebnisse. Fehlgeschlagene oder gestoppte Aufträge benötigen „Erneut ausführen“.",
   "Agent": "Agent",
   "Provider": "Anbieter",
   "Choose a provider": "Anbieter wählen",

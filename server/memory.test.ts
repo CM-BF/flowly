@@ -239,6 +239,7 @@ test("clues: the user's own words are kept as answer, feedback or message; picks
     x.store.event(board, { taskId: "t", agentId: "actor", actor: "agent", action: "status_changed", from: "development", to: "in_review", note: "done" }),
   );
   await turn("ok");
+  await turn("[Flowly automation] The reviewer requested changes: use the existing template and rerun the checks");
   await turn("Commit only this card's hunks and push", (board) =>
     x.store.event(board, { taskId: "t", agentId: "actor", actor: "agent", action: "next_moves_suggested", moves: [{ label: "Commit", prompt: "Commit only this card's hunks and push" }] }),
   );

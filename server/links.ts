@@ -43,6 +43,10 @@ export function addLink(
     throw new Error(
       `This would make a cycle: ${cycle.map((id) => board.tasks.find((t) => t.id === id)?.title ?? id).join(" → ")}.`,
     );
+  if (input.kind === "blocks" || input.kind === "subtask") {
+    const dependencies = board.links.filter((l) => l.kind === "blocks" || l.kind === "subtask").map((l) => ({ ...l, kind: "blocks" as const }));
+    if (wouldCycle(dependencies, "blocks", from.id, to.id)) throw new Error("This dependency would make a parent wait on its own descendant or a card wait on its ancestor.");
+  }
   // A more specific link replaces a plain Related one between the same cards.
   const replaced = between.filter((l) => l.kind === "related");
   if (options.limit !== false)

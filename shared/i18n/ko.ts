@@ -1,6 +1,10 @@
 import type { Catalog } from "../i18n";
 
 const catalog: Catalog = {
+  "Provider limit reached; retrying later": "제공자 한도에 도달하여 나중에 다시 시도합니다",
+  "Waiting for blockers to be Done: {cards}": "차단 카드가 완료되기를 기다리는 중: {cards}",
+  "Agent automation requires the In review lane.": "에이전트 자동화에는 검토 중 레인이 필요합니다.",
+  "Agents can split work into sub-cards with their own workspaces. A supervised parent waits, checks their deliveries and accepts them. Failed or stopped jobs need your Run again.": "에이전트는 작업을 각자의 작업 공간이 있는 하위 카드로 나눌 수 있습니다. 감독 중인 상위 카드는 기다린 뒤 결과를 확인하고 승인합니다. 실패하거나 중지된 작업은 다시 실행을 선택해야 합니다.",
   "Agent": "에이전트",
   "Provider": "제공자",
   "Choose a provider": "제공자 선택",

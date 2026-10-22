@@ -35,7 +35,7 @@
 - 只能操作本卡的直接子卡片（`NOT_PARENT`）。
 - `start`：Backlog → Todo；自动化开着时排队（已在排队/运行则 `replayed`）。
 - `accept`：只接受 In review 的子卡片（`NOT_DELIVERED`），移到 Done；已 Done 时 `replayed`。
-- `cancel`：移到 Cancelled（已结束则拒绝）。
+- `cancel`：移到 Cancelled；已 Cancelled 返回 replayed，Done 则拒绝。
 - 状态变更以 agent 身份记事件，并触发与人移动卡片相同的后续：停止该卡的自动化 job、释放被它阻塞的卡、自动收尾（设置开启时）、完成卡的项目记忆复盘。
 
 ## 5. 自动化下父卡的等待与唤醒
@@ -58,3 +58,16 @@
 
 - `server/sub-cards.test.ts`：父卡唯一、层数与数量限制；agent 建子卡片时 workspace、子卡链接与 blocks 链接同一次写入，`createdByAgent` 与 agent 事件，重发同一请求不建第二个 workspace，同一请求换参数（顺序或并行）为 `REQUEST_REUSED`，blocker 不在项目时不建 workspace；父卡 start/accept/cancel 只对自己的子卡片，accept 只对 In review，重复 accept 为 replayed，移动触发与人相同的后续；人手动链接不能有第二个父卡或反向链接；自动化下父卡 `waiting` 不占名额、子卡片开始、子卡片交付后父卡被唤醒且只唤醒一次。
 - 真实 daemon + Web UI：见 [verification/sub-cards.md](verification/sub-cards.md)。
+
+
+## 8. Review hardening (2026-10-22)
+
+- 所有 create/update 与普通写操作共用 signed-request 回执命名空间，同一请求不能用于另一个 action 或参数。create 先持久认领请求，再按稳定 operationId 恢复；成功的卡片/链接/queued job/回执同事务提交。update 的状态、排队和回执同事务提交。重放只承认原结果，不重做用户已改过的操作。
+- 事务内重新验证父卡绑定、task/project revision、未归档/未结束状态，以及当前直接子卡关系；provision workspace 前与提交时也重新验证 create 权限。评审 session 无 create/update 权限（REVIEWER_ONLY）。
+- 创建限额：每张来源卡 50 张，沿 createdByAgent.taskId 追溯的整条创建链共 100 张（含 subCard=false），串行 provision 前检查并在写入时重查。requeue/wake 不重置；人新建独立根卡开始新预算。计数包含尚保留的已结束/归档卡。独立卡 start=now 的已接受行为保留。
+- agent 的 start 不得重开 failed 或 stopped 的 job（NEEDS_PERSON / TAKEN_BY_PERSON），只能由人 Run again。父卡唤醒不指示无限重试。未运行过、主动搁置的子卡仍能 start。In review 的子卡要求修改时，start 必须带 note；回到工作阶段并把完整意见送给实现者，失败/重载保留原文。无 Todo 时，搁置卡可留在 Backlog 排队。
+- 在 workspace 创建前验证整个计划链接集合的容量及混合 subtask/blocks 环；卡片不能依赖自己的父卡/祖先，也不能通过其它依赖形成这种环。提交仍重新验证。
+- workspace 资源身份不代表目录隔离。directory 卡共享项目根，调度不并行写同一实际目录；worktree 默认仍从项目根的当前分支起步。依赖父卡代码时先 commit，再显式传 baseRef。Done 只释放依赖，不自动同步分支；开工消息附 blocker handoff/branch，执行者检查后合并。
+- get_task 的直接子卡和 blocker 链接附有界只读 handoff（workpad 验收/检查、交付摘要、目录/分支、未满足 blocker）。它不允许跨卡写入。父卡唤醒只承诺给受监督的 implementer；普通会话需主动检查。明确 question/blocker 优先等人，不能把“等待子卡”误报为 blocker。
+- 外部 blocker 尚推进时，父卡继续等待；已交付给本父卡验收的 sibling blocker 可使父卡被唤醒。Cancelled/归档未完成 blocker 仍不释放，界面及 handoff 说明卡住的原因。
+- CLI fallback：`create-card --card <JSON> --request-file <snapshot>`、`update-card --card <JSON> --request-file <snapshot>`、`submit-review --review <JSON>`；复用同一 API 及校验。

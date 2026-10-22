@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, test } from "vitest";
 import { flowEntry, type FlowEntry } from "./insights";
 import { FLAG_MIN, habits, matchPick, modellessAgents, turnPick, userTexts, withMoveDetails } from "./agent-habits";
 import type { BoardEvent } from "./model";
@@ -501,4 +501,9 @@ describe("withMoveDetails", () => {
     expect(today(withMoveDetails(old, board))).toMatchObject({ offered: 1, picked: 1 });
     expect(today(old)).toMatchObject({ offered: 0, picked: 0 });
   });
+});
+
+
+test("automation instructions do not count as human next-move choices", () => {
+  expect(userTexts([{ type: "user_message", text: "  [Flowly automation] Fix the review findings" }, { type: "user_message", text: "Keep the existing API" }])).toEqual(["Keep the existing API"]);
 });

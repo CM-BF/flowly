@@ -37,14 +37,14 @@ Hermes Kanban 的 agent 自动化有四块：**dispatcher**（依赖、并发、
 ```
 AutomationJob {
   taskId, projectId,
-  state: queued | starting | working | needs_human | retry_wait | reviewing | delivered | stopped | failed,
+  state: queued | starting | working | needs_human | waiting | retry_wait | reviewing | delivered | stopped | failed,
   role: implementer | reviewer,          // 当前被监督的是谁
   implementerId?, reviewerId?,            // 两个 session（都在卡片自己的 workspace，都是 Flowly 管理的 session）
   generation,                             // 每次排队 +1
   nudges, failures, reviewRounds,
   verdict?: approved | changes | incomplete,
   code?: question | blocked | permission | interrupted | stopped | card_moved | card_finished
-       | no_delivery | failed | start_failed | session_unavailable | review_rounds | review_incomplete,
+       | no_delivery | failed | start_failed | session_unavailable | review_rounds | review_incomplete | sub_cards | cooldown,
   detail?,                                // daemon 文本（错误、评审摘要），不翻译
   retryAt?, turnAt?, pendingOp?,
   queuedAt, startedAt?, updatedAt
@@ -132,3 +132,17 @@ AutomationJob {
 - goal 模式（每回合由裁判模型判定是否达成）、定时开始（`scheduled_at`）、按卡片指定执行者/模型、per-profile 并发、心跳/超时回收（Paseo 自己的 session 状态已覆盖进程存活；长时间 running 只靠人看）。
 - 依赖 Done 不等于上游代码已进入下游 worktree（此前设计稿指出）：本期由人保证；下游 agent 会在上下文的 links 里看到 blocker 及其状态。
 - 降级到上游 Flowly：旧版本解析 `board.json` 时会丢弃 `automation` 与 `project.automation`（zod 非严格对象），卡片与其它数据不受影响。
+
+
+## 10. Review hardening (2026-10-22)
+
+- Stop、人的接管、卡片/项目归档优先于旧异步操作。每次事务与创建/发送之前重读 generation、role、当前归属和 enabled；关闭项目自动化冻结 job，归档停止 job，但不打断或归档 session。取消/归档祖先也停止后代的 job，不改后代泳道。
+- `pendingOp` 增加 `pendingRole`。实现者与评审者不得使用同一 preparation/session；放弃评审、角色转换和确认创建后清除 preparation。Run again 保留已知的两种角色 session 供复用。
+- 修订 §1 的 outbox 取舍：每个 job 只保存一个 `instruction {id, role, text, fresh}`，与状态转换同事务写入。原文及稳定 messageId 在重载/发送失败后保留；确认送达后删除。它不是通用工作流队列。`feedback` 保存父卡给子卡的修改要求。
+- 发送前检查实际 session 的 running/initializing、activeTurn 和 pending permissions，忙时保留指令，下一次派发再试；显式 `activeTurnBehavior=steer`。Paseo 0.12 没有原子的 idle-only send：检查与请求到达之间仍有竞态，且 steer 不可用时 daemon 可回退为 interrupt；这是宿主 API 限制，不能声称严格不打断。已完成 message receipt 可安全重放；`agent_request_outcome_unknown` 暂停为 needs_human/interrupted，让人检查 session，绝不换 ID 盲发。
+- 真实 refresh RPC 失败是未知状态，不当作 session 消失。只有确定不存在/已归档/工作区不匹配才结束或替换。stale starting 或缺少角色 session 会重做原创建路径。若回合钩子完全丢失，超过 2 分钟后确认 session idle 且无 activeTurn/permission，则保守地进入 needs_human/interrupted 并释放名额；不伪造成功回合或编造 lifecycle 事件。
+- `deliveryEvent` 记评审的实际 agent 交付事件，`reopened` 区分交付后反馈。A1r 恢复旧 In review 不启动新评审；有实际新交付才重开评审计数。实现者在评审期间开始工作会关闭旧评审归属，旧 reviewer 的迟到结论不生效；别的 managed session 接管时停止原自动化。旧 verdict 只在当前交付有效。
+- 成功回合清零连续失败计数。明确的 429/rate-limit/quota/overload 失败使用 `cooldowns`（最多 5 次，1、2、4、8、15 分钟），不消耗普通 failureLimit；`provider` 来自实际当前 session，冷却期间同 provider 不再启动排队卡。超过上限等人处理，不把整个队列刷成 Blocked。
+- 自动化需要启用 In review。项目设置拒绝不满足的组合，旧无效配置不派发；queue 同样拒绝。启动与父卡唤醒都检查 maxRunning 和工作区实际目录，Flowly 不会向同一物理目录派发另一个卡的 worker；Stopped/permission job 的 native session 若仍活跃，也保留目录占用。人的直接操作不受此调度规则控制。
+- `waiting`、`sub_cards`、`subSeen` 为子卡等待协议字段；父卡唤醒遵守同一项目开关、归属和名额。发送的是当前子卡 handoff（有界的交付、workpad 检查、目录、分支、未满足 blocker），原文失败后保留。Stop、批准评审、删除卡片和项目设置变化立即触发 dispatcher。
+- daemon 发出的 `[Flowly automation]` 文本不计入人的 memory clue 或 next-move 选择率；摘要保留内容但标作 Flowly automation。

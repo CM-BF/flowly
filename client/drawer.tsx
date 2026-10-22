@@ -9,8 +9,8 @@ import {
   useRpc,
   type PluginSurfaceProps,
 } from "@getpaseo/plugin/client";
-import { useQuery } from "@tanstack/react-query";
-import type { Task, Project, BoardEvent, Idea } from "../shared/model";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import type { Task, Project, BoardEvent, Idea, Board } from "../shared/model";
 import { historyStatusLabel, legacyStatus, priorities, taskTypeLabels, taskTypes, type Status } from "../shared/model";
 import { enabledStatuses, laneName } from "../shared/lanes";
 import * as rpc from "../shared/rpc";
@@ -49,7 +49,7 @@ import { perfLap } from "./perf";
 import { TaskMetadata } from "./task-metadata";
 import { Chevron, Collapse, Disclosure, Section, type SectionState } from "./disclosure";
 import { TaskAutomation, automationMenu, useAutomationActions } from "./task-automation";
-import { useBoardQuery } from "./queries";
+import { boardKey } from "./queries";
 import { WrapupModal } from "./wrapup";
 import { currentWrapup } from "../shared/wrapup-state";
 import { useComposer } from "./composer";
@@ -413,7 +413,7 @@ function TaskDrawerView({
   });
   const archivedSessions = ordered.filter((a) => !!a.archivedAt);
   const openMenu = useMenuOpener();
-  const automationBoard = useBoardQuery();
+  const automationCache = useQueryClient();
   const automationActions = useAutomationActions();
   const finished = task.status === "done" || task.status === "cancelled";
   // Wrapped up while kept on the board: its workspace/sessions are archived on
@@ -427,7 +427,7 @@ function TaskDrawerView({
       disabled: unavailable || !!task.archivedAt,
       onPress: () => setShowNew(true),
     },
-    ...automationMenu(project, task, automationBoard.data?.automation.find((j) => j.taskId === task.id), !active || !!task.archivedAt || !!project.archivedAt, automationActions),
+    ...automationMenu(project, task, automationCache.getQueryData<Board>(boardKey)?.automation.find((j) => j.taskId === task.id), !active || !!task.archivedAt || !!project.archivedAt, automationActions, unavailable),
     ...(attention && onAttention
       ? [
           attention === "dismissed"
@@ -667,7 +667,7 @@ function TaskDrawerView({
         />
       </View>
       <TaskTags task={task} active={active} readOnly={!!project.archivedAt} onFilterTag={onFilterTag} />
-      <TaskAutomation task={task} project={project} active={active} />
+      <TaskAutomation task={task} project={project} active={active} unavailable={unavailable} />
       {!!error && <Notice>{error}</Notice>}
     </>
   );

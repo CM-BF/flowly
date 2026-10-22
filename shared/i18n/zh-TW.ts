@@ -1,6 +1,10 @@
 import type { Catalog } from "../i18n";
 
 const catalog: Catalog = {
+  "Provider limit reached; retrying later": "提供方額度受限，稍後重試",
+  "Waiting for blockers to be Done: {cards}": "等待阻塞卡片完成：{cards}",
+  "Agent automation requires the In review lane.": "智慧代理自動化需要啟用「待評審」泳道。",
+  "Agents can split work into sub-cards with their own workspaces. A supervised parent waits, checks their deliveries and accepts them. Failed or stopped jobs need your Run again.": "智慧代理可將工作拆成各有工作區的子卡片。受自動化監督的父卡會等待、檢查交付並驗收。失敗或已停止的任務需要你點選「再次執行」。",
   "Agent": "智慧體",
   "Provider": "供應商",
   "Choose a provider": "選擇供應商",

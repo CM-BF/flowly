@@ -232,6 +232,7 @@ export default function contribute(server: PluginServerContext) {
     },
   });
   tools.agents.automation = automation;
+  service.automation = automation;
   // Agents create cards and sub-cards (SUB-CARDS-SPEC §3) through the same path as New task.
   tools.agents.createTask = (input, paseo, agent) => service.createTask(input, paseo, agent);
   automation.start();
@@ -384,6 +385,7 @@ export default function contribute(server: PluginServerContext) {
     const previous = input.status ? await statusOf(input.id) : undefined;
     const task = await store.editTask(input);
     if (input.status) afterStatus(previous, task, paseo);
+    if (input.archived !== undefined) { attach(paseo); await automation.kick(); }
     return task;
   });
   server.handle(rpc.updateTaskTags, (input) => store.editTags(input));
@@ -397,6 +399,8 @@ export default function contribute(server: PluginServerContext) {
   server.handle(rpc.updateProject, async (input, { paseo }) => {
     const before = (await store.read()).projects.find((p) => p.id === input.id);
     const project = await store.updateProject(input);
+    attach(paseo);
+    await automation.kick();
     // Included again: read its last week once, like turning the switch on (§3.3).
     if (before?.workflowInsights === false && project.workflowInsights !== false && (await workflowValues()).enabled)
       void workflow.backfill(project.id, paseo).catch(() => undefined);
@@ -470,6 +474,7 @@ export default function contribute(server: PluginServerContext) {
       : null;
     const projectId = (await store.read()).tasks.find((t) => t.id === input.id)?.projectId;
     const deleted = await store.deleteTask(input);
+    attach(paseo); void automation.kick();
     if (projectId)
       await flow.removeTask(projectId, deleted.id).catch((e) =>
         console.error("Kanban flow log not cleaned:", e instanceof Error ? e.message : String(e)),
@@ -547,7 +552,7 @@ export default function contribute(server: PluginServerContext) {
       // An automation reviewer's turn is not work on the card: it stays In review (AUTOMATION-SPEC §5).
       if (auto && !reviewingJob(board, identity.agentId)) applyTurnStarted(store, board, identity, event.agent.title);
     });
-    void automation.turnStarted(identity.agentId).catch((e) =>
+    void automation.turnStarted(identity.agentId, identity.taskId).catch((e) =>
       console.error("Flowly automation turn start not handled:", e instanceof Error ? e.message : String(e)),
     );
   });

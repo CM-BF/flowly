@@ -1,3 +1,4 @@
+import { isAutomationMessage } from "./automation";
 import { defineSettings } from "@getpaseo/plugin";
 import { z } from "zod";
 import { outputLanguageRule } from "./ai-language";
@@ -170,7 +171,7 @@ export function turnText(items: readonly TimelineItem[]): string {
     }
     flush();
     if (item.type === "user_message" && typeof item.text === "string" && item.text.trim())
-      lines.push("User: " + item.text.trim());
+      lines.push((isAutomationMessage(item.text) ? "Flowly automation: " : "User: ") + item.text.trim());
     else if (item.type === "assistant_message" && typeof item.text === "string" && item.text.trim())
       lines.push("Assistant: " + item.text.trim());
     else if (item.type === "error" && typeof item.message === "string")

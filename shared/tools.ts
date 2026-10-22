@@ -441,6 +441,7 @@ export const toolContextSchema = z.object({
       laneName: z.string(),
       archived: z.boolean(),
       resolved: z.boolean().optional(),
+      handoff: z.object({ branch: z.string().optional(), directory: z.string().optional(), evidence: z.string(), blockers: z.array(z.string()) }).optional(),
     }),
   ),
 });

@@ -1,3 +1,5 @@
+import { cardHandoff } from "./automation-handoff";
+import { realpath } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import type { PaseoApi } from "@getpaseo/client";
 import type { AgentModel } from "../shared/agent-defaults";
@@ -6,6 +8,11 @@ import { isWorkStatus, type Board, type Project, type Task } from "../shared/mod
 import type { ToolIdentity, ToolPreparation } from "../shared/tools";
 import {
   activeAgent,
+  automationAllowed,
+  askedThisTurn,
+  providerLimited,
+  providerCooling,
+  coolingProvider,
   automationOf,
   changesPrompt,
   childrenPrompt,
@@ -28,13 +35,10 @@ import {
   type AutomationJob,
   type AutomationSettings,
   type ReviewInput,
-  type TurnDecision,
   type TurnOutcome,
 } from "../shared/automation";
 import { childrenOf } from "../shared/links";
-import { laneName } from "../shared/lanes";
 import { resumeStage } from "./progress-rules";
-import { defaultGit, readHead } from "./workpad";
 import type { BoardStore } from "./store";
 import { ToolError } from "./tool-error";
 
@@ -66,6 +70,8 @@ export class AutomationService {
   private timer?: ReturnType<typeof setInterval>;
   private ticking: Promise<void> | null = null;
   private again = false;
+  private stopped = false;
+  private readonly sending = new Map<string, Promise<void>>();
   private readonly clock: () => number;
   constructor(
     readonly store: BoardStore,
@@ -80,13 +86,16 @@ export class AutomationService {
     if (first) void this.kick();
   }
   start() {
+    this.stopped = false;
     if (this.timer) return;
     this.timer = setInterval(() => void this.kick(), this.deps.intervalMs ?? 15_000);
     this.timer.unref?.();
   }
   stop() {
+    this.stopped = true;
     if (this.timer) clearInterval(this.timer);
     this.timer = undefined;
+    return Promise.allSettled([...(this.ticking ? [this.ticking] : []), ...this.sending.values()]);
   }
   private now() {
     return new Date(this.clock()).toISOString();
@@ -98,6 +107,7 @@ export class AutomationService {
 
   /** Runs a dispatcher pass; calls during a pass coalesce into one more pass. */
   kick(): Promise<void> {
+    if (this.stopped) return Promise.resolve();
     if (this.ticking) {
       this.again = true;
       return this.ticking;
@@ -106,7 +116,7 @@ export class AutomationService {
       do {
         this.again = false;
         await this.tick().catch((e) => console.error("Flowly automation pass failed:", e instanceof Error ? e.message : String(e)));
-      } while (this.again);
+      } while (this.again && !this.stopped);
     })().finally(() => {
       this.ticking = null;
     });
@@ -114,7 +124,7 @@ export class AutomationService {
   }
 
   private async tick() {
-    if (!this.paseo) return;
+    if (!this.paseo || this.stopped) return;
     await this.reconcile();
     const settled = await this.store.read();
     for (const job of settled.automation) if (parentShouldWake(settled, job)) await this.wake(job);
@@ -129,9 +139,12 @@ export class AutomationService {
    * "Run with agent": queue the card (Hermes `assign`). Keeps the implementer session of an earlier run.
    * `by`: the agent of a parent card starting its sub-card (SUB-CARDS-SPEC §4).
    */
-  queue(taskId: string, by?: { agentId: string }) {
-    return this.store
-      .transaction((board) => {
+  queue(taskId: string, by?: { agentId: string }, feedback?: string) {
+    return this.store.transaction((board) => ({ value: this.queueIn(board, taskId, by, feedback), changed: true })).then((job) => { void this.kick(); return job; });
+  }
+
+  /** Card creation/status and its queue claim commit together. */
+  queueIn(board: Board, taskId: string, by?: { agentId: string }, feedback?: string) {
         const task = board.tasks.find((t) => t.id === taskId);
         const project = task && board.projects.find((p) => p.id === task.projectId);
         if (!task || !project) throw new Error("Task not found.");
@@ -147,6 +160,7 @@ export class AutomationService {
           state: "queued",
           role: "implementer",
           ...(existing?.implementerId ? { implementerId: existing.implementerId } : {}),
+          ...(existing?.reviewerId && existing.reviewerId !== existing.implementerId ? { reviewerId: existing.reviewerId } : {}),
           generation: (existing?.generation ?? 0) + 1,
           nudges: 0,
           failures: 0,
@@ -156,12 +170,11 @@ export class AutomationService {
         };
         board.automation = [...board.automation.filter((j) => j.taskId !== taskId), job];
         this.store.event(board, { taskId, actor: by ? "agent" : "human", ...(by ? { agentId: by.agentId } : {}), action: "automation_queued" });
-        return { value: job, changed: true };
-      })
-      .then((job) => {
-        void this.kick();
+        if (!laneEnabled(project, "in_review")) throw new Error("Agent automation requires the In review lane.");
+        if (by && existing?.state === "failed") throw new ToolError("NEEDS_PERSON", "This job failed. A person must choose Run again.");
+        if (by && existing?.state === "stopped") throw new ToolError("TAKEN_BY_PERSON", "This job was stopped or moved. A person must choose Run again.");
+        if (feedback) job.feedback = feedback;
         return job;
-      });
   }
 
   /** "Stop automation": no more dispatch, reminders or reviews. Running sessions are left alone. */
@@ -172,7 +185,7 @@ export class AutomationService {
       this.close(job, "stopped", "stopped");
       this.store.event(board, { taskId, actor: "human", action: "automation_stopped" });
       return { value: job, changed: true };
-    });
+    }).then((job) => { void this.kick(); return job; });
   }
 
   /**
@@ -184,9 +197,9 @@ export class AutomationService {
     if (previous === next) return;
     await this.store.transaction((board) => {
       const job = jobOf(board, taskId);
-      if (!job || !isLive(job)) return { value: false, changed: false };
+      if (!job || (!isLive(job) && job.state !== "delivered")) return { value: false, changed: false };
       const finished = next === "done" || next === "cancelled";
-      const taken = next === "backlog" || ((next === "todo" || next === "blocked") && job.state !== "queued");
+      const taken = job.state === "delivered" || next === "backlog" || ((next === "todo" || next === "blocked") && job.state !== "queued");
       if (!finished && !taken) return { value: false, changed: false };
       this.close(job, "stopped", finished ? "card_finished" : "card_moved");
       this.store.event(board, { taskId, actor: "system", action: "automation_stopped", note: finished ? "The card was finished" : "The card was moved" });
@@ -199,25 +212,37 @@ export class AutomationService {
   // ---- Session lifecycle (hooks) ----------------------------------------
 
   /** A supervised session started a turn: a person answered it, or the first instruction arrived. */
-  async turnStarted(agentId: string) {
+  async turnStarted(agentId: string, taskId?: string) {
     await this.store.transaction((board) => {
+      if (taskId) {
+        const owner = jobOf(board, taskId);
+        if (owner && automationAllowed(board, owner) && (isLive(owner) || owner.state === "delivered") && agentId !== owner.implementerId && agentId !== activeAgent(owner)) {
+          this.close(owner, "stopped", "card_moved");
+          return { value: null, changed: true };
+        }
+      }
       const job = board.automation.find(
         (j) =>
           (activeAgent(j) === agentId && (j.state === "needs_human" || j.state === "starting" || j.state === "waiting")) ||
           // Feedback after a delivery: the implementer works again, and its next delivery is reviewed again (Hermes reopen-review).
-          (j.state === "delivered" && j.implementerId === agentId),
+          ((j.state === "delivered" || (j.role === "reviewer" && isLive(j))) && j.implementerId === agentId),
       );
       if (!job) return { value: null, changed: false };
       const project = board.projects.find((p) => p.id === job.projectId);
-      if (!automationOf(project)) return { value: null, changed: false };
-      if (job.state === "delivered") {
+      if (!automationAllowed(board, job)) return { value: null, changed: false };
+      // A prepared session's first real turn proves its creation reached the daemon.
+      if (job.pendingOp && activeAgent(job) === agentId) { delete job.instruction; delete job.pendingOp; delete job.pendingRole; }
+      if (job.state === "delivered" || (job.role === "reviewer" && job.implementerId === agentId)) {
         const task = board.tasks.find((t) => t.id === job.taskId);
         if (!task || task.archivedAt || task.status === "done" || task.status === "cancelled") return { value: null, changed: false };
+        if (job.role === "reviewer") delete job.verdict;
+        delete job.instruction; delete job.pendingOp; delete job.pendingRole;
         job.role = "implementer";
-        job.reviewRounds = 0;
-        delete job.verdict;
+        job.reopened = true;
+        // Preserve the reviewed delivery until actual new work is delivered.
         this.store.event(board, { taskId: job.taskId, actor: "system", action: "automation_resumed", agentId });
       }
+      if (job.state === "needs_human" && job.code === "interrupted") delete job.instruction;
       job.state = job.role === "reviewer" ? "reviewing" : "working";
       job.nudges = 0;
       delete job.code;
@@ -230,7 +255,7 @@ export class AutomationService {
   async permission(agentId: string, open: boolean) {
     await this.store.transaction((board) => {
       const job = board.automation.find((j) => activeAgent(j) === agentId && isLive(j));
-      if (!job) return { value: null, changed: false };
+      if (!job || !automationAllowed(board, job)) return { value: null, changed: false };
       if (open && (job.state === "working" || job.state === "reviewing")) {
         job.state = "needs_human";
         job.code = "permission";
@@ -253,33 +278,50 @@ export class AutomationService {
     const job = board.automation.find((j) => activeAgent(j) === agentId && ["starting", "working", "reviewing", "needs_human", "waiting"].includes(j.state));
     if (!job) return;
     const ended = latestTurnEnd(board, job.taskId, agentId);
+    const latest = latestLifecycle(board, job.taskId, agentId);
+    if (latest?.action === "agent.turn_started") return;
     if (!ended || (job.turnAt && ended.at <= job.turnAt)) return;
     const settings = automationOf(board.projects.find((p) => p.id === job.projectId));
     // Automation turned off: the session goes on unsupervised.
     if (!settings) return;
     const outcome: TurnOutcome =
       ended.outcome === "failed" ? { kind: "failed", message: ended.note ?? "" } : ended.outcome === "canceled" ? { kind: "canceled" } : { kind: "completed" };
-    const decision = turnDecision(board, job, agentId, outcome, settings, this.clock());
-    const applied = await this.apply(job, agentId, ended.at, decision, settings, outcome);
-    if (applied) await this.followUp(applied, decision, settings, outcome);
+    const newDelivery = board.events.some((event) => event.taskId === job.taskId && event.agentId === agentId && event.actor === "agent" && event.to === "in_review" && (!job.turnAt || event.at > job.turnAt));
+    if (job.instruction && !job.pendingOp && outcome.kind === "completed" && !newDelivery && !askedThisTurn(board, job.taskId, agentId)) {
+      const pending = await this.store.transaction((b) => { const j = this.current(b, job, job.role); if (!j || latestTurnEnd(b, j.taskId, agentId)?.id !== ended.id) return { value: null, changed: false }; j.turnAt = ended.at; return { value: { ...j }, changed: true }; });
+      if (pending) await this.deliver(pending);
+      return;
+    }
+    const applied = await this.apply(job, agentId, ended.at, outcome);
+    if (applied?.instruction) await this.deliver(applied);
     void this.kick();
   }
 
   /** Commits a turn decision; null when the job moved on meanwhile. */
-  private apply(seen: AutomationJob, agentId: string, endedAt: string, decision: TurnDecision, settings: AutomationSettings, outcome: TurnOutcome) {
+  private apply(seen: AutomationJob, agentId: string, endedAt: string, outcome: TurnOutcome) {
     return this.store.transaction((board) => {
       const job = jobOf(board, seen.taskId);
-      if (!job || job.generation !== seen.generation || activeAgent(job) !== agentId || (job.turnAt && endedAt <= job.turnAt))
+      if (!job || !isLive(job) || !automationAllowed(board, job) || job.generation !== seen.generation || activeAgent(job) !== agentId || (job.turnAt && endedAt <= job.turnAt))
         return { value: null, changed: false };
+      const latest = latestTurnEnd(board, seen.taskId, agentId);
+      if (!latest || latest.at !== endedAt) return { value: null, changed: false };
+      const settings = automationOf(board.projects.find((p) => p.id === job.projectId))!;
+      const decision = turnDecision(board, job, agentId, outcome, settings, this.clock());
       const task = board.tasks.find((t) => t.id === job.taskId)!;
+      const pendingInstruction = job.instruction;
+      delete job.pendingOp; delete job.pendingRole; delete job.instruction;
       const now = this.now();
       job.turnAt = endedAt;
       job.updatedAt = now;
+      if (outcome.kind === "completed") { job.failures = 0; job.cooldowns = 0; delete job.detail; }
       const note = (action: string, text?: string) => this.store.event(board, { taskId: job.taskId, actor: "system", action, agentId, ...(text ? { note: text } : {}) });
       switch (decision.kind) {
         case "ignore":
           return { value: null, changed: false };
         case "review":
+          if (job.reopened) job.reviewRounds = 0;
+          delete job.reopened;
+          job.deliveryEvent = [...board.events].reverse().find((e) => e.taskId === job.taskId && e.actor === "agent" && e.to === "in_review")?.id;
           job.role = "reviewer";
           job.state = "reviewing";
           job.reviewRounds++;
@@ -288,17 +330,25 @@ export class AutomationService {
           job.turnAt = now;
           delete job.verdict;
           delete job.code;
+          delete job.pendingOp;
+          delete job.pendingRole;
+          this.instruct(job, "reviewer", reviewPrompt(job.reviewRounds, settings.maxReviewRounds));
           note("automation_review_started", `Review round ${job.reviewRounds} of ${settings.maxReviewRounds}`);
           break;
         case "deliver":
+          delete job.reopened;
           job.state = "delivered";
           job.nudges = 0;
           job.failures = 0;
+          delete job.instruction;
+          delete job.pendingOp;
+          delete job.pendingRole;
           if (decision.code) job.code = decision.code;
           else delete job.code;
           note("automation_delivered", decision.code === "review_rounds" ? `Review rounds used up (${settings.maxReviewRounds}); the card waits for you` : undefined);
           break;
         case "wait":
+          if (decision.code === "question" || decision.code === "blocked") job.instruction = pendingInstruction;
           job.state = "needs_human";
           job.code = decision.code;
           break;
@@ -317,13 +367,15 @@ export class AutomationService {
         case "nudge":
           job.nudges = decision.count;
           job.turnAt = now;
+          this.instruct(job, job.role, nudgePrompt(decision.count, settings.nudgeLimit, job.role));
           note("automation_nudged", `Reminder ${decision.count} of ${settings.nudgeLimit}`);
           break;
         case "retry":
           job.state = "retry_wait";
-          job.failures = decision.count;
+          if (decision.cooldown) job.cooldowns = decision.count;
+          else job.failures = decision.count;
           job.retryAt = decision.at;
-          job.code = "failed";
+          job.code = decision.cooldown ? "cooldown" : "failed";
           job.detail = clip(outcome.kind === "failed" ? outcome.message : "");
           note("automation_retry", `Turn failed (${decision.count} of ${settings.failureLimit}); retrying${job.detail ? `: ${job.detail}` : ""}`);
           break;
@@ -336,6 +388,10 @@ export class AutomationService {
             job.state = "delivered";
             job.verdict = "incomplete";
             job.code = decision.code;
+            delete job.pendingOp;
+            delete job.pendingRole;
+            delete job.instruction;
+            delete job.retryAt;
           } else this.close(job, "failed", decision.code);
           const why = giveUpNote(decision.code, settings);
           note("automation_failed", why);
@@ -347,10 +403,8 @@ export class AutomationService {
     });
   }
 
-  /** The message or session a committed decision calls for. */
-  private async followUp(job: AutomationJob, decision: TurnDecision, settings: AutomationSettings, _outcome: TurnOutcome) {
-    if (decision.kind === "nudge") await this.send(job, job.role, nudgePrompt(decision.count, settings.nudgeLimit));
-    if (decision.kind === "review") await this.send(job, "reviewer", reviewPrompt(job.reviewRounds, settings.maxReviewRounds));
+  private instruct(job: AutomationJob, role: Role, text: string, fresh = text) {
+    job.instruction = { id: randomUUID(), role, text, fresh };
   }
 
   // ---- The reviewer's verdict (flowly_submit_review) --------------------
@@ -371,7 +425,7 @@ export class AutomationService {
       }
       const task = board.tasks.find((t) => t.id === job.taskId);
       const project = task && board.projects.find((p) => p.id === task.projectId);
-      if (!task || !project || task.status !== "in_review")
+      if (!task || !project || task.status !== "in_review" || !automationAllowed(board, job))
         throw new ToolError("REVIEW_CLOSED", "The card is no longer In review; nothing was changed.");
       const now = this.now();
       const text = [input.summary, ...input.findings.map((f) => `- ${f}`)].join("\n");
@@ -381,14 +435,19 @@ export class AutomationService {
       job.nudges = 0;
       job.failures = 0;
       job.role = "implementer";
+      delete job.pendingOp; delete job.pendingRole; delete job.instruction;
       delete job.code;
       if (verdict === "approved") {
         job.state = "delivered";
+        delete job.instruction;
+        delete job.pendingOp;
+        delete job.pendingRole;
         this.store.event(board, { taskId: task.id, actor: "agent", agentId: identity.agentId, action: "automation_review_approved", note: clip(text, 4000) });
         return { value: { answer: { accepted: true, verdict: input.verdict, message: "Approved. The card stays In review for the user to accept; end your turn." } }, changed: true };
       }
       job.state = "working";
       job.turnAt = now;
+      this.instruct(job, "implementer", changesPrompt(job.reviewRounds, automationOf(project)!.maxReviewRounds, input.summary, input.findings));
       this.store.event(board, { taskId: task.id, actor: "agent", agentId: identity.agentId, action: "automation_changes_requested", note: clip(text, 4000) });
       // Back to work: the same stage a person's review feedback leads to (rule A1).
       const stage = resumeStage(board, task, project);
@@ -408,7 +467,8 @@ export class AutomationService {
         changed: true,
       };
     });
-    if (result.changes) void this.send(result.changes.job, "implementer", result.changes.prompt);
+    if (result.changes) void this.deliver(result.changes.job);
+    void this.kick();
     return result.answer;
   }
 
@@ -416,76 +476,144 @@ export class AutomationService {
 
   /** Claims a queued card and starts (or reuses) its implementer session. */
   private async begin(seen: AutomationJob) {
+    if (!(await this.canOccupy(seen))) return;
     const claimed = await this.store.transaction((board) => {
       const job = jobOf(board, seen.taskId);
-      if (!job || job.generation !== seen.generation || job.state !== "queued" || !readiness(board, job.taskId).ready) return { value: null, changed: false };
+      if (!job || job.generation !== seen.generation || job.state !== "queued" || !automationAllowed(board, job) || !readiness(board, job.taskId).ready) return { value: null, changed: false };
+      const project = board.projects.find((p) => p.id === job.projectId)!;
+      const slots = board.automation.filter((j) => j.projectId === project.id && ["starting", "working", "reviewing", "retry_wait"].includes(j.state)).length;
+      if (slots >= automationOf(project)!.maxRunning || providerCooling(board, project, this.clock())) return { value: null, changed: false };
       const now = this.now();
       job.state = "starting";
       job.role = "implementer";
       job.startedAt = now;
       job.turnAt = now;
       job.updatedAt = now;
+      const settings = automationOf(board.projects.find((p) => p.id === job.projectId))!;
+      this.instruct(job, "implementer", [startPrompt({ review: !!settings.reviewer, again: !!job.implementerId }), job.feedback].filter(Boolean).join("\n\n"), [startPrompt({ review: !!settings.reviewer, again: false }), job.feedback].filter(Boolean).join("\n\n"));
       this.store.event(board, { taskId: job.taskId, actor: "system", action: "automation_started" });
       return { value: { ...job }, changed: true };
     });
     if (!claimed) return;
-    const settings = await this.settingsOf(claimed);
-    const again = !!claimed.implementerId;
-    await this.send(claimed, "implementer", startPrompt({ review: !!settings?.reviewer, again }), startPrompt({ review: !!settings?.reviewer, again: false }));
+    const board = await this.store.read();
+    const blockers = board.links.filter((l) => l.kind === "blocks" && l.to === claimed.taskId).map((l) => l.from);
+    if (blockers.length) {
+      const handoffs = (await Promise.all(blockers.map((id) => cardHandoff(board, id, this.api())))).filter(Boolean);
+      const context = `\n\nDependency handoffs (card data):\n${JSON.stringify(handoffs)}\nInspect and merge the relevant blocker branches into this workspace before depending on their changes; Done does not synchronize worktrees.`;
+      await this.store.transaction((b) => { const j = this.current(b, claimed, "implementer"); if (!j?.instruction) return { value: null, changed: false }; j.instruction.text += context; j.instruction.fresh += context; return { value: null, changed: true }; });
+    }
+    await this.deliver(claimed);
   }
 
   /** A due retry: the same session is told to continue (or created, when it never started). */
   private async resume(seen: AutomationJob) {
     const job = await this.store.transaction((board) => {
       const job = jobOf(board, seen.taskId);
-      if (!job || job.generation !== seen.generation || job.state !== "retry_wait") return { value: null, changed: false };
+      if (!job || job.generation !== seen.generation || job.state !== "retry_wait" || !automationAllowed(board, job)) return { value: null, changed: false };
       job.state = job.role === "reviewer" ? "reviewing" : "working";
       job.turnAt = this.now();
       job.updatedAt = job.turnAt;
       delete job.retryAt;
+      const settings = automationOf(board.projects.find((p) => p.id === job.projectId))!;
+      if (!job.instruction) this.instruct(job, job.role, retryPrompt(job.failures, settings.failureLimit, job.detail ?? ""), job.role === "reviewer" ? reviewPrompt(job.reviewRounds, settings.maxReviewRounds) : startPrompt({ review: !!settings.reviewer, again: false }));
+      delete job.code;
+      delete job.detail;
       return { value: { ...job }, changed: true };
     });
     if (!job) return;
-    const settings = await this.settingsOf(job);
-    if (!settings) return;
-    const fresh = job.role === "reviewer" ? reviewPrompt(job.reviewRounds, settings.maxReviewRounds) : startPrompt({ review: !!settings.reviewer, again: false });
-    await this.send(job, job.role, retryPrompt(job.failures, settings.failureLimit, job.detail ?? ""), fresh);
+    await this.deliver(job);
   }
 
-  private async settingsOf(job: AutomationJob) {
-    return automationOf((await this.store.read()).projects.find((p) => p.id === job.projectId));
+  /** Directory workspaces can be distinct native resources over the same physical checkout. */
+  private async canOccupy(seen: AutomationJob) {
+    const board = await this.store.read();
+    const task = board.tasks.find((t) => t.id === seen.taskId);
+    if (!task) return false;
+    const directory = async (workspaceId: string) => {
+      const workspace = await this.api().workspaces.ref(workspaceId).refresh();
+      if (!workspace || workspace.archivingAt) return null;
+      return realpath(workspace.workspaceDirectory).catch(() => workspace.workspaceDirectory);
+    };
+    try {
+      const target = await directory(task.workspaceId);
+      if (!target) return false;
+      for (const job of board.automation.filter((j) => j.taskId !== seen.taskId)) {
+        let holds = ["starting", "working", "reviewing", "retry_wait"].includes(job.state);
+        if (!holds && activeAgent(job)) {
+          const agent = (await this.api().agents.ref(activeAgent(job)!).refresh())?.agent;
+          holds = !!agent && !agent.archivedAt && (agent.status === "running" || !!agent.activeTurn || !!agent.pendingPermissions?.length);
+        }
+        if (!holds) continue;
+        const other = board.tasks.find((t) => t.id === job.taskId);
+        if (other && target === await directory(other.workspaceId)) return false;
+      }
+      return true;
+    } catch { return false; }
   }
+
 
   /**
    * Gives `role`'s session of the job `text`: sent to the live session, or the
    * first instruction of a new one (`fresh`, defaulting to `text`). A failure
    * counts as a failed turn.
    */
-  private async send(job: AutomationJob, role: Role, text: string, fresh = text) {
+  private current(board: Board, seen: AutomationJob, role: Role) {
+    const job = jobOf(board, seen.taskId);
+    return !this.stopped && job && isLive(job) && automationAllowed(board, job) && job.generation === seen.generation && job.role === role && job.instruction?.id === seen.instruction?.id ? job : null;
+  }
+
+  /** One side effect at a time per card, including lifecycle-hook follow-ups. */
+  private deliver(job: AutomationJob): Promise<void> {
+    const pending = this.sending.get(job.taskId);
+    if (pending) return pending.then(() => this.deliver(job));
+    const work = this.send(job).finally(() => this.sending.delete(job.taskId));
+    this.sending.set(job.taskId, work);
+    return work;
+  }
+
+  private async send(job: AutomationJob) {
+    const instruction = job.instruction;
+    if (!instruction) return;
+    const { role } = instruction;
     try {
       const paseo = this.api();
       const board = await this.store.read();
-      const current = jobOf(board, job.taskId);
+      const current = this.current(board, job, role);
       const task = board.tasks.find((t) => t.id === job.taskId);
       const project = task && board.projects.find((p) => p.id === task.projectId);
-      if (!current || current.generation !== job.generation || !task || !project) return;
+      if (!current || !task || !project) return;
+      const { text, fresh } = current.instruction!;
       const id = role === "reviewer" ? current.reviewerId : current.implementerId;
-      if (current.pendingOp) return await this.create(current, role, current.pendingOp, fresh, task, project, paseo);
+      const peerId = role === "reviewer" ? current.implementerId : current.reviewerId;
+      if (peerId && peerId !== id) {
+        const peer = (await paseo.agents.ref(peerId).refresh())?.agent;
+        if (peer && !peer.archivedAt && peer.workspaceId === task.workspaceId && (peer.status === "running" || peer.status === "initializing" || peer.activeTurn || peer.pendingPermissions?.length)) return;
+      }
+      if (current.pendingOp) {
+        if (current.pendingRole && current.pendingRole !== role) throw new Error("Session preparation belongs to a different automation role.");
+        return await this.create(current, role, current.pendingOp, fresh, task, project, paseo);
+      }
       if (id) {
-        const agent = (await paseo.agents.ref(id).refresh().catch(() => null))?.agent;
+        // An RPC failure is unknown, never evidence that a session disappeared.
+        const agent = (await paseo.agents.ref(id).refresh())?.agent;
         if (agent && !agent.archivedAt && agent.workspaceId === task.workspaceId) {
-          await paseo.agents.ref(id).send(text);
+          if (coolingProvider(board, agent.provider, this.clock(), job.taskId)) return;
+          if (agent.status === "running" || agent.status === "initializing" || agent.activeTurn || agent.pendingPermissions?.length) return;
+          if (!this.current(await this.store.read(), job, role)) return;
+          await this.store.transaction((b) => { const j = this.current(b, job, role); if (!j) return { value: null, changed: false }; j.provider = agent.provider; return { value: null, changed: true }; });
+          if (!this.current(await this.store.read(), job, role)) return;
+          await paseo.agents.ref(id).send(text, { messageId: instruction.id, activeTurnBehavior: "steer" });
           await this.started(current, id);
           return;
         }
-        // The implementer of a running job is gone: that is not a new start.
         if (role === "implementer" && current.state !== "starting") throw new SessionGone();
       }
-      const op = `automation:${task.id}:${randomUUID()}`;
+      const op = `automation:${task.id}:${job.generation}:${role}:${randomUUID()}`;
       const recorded = await this.store.transaction((board) => {
-        const j = jobOf(board, job.taskId);
-        if (!j || j.generation !== job.generation) return { value: false, changed: false };
+        const j = this.current(board, job, role);
+        if (!j) return { value: false, changed: false };
         j.pendingOp = op;
+        j.pendingRole = role;
         return { value: true, changed: true };
       });
       if (recorded) await this.create(current, role, op, fresh, task, project, paseo);
@@ -497,15 +625,19 @@ export class AutomationService {
   private async create(job: AutomationJob, role: Role, op: string, prompt: string, task: Task, project: Project, paseo: PaseoApi) {
     const settings = automationOf(project);
     const preparation = await this.deps.prepare(task.id, op, paseo);
-    await this.store.transaction((board) => {
-      const j = jobOf(board, job.taskId);
-      if (!j || j.generation !== job.generation) return { value: null, changed: false };
+    const recorded = await this.store.transaction((board) => {
+      const j = this.current(board, job, role);
+      if (!j || j.pendingOp !== op) return { value: false, changed: false };
+      if (preparation.agentId === (role === "reviewer" ? j.implementerId : j.reviewerId)) throw new Error("Implementer and reviewer must be different sessions.");
       if (role === "reviewer") j.reviewerId = preparation.agentId;
       else j.implementerId = preparation.agentId;
-      return { value: null, changed: true };
+      return { value: true, changed: true };
     });
+    if (!recorded) return;
     const model = role === "reviewer" ? settings?.reviewer : await this.implementerModel(project, settings, paseo);
     if (!model) throw new Error(role === "reviewer" ? "No reviewer model is set." : "No available model to start an agent with.");
+    if (coolingProvider(await this.store.read(), model.provider, this.clock(), job.taskId)) return;
+    await this.store.transaction((board) => { const j = this.current(board, job, role); if (!j) return { value: null, changed: false }; j.provider = model.provider; return { value: null, changed: true }; });
     const mode = settings?.fullAccess ? unattendedModes[model.provider] : undefined;
     const options = {
       config: {
@@ -524,20 +656,24 @@ export class AutomationService {
     };
     // A failed response can hide a created session (client/session.ts createPreparedSession).
     const exists = async () => {
-      const agent = (await paseo.agents.ref(preparation.agentId).refresh().catch(() => null))?.agent;
+      const agent = (await paseo.agents.ref(preparation.agentId).refresh())?.agent;
       if (agent && (agent.workspaceId !== task.workspaceId || agent.archivedAt)) throw new Error("The prepared session belongs to another workspace or is archived.");
       return !!agent;
     };
+    if (!this.current(await this.store.read(), job, role)) return;
     if (!(await exists()))
       try {
+        if (!this.current(await this.store.read(), job, role)) return;
         await paseo.workspaces.ref(task.workspaceId).agents.create(options);
       } catch (e) {
         if (!(await exists())) throw e;
       }
     await this.store.transaction((board) => {
       const j = jobOf(board, job.taskId);
-      if (!j || j.pendingOp !== op) return { value: null, changed: false };
+      if (!this.current(board, job, role) || !j || j.pendingOp !== op) return { value: null, changed: false };
       delete j.pendingOp;
+      delete j.pendingRole;
+      delete j.instruction;
       if (j.state === "starting") j.state = "working";
       j.updatedAt = this.now();
       return { value: null, changed: true };
@@ -548,8 +684,9 @@ export class AutomationService {
   private started(job: AutomationJob, agentId: string) {
     return this.store.transaction((board) => {
       const j = jobOf(board, job.taskId);
-      if (!j || j.generation !== job.generation || j.state !== "starting" || j.implementerId !== agentId) return { value: null, changed: false };
-      j.state = "working";
+      if (!j || !this.current(board, job, job.role) || activeAgent(j) !== agentId) return { value: null, changed: false };
+      if (j.state === "starting") j.state = "working";
+      delete j.instruction;
       j.updatedAt = this.now();
       return { value: null, changed: true };
     });
@@ -574,9 +711,25 @@ export class AutomationService {
     console.error("Flowly automation could not reach the session:", message);
     await this.store.transaction((board) => {
       const job = jobOf(board, seen.taskId);
-      if (!job || job.generation !== seen.generation || !isLive(job)) return { value: null, changed: false };
+      if (!job || !this.current(board, seen, role)) return { value: null, changed: false };
       const settings = automationOf(board.projects.find((p) => p.id === job.projectId));
+      const code = error && typeof error === "object" && "code" in error ? String(error.code) : "";
+      if (code === "agent_request_outcome_unknown" || message.includes("agent_request_outcome_unknown")) {
+        job.state = "needs_human"; job.code = "interrupted";
+        job.detail = "The daemon cannot confirm whether the instruction reached the provider. Check the session before resuming.";
+        job.updatedAt = this.now();
+        return { value: null, changed: true };
+      }
       const gone = error instanceof SessionGone;
+      if (!gone && providerLimited(message)) {
+        job.cooldowns = (job.cooldowns ?? 0) + 1;
+        job.state = job.cooldowns > 5 ? "needs_human" : "retry_wait";
+        job.code = "cooldown";
+        job.detail = message;
+        job.retryAt = new Date(this.clock() + Math.min(60_000 * 2 ** (job.cooldowns - 1), 900_000)).toISOString();
+        job.updatedAt = this.now();
+        return { value: null, changed: true };
+      }
       const count = job.failures + 1;
       job.failures = count;
       job.detail = gone ? undefined : message;
@@ -591,6 +744,10 @@ export class AutomationService {
         job.role = "implementer";
         job.state = "delivered";
         job.verdict = "incomplete";
+        delete job.pendingOp;
+        delete job.pendingRole;
+        delete job.instruction;
+        delete job.retryAt;
         job.code = gone ? "session_unavailable" : "start_failed";
         this.store.event(board, { taskId: job.taskId, actor: "system", action: "automation_failed", note: `The review could not run: ${message}` });
       } else {
@@ -609,81 +766,92 @@ export class AutomationService {
   private async reconcile() {
     const board = await this.store.read();
     const paseo = this.api();
-    for (const job of board.automation) {
-      if (!isLive(job) || job.state === "queued" || job.state === "retry_wait") continue;
+    for (const seen of board.automation) {
+      if (!isLive(seen) || this.stopped) continue;
+      const currentBoard = await this.store.read();
+      const job = jobOf(currentBoard, seen.taskId);
+      if (!job || !isLive(job) || job.generation !== seen.generation) continue;
+      const task = currentBoard.tasks.find((t) => t.id === job.taskId);
+      const project = currentBoard.projects.find((p) => p.id === job.projectId);
+      if (!task || task.archivedAt || !project || project.archivedAt || ["done", "cancelled"].includes(task.status)) {
+        await this.store.transaction((b) => {
+          const j = jobOf(b, job.taskId);
+          if (!j || j.generation !== job.generation || !isLive(j)) return { value: null, changed: false };
+          this.close(j, "stopped", "card_finished");
+          this.store.event(b, { taskId: j.taskId, actor: "system", action: "automation_stopped", note: "The card or project was finished or archived" });
+          return { value: null, changed: true };
+        });
+        continue;
+      }
+      if (!automationOf(project)) continue;
+      if (!laneEnabled(project, "in_review")) continue;
+      if (!automationAllowed(currentBoard, job)) {
+        await this.store.transaction((b) => { const j = jobOf(b, job.taskId); if (!j || j.generation !== job.generation || !isLive(j)) return { value: null, changed: false }; this.close(j, "stopped", "card_moved"); return { value: null, changed: true }; });
+        continue;
+      }
+      if (job.state === "queued" || job.state === "retry_wait") continue;
+      if (job.instruction && ["starting", "working", "reviewing"].includes(job.state)) { await this.deliver(job); continue; }
+      const stale = Date.parse(job.updatedAt) + (this.deps.staleStartMs ?? 120_000) <= this.clock();
       const agentId = activeAgent(job);
-      if (job.state === "starting" || job.pendingOp) {
-        if (Date.parse(job.updatedAt) + (this.deps.staleStartMs ?? 120_000) <= this.clock()) {
-          await this.store.transaction((b) => {
-            const j = jobOf(b, job.taskId);
-            if (!j || j.generation !== job.generation) return { value: null, changed: false };
-            j.updatedAt = this.now();
-            return { value: null, changed: true };
-          });
-          const settings = automationOf(board.projects.find((p) => p.id === job.projectId));
-          const fresh = job.role === "reviewer" ? reviewPrompt(job.reviewRounds, settings?.maxReviewRounds ?? job.reviewRounds) : startPrompt({ review: !!settings?.reviewer, again: false });
-          if (job.pendingOp) await this.send(job, job.role, fresh);
-          else if (agentId) await this.started(job, agentId);
-        }
+      if (stale && (job.state === "starting" || job.pendingOp || !agentId)) {
+        const recovered = await this.store.transaction((b) => {
+          const j = jobOf(b, job.taskId);
+          if (!j || !isLive(j) || j.generation !== job.generation || !automationAllowed(b, j)) return { value: null, changed: false };
+          const settings = automationOf(b.projects.find((p) => p.id === j.projectId))!;
+          if (j.pendingRole && j.pendingRole !== j.role) { delete j.pendingOp; delete j.pendingRole; }
+          this.instruct(j, j.role, j.role === "reviewer" ? reviewPrompt(j.reviewRounds, settings.maxReviewRounds) : startPrompt({ review: !!settings.reviewer, again: !!j.implementerId }));
+          j.updatedAt = this.now();
+          return { value: { ...j }, changed: true };
+        });
+        if (recovered) await this.deliver(recovered);
         continue;
       }
       if (!agentId) continue;
-      const agent = await paseo.agents
-        .ref(agentId)
-        .refresh()
-        .then((r) => r?.agent ?? null, () => undefined);
-      // undefined: the daemon did not answer; try again next pass.
+      const agent = await paseo.agents.ref(agentId).refresh().then((r) => r?.agent ?? null, () => undefined);
       if (agent === undefined) continue;
-      if (!agent || agent.archivedAt) {
+      if (!agent || agent.archivedAt || agent.workspaceId !== task.workspaceId) {
         await this.sideEffectFailed(job, job.role, new SessionGone());
         continue;
       }
-      const last = latestLifecycle(board, job.taskId, agentId);
+      const last = latestLifecycle(currentBoard, job.taskId, agentId);
       if (last?.action === "agent.turn_ended" && (!job.turnAt || last.at > job.turnAt)) await this.turnEnded(agentId);
-      else if (last?.action === "agent.turn_started" && (job.state === "waiting" || (job.state === "needs_human" && job.code !== "permission")) && (!job.turnAt || last.at > job.turnAt))
-        await this.turnStarted(agentId);
+      else if ((agent.status === "running" || agent.activeTurn) && (job.state === "waiting" || (job.state === "needs_human" && job.code !== "permission"))) await this.turnStarted(agentId);
+      else if (stale && ["working", "reviewing"].includes(job.state) && agent.status === "idle" && !agent.activeTurn && !agent.pendingPermissions?.length) {
+        // An idle session proves there is no running worker, not how its missing turn ended.
+        await this.store.transaction((b) => {
+          const j = jobOf(b, job.taskId);
+          if (!this.current(b, job, job.role) || !j || j.updatedAt !== job.updatedAt) return { value: null, changed: false };
+          j.state = "needs_human";
+          j.code = "interrupted";
+          j.detail = "The session is idle but its turn outcome was not recorded. Check it before resuming.";
+          j.updatedAt = this.now();
+          return { value: null, changed: true };
+        });
+      }
     }
   }
 
   /** A waiting parent whose sub-cards settled gets their summary and works again (SUB-CARDS-SPEC §5). */
   private async wake(seen: AutomationJob) {
-    const woken = await this.store.transaction((board) => {
-      const job = jobOf(board, seen.taskId);
-      if (!job || job.generation !== seen.generation || !parentShouldWake(board, job)) return { value: null, changed: false };
+    const board = await this.store.read();
+    if (!parentShouldWake(board, seen) || !(await this.canOccupy(seen))) return;
+    const project = board.projects.find((p) => p.id === seen.projectId);
+    const lines = (await Promise.all(childrenOf(board.links, seen.taskId).map((id) => cardHandoff(board, id, this.api())))).filter((line): line is SubCardLine => !!line);
+    const woken = await this.store.transaction((b) => {
+      const job = jobOf(b, seen.taskId);
+      if (!job || job.generation !== seen.generation || !parentShouldWake(b, job) || subCardSignature(b, job.taskId) !== subCardSignature(board, job.taskId)) return { value: null, changed: false };
       job.state = "working";
       job.role = "implementer";
-      job.subSeen = subCardSignature(board, job.taskId);
+      job.subSeen = subCardSignature(b, job.taskId);
       job.turnAt = this.now();
       job.updatedAt = job.turnAt;
       job.nudges = 0;
       delete job.code;
-      this.store.event(board, { taskId: job.taskId, actor: "system", action: "automation_woken", note: "Its sub-cards settled" });
+      this.instruct(job, "implementer", childrenPrompt(lines));
+      this.store.event(b, { taskId: job.taskId, actor: "system", action: "automation_woken", note: "Its sub-cards settled" });
       return { value: { ...job }, changed: true };
     });
-    if (!woken) return;
-    const board = await this.store.read();
-    const project = board.projects.find((p) => p.id === woken.projectId);
-    const lines: SubCardLine[] = [];
-    for (const id of childrenOf(board.links, woken.taskId)) {
-      const task = board.tasks.find((t) => t.id === id);
-      if (!task) continue;
-      const job = jobOf(board, id);
-      // Where its work is, so the parent can merge it; best effort.
-      const directory = await this.api()
-        .workspaces.ref(task.workspaceId)
-        .refresh()
-        .then((w) => w?.workspaceDirectory, () => undefined);
-      const head = directory ? await readHead(directory, defaultGit, this.now()).catch(() => null) : null;
-      lines.push({
-        id,
-        title: task.title,
-        lane: laneName(project, task.status),
-        ...(job ? { job: { state: job.state, ...(job.verdict ? { verdict: job.verdict } : {}), ...(job.code ? { code: job.code } : {}) } } : {}),
-        ...(head?.branch ? { branch: head.branch } : {}),
-        ...(directory ? { directory } : {}),
-      });
-    }
-    await this.send(woken, "implementer", childrenPrompt(lines));
+    if (woken) await this.deliver(woken);
   }
 
   // ---- Helpers ----------------------------------------------------------
@@ -694,6 +862,8 @@ export class AutomationService {
     job.updatedAt = this.now();
     delete job.retryAt;
     delete job.pendingOp;
+    delete job.pendingRole;
+    delete job.instruction;
   }
 
   /** Moves a card that automation gave up on to Blocked, so it stops looking active (Hermes auto-block). */
