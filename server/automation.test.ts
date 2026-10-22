@@ -326,3 +326,20 @@ test("an archived implementer under a running job ends it as unavailable", async
   await x.automation.kick();
   expect(await x.job("a")).toMatchObject({ state: "failed", code: "session_unavailable" });
 });
+
+test("a person moving a blocker to Done starts the card it blocked right away", async () => {
+  const x = await setup();
+  await x.store.mutate((board) => {
+    board.links.push({ id: "l", projectId: "p", kind: "blocks", from: "a", to: "b", createdBy: "human", createdAt: new Date().toISOString() });
+  });
+  await x.automation.queue("b");
+  await x.automation.kick();
+  expect(x.created).toHaveLength(0);
+  await x.store.mutate((board) => {
+    board.tasks.find((t) => t.id === "a")!.status = "done";
+  });
+  // Card a has no job of its own; the move alone must run the dispatcher.
+  await x.automation.humanMoved("a", "in_review", "done");
+  await new Promise((r) => setTimeout(r, 20));
+  expect(x.created.map((c) => c.workspaceId)).toEqual(["w-b"]);
+});

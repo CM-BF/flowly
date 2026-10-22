@@ -170,7 +170,7 @@ export class AutomationService {
    */
   async humanMoved(taskId: string, previous: string | undefined, next: string) {
     if (previous === next) return;
-    const changed = await this.store.transaction((board) => {
+    await this.store.transaction((board) => {
       const job = jobOf(board, taskId);
       if (!job || !isLive(job)) return { value: false, changed: false };
       const finished = next === "done" || next === "cancelled";
@@ -180,7 +180,8 @@ export class AutomationService {
       this.store.event(board, { taskId, actor: "system", action: "automation_stopped", note: finished ? "The card was finished" : "The card was moved" });
       return { value: true, changed: true };
     });
-    if (changed) void this.kick();
+    // Any move can free a slot or release the cards this one blocks (Done), with or without a job of its own.
+    void this.kick();
   }
 
   // ---- Session lifecycle (hooks) ----------------------------------------
