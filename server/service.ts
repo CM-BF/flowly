@@ -1,4 +1,5 @@
 import { laneName, laneProblem } from "../shared/lanes";
+import { resolvePaseoCli } from "./paseo-cli";
 import { linkContextLines, linksOf } from "../shared/links";
 import { artifactContextLines, artifactsOf } from "../shared/artifacts";
 import { addLink } from "./links";
@@ -335,7 +336,7 @@ export class BoardService {
       if (!check.paseoExists) return { ...removed, paseo: { removed: false, workspaces: 0, error: "" } };
       try {
         const { stdout } = await execute(
-          "paseo",
+          await resolvePaseoCli(),
           ["project", "delete", check.paseoProjectId, "--home", paseoHome(), "--json"],
           { timeout: 60000, maxBuffer: 1024 * 1024 },
         );
@@ -360,7 +361,7 @@ export class BoardService {
     if (!native) {
       // From here on the directory may be referenced by a native project; keep it on failure.
       onRegistered?.();
-      await execute("paseo", ["project", "create", primaryPath, "--home", paseoHome(), "--json"], {
+      await execute(await resolvePaseoCli(), ["project", "create", primaryPath, "--home", paseoHome(), "--json"], {
         timeout: 30000,
         maxBuffer: 1024 * 1024,
       });
