@@ -90,6 +90,7 @@ function TaskDrawerView({
   onCreateFromIdea,
   onLink,
   onFollowUp,
+  onSubCard,
   onOpenTask,
   onStatusChanged,
   refresh,
@@ -125,6 +126,8 @@ function TaskDrawerView({
   onLink?(task: Task): void;
   /** Opens the new-task form as a follow-up of this card (CARD-LINKS-SPEC §5.5). */
   onFollowUp?(task: Task): void;
+  /** Opens the new-task form as a sub-card of this card (SUB-CARDS-SPEC §6). */
+  onSubCard?(task: Task): void;
   /** Opens another card's drawer (idea source or result). */
   onOpenTask?(id: string): void;
   /** After this drawer changed the card's status (the board may ask to wrap up). */
@@ -788,6 +791,7 @@ function TaskDrawerView({
               onOpenTask={onOpenTask}
               onLink={onLink}
               onFollowUp={onFollowUp}
+              onSubCard={onSubCard}
               section={sectionStates.links}
             />
           )
@@ -1264,6 +1268,8 @@ const activityText: Record<string, string> = localizedLabels({
   automation_review_started: msg("Started an agent review"),
   automation_review_approved: msg("Approved the delivery"),
   automation_changes_requested: msg("Requested changes"),
+  automation_waiting: msg("Waits for its sub-cards"),
+  automation_woken: msg("Woke the agent: its sub-cards settled"),
 });
 
 function ActivityItem({

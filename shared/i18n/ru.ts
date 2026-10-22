@@ -1373,5 +1373,17 @@ const catalog: Catalog = {
   "Review rounds": "Раунды проверки",
   "Full access": "Полный доступ",
   "Agents run without asking for permissions (Claude bypass, Codex full access). Off: they may stop to ask, and the card shows it.": "Агенты работают, не запрашивая разрешений (bypass в Claude, full access в Codex). Если выключить, они могут останавливаться, чтобы спросить, и карточка это покажет.",
+  "Agents can split a card into sub-cards, each with its own workspace. The parent card shows Sub-cards 2/3, waits while they run and is woken to accept them and finish. New sub-card is in every card's menu.": "Агенты могут разбить карточку на подкарточки, у каждой свой workspace. Родительская карточка показывает «Подкарточки 2/3», ждёт, пока они выполняются, а затем просыпается, чтобы принять их и завершить работу. «Новая подкарточка» есть в меню каждой карточки.",
+  "New sub-card": "Новая подкарточка",
+  "Sub-cards {done}/{total}": "Подкарточки {done}/{total}",
+  "Waits for its sub-cards": "Ждёт свои подкарточки",
+  "Woke the agent: its sub-cards settled": "Разбудил(а) агента: подкарточки остановились",
+  "Create sub-card": "Создать подкарточку",
+  "Sub-card of {title}": "Подкарточка «{title}»",
+  "Sub-card of": "Подкарточка для",
+  "Sub-cards": "Подкарточки",
+  "It handed its work to sub-cards and waits for them": "Передала работу подкарточкам и ждёт их",
+  "Waiting on sub-cards": "Ждёт подкарточки",
+  "Sub-card": "Подкарточка",
 };
 export default catalog;

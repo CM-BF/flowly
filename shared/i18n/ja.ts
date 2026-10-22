@@ -1373,5 +1373,17 @@ const catalog: Catalog = {
   "Review rounds": "レビュー回数",
   "Full access": "フルアクセス",
   "Agents run without asking for permissions (Claude bypass, Codex full access). Off: they may stop to ask, and the card shows it.": "エージェントは権限を確認せずに動作します（Claude の bypass、Codex の full access）。オフにすると確認のために止まることがあり、カードに表示されます。",
+  "Agents can split a card into sub-cards, each with its own workspace. The parent card shows Sub-cards 2/3, waits while they run and is woken to accept them and finish. New sub-card is in every card's menu.": "エージェントはカードをサブカードに分割できます。サブカードはそれぞれ独自の workspace を持ちます。親カードは「サブカード 2/3」と表示し、サブカードの実行中は待機し、終わると起こされてそれらを承認し仕上げます。「新しいサブカード」はどのカードのメニューにもあります。",
+  "New sub-card": "新しいサブカード",
+  "Sub-cards {done}/{total}": "サブカード {done}/{total}",
+  "Waits for its sub-cards": "サブカードを待っています",
+  "Woke the agent: its sub-cards settled": "エージェントを起こしました: サブカードが落ち着きました",
+  "Create sub-card": "サブカードを作成",
+  "Sub-card of {title}": "{title} のサブカード",
+  "Sub-card of": "親カード",
+  "Sub-cards": "サブカード",
+  "It handed its work to sub-cards and waits for them": "作業をサブカードに渡して待っています",
+  "Waiting on sub-cards": "サブカード待ち",
+  "Sub-card": "サブカード",
 };
 export default catalog;

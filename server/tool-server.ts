@@ -39,6 +39,7 @@ import {
   type ToolPreparation,
 } from "../shared/tools";
 import { reviewInputSchema, reviewResultSchema } from "../shared/automation-schema";
+import { createCardInputSchema, createCardResultSchema, updateCardInputSchema, updateCardResultSchema } from "../shared/tools";
 import { AgentService } from "./agent-service";
 import { BoardStore } from "./store";
 import { BoardService } from "./service";
@@ -355,6 +356,28 @@ export class ToolServer {
           },
           (input) => wrap(() => this.agents.review(identity, input)),
         );
+        mcp.registerTool(
+          "flowly_create_card",
+          {
+            description:
+              "Create a card in this project, by default a sub-card of this card (subCard=false for a separate card). Use it to split work that is too big for one session or has parts that can run in parallel, and for follow-up work that must be done (not just suggested: suggestions stay flowly_propose_idea). Each card gets its own workspace (an isolated worktree when the project root is a git repository; baseRef picks the branch or commit it starts from). Its agent cannot see this conversation: put every decision, file, branch and acceptance criterion it needs in the description, and decide shared questions (names, formats, interfaces) here once instead of letting sub-cards each pick. start=now puts it in Todo and, when the project has agent automation on, queues it for an agent; start=later parks it in Backlog until you start it with flowly_update_card. blockedBy lists card ids it waits for (it starts once they are Done). After dispatching sub-cards, end your turn: automation wakes you with their state when none of them is still moving. Do not do a sub-card's work yourself. A repeat of the same request returns the same card. Copy revisions/request from get_task.",
+            inputSchema: createCardInputSchema,
+            outputSchema: createCardResultSchema,
+            annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+          },
+          (input) => wrap(() => this.agents.createCard(identity, input)),
+        );
+        mcp.registerTool(
+          "flowly_update_card",
+          {
+            description:
+              "Manage a direct sub-card of this card (links relation sub_card in get_task): action=start queues a parked (Backlog) or idle sub-card for agent automation; action=accept moves a sub-card delivered to In review to Done after you checked its result (first merge its branch where later cards and this card need its changes: accepting is what releases cards blocked by it); action=cancel cancels one that is no longer needed. Only the parent card's sessions may do this; NOT_PARENT otherwise, NOT_DELIVERED when accepting a sub-card that is not In review. Copy revisions/request from get_task.",
+            inputSchema: updateCardInputSchema,
+            outputSchema: updateCardResultSchema,
+            annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
+          },
+          (input) => wrap(() => this.agents.updateCard(identity, input)),
+        );
         return mcp;
       },
       // A full workpad with multi-byte text can exceed 64 KiB (WORKPAD-SPEC §3).
@@ -440,7 +463,7 @@ export class ToolServer {
     }
     const body = z
       .strictObject({
-        action: z.enum(["get", "status", "progress", "idea", "remember", "recall", "artifact", "artifact_remove", "tags", "type", "next_moves", "workpad", "external", "ticket", "review"]),
+        action: z.enum(["get", "status", "progress", "idea", "remember", "recall", "artifact", "artifact_remove", "tags", "type", "next_moves", "workpad", "external", "ticket", "review", "create_card", "update_card"]),
         input: z.unknown(),
       })
       .parse(JSON.parse(Buffer.concat(chunks).toString("utf8")));
@@ -454,7 +477,11 @@ export class ToolServer {
             ? await this.agents.recall(identity, recallInputSchema.parse(body.input))
             : body.action === "review"
               ? await this.agents.review(identity, reviewInputSchema.parse(body.input))
-              : await this.agents.write(identity, body.action, body.input);
+              : body.action === "create_card"
+                ? await this.agents.createCard(identity, createCardInputSchema.parse(body.input))
+                : body.action === "update_card"
+                  ? await this.agents.updateCard(identity, updateCardInputSchema.parse(body.input))
+                  : await this.agents.write(identity, body.action, body.input);
     this.json(res, { ok: true, result: value });
   }
   private async prepare(

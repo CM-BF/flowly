@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { linkLimits, type Board, type Link, type LinkInput } from "../shared/model";
-import { otherEnd, relationLabels, relationOf, samePair, touches, wouldCycle } from "../shared/links";
+import { otherEnd, relationLabels, relationOf, samePair, subCardProblem, touches, wouldCycle } from "../shared/links";
 import type { BoardStore } from "./store";
 
 /** One line from `taskId`'s side, e.g. "Blocked by: <title>" (CARD-LINKS-SPEC §2.4). */
@@ -15,7 +15,7 @@ export const linkNote = (board: Board, link: Pick<Link, "kind" | "from" | "to">,
 export function addLink(
   store: BoardStore,
   board: Board,
-  input: LinkInput & { ideaId?: string; createdBy?: Link["createdBy"] },
+  input: LinkInput & { ideaId?: string; createdBy?: Link["createdBy"]; actor?: { kind: "agent"; agentId: string } },
   /** `archived`: allow an archived card (a card created from an idea whose source is archived, IDEAS-INBOX-SPEC §2.2). */
   options: { events?: boolean; limit?: boolean; archived?: boolean } = {},
 ): { link: Link; created: boolean } {
@@ -34,6 +34,10 @@ export function addLink(
   if (same) return { link: same, created: false };
   if (input.kind === "related" ? between.length : between.some((l) => l.kind === input.kind))
     throw new Error("These cards are already linked.");
+  if (input.kind === "subtask") {
+    const problem = subCardProblem(board.links, to.id, from.id);
+    if (problem) throw new Error(problem);
+  }
   const cycle = wouldCycle(board.links, input.kind, from.id, to.id);
   if (cycle)
     throw new Error(
@@ -60,7 +64,13 @@ export function addLink(
   board.links.push(link);
   if (options.events !== false)
     for (const id of [from.id, to.id])
-      store.event(board, { taskId: id, actor: "human", action: "linked", note: linkNote(board, link, id) });
+      store.event(board, {
+        taskId: id,
+        actor: input.actor ? "agent" : "human",
+        ...(input.actor ? { agentId: input.actor.agentId } : {}),
+        action: "linked",
+        note: linkNote(board, link, id),
+      });
   return { link, created: true };
 }
 

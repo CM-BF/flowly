@@ -1373,5 +1373,17 @@ const catalog: Catalog = {
   "Review rounds": "審查輪次",
   "Full access": "完整存取",
   "Agents run without asking for permissions (Claude bypass, Codex full access). Off: they may stop to ask, and the card shows it.": "智慧體執行時不請求授權（Claude 的 bypass、Codex 的 full access）。關閉後它們可能停下來請求授權，卡片上會顯示。",
+  "Agents can split a card into sub-cards, each with its own workspace. The parent card shows Sub-cards 2/3, waits while they run and is woken to accept them and finish. New sub-card is in every card's menu.": "智慧體可以把一張卡片拆成子卡片，每張子卡片有自己的 workspace。父卡片顯示「子卡片 2/3」，在子卡片執行時等待，結束後被喚醒來驗收它們並收尾。每張卡片的選單裡都有「新增子卡片」。",
+  "New sub-card": "新增子卡片",
+  "Sub-cards {done}/{total}": "子卡片 {done}/{total}",
+  "Waits for its sub-cards": "等待它的子卡片",
+  "Woke the agent: its sub-cards settled": "喚醒了智慧體：子卡片都已停下",
+  "Create sub-card": "建立子卡片",
+  "Sub-card of {title}": "{title} 的子卡片",
+  "Sub-card of": "子卡片屬於",
+  "Sub-cards": "子卡片",
+  "It handed its work to sub-cards and waits for them": "它把工作交給了子卡片，正在等待",
+  "Waiting on sub-cards": "等待子卡片",
+  "Sub-card": "子卡片",
 };
 export default catalog;

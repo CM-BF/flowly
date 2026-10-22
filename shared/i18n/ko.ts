@@ -1373,5 +1373,17 @@ const catalog: Catalog = {
   "Review rounds": "검토 횟수",
   "Full access": "전체 접근",
   "Agents run without asking for permissions (Claude bypass, Codex full access). Off: they may stop to ask, and the card shows it.": "에이전트가 권한을 묻지 않고 실행됩니다(Claude bypass, Codex full access). 끄면 확인을 위해 멈출 수 있으며 카드에 표시됩니다.",
+  "Agents can split a card into sub-cards, each with its own workspace. The parent card shows Sub-cards 2/3, waits while they run and is woken to accept them and finish. New sub-card is in every card's menu.": "에이전트는 카드를 하위 카드로 나눌 수 있으며, 각 하위 카드는 자체 workspace를 가집니다. 상위 카드는 '하위 카드 2/3'을 표시하고, 하위 카드가 실행되는 동안 기다렸다가 끝나면 깨어나 승인하고 마무리합니다. '새 하위 카드'는 모든 카드의 메뉴에 있습니다.",
+  "New sub-card": "새 하위 카드",
+  "Sub-cards {done}/{total}": "하위 카드 {done}/{total}",
+  "Waits for its sub-cards": "하위 카드를 기다립니다",
+  "Woke the agent: its sub-cards settled": "에이전트를 깨웠습니다: 하위 카드가 멈췄습니다",
+  "Create sub-card": "하위 카드 만들기",
+  "Sub-card of {title}": "{title}의 하위 카드",
+  "Sub-card of": "상위 카드",
+  "Sub-cards": "하위 카드",
+  "It handed its work to sub-cards and waits for them": "작업을 하위 카드에 넘기고 기다리는 중입니다",
+  "Waiting on sub-cards": "하위 카드 대기 중",
+  "Sub-card": "하위 카드",
 };
 export default catalog;

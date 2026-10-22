@@ -1,6 +1,6 @@
 import { laneName, laneProblem } from "../shared/lanes";
 import { resolvePaseoCli } from "./paseo-cli";
-import { linkContextLines, linksOf } from "../shared/links";
+import { childrenOf, depthOf, linkContextLines, linksOf, subCardLimits } from "../shared/links";
 import { artifactContextLines, artifactsOf } from "../shared/artifacts";
 import { addLink } from "./links";
 import { putArtifact } from "./artifacts";
@@ -454,7 +454,8 @@ export class BoardService {
    * the card is written; the two live in different files, so a failed accept
    * leaves the card and the suggestion open (logged).
    */
-  async createTask(input: TaskInput, paseo: PaseoApi) {
+  /** `agent`: an agent working on another card creates this one (SUB-CARDS-SPEC §3). */
+  async createTask(input: TaskInput, paseo: PaseoApi, agent?: { agentId: string; taskId: string }) {
     const findingId = input.insightFindingId;
     if (findingId) {
       if (!this.insightFindings) throw new Error("Workflow insights are unavailable.");
@@ -462,14 +463,14 @@ export class BoardService {
       const board = await this.store.read();
       if (!board.tasks.some((t) => t.operationId === input.operationId)) await this.insightFindings.check(input.projectId, findingId);
     }
-    const task = await this.createCard(input, paseo);
+    const task = await this.createCard(input, paseo, agent);
     if (findingId)
       await this.insightFindings!.accept(input.projectId, findingId, task.id).catch((e) =>
         console.error("Workflow insights suggestion not marked accepted:", e instanceof Error ? e.message : String(e)),
       );
     return task;
   }
-  private createCard(input: TaskInput, paseo: PaseoApi) {
+  private createCard(input: TaskInput, paseo: PaseoApi, agent?: { agentId: string; taskId: string }) {
     return this.serialize(async () => {
       const board = await this.store.read();
       const previous = board.tasks.find(
@@ -488,6 +489,8 @@ export class BoardService {
       if (input.ideaId) openIdea(board, input.ideaId, project.id);
       if (input.ideaId && input.followUpOf) throw new Error("A card comes from an idea or follows up a card, not both.");
       if (input.followUpOf) followUpSource(board, input.followUpOf, project.id);
+      if (input.subCardOf) subCardParent(board, input.subCardOf, project.id);
+      if (input.blockedBy?.length) blockers(board, input.blockedBy, project.id);
       // Each external item is read before any workspace exists; one that can't be read refuses the card.
       const externals = input.externals?.length
         ? await (async () => {
@@ -576,6 +579,8 @@ export class BoardService {
             throw new Error("Project changed during workspace creation.");
           const idea = input.ideaId ? openIdea(current, input.ideaId, project.id) : undefined;
           if (input.followUpOf) followUpSource(current, input.followUpOf, project.id);
+          if (input.subCardOf) subCardParent(current, input.subCardOf, project.id);
+          if (input.blockedBy?.length) blockers(current, input.blockedBy, project.id);
           const now = new Date().toISOString();
           const task = {
             id: randomUUID(),
@@ -588,7 +593,9 @@ export class BoardService {
             status: input.status,
             priority: input.priority,
             ...(input.type ? { type: input.type } : {}),
-            ...(tags.length ? { tags: tags.map((tag) => ({ tag, by: "human" as const, at: now })) } : {}),
+            ...(tags.length
+              ? { tags: tags.map((tag) => (agent ? { tag, by: "agent" as const, agentId: agent.agentId, at: now } : { tag, by: "human" as const, at: now })) }
+              : {}),
             position: Math.max(
               -1,
               ...current.tasks
@@ -604,13 +611,20 @@ export class BoardService {
             archivedAt: null,
             ownsWorkspace: input.mode !== "existing",
             ...(idea ? { origin: { taskId: idea.taskId, ideaId: idea.id } } : {}),
+            ...(agent ? { createdByAgent: agent } : {}),
           };
           current.tasks.push(task);
           this.store.event(current, {
             taskId: task.id,
-            actor: "human",
+            actor: agent ? "agent" : "human",
+            ...(agent ? { agentId: agent.agentId } : {}),
             action: "created",
           });
+          const actor = agent ? { kind: "agent" as const, agentId: agent.agentId } : undefined;
+          // Sub-card and order links in the same write (SUB-CARDS-SPEC §2).
+          if (input.subCardOf) addLink(this.store, current, { kind: "subtask", from: task.id, to: input.subCardOf, createdBy: agent ? "system" : "human", actor });
+          for (const blocker of input.blockedBy ?? [])
+            addLink(this.store, current, { kind: "blocks", from: blocker, to: task.id, createdBy: agent ? "system" : "human", actor });
           // The new card follows up its source (CARD-LINKS-SPEC §3).
           if (idea)
             addLink(this.store, current, { kind: "derived", from: task.id, to: idea.taskId, ideaId: idea.id, createdBy: "system" }, { events: false, limit: false, archived: true });
@@ -706,6 +720,26 @@ export function followUpSource(board: Board, id: string, projectId: string) {
   if (board.links.filter((l) => l.from === id || l.to === id).length >= linkLimits.perTask)
     throw new Error(`A card can have at most ${linkLimits.perTask} links.`);
   return source;
+}
+
+/** The card a new sub-card goes under (SUB-CARDS-SPEC §2), or an error. */
+export function subCardParent(board: Board, id: string, projectId: string) {
+  const parent = board.tasks.find((t) => t.id === id);
+  if (!parent || parent.projectId !== projectId) throw new Error("The parent card is no longer in this project.");
+  if (parent.archivedAt) throw new Error("Archived cards can't get sub-cards.");
+  if (childrenOf(board.links, id).length >= subCardLimits.perParent) throw new Error(`A card can have at most ${subCardLimits.perParent} sub-cards.`);
+  if (depthOf(board.links, id) + 1 > subCardLimits.depth) throw new Error(`Sub-cards go at most ${subCardLimits.depth} levels deep.`);
+  return parent;
+}
+
+/** The cards a new card waits for: live cards of the same project. */
+export function blockers(board: Board, ids: readonly string[], projectId: string) {
+  return ids.map((id) => {
+    const blocker = board.tasks.find((t) => t.id === id);
+    if (!blocker || blocker.projectId !== projectId) throw new Error(`Card ${id} is not in this project.`);
+    if (blocker.archivedAt) throw new Error(`Card ${blocker.title} is archived.`);
+    return blocker;
+  });
 }
 
 /** The open idea `id` of this project, or an error (IDEAS-SPEC §6). */

@@ -35,7 +35,7 @@ export type LiveTaskCardProps = Omit<TaskCardProps, "output" | "menu" | "onOpen"
 };
 
 /** Derived props arrive as fresh objects each board render; compare their content. */
-const contentProps = new Set(["summary", "progress", "outputSession", "workpad", "display", "automation"]);
+const contentProps = new Set(["summary", "progress", "outputSession", "workpad", "display", "automation", "subCards"]);
 function sameLiveCard(a: LiveTaskCardProps, b: LiveTaskCardProps) {
   const keys = new Set([...Object.keys(a), ...Object.keys(b)]) as Set<keyof LiveTaskCardProps>;
   for (const key of keys) {
@@ -93,6 +93,7 @@ export function TaskCard({
   waitingTitles = "",
   attentionDismissed = false,
   automation = null,
+  subCards = null,
   display = defaultCardDisplay,
   flash = false,
   dragging,
@@ -132,6 +133,8 @@ export function TaskCard({
   attentionDismissed?: boolean;
   /** What agent automation is doing with the card (AUTOMATION-SPEC §6.1). */
   automation?: AutomationSignal | null;
+  /** Its sub-cards: how many are finished of all (SUB-CARDS-SPEC §6). */
+  subCards?: { done: number; total: number } | null;
   /** Which fields show (CARD-DISPLAY-SPEC); the accessibility label always lists everything. */
   display?: CardDisplay;
   /** Briefly emphasize a card whose status just changed (often an automatic move). */
@@ -266,6 +269,7 @@ export function TaskCard({
           ideas ? tn(ideas, "{n} idea", "{n} ideas") : "",
           waiting ? tn(waiting, "Waiting on {n} card: {waitingTitles}", "Waiting on {n} cards: {waitingTitles}", { waitingTitles }) : "",
           automation?.text ?? "",
+          subCards ? t("Sub-cards {done}/{total}", subCards) : "",
           progress ? t("Progress: {state}", { state: progress.state }) : "",
           workpad ? workpadText(workpad) : "",
           attentionDismissed ? t("Dismissed from Attention") : "",
@@ -319,6 +323,7 @@ export function TaskCard({
           workpad={workpad}
           waiting={waiting}
           automation={automation}
+          subCards={subCards}
           attentionDismissed={attentionDismissed}
           display={display}
         />
@@ -448,6 +453,7 @@ function CardSignals({
   workpad,
   waiting,
   automation,
+  subCards,
   attentionDismissed,
   display,
 }: {
@@ -464,6 +470,7 @@ function CardSignals({
   workpad: WorkpadSignal | null;
   waiting: number;
   automation: AutomationSignal | null;
+  subCards: { done: number; total: number } | null;
   attentionDismissed: boolean;
   display: CardDisplay;
 }) {
@@ -474,6 +481,7 @@ function CardSignals({
     items.push(<Signal key="question" icon="MessageCircleQuestion" color={colors.statusWarning} text={t("Needs you")} />);
   if (waiting) items.push(<Signal key="waiting" icon="Hourglass" text={t("Waiting on {waiting}", { waiting })} />);
   if (automation) items.push(<AutomationItem key="automation" signal={automation} />);
+  if (subCards) items.push(<Signal key="sub-cards" icon="ListTree" text={t("Sub-cards {done}/{total}", subCards)} />);
   if (!available && wrapped)
     items.push(<Signal key="wrapped" icon="CircleCheck" text={t("Wrapped up")} />);
   else if (!available)

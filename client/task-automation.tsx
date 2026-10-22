@@ -30,6 +30,7 @@ const reasons: Record<AutomationCode, string> = localizedLabels({
   session_unavailable: msg("The agent's session is no longer available"),
   review_rounds: msg("All review rounds were used"),
   review_incomplete: msg("The reviewer gave no verdict"),
+  sub_cards: msg("It handed its work to sub-cards and waits for them"),
 });
 
 /** The card's automation in a few words; null when the lane already says it (stopped, or delivered without a review). */
@@ -48,6 +49,8 @@ export function automationSignal(job: AutomationJob | undefined): AutomationSign
       return { text: t("Agent retrying"), icon: "RotateCw", tone: "warning" };
     case "needs_human":
       return { text: job.code === "permission" ? t("Agent needs permission") : t("Agent waiting for you"), icon: "Hand", tone: "warning" };
+    case "waiting":
+      return { text: t("Waiting on sub-cards"), icon: "ListTree", tone: "info" };
     case "delivered":
       if (job.verdict === "approved") return { text: t("Agent review passed"), icon: "BadgeCheck", tone: "success" };
       return job.verdict ? { text: t("Review needs you"), icon: "TriangleAlert", tone: "warning" } : null;

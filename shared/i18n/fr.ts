@@ -1373,5 +1373,17 @@ const catalog: Catalog = {
   "Review rounds": "Tours de revue",
   "Full access": "Accès complet",
   "Agents run without asking for permissions (Claude bypass, Codex full access). Off: they may stop to ask, and the card shows it.": "Les agents s'exécutent sans demander d'autorisation (bypass pour Claude, full access pour Codex). Désactivé : ils peuvent s'arrêter pour demander, et la carte l'indique.",
+  "Agents can split a card into sub-cards, each with its own workspace. The parent card shows Sub-cards 2/3, waits while they run and is woken to accept them and finish. New sub-card is in every card's menu.": "Les agents peuvent découper une carte en sous-cartes, chacune avec son propre workspace. La carte parente affiche Sous-cartes 2/3, attend pendant qu'elles tournent puis est réveillée pour les accepter et terminer. Nouvelle sous-carte se trouve dans le menu de chaque carte.",
+  "New sub-card": "Nouvelle sous-carte",
+  "Sub-cards {done}/{total}": "Sous-cartes {done}/{total}",
+  "Waits for its sub-cards": "Attend ses sous-cartes",
+  "Woke the agent: its sub-cards settled": "A réveillé l'agent : ses sous-cartes se sont arrêtées",
+  "Create sub-card": "Créer une sous-carte",
+  "Sub-card of {title}": "Sous-carte de {title}",
+  "Sub-card of": "Sous-carte de",
+  "Sub-cards": "Sous-cartes",
+  "It handed its work to sub-cards and waits for them": "Elle a confié son travail à des sous-cartes et les attend",
+  "Waiting on sub-cards": "En attente des sous-cartes",
+  "Sub-card": "Sous-carte",
 };
 export default catalog;

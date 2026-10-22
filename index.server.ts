@@ -232,6 +232,8 @@ export default function contribute(server: PluginServerContext) {
     },
   });
   tools.agents.automation = automation;
+  // Agents create cards and sub-cards (SUB-CARDS-SPEC §3) through the same path as New task.
+  tools.agents.createTask = (input, paseo, agent) => service.createTask(input, paseo, agent);
   automation.start();
   // Every handler and hook hands its Paseo connection on: the tools use it, and the dispatcher runs on the latest.
   const attach = (paseo: PaseoApi) => {
@@ -355,7 +357,7 @@ export default function contribute(server: PluginServerContext) {
   // wrap-up archived (WORKSPACE-RESTORE-SPEC), also in the background.
   const afterStatus = (previous: string | undefined, task: { id: string; status: string }, paseo: PaseoApi) => {
     // A person moving the card can end its automation (AUTOMATION-SPEC §4.3).
-    void automation.humanMoved(task.id, previous, task.status).catch((e) =>
+    void automation.cardMoved(task.id, previous, task.status).catch((e) =>
       console.error("Flowly automation not updated after a move:", e instanceof Error ? e.message : String(e)),
     );
     if (finished(previous) && !finished(task.status)) {
@@ -375,6 +377,8 @@ export default function contribute(server: PluginServerContext) {
       console.error("Kanban auto wrap-up failed:", e instanceof Error ? e.message : String(e)),
     );
   };
+  // A parent card's agent accepting or cancelling a sub-card has the same effects as a person's move (SUB-CARDS-SPEC §4).
+  tools.agents.onStatusChange = (previous, task, paseo) => afterStatus(previous, task, paseo);
   const statusOf = async (id: string) => (await store.read()).tasks.find((t) => t.id === id)?.status;
   server.handle(rpc.updateTask, async (input, { paseo }) => {
     const previous = input.status ? await statusOf(input.id) : undefined;

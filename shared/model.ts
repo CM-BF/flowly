@@ -144,6 +144,8 @@ export const taskSchema = z.object({
   ownsWorkspace: z.boolean().optional(),
   /** Created from an idea proposed on another card (IDEAS-SPEC §2.2). */
   origin: z.object({ taskId: z.string(), ideaId: z.string() }).optional(),
+  /** Created by an agent working on card `taskId` (SUB-CARDS-SPEC §3). */
+  createdByAgent: z.object({ agentId: z.string(), taskId: z.string() }).optional(),
 });
 /** A follow-up an agent proposed on its card; the user may turn it into a card (IDEAS-SPEC). */
 export const ideaStatuses = ["open", "accepted", "dismissed"] as const;
@@ -174,12 +176,12 @@ export const ideaSchema = z.object({
 });
 export type Idea = z.infer<typeof ideaSchema>;
 /** A link between two cards of one project (CARD-LINKS-SPEC §2.1). */
-export const linkKinds = ["derived", "related", "blocks"] as const;
+export const linkKinds = ["derived", "related", "blocks", "subtask"] as const;
 export const linkLimits = { perTask: 50 } as const;
 export const linkSchema = z.object({
   id: z.string(),
   projectId: z.string(),
-  /** derived: from = follow-up card, to = source card. blocks: from blocks to. related: no direction. */
+  /** derived: from = follow-up card, to = source card. blocks: from blocks to. subtask: from = sub-card, to = its parent (SUB-CARDS-SPEC). related: no direction. */
   kind: z.enum(linkKinds),
   from: z.string(),
   to: z.string(),
@@ -542,6 +544,10 @@ export const taskInput = z.strictObject({
   ideaId: z.string().min(1).optional(),
   /** Create as a follow-up of this card (CARD-LINKS-SPEC §3); not together with ideaId. */
   followUpOf: z.string().min(1).optional(),
+  /** Create as a sub-card of this card (SUB-CARDS-SPEC §2). */
+  subCardOf: z.string().min(1).optional(),
+  /** Cards of the project the new card waits for (blocks links, SUB-CARDS-SPEC §2). */
+  blockedBy: z.array(z.string().min(1)).max(10).optional(),
   /** Create from this open workflow-insights suggestion (WORKFLOW-INSIGHTS-SPEC §5.2). */
   insightFindingId: z.string().min(1).max(100).optional(),
   /** External items added as inputs in the same write (EXTERNAL-TRACKER-SPEC §5.4, CONNECTORS-SPEC §8.2). */

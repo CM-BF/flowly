@@ -500,3 +500,52 @@ export type NextMovesInput = z.infer<typeof nextMovesInputSchema>;
 export type ArtifactToolInput = z.infer<typeof artifactInputSchema>;
 export type ArtifactRemovalInput = z.infer<typeof artifactRemovalSchema>;
 export type WorkpadInput = z.infer<typeof workpadInputSchema>;
+
+/** flowly_create_card (SUB-CARDS-SPEC §3): a new card of this project, by default a sub-card of the caller's card. */
+export const createCardInputSchema = z.strictObject({
+  expectedRevision: revisionSchema,
+  request: requestSchema,
+  title: z.string().trim().min(1).max(200),
+  description: z.string().max(20000).default(""),
+  type: taskTypeSchema.optional(),
+  priority: prioritySchema.default("normal"),
+  tags: tagInputList.optional(),
+  /** true: a sub-card of the caller's card; false: a separate card of the project. */
+  subCard: z.boolean().default(true),
+  /** now: Todo, and queued for agent automation when the project has it on; later: parked in Backlog. */
+  start: z.enum(["now", "later"]).default("now"),
+  /** Cards of the project this one waits for (ids from flowly_get_task links or earlier flowly_create_card results). */
+  blockedBy: z.array(z.string().min(1).max(200)).max(10).default([]),
+  /** Default: an isolated worktree when the project root is a git repository, else a directory workspace. */
+  workspace: z.enum(["worktree", "directory"]).optional(),
+  /** Worktree base: a branch or commit (default: the project root's current branch). */
+  baseRef: z.string().trim().max(200).optional(),
+});
+export type CreateCardInput = z.input<typeof createCardInputSchema>;
+export const createCardResultSchema = z.object({
+  cardId: z.string(),
+  title: z.string(),
+  status: statusSchema,
+  subCardOf: z.string().optional(),
+  queued: z.boolean(),
+  replayed: z.boolean().optional(),
+  message: z.string(),
+});
+
+/** flowly_update_card (SUB-CARDS-SPEC §4): the parent card's agent manages one of its direct sub-cards. */
+export const updateCardInputSchema = z.strictObject({
+  expectedRevision: revisionSchema,
+  request: requestSchema,
+  cardId: z.string().min(1).max(200),
+  /** start: queue a parked or idle sub-card; accept: Done for a delivered (In review) sub-card; cancel: Cancelled. */
+  action: z.enum(["start", "accept", "cancel"]),
+  note: z.string().trim().max(2000).default(""),
+});
+export type UpdateCardInput = z.input<typeof updateCardInputSchema>;
+export const updateCardResultSchema = z.object({
+  cardId: z.string(),
+  status: statusSchema,
+  queued: z.boolean(),
+  replayed: z.boolean().optional(),
+  message: z.string(),
+});

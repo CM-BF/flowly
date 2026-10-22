@@ -37,6 +37,8 @@ export const automationStates = [
   "working",
   /** The active session waits for a person: a question, a blocker, a permission or an interrupted turn. */
   "needs_human",
+  /** The implementer handed work to sub-cards; it is woken when they stop moving (SUB-CARDS-SPEC §5). Holds no slot. */
+  "waiting",
   /** A turn failed; the same session is told to continue at `retryAt`. */
   "retry_wait",
   /** The reviewer session is supervised. */
@@ -65,6 +67,7 @@ export const automationCodes = [
   "session_unavailable",
   "review_rounds",
   "review_incomplete",
+  "sub_cards",
 ] as const;
 export type AutomationCode = (typeof automationCodes)[number];
 
@@ -91,6 +94,8 @@ export const automationJobSchema = z.object({
   turnAt: z.string().optional(),
   /** The preparation of a session being created; after a restart the same id is created again, never a second one. */
   pendingOp: z.string().optional(),
+  /** What the sub-cards looked like when the parent last saw them (SUB-CARDS-SPEC §5); a change wakes it. */
+  subSeen: z.string().max(20000).optional(),
   queuedAt: z.string(),
   startedAt: z.string().optional(),
   updatedAt: z.string(),

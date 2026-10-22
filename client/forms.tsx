@@ -419,6 +419,9 @@ export type TaskSeed = {
   insightFindingId?: string;
   followUpOf?: string;
   followUpTitle?: string;
+  /** A sub-card of this card (SUB-CARDS-SPEC §6). */
+  subCardOf?: string;
+  subCardTitle?: string;
   title: string;
   description: string;
   type?: TaskType;
@@ -561,6 +564,7 @@ export function TaskForm({
             ...(seed?.ideaId ? { ideaId: seed.ideaId } : {}),
             ...(seed?.insightFindingId ? { insightFindingId: seed.insightFindingId } : {}),
             ...(seed?.followUpOf ? { followUpOf: seed.followUpOf } : {}),
+            ...(seed?.subCardOf ? { subCardOf: seed.subCardOf } : {}),
             ...(externals.length
               ? { externals: externals.map((x) => ({ connectionId: x.item.connectionId, key: x.item.key, itemType: x.item.itemType })) }
               : {}),
@@ -599,7 +603,7 @@ export function TaskForm({
   return (
     <Modal
       open
-      title={task ? t("Edit task") : seed?.ideaId ? t("Create task from idea") : seed?.followUpOf ? t("Create follow-up task") : t("Create task")}
+      title={task ? t("Edit task") : seed?.ideaId ? t("Create task from idea") : seed?.followUpOf ? t("Create follow-up task") : seed?.subCardOf ? t("Create sub-card") : t("Create task")}
       onOpenChange={(open) => {
         if (!open && !pending) onClose();
       }}
@@ -607,6 +611,9 @@ export function TaskForm({
       <Modal.Content>
         <Theme.Provider value={theme}>
         <View style={{ gap: 16 }}>
+          {!!seed?.subCardTitle && (
+            <Label muted size={font.sm} lines={1}>{t("Sub-card of {title}", { title: seed.subCardTitle })}</Label>
+          )}
           {!!seed?.followUpTitle && (
             <Label muted size={font.sm} lines={1}>{t("Follow-up of {title}", { title: seed.followUpTitle })}</Label>
           )}

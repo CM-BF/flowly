@@ -1,5 +1,5 @@
 import type { Board, Project, Task } from "./model";
-import { linksOf } from "./links";
+import { childrenOf, linksOf } from "./links";
 import {
   automationSettingsSchema,
   type AutomationCode,
@@ -19,7 +19,7 @@ export function automationOf(project: Pick<Project, "automation"> | null | undef
 export const jobOf = (board: Pick<Board, "automation">, taskId: string) => board.automation.find((j) => j.taskId === taskId);
 
 /** States in which the job still drives its card. */
-export const liveStates: readonly AutomationState[] = ["queued", "starting", "working", "needs_human", "retry_wait", "reviewing"];
+export const liveStates: readonly AutomationState[] = ["queued", "starting", "working", "needs_human", "waiting", "retry_wait", "reviewing"];
 /** States that hold one of the project's running slots (Hermes counts claimed tasks the same way). */
 export const slotStates: readonly AutomationState[] = ["starting", "working", "retry_wait", "reviewing"];
 export const isLive = (job: Pick<AutomationJob, "state"> | undefined) => !!job && liveStates.includes(job.state);
@@ -107,7 +107,9 @@ export type TurnDecision =
   | { kind: "nudge"; count: number }
   | { kind: "retry"; count: number; at: string }
   /** Limits exhausted. `blockCard`: the card moves to Blocked so it stops looking active. */
-  | { kind: "give_up"; code: AutomationCode; blockCard: boolean };
+  | { kind: "give_up"; code: AutomationCode; blockCard: boolean }
+  /** The implementer dispatched sub-cards that are still moving: wait for them (Multica's sub-issue wakeup). */
+  | { kind: "await_children"; signature: string };
 
 /** `agentId`'s events since its latest turn started. */
 function thisTurn(board: Pick<Board, "events">, taskId: string, agentId: string) {
@@ -141,14 +143,14 @@ export const blockedThisTurn = (board: Pick<Board, "events">, taskId: string, ag
  * sessions are ignored.
  */
 export function turnDecision(
-  board: Pick<Board, "tasks" | "events">,
+  board: Pick<Board, "tasks" | "events" | "links" | "automation">,
   job: AutomationJob,
   agentId: string,
   outcome: TurnOutcome,
   settings: AutomationSettings,
   now: number,
 ): TurnDecision {
-  if (!["starting", "working", "reviewing", "needs_human"].includes(job.state) || activeAgent(job) !== agentId) return { kind: "ignore" };
+  if (!["starting", "working", "reviewing", "needs_human", "waiting"].includes(job.state) || activeAgent(job) !== agentId) return { kind: "ignore" };
   const task = board.tasks.find((t) => t.id === job.taskId);
   if (!task) return { kind: "ignore" };
   if (task.archivedAt || task.status === "done" || task.status === "cancelled") return { kind: "stop", code: "card_finished" };
@@ -170,9 +172,42 @@ export function turnDecision(
     }
     if (task.status === "blocked" && blockedThisTurn(board, task.id, agentId)) return { kind: "wait", code: "blocked" };
     if (askedThisTurn(board, task.id, agentId)) return { kind: "wait", code: "question" };
+    if (childrenOf(board.links, task.id).some((id) => subCardActive(board, id))) return { kind: "await_children", signature: subCardSignature(board, task.id) };
   }
   if (job.nudges < settings.nudgeLimit) return { kind: "nudge", count: job.nudges + 1 };
   return reviewer ? { kind: "give_up", code: "review_incomplete", blockCard: false } : { kind: "give_up", code: "no_delivery", blockCard: true };
+}
+
+/**
+ * Whether a sub-card is still moving without its parent (SUB-CARDS-SPEC §5): an agent
+ * works on it, waits for a person, or is about to start. A queued card held by blockers
+ * that are not Done is not moving: it waits for the parent (or a person) to accept them.
+ */
+export function subCardActive(board: Pick<Board, "tasks" | "links" | "automation">, id: string): boolean {
+  const task = board.tasks.find((t) => t.id === id);
+  if (!task || task.archivedAt || task.status === "done" || task.status === "cancelled") return false;
+  const job = jobOf(board, id);
+  if (!job || !isLive(job)) return false;
+  if (job.state === "queued") return readiness(board, id).ready;
+  return true;
+}
+
+/** The sub-cards' state as the parent last saw it; a different value wakes the parent. */
+export function subCardSignature(board: Pick<Board, "tasks" | "links" | "automation">, parentId: string) {
+  return childrenOf(board.links, parentId)
+    .map((id) => {
+      const task = board.tasks.find((t) => t.id === id);
+      const job = jobOf(board, id);
+      return `${id}:${task?.archivedAt ? "archived" : (task?.status ?? "gone")}:${job?.state ?? ""}:${job?.verdict ?? ""}`;
+    })
+    .join("|");
+}
+
+/** A waiting parent wakes when none of its sub-cards is moving and they changed since it last looked. */
+export function parentShouldWake(board: Pick<Board, "tasks" | "links" | "automation">, job: AutomationJob) {
+  if (job.state !== "waiting") return false;
+  if (childrenOf(board.links, job.taskId).some((id) => subCardActive(board, id))) return false;
+  return subCardSignature(board, job.taskId) !== job.subSeen;
 }
 
 /** Provider modes that never stop for approval; unattended sessions use them when full access is on. */
@@ -181,7 +216,7 @@ export const unattendedModes: Readonly<Record<string, string>> = { claude: "bypa
 // Messages the daemon sends to sessions. Agent-facing text stays English (I18N-SPEC).
 const tag = "[Flowly automation]";
 const lifecycle =
-  "Follow the Flowly skill: read flowly_get_task, fix setup.missing, set the stage that matches the work, keep the workpad current. End by delivering with flowly_update_status status=in_review and a note on what changed, how you verified it and what you did not run. If you cannot continue without a person (a decision, credentials, access), ask with flowly_report_progress kind=question or set status=blocked with the reason, then end your turn: nobody is watching this session live, so do not wait and do not guess.";
+  "Follow the Flowly skill: read flowly_get_task, fix setup.missing, set the stage that matches the work, keep the workpad current. End by delivering with flowly_update_status status=in_review and a note on what changed, how you verified it and what you did not run. If you cannot continue without a person (a decision, credentials, access), ask with flowly_report_progress kind=question or set status=blocked with the reason, then end your turn: nobody is watching this session live, so do not wait and do not guess. If the card is too big for one session or has parallel parts, split it into sub-cards with flowly_create_card and end your turn; you are woken when they settle.";
 
 export function startPrompt(input: { review: boolean; again: boolean }) {
   return [
@@ -225,5 +260,21 @@ export function changesPrompt(round: number, max: number, summary: string, findi
     summary,
     ...findings.map((f) => `- ${f}`),
     "Fix them, rerun the checks, update the workpad and deliver again with flowly_update_status status=in_review.",
+  ].join("\n");
+}
+
+/** One line per sub-card for the parent's wake-up message: where it is and what automation made of it. */
+export type SubCardLine = { id: string; title: string; lane: string; job?: Pick<AutomationJob, "state" | "verdict" | "code">; branch?: string; directory?: string };
+
+export function childrenPrompt(lines: readonly SubCardLine[]) {
+  const describe = (l: SubCardLine) => {
+    const auto = l.job ? `automation ${l.job.state}${l.job.verdict ? `, review ${l.job.verdict}` : ""}${l.job.code ? ` (${l.job.code})` : ""}` : "not run by automation";
+    const where = l.branch ? `; branch ${l.branch}${l.directory ? ` in ${l.directory}` : ""}` : "";
+    return `- ${l.title} (${l.id}): ${l.lane}; ${auto}${where}`;
+  };
+  return [
+    `${tag} Your sub-cards changed and none of them is still moving:`,
+    ...lines.map(describe),
+    "Check what each delivered (flowly_get_task links, its workpad, its branch). Accept a sub-card that is done right with flowly_update_card action=accept; first bring its changes where later cards and this card need them (merge its branch). Start parked or idle ones with action=start, cancel ones no longer needed with action=cancel, or create more with flowly_create_card. When this card's own goal is met, deliver it with flowly_update_status status=in_review. If you start or create sub-cards, end your turn: you are woken again when they settle.",
   ].join("\n");
 }

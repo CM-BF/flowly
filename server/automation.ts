@@ -8,6 +8,10 @@ import {
   activeAgent,
   automationOf,
   changesPrompt,
+  childrenPrompt,
+  parentShouldWake,
+  subCardSignature,
+  type SubCardLine,
   dispatchPlan,
   isLive,
   jobOf,
@@ -27,7 +31,10 @@ import {
   type TurnDecision,
   type TurnOutcome,
 } from "../shared/automation";
+import { childrenOf } from "../shared/links";
+import { laneName } from "../shared/lanes";
 import { resumeStage } from "./progress-rules";
+import { defaultGit, readHead } from "./workpad";
 import type { BoardStore } from "./store";
 import { ToolError } from "./tool-error";
 
@@ -109,6 +116,8 @@ export class AutomationService {
   private async tick() {
     if (!this.paseo) return;
     await this.reconcile();
+    const settled = await this.store.read();
+    for (const job of settled.automation) if (parentShouldWake(settled, job)) await this.wake(job);
     const plan = dispatchPlan(await this.store.read(), this.clock());
     for (const job of plan.retry) await this.resume(job);
     for (const job of plan.start) await this.begin(job);
@@ -116,8 +125,11 @@ export class AutomationService {
 
   // ---- People's actions -------------------------------------------------
 
-  /** "Run with agent": queue the card (Hermes `assign`). Keeps the implementer session of an earlier run. */
-  queue(taskId: string) {
+  /**
+   * "Run with agent": queue the card (Hermes `assign`). Keeps the implementer session of an earlier run.
+   * `by`: the agent of a parent card starting its sub-card (SUB-CARDS-SPEC §4).
+   */
+  queue(taskId: string, by?: { agentId: string }) {
     return this.store
       .transaction((board) => {
         const task = board.tasks.find((t) => t.id === taskId);
@@ -143,7 +155,7 @@ export class AutomationService {
           updatedAt: now,
         };
         board.automation = [...board.automation.filter((j) => j.taskId !== taskId), job];
-        this.store.event(board, { taskId, actor: "human", action: "automation_queued" });
+        this.store.event(board, { taskId, actor: by ? "agent" : "human", ...(by ? { agentId: by.agentId } : {}), action: "automation_queued" });
         return { value: job, changed: true };
       })
       .then((job) => {
@@ -164,11 +176,11 @@ export class AutomationService {
   }
 
   /**
-   * A person moved the card. Done/Cancelled ends the job; Backlog ends it too,
+   * A person (or a parent card's agent) moved the card. Done/Cancelled ends the job; Backlog ends it too,
    * and so do Todo and Blocked once an agent is on it (that is the person taking
    * the card back). Moves between work stages are the agent's business.
    */
-  async humanMoved(taskId: string, previous: string | undefined, next: string) {
+  async cardMoved(taskId: string, previous: string | undefined, next: string) {
     if (previous === next) return;
     await this.store.transaction((board) => {
       const job = jobOf(board, taskId);
@@ -191,7 +203,7 @@ export class AutomationService {
     await this.store.transaction((board) => {
       const job = board.automation.find(
         (j) =>
-          (activeAgent(j) === agentId && (j.state === "needs_human" || j.state === "starting")) ||
+          (activeAgent(j) === agentId && (j.state === "needs_human" || j.state === "starting" || j.state === "waiting")) ||
           // Feedback after a delivery: the implementer works again, and its next delivery is reviewed again (Hermes reopen-review).
           (j.state === "delivered" && j.implementerId === agentId),
       );
@@ -238,7 +250,7 @@ export class AutomationService {
    */
   async turnEnded(agentId: string) {
     const board = await this.store.read();
-    const job = board.automation.find((j) => activeAgent(j) === agentId && ["starting", "working", "reviewing", "needs_human"].includes(j.state));
+    const job = board.automation.find((j) => activeAgent(j) === agentId && ["starting", "working", "reviewing", "needs_human", "waiting"].includes(j.state));
     if (!job) return;
     const ended = latestTurnEnd(board, job.taskId, agentId);
     if (!ended || (job.turnAt && ended.at <= job.turnAt)) return;
@@ -289,6 +301,14 @@ export class AutomationService {
         case "wait":
           job.state = "needs_human";
           job.code = decision.code;
+          break;
+        case "await_children":
+          job.state = "waiting";
+          job.code = "sub_cards";
+          job.subSeen = decision.signature;
+          job.nudges = 0;
+          job.failures = 0;
+          note("automation_waiting", `Waiting for ${childrenOf(board.links, job.taskId).length} sub-cards`);
           break;
         case "stop":
           this.close(job, "stopped", decision.code);
@@ -620,9 +640,50 @@ export class AutomationService {
       }
       const last = latestLifecycle(board, job.taskId, agentId);
       if (last?.action === "agent.turn_ended" && (!job.turnAt || last.at > job.turnAt)) await this.turnEnded(agentId);
-      else if (last?.action === "agent.turn_started" && job.state === "needs_human" && job.code !== "permission" && (!job.turnAt || last.at > job.turnAt))
+      else if (last?.action === "agent.turn_started" && (job.state === "waiting" || (job.state === "needs_human" && job.code !== "permission")) && (!job.turnAt || last.at > job.turnAt))
         await this.turnStarted(agentId);
     }
+  }
+
+  /** A waiting parent whose sub-cards settled gets their summary and works again (SUB-CARDS-SPEC §5). */
+  private async wake(seen: AutomationJob) {
+    const woken = await this.store.transaction((board) => {
+      const job = jobOf(board, seen.taskId);
+      if (!job || job.generation !== seen.generation || !parentShouldWake(board, job)) return { value: null, changed: false };
+      job.state = "working";
+      job.role = "implementer";
+      job.subSeen = subCardSignature(board, job.taskId);
+      job.turnAt = this.now();
+      job.updatedAt = job.turnAt;
+      job.nudges = 0;
+      delete job.code;
+      this.store.event(board, { taskId: job.taskId, actor: "system", action: "automation_woken", note: "Its sub-cards settled" });
+      return { value: { ...job }, changed: true };
+    });
+    if (!woken) return;
+    const board = await this.store.read();
+    const project = board.projects.find((p) => p.id === woken.projectId);
+    const lines: SubCardLine[] = [];
+    for (const id of childrenOf(board.links, woken.taskId)) {
+      const task = board.tasks.find((t) => t.id === id);
+      if (!task) continue;
+      const job = jobOf(board, id);
+      // Where its work is, so the parent can merge it; best effort.
+      const directory = await this.api()
+        .workspaces.ref(task.workspaceId)
+        .refresh()
+        .then((w) => w?.workspaceDirectory, () => undefined);
+      const head = directory ? await readHead(directory, defaultGit, this.now()).catch(() => null) : null;
+      lines.push({
+        id,
+        title: task.title,
+        lane: laneName(project, task.status),
+        ...(job ? { job: { state: job.state, ...(job.verdict ? { verdict: job.verdict } : {}), ...(job.code ? { code: job.code } : {}) } } : {}),
+        ...(head?.branch ? { branch: head.branch } : {}),
+        ...(directory ? { directory } : {}),
+      });
+    }
+    await this.send(woken, "implementer", childrenPrompt(lines));
   }
 
   // ---- Helpers ----------------------------------------------------------

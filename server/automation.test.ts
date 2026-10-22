@@ -288,9 +288,9 @@ test("a person finishing or taking back the card stops its automation; sessions 
   await x.automation.queue("a");
   await x.automation.queue("b");
   await x.automation.kick();
-  await x.automation.humanMoved("a", "todo", "done");
+  await x.automation.cardMoved("a", "todo", "done");
   expect(await x.job("a")).toMatchObject({ state: "stopped", code: "card_finished" });
-  await x.automation.humanMoved("b", "development", "todo");
+  await x.automation.cardMoved("b", "development", "todo");
   expect(await x.job("b")).toMatchObject({ state: "stopped", code: "card_moved" });
   expect([...x.agents.values()].every((a) => !a.archivedAt)).toBe(true);
   // Run again later: the implementer session is reused, not a third one.
@@ -339,7 +339,7 @@ test("a person moving a blocker to Done starts the card it blocked right away", 
     board.tasks.find((t) => t.id === "a")!.status = "done";
   });
   // Card a has no job of its own; the move alone must run the dispatcher.
-  await x.automation.humanMoved("a", "in_review", "done");
+  await x.automation.cardMoved("a", "in_review", "done");
   await new Promise((r) => setTimeout(r, 20));
   expect(x.created.map((c) => c.workspaceId)).toEqual(["w-b"]);
 });

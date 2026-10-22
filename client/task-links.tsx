@@ -29,6 +29,7 @@ export function TaskLinks({
   onOpenTask,
   onLink,
   onFollowUp,
+  onSubCard,
   section,
 }: {
   task: Task;
@@ -37,6 +38,7 @@ export function TaskLinks({
   onOpenTask(id: string): void;
   onLink(task: Task): void;
   onFollowUp(task: Task): void;
+  onSubCard?(task: Task): void;
   section: SectionState;
 }) {
   const board = useBoardQuery();
@@ -83,6 +85,7 @@ export function TaskLinks({
             openMenu(eventPoint(event), "Links", [
               { id: "link", label: t("Link to a card…"), icon: "Link", onPress: () => onLink(task) },
               { id: "follow-up", label: t("New follow-up task"), icon: "CornerDownRight", onPress: () => onFollowUp(task) },
+              ...(onSubCard ? [{ id: "sub-card", label: t("New sub-card"), icon: "ListTree", onPress: () => onSubCard(task) }] : []),
             ]);
           }}
         />
@@ -194,6 +197,7 @@ const pickRelations = (): { value: Relation; label: string }[] => [
   { value: "blocks", label: t("Blocks") },
   { value: "blocked_by", label: t("Blocked by") },
   { value: "follow_up_of", label: t("Follow-up of") },
+  { value: "sub_card_of", label: t("Sub-card of") },
 ];
 
 /** "Link to a card…" (CARD-LINKS-SPEC §5.4): pick a relation, then a card of the project. */
