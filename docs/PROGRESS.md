@@ -1,5 +1,16 @@
 # Implementation progress
 
+## Agent-created cards and sub-cards (user: "agents should create cards and sub-cards themselves, like Multica") — 2026-10-22
+
+Spec: [SUB-CARDS-SPEC](SUB-CARDS-SPEC.md). The user owns the fork and decides which upstream rules apply (AGENTS.md "Fork ownership"); top-level Done stays human.
+
+- [x] Spec, AGENTS.md fork ownership and decision, SPEC-OUTLINE entry, README in both languages.
+- [x] Daemon: `subtask` links (one parent, 3 levels, 20 per parent), `createdByAgent`, `flowly_create_card` (own workspace, start now/later, blockedBy, one card per request) and `flowly_update_card` (start, accept In review → Done, cancel, direct sub-cards only; a move runs the same effects as a person's); automation `waiting` state without a slot and one wake message per change with lane, state, branch and directory (`server/agent-service.ts`, `server/automation.ts`, `shared/links.ts`).
+- [x] UI: New sub-card in the card menu, action sheet and drawer Links menu; *Sub-card of* in the new-card form; Links groups *Sub-card of* / *Sub-cards*; card signal *Sub-cards n/m*; *Waiting on sub-cards*; tip `sub-cards`; nine catalogs.
+- [x] Tests: `server/sub-cards.test.ts` (6); typecheck; `npm test` 934 passed, 65 skipped.
+- [x] Live on the user's daemon through the web UI ([report](verification/sub-cards.md)): the parent's agent split its card into two sub-cards, waited without a slot, was woken once with both branches, merged them, accepted both and delivered. Two bugs found and fixed (one request in parallel calls, a Done sub-card reading "Delivered; your review"), two timing-dependent automation tests fixed. Fixtures cleaned up.
+- [ ] UNRUN: the `REQUEST_REUSED` fix live (the agent refused an agent-relayed probe), start=later / cancel / blockedBy between sub-cards live, nested sub-cards, the New sub-card menu click-through, a parent without automation, Android device.
+
 ## Agent automation (user: "integrate Hermes Kanban's agent automation into Flowly") — 2026-10-22
 
 Spec: [AUTOMATION-SPEC](AUTOMATION-SPEC.md). Builds on the user's earlier decision on the card "设计 Flowly × Kanban 整合" to build execution into the CM-BF/flowly fork (explicit enqueue, no auto Done, no PR automation).
@@ -11,7 +22,7 @@ Spec: [AUTOMATION-SPEC](AUTOMATION-SPEC.md). Builds on the user's earlier decisi
 - [x] Tests: `shared/automation.test.ts` (8), `server/automation.test.ts` (12); typecheck; `npm test` 927 passed, 65 skipped.
 - [x] Live on the user's daemon through the web UI ([report](verification/automation.md)): dependencies, unattended Claude implementer, Codex reviewer approve and changes → fix → round 2, reminders → give-up → Blocked, Stop, Run again, plugin reload mid-turn, phone width. Three bugs found and fixed (project create on a desktop-managed daemon, Done not releasing at once, A1r's Blocked read as the agent's). Fixtures cleaned up.
 - [ ] UNRUN: real provider failure and retry, permission waiting, daemon restart mid-turn, slot contention live, Android device.
-- [ ] Not built (spec §9): Hermes decomposition/orchestrator cards, goal mode, scheduled starts, per-card assignee or model.
+- [ ] Not built (spec §9): Hermes orchestrator cards, goal mode, scheduled starts, per-card assignee or model. Decomposition came later through agent-created sub-cards (above).
 
 ## Registry listing art (card "发布v1.5.0") — 2026-10-21
 
