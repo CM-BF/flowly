@@ -531,6 +531,7 @@ export const createCardResultSchema = z.object({
   replayed: z.boolean().optional(),
   message: z.string(),
 });
+export type CreateCardResult = z.infer<typeof createCardResultSchema>;
 
 /** flowly_update_card (SUB-CARDS-SPEC §4): the parent card's agent manages one of its direct sub-cards. */
 export const updateCardInputSchema = z.strictObject({

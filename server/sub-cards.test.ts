@@ -69,6 +69,25 @@ test("an agent creates a sub-card in its own workspace, linked and ordered in th
   expect(x.create).toHaveBeenCalledTimes(2);
 });
 
+test("one request makes one card: other parameters with it are refused, also when the calls overlap", async () => {
+  const x = await setup();
+  // Agents issue tool calls in parallel and reuse the request they just read.
+  const signed = await x.request();
+  const [first, second] = await Promise.allSettled([
+    x.service.createCard(x.identity, { ...signed, title: "Capitalize" }),
+    x.service.createCard(x.identity, { ...signed, title: "Reverse" }),
+  ]);
+  expect(first).toMatchObject({ status: "fulfilled", value: { title: "Capitalize" } });
+  expect(second).toMatchObject({ status: "rejected", reason: { code: "REQUEST_REUSED" } });
+  await expect(x.service.createCard(x.identity, { ...signed, title: "Reverse" })).rejects.toMatchObject({ code: "REQUEST_REUSED" });
+  // The same call twice at once is one card.
+  const again = await x.request();
+  const [a, b] = await Promise.all([x.service.createCard(x.identity, { ...again, title: "Join" }), x.service.createCard(x.identity, { ...again, title: "Join" })]);
+  expect(b).toMatchObject({ cardId: a.cardId, replayed: true });
+  expect(x.create).toHaveBeenCalledTimes(2);
+  expect(childrenOf((await x.store.read()).links, "t")).toHaveLength(2);
+});
+
 test("the parent's agent starts, accepts and cancels only its own sub-cards", async () => {
   const x = await setup();
   const made = await x.service.createCard(x.identity, { ...(await x.request()), title: "Child", start: "later" });

@@ -23,7 +23,7 @@
 
 输入：`title`、`description`、`type?`、`priority`（默认 normal）、`tags?`、`subCard`（默认 true）、`start`（now | later，默认 now）、`blockedBy`（卡片 id，默认 []）、`workspace?`（worktree | directory）、`baseRef?`，以及照例的 `expectedRevision`、`request`。
 
-- 幂等：`operationId = agent-card:<request id 摘要>`；同一请求重发返回同一张卡（`replayed`），不会建第二个 workspace。
+- 一个 request 只建一张卡：`operationId = agent-card:<request id 摘要>:<参数摘要>`。同一请求同一参数重发返回同一张卡（`replayed`），不会建第二个 workspace；同一请求换了参数是 `REQUEST_REUSED`（与其他写操作一致）。并行的调用在进程内按 request 认领，第一个 await 之前就占住，所以 agent 用同一个 request 并行建两张卡时只建一张，另一个拿到 `REQUEST_REUSED`（实测中 agent 确实这样并行调用过）。
 - 拒绝：本卡已结束或归档；blocker 不在本项目（`CARD_INVALID`，且不会建 workspace）；超过限制（`CARD_LIMIT`、子卡片数量/层数）。
 - 返回：`cardId`、`title`、`status`、`subCardOf?`、`queued`、`message`（已排队 / 已搁置 / 自动化未开启由人启动）。
 - 工具说明与 skill 要求：子卡片的描述必须自带所需的全部决定、文件、分支、接口和验收标准；共同问题（命名、格式、接口）在父卡上一次决定并写进每张相关子卡；不要亲自做子卡片的工作；派出后结束本轮。
@@ -56,5 +56,5 @@
 
 ## 7. 验收
 
-- `server/sub-cards.test.ts`：父卡唯一、层数与数量限制；agent 建子卡片时 workspace、子卡链接与 blocks 链接同一次写入，`createdByAgent` 与 agent 事件，重发同一请求不建第二个 workspace，blocker 不在项目时不建 workspace；父卡 start/accept/cancel 只对自己的子卡片，accept 只对 In review，重复 accept 为 replayed，移动触发与人相同的后续；人手动链接不能有第二个父卡或反向链接；自动化下父卡 `waiting` 不占名额、子卡片开始、子卡片交付后父卡被唤醒且只唤醒一次。
+- `server/sub-cards.test.ts`：父卡唯一、层数与数量限制；agent 建子卡片时 workspace、子卡链接与 blocks 链接同一次写入，`createdByAgent` 与 agent 事件，重发同一请求不建第二个 workspace，同一请求换参数（顺序或并行）为 `REQUEST_REUSED`，blocker 不在项目时不建 workspace；父卡 start/accept/cancel 只对自己的子卡片，accept 只对 In review，重复 accept 为 replayed，移动触发与人相同的后续；人手动链接不能有第二个父卡或反向链接；自动化下父卡 `waiting` 不占名额、子卡片开始、子卡片交付后父卡被唤醒且只唤醒一次。
 - 真实 daemon + Web UI：见 [verification/sub-cards.md](verification/sub-cards.md)。

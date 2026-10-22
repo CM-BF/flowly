@@ -65,7 +65,7 @@ import type { AutomationService } from "./automation";
 import type { ReviewInput } from "../shared/automation-schema";
 import { automationOf, isLive, jobOf } from "../shared/automation";
 import { parentOf } from "../shared/links";
-import { createCardInputSchema, updateCardInputSchema, type CreateCardInput, type UpdateCardInput } from "../shared/tools";
+import { createCardInputSchema, updateCardInputSchema, type CreateCardInput, type CreateCardResult, type UpdateCardInput } from "../shared/tools";
 import { taskInput, type Task, type TaskInput } from "../shared/model";
 import { existsSync } from "node:fs";
 
@@ -76,6 +76,8 @@ function memoryToolError(e: unknown): unknown {
 
 /** Cards the agents of one card may create before they have to ask the user (SUB-CARDS-SPEC §3). */
 const agentCardLimit = 50;
+const requestReused = () =>
+  new ToolError("REQUEST_REUSED", "Request already committed with different parameters. Each card needs its own request: call flowly_get_task again before the next flowly_create_card.");
 
 export class AgentService {
   private paseo?: PaseoApi;
@@ -111,21 +113,42 @@ export class AgentService {
     const age = this.clock() - Date.parse(issuedAt);
     if (age > 15 * 60 * 1000 || age < -30000) throw new ToolError("REQUEST_EXPIRED", "Request is expired. Re-read the task before a new update.");
   }
+  /** Card creations in flight by request, so overlapping calls with one request make one card. */
+  private readonly cardRequests = new Map<string, { operationId: string; result: Promise<CreateCardResult> }>();
   /**
    * flowly_create_card (SUB-CARDS-SPEC §3): a new card of this project, by default a sub-card of
-   * this session's card, in its own workspace. Idempotent per signed request: a repeat returns the
-   * same card. start=now queues it for agent automation when the project has automation on.
+   * this session's card, in its own workspace. One card per signed request: the same call again
+   * returns it, other parameters are REQUEST_REUSED like any write. start=now queues it for agent
+   * automation when the project has automation on.
    */
-  async createCard(identity: ToolIdentity, raw: CreateCardInput) {
+  async createCard(identity: ToolIdentity, raw: CreateCardInput): Promise<CreateCardResult> {
     const input = createCardInputSchema.parse(raw);
     const signed = this.secrets.validateRequest(identity, input.request, input.expectedRevision);
+    const requestKey = `agent-card:${digest(input.request.id)}`;
+    const operationId = `${requestKey}:${digest(JSON.stringify(input))}`;
+    // Claimed before the first await: agents issue tool calls in parallel with the request they just read.
+    const pending = this.cardRequests.get(requestKey);
+    if (pending) {
+      if (pending.operationId !== operationId) throw requestReused();
+      return { ...(await pending.result), replayed: true, message: "This card was already created by this request." };
+    }
+    const result = this.newCard(identity, input, signed.issuedAt, requestKey, operationId);
+    this.cardRequests.set(requestKey, { operationId, result });
+    try {
+      return await result;
+    } finally {
+      this.cardRequests.delete(requestKey);
+    }
+  }
+  private async newCard(identity: ToolIdentity, input: ReturnType<typeof createCardInputSchema.parse>, issuedAt: string, requestKey: string, operationId: string): Promise<CreateCardResult> {
     const r = await this.resources(identity);
-    const operationId = `agent-card:${digest(input.request.id)}`;
     const before = await this.store.read();
-    const replay = before.tasks.find((t) => t.operationId === operationId);
-    if (replay)
+    const replay = before.tasks.find((t) => t.operationId.startsWith(`${requestKey}:`));
+    if (replay) {
+      if (replay.operationId !== operationId) throw requestReused();
       return { cardId: replay.id, title: replay.title, status: replay.status, ...(input.subCard ? { subCardOf: r.task.id } : {}), queued: isLive(jobOf(before, replay.id)), replayed: true, message: "This card was already created by this request." };
-    this.fresh(signed.issuedAt);
+    }
+    this.fresh(issuedAt);
     if (r.task.archivedAt || r.project.archivedAt) throw new ToolError("ARCHIVED", "Task or project is archived.");
     if (r.task.status === "done" || r.task.status === "cancelled") throw new ToolError("TASK_FINISHED", "A finished card can't create cards.");
     if (before.tasks.filter((t) => t.createdByAgent?.taskId === r.task.id).length >= agentCardLimit)
