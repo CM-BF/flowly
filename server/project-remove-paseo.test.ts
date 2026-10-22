@@ -6,6 +6,8 @@ import { join } from "node:path";
 import { BoardStore } from "./store";
 import { BoardService } from "./service";
 
+vi.mock("./paseo-cli", () => ({ resolvePaseoCli: async () => "/__flowly-test__/paseo" }));
+
 // `paseo project delete` is the only native project removal; record calls instead of running it.
 const calls: string[][] = [];
 let deleteFails = false;
@@ -15,13 +17,14 @@ vi.mock("node:child_process", async (original) => {
     ...actual,
     execFile: (file: string, args: string[], options: unknown, callback: (e: unknown, r?: unknown) => void) => {
       const cb = typeof options === "function" ? (options as typeof callback) : callback;
-      if (file === "paseo" || file.endsWith("/paseo")) {
+      if (file === "/__flowly-test__/paseo") {
         calls.push(args);
         if (deleteFails) cb(Object.assign(new Error("failed"), { stderr: "Error: project busy\n" }));
         else cb(null, { stdout: JSON.stringify({ projectId: args[2], removedWorkspaceIds: ["w1", "w2"] }), stderr: "" });
         return;
       }
-      return (actual.execFile as Function)(file, args, options, callback);
+      if (file === "git") return (actual.execFile as Function)(file, args, options, callback);
+      throw new Error(`Unexpected executable in offline test: ${file}`);
     },
   };
 });
