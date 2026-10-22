@@ -241,6 +241,7 @@ function FeaturesPage() {
     { icon: "Sparkles", color: colors.accent, title: t("Suggested next steps"), text: t("Tap one to fill in the message box. Nothing is sent until you send it.") },
   ];
   const more = [
+    { icon: "Bot", color: colors.accent, title: t("Agent automation"), text: t("Optional per project: Run with agent queues a card, and Flowly starts it when its blockers are Done, reminds or retries the agent when it stalls, and can have a reviewer agent check the delivery. Done stays yours.") },
     { icon: "ListChecks", color: colors.statusSuccess, title: t("Workpad"), text: t("Agents set the card's type and tags and write a workpad before they start: acceptance criteria, checks marked passed, failed or not run on a named commit, and what confused them. Delivering without them needs a note.") },
     { icon: "Lightbulb", color: colors.statusSuccess, title: t("Follow-up ideas"), text: t("Work an agent finds along the way lands in the Ideas inbox. Good idea or Dismiss.") },
     { icon: "BookMarked", color: colors.accent, title: t("Project memory"), text: t("Decisions and pitfalls you confirm carry over to new cards' sessions. Agents and the review of finished cards suggest them; you edit or delete them any time.") },

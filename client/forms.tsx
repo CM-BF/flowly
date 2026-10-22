@@ -23,6 +23,8 @@ import { priorityLabels } from "./status";
 import { isLegacyScope } from "../shared/scope";
 import { AgentPicker, useAgentChoice, type AgentDefaults } from "./agent-choice";
 import { ModelDefaultGroup } from "./model-default";
+import { AutomationSettingsGroup } from "./task-automation";
+import type { AutomationSettings } from "../shared/automation-schema";
 import { agentModelFromValues, type AgentModel } from "../shared/agent-defaults";
 import { modelSettings, modelSettingsValues } from "../shared/settings";
 import { launchKanbanSession } from "./session";
@@ -79,6 +81,7 @@ export function ProjectForm({
     [workflowInsights, setWorkflowInsights] = useState(project?.workflowInsights !== false),
     [memory, setMemory] = useState(project?.memory !== false),
     [agentModel, setAgentModel] = useState<AgentModel | null>(project?.agentModel ?? null),
+    [automation, setAutomation] = useState<AutomationSettings | null>(project?.automation ?? null),
     [archivedShown, setArchivedShown] = useState(!!showArchived),
     [lanes, setLanes] = useState<Lane[]>(() => projectLanes(project)),
     [pending, setPending] = useState(false),
@@ -117,6 +120,7 @@ export function ProjectForm({
           ...(memory !== (project.memory !== false) ? { memory } : {}),
           ...(JSON.stringify(lanes) !== JSON.stringify(projectLanes(project)) ? { lanes } : {}),
           ...(JSON.stringify(agentModel) !== JSON.stringify(project.agentModel ?? null) ? { agentModel } : {}),
+          ...(automation && JSON.stringify(automation) !== JSON.stringify(project.automation ?? null) ? { automation } : {}),
         });
         if (project.links && JSON.stringify(links) !== JSON.stringify(project.links.map((l) => l.target)))
           saved = await setLinks({ id: project.id, revision: saved.revision, links });
@@ -265,6 +269,7 @@ export function ProjectForm({
               )}
             </View>
           )}
+          {project && <AutomationSettingsGroup value={automation} onChange={setAutomation} />}
           {project && (
             <Toggle
               title={t("Auto-update status in this project")}

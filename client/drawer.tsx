@@ -48,6 +48,8 @@ import { Enter, MotionReveal, useSettled } from "./motion";
 import { perfLap } from "./perf";
 import { TaskMetadata } from "./task-metadata";
 import { Chevron, Collapse, Disclosure, Section, type SectionState } from "./disclosure";
+import { TaskAutomation, automationMenu, useAutomationActions } from "./task-automation";
+import { useBoardQuery } from "./queries";
 import { WrapupModal } from "./wrapup";
 import { currentWrapup } from "../shared/wrapup-state";
 import { useComposer } from "./composer";
@@ -408,6 +410,8 @@ function TaskDrawerView({
   });
   const archivedSessions = ordered.filter((a) => !!a.archivedAt);
   const openMenu = useMenuOpener();
+  const automationBoard = useBoardQuery();
+  const automationActions = useAutomationActions();
   const finished = task.status === "done" || task.status === "cancelled";
   // Wrapped up while kept on the board: its workspace/sessions are archived on
   // purpose, so neither offer Wrap up again nor warn that they are unavailable.
@@ -420,6 +424,7 @@ function TaskDrawerView({
       disabled: unavailable || !!task.archivedAt,
       onPress: () => setShowNew(true),
     },
+    ...automationMenu(project, task, automationBoard.data?.automation.find((j) => j.taskId === task.id), !active || !!task.archivedAt || !!project.archivedAt, automationActions),
     ...(attention && onAttention
       ? [
           attention === "dismissed"
@@ -659,6 +664,7 @@ function TaskDrawerView({
         />
       </View>
       <TaskTags task={task} active={active} readOnly={!!project.archivedAt} onFilterTag={onFilterTag} />
+      <TaskAutomation task={task} project={project} active={active} />
       {!!error && <Notice>{error}</Notice>}
     </>
   );
@@ -1247,6 +1253,17 @@ const activityText: Record<string, string> = localizedLabels({
   progress_reported: msg("Reported progress"),
   "agent.turn_started": msg("Started a turn"),
   "agent.turn_ended": msg("Finished a turn"),
+  automation_queued: msg("Queued the card for agent automation"),
+  automation_started: msg("Started an agent on the card"),
+  automation_stopped: msg("Stopped agent automation"),
+  automation_resumed: msg("Resumed agent automation"),
+  automation_nudged: msg("Reminded the agent to deliver"),
+  automation_retry: msg("Retrying the agent"),
+  automation_failed: msg("Agent automation gave up"),
+  automation_delivered: msg("Handed the delivery to you"),
+  automation_review_started: msg("Started an agent review"),
+  automation_review_approved: msg("Approved the delivery"),
+  automation_changes_requested: msg("Requested changes"),
 });
 
 function ActivityItem({
