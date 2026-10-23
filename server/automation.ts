@@ -229,7 +229,10 @@ export class AutomationService {
 
   // ---- Session lifecycle (hooks) ----------------------------------------
 
-  /** A supervised session started a turn: a person answered it, or the first instruction arrived. */
+  /**
+   * A supervised session started a turn: a person answered it, the first instruction arrived, or a
+   * person spoke to it during a retry wait (their turn replaces the pending retry).
+   */
   async turnStarted(agentId: string, taskId?: string) {
     await this.store.transaction((board) => {
       if (taskId) {
@@ -241,7 +244,7 @@ export class AutomationService {
       }
       const job = board.automation.find(
         (j) =>
-          (activeAgent(j) === agentId && (j.state === "needs_human" || j.state === "starting" || j.state === "waiting")) ||
+          (activeAgent(j) === agentId && (j.state === "needs_human" || j.state === "starting" || j.state === "waiting" || j.state === "retry_wait")) ||
           // Feedback after a delivery: the implementer works again, and its next delivery is reviewed again (Hermes reopen-review).
           ((j.state === "delivered" || (j.role === "reviewer" && isLive(j))) && j.implementerId === agentId),
       );
@@ -263,6 +266,8 @@ export class AutomationService {
         this.store.event(board, { taskId: job.taskId, actor: "system", action: "automation_resumed", agentId });
       }
       if (job.state === "needs_human" && job.code === "interrupted") delete job.instruction;
+      // The person's turn is judged when it ends; the failed turn's retry is not sent after it.
+      if (job.state === "retry_wait") { delete job.retryAt; delete job.detail; }
       job.state = job.role === "reviewer" ? "reviewing" : "working";
       job.nudges = 0;
       delete job.code;
@@ -289,11 +294,24 @@ export class AutomationService {
   }
 
   /**
+   * The turn_ended hook. However the turn is judged (or ignored, e.g. a reviewer
+   * whose verdict already went to the implementer), a dispatcher pass follows: an
+   * instruction deferred while this session was busy may go out now.
+   */
+  async turnEnded(agentId: string) {
+    try {
+      await this.judgeTurnEnd(agentId);
+    } finally {
+      void this.kick();
+    }
+  }
+
+  /**
    * A supervised session's turn ended. The outcome is read from the board's
    * lifecycle event (recorded by the turn hook just before), so the hook and the
    * reconcile pass share one path and `turnAt` keeps either from handling it twice.
    */
-  async turnEnded(agentId: string) {
+  private async judgeTurnEnd(agentId: string) {
     const board = await this.store.read();
     const job = board.automation.find((j) => activeAgent(j) === agentId && ["starting", "working", "reviewing", "needs_human", "waiting"].includes(j.state));
     if (!job) return;
@@ -314,7 +332,6 @@ export class AutomationService {
     }
     const applied = await this.apply(job, agentId, ended.at, outcome);
     if (applied?.instruction) await this.deliver(applied);
-    void this.kick();
   }
 
   /** Commits a turn decision; null when the job moved on meanwhile. */
@@ -862,7 +879,7 @@ export class AutomationService {
         continue;
       }
       const last = latestLifecycle(currentBoard, job.taskId, agentId);
-      if (last?.action === "agent.turn_ended" && (!job.turnAt || last.at > job.turnAt)) await this.turnEnded(agentId);
+      if (last?.action === "agent.turn_ended" && (!job.turnAt || last.at > job.turnAt)) await this.judgeTurnEnd(agentId);
       else if ((agent.status === "running" || agent.activeTurn) && (job.state === "waiting" || (job.state === "needs_human" && job.code !== "permission"))) await this.turnStarted(agentId);
       else if (stale && ["working", "reviewing"].includes(job.state) && agent.status === "idle" && !agent.activeTurn && !agent.pendingPermissions?.length) {
         // An idle session proves there is no running worker, not how its missing turn ended.
