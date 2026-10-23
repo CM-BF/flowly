@@ -1,0 +1,39 @@
+
+ RUN  v4.1.11 /private/tmp/flowly-b095a7a-test-batching-gdztohev
+
+ ❯ server/automation-verdicts-round3.test.ts (5 tests | 1 failed) 125ms
+   × new work after the history moved on is still reviewed again 26ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  server/automation-verdicts-round3.test.ts > new work after the history moved on is still reviewed again
+AssertionError: expected { taskId: 'a', projectId: 'p', …(18) } to match object { state: 'reviewing', …(2) }
+(17 matching properties omitted from actual)
+
+- Expected
++ Received
+
+  {
+    "reviewRounds": 1,
+-   "role": "reviewer",
+-   "state": "reviewing",
++   "role": "implementer",
++   "state": "delivered",
+  }
+
+ ❯ server/automation-verdicts-round3.test.ts:75:28
+     73|   await x.deliver(impl, "a");
+     74|   await x.endTurn(impl, "a");
+     75|   expect(await x.job("a")).toMatchObject({ state: "reviewing", role: "…
+       |                            ^
+     76|   expect((await x.job("a")).verdict).toBeUndefined();
+     77| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed | 1 passed (2)
+      Tests  1 failed | 7 passed (8)
+   Start at  23:44:26
+   Duration  350ms (transform 203ms, setup 0ms, import 316ms, tests 222ms, environment 0ms)
+

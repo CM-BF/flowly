@@ -1,0 +1,115 @@
+
+ RUN  v4.1.11 /private/var/folders/f1/2xjyyqkn5plc19fx4nt4tpt00000gn/T/flowly-r3-history-mutation-zd__4blu
+
+ ❯ server/automation-history-round3.test.ts (2 tests | 2 failed) 73ms
+   × a new delivery is reviewed even when progress trims its event before the turn ends 52ms
+   × taking back a failed card is durable before the next dispatcher pass can read its move 21ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  server/automation-history-round3.test.ts > a new delivery is reviewed even when progress trims its event before the turn ends
+AssertionError: expected { taskId: 'a', projectId: 'p', …(18) } to match object { state: 'reviewing', …(2) }
+(17 matching properties omitted from actual)
+
+- Expected
++ Received
+
+  {
+-   "deliveryEvent": "b08aeee2-c0f7-47f2-aefe-449f2f8132b5",
+-   "role": "reviewer",
+-   "state": "reviewing",
++   "deliveryEvent": "e7c0e0d9-df2a-40f3-98d9-2baec52c9eb5",
++   "role": "implementer",
++   "state": "delivered",
+  }
+
+ ❯ server/automation-history-round3.test.ts:22:28
+     20|   expect((await x.store.read()).events.some((event) => event.id === de…
+     21|   await x.endTurn(impl, "a");
+     22|   expect(await x.job("a")).toMatchObject({ state: "reviewing", role: "…
+       |                            ^
+     23|   expect(delivery).not.toBe(old);
+     24|   expect((await x.job("a")).verdict).toBeUndefined();
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  server/automation-history-round3.test.ts > taking back a failed card is durable before the next dispatcher pass can read its move
+AssertionError: expected [ { task: { id: 'a', …(14) }, …(12) } ] to deeply equal []
+
+- Expected
++ Received
+
+- []
++ [
++   {
++     "asks": 0,
++     "automation": true,
++     "dismissed": false,
++     "errors": 0,
++     "permissions": 0,
++     "project": {
++       "archivedAt": null,
++       "automation": {
++         "enabled": true,
++         "failureLimit": 2,
++         "fullAccess": true,
++         "maxReviewRounds": 3,
++         "maxRunning": 2,
++         "nudgeLimit": 1,
++       },
++       "createdAt": "2026-10-23T06:29:20.810Z",
++       "description": "",
++       "id": "p",
++       "paseoProjectId": "native",
++       "primaryPath": "/var/folders/f1/2xjyyqkn5plc19fx4nt4tpt00000gn/T/flowly-automation-test-VusISC",
++       "repos": [
++         "/var/folders/f1/2xjyyqkn5plc19fx4nt4tpt00000gn/T/flowly-automation-test-VusISC",
++       ],
++       "revision": 1,
++       "title": "P",
++       "updatedAt": "2026-10-23T06:29:20.810Z",
++     },
++     "questions": 0,
++     "sessionId": null,
++     "signals": [
++   
+ Test Files  1 failed (1)
+      Tests  2 failed (2)
+   Start at  23:29:20
+   Duration  326ms (transform 117ms, setup 0ms, import 177ms, tests 73ms, environment 0ms)
+
+    "automation:1:failed:2026-10-23T06:29:26.810Z",
++     ],
++     "silent": 0,
++     "task": {
++       "archivedAt": null,
++       "createdAt": "2026-10-23T06:29:20.810Z",
++       "description": "",
++       "id": "a",
++       "operationId": "create-a",
++       "position": 0,
++       "priority": "normal",
++       "projectId": "p",
++       "repoPaths": [],
++       "revision": 2,
++       "sourcePath": "/var/folders/f1/2xjyyqkn5plc19fx4nt4tpt00000gn/T/flowly-automation-test-VusISC",
++       "status": "development",
++       "title": "Card a",
++       "updatedAt": "2026-10-23T06:29:26.810Z",
++       "workspaceId": "w-a",
++     },
++     "unread": 0,
++     "updatedAt": "2026-10-23T06:29:26.810Z",
++   },
++ ]
+
+ ❯ server/automation-history-round3.test.ts:44:106
+     42|   const board = await x.store.read();
+     43|   expect(board.events.some((event) => event.actor === "human" && event…
+     44|   expect(attentionItems(board, [], [], false).filter((item) => item.ta…
+       |                                                                                                          ^
+     45|   expect(await x.job("a")).toMatchObject({ state: "failed", takenBack:…
+     46| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+

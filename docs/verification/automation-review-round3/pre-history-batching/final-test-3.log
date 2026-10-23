@@ -1,0 +1,13 @@
+
+> paseo-flowly@1.5.0 test
+> vitest run
+
+
+ RUN  v4.1.11 /private/var/folders/f1/2xjyyqkn5plc19fx4nt4tpt00000gn/T/flowly-r3-fixed-b095a7a-2tj8lc9s
+
+
+ Test Files  144 passed | 13 skipped (157)
+      Tests  1160 passed | 65 skipped (1225)
+   Start at  23:41:25
+   Duration  10.30s (transform 10.21s, setup 0ms, import 29.38s, tests 66.28s, environment 8ms)
+
