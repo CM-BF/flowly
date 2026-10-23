@@ -46,7 +46,7 @@ import {
   type ReviewInput,
   type TurnOutcome,
 } from "../shared/automation";
-import { childrenOf } from "../shared/links";
+import { childrenOf, parentOf } from "../shared/links";
 import { resumeStage } from "./progress-rules";
 import type { BoardStore } from "./store";
 import { ToolError } from "./tool-error";
@@ -568,7 +568,13 @@ export class AutomationService {
     const blockers = board.links.filter((l) => l.kind === "blocks" && l.to === claimed.taskId).map((l) => l.from);
     if (blockers.length) {
       const handoffs = (await Promise.all(blockers.map((id) => cardHandoff(board, id, this.api())))).filter(Boolean);
-      const context = `\n\nDependency handoffs (card data):\n${JSON.stringify(handoffs)}\nInspect and merge the relevant blocker branches into this workspace before depending on their changes; Done does not synchronize worktrees.`;
+      // A sub-card's parent merges its accepted siblings: its branch may hold their changes already integrated.
+      const parentId = parentOf(board.links, claimed.taskId);
+      const parent = parentId ? await cardHandoff(board, parentId, this.api()) : null;
+      const integration = parent
+        ? `\n\nParent integration branch (card data): ${JSON.stringify({ id: parent.id, title: parent.title, lane: parent.lane, branch: parent.branch, directory: parent.directory })}\nThe parent card brings its accepted sub-cards together, so its branch may already hold the sibling blockers' changes with their conflicts resolved. Check it first and prefer merging it over merging each sibling branch again.`
+        : "";
+      const context = `\n\nDependency handoffs (card data):\n${JSON.stringify(handoffs)}\nInspect and merge the relevant blocker branches into this workspace before depending on their changes; Done does not synchronize worktrees.${integration}`;
       await this.store.transaction((b) => { const j = this.current(b, claimed, "implementer"); if (!j?.instruction) return { value: null, changed: false }; j.instruction.text += context; j.instruction.fresh += context; return { value: null, changed: true }; });
     }
     await this.deliver(claimed);

@@ -186,12 +186,13 @@ export const askedThisTurn = (board: Pick<Board, "events">, taskId: string, agen
   thisTurn(board, taskId, agentId).some((e) => e.reportKind === "question" || e.reportKind === "blocker");
 
 /**
- * Whether the agent itself set the card to Blocked during its latest turn. A card that is
+ * Whether the agent itself set the card to Blocked during its latest turn, also when it already was
+ * (flowly_update_status records that as a progress report from and to Blocked). A card that is
  * Blocked for another reason (rule A1r restoring it after a silent turn, automation having
  * given up earlier) is not the agent asking for a person.
  */
 export const blockedThisTurn = (board: Pick<Board, "events">, taskId: string, agentId: string) =>
-  thisTurn(board, taskId, agentId).some((e) => e.actor === "agent" && (e.action === "status_changed" || e.action === "status_confirmed") && e.to === "blocked");
+  thisTurn(board, taskId, agentId).some((e) => e.actor === "agent" && (e.action === "status_changed" || e.action === "progress_reported") && e.to === "blocked");
 
 /**
  * What a supervised session's turn end means (Hermes worker protocol): a

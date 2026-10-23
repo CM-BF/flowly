@@ -166,3 +166,18 @@ test("a transitive sibling dependency can settle so its parent can accept the de
   b.tasks[1].status = "done";
   expect(subCardActive(b, "c")).toBe(true);
 });
+
+test("provider limits retry against their own budget, then wait for a person", () => {
+  const limited = { kind: "failed" as const, message: "429 rate limit reached" };
+  // Provider limits never use up failureLimit.
+  expect(decide("development", { failures: 1, cooldowns: 4 }, settings({ failureLimit: 2 }), limited)).toMatchObject({ kind: "retry", count: 5, cooldown: true });
+  expect(decide("development", { cooldowns: 5 }, settings(), limited)).toEqual({ kind: "wait", code: "cooldown" });
+});
+
+test("an agent setting Blocked again on a card that is already Blocked waits for a person as a blocker", () => {
+  const b = board({ tasks: [task("a", "blocked")] });
+  ended(b, "impl");
+  // What flowly_update_status records when the status does not change: a progress report with from/to.
+  b.events.push({ id: "again", taskId: "a", actor: "agent", action: "progress_reported", agentId: "impl", from: "blocked", to: "blocked", reportKind: "blocker", note: "Still waiting for the API key", at });
+  expect(decide("blocked", {}, settings(), { kind: "completed" }, b)).toEqual({ kind: "wait", code: "blocked" });
+});

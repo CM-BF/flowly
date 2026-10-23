@@ -318,16 +318,30 @@ test("an unrecorded idle outcome releases the slot conservatively after a grace 
 });
 
 
-test("a native turn starting before the create reply acknowledges its preparation", async () => {
+test("a native turn starting before a lost create reply acknowledges its preparation: no failure is counted", async () => {
   const x = await setup();
-  x.hooks.created = (id) => x.automation.turnStarted(id);
+  let hidden: string | undefined;
+  // The daemon created the session and its first turn started, but the create reply is lost
+  // and the lookup that follows misses the session once.
+  x.hooks.created = async (id) => {
+    await x.automation.turnStarted(id);
+    hidden = id;
+    throw new Error("reply lost");
+  };
+  x.hooks.refresh = async (id) => {
+    if (id !== hidden) return;
+    hidden = undefined;
+    return "missing";
+  };
   await x.automation.queue("a");
   await x.automation.kick();
-  expect(await x.job("a")).toMatchObject({ state: "working" });
-  expect((await x.job("a")).pendingOp).toBeUndefined();
-  await x.turn(x.created[0].agentId, "a");
-  expect(x.sent).toHaveLength(1);
-  expect(x.sent[0].text).toMatch(/reminder/);
+  expect(await x.job("a")).toMatchObject({ state: "working", failures: 0 });
+  expect(await x.job("a")).not.toHaveProperty("pendingOp");
+  expect((await x.store.read()).events.filter((e) => e.action === "automation_retry" || e.action === "automation_failed")).toHaveLength(0);
+  // Supervision goes on in that session: its silent turn is nudged.
+  const impl = (await x.job("a")).implementerId!;
+  await x.turn(impl, "a");
+  expect(x.sent.map((s) => ({ agentId: s.agentId, text: s.text }))).toEqual([{ agentId: impl, text: expect.stringMatching(/reminder 1 of/) }]);
 });
 
 test("provider limits cool down without exhausting cards or draining more project slots", async () => {
@@ -398,12 +412,15 @@ test("new-card launch snapshots permissions, explicit Fast off and images withou
 
 test("first turn consumes attachments before create returns; reminders use fresh identities", async () => {
   const x = await setup();
+  // Read inside the hook, asserted outside it: production code catches what the fake create throws.
+  let consumedOnFirstTurn: boolean | undefined;
   x.hooks.created = async (id) => {
     await x.automation.turnStarted(id);
-    expect((await x.job("a")).launchConsumed).toBe(true);
+    consumedOnFirstTurn = (await x.job("a")).launchConsumed;
   };
   await x.automation.queue("a", undefined, undefined, { operationId: "early-hook", model: { provider: "claude", model: "claude-haiku-4-5" }, images: [{ mimeType: "image/png", data: "aW1hZ2U=" }], clientMessageId: "initial-image" });
   await x.automation.kick();
+  expect(consumedOnFirstTurn).toBe(true);
   await x.turn(x.created[0].agentId, "a");
   expect(x.sent).toHaveLength(1);
   expect(x.sent[0].images).toBeUndefined();

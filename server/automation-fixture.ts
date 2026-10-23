@@ -17,10 +17,16 @@ import type { Board, BoardEvent, Status, Task } from "../shared/model";
 // the Paseo API is an in-memory fake and the board lives in a temp directory.
 const roots: string[] = [];
 const services: AutomationService[] = [];
-/** Drains every dispatcher before its store directory is deleted; call it from afterEach. */
+/**
+ * Calls the real host would handle differently (a send that does not steer, a send without a message id).
+ * Recorded instead of asserted where they happen: production code catches errors thrown by the fake.
+ */
+const violations: string[] = [];
+/** Drains every dispatcher before its store directory is deleted, then fails the test on any recorded violation; call it from afterEach. */
 export async function cleanupAutomationFixtures() {
   await Promise.all(services.splice(0).map((service) => service.stop()));
   await Promise.all(roots.splice(0).map((p) => rm(p, { recursive: true, force: true })));
+  expect(violations.splice(0), "fake Paseo calls the real host handles differently").toEqual([]);
 }
 
 type Agent = { id: string; workspaceId: string; archivedAt: string | null; status: string; provider?: string; activeTurn?: { turnId: string } | null; pendingPermissions?: unknown[]; lastError?: string };
@@ -74,7 +80,8 @@ export async function automationFixture(automation: Partial<AutomationSettings> 
   let failCreate = 0;
   const hooks: {
     prepare?: (taskId: string, op: string) => Promise<void>;
-    refresh?: (id: string) => Promise<void>;
+    /** Runs before each session refresh; return "missing" to report the session as not (yet) known. */
+    refresh?: (id: string) => Promise<void | "missing">;
     send?: () => Promise<void>;
     /** Runs before the fake creates the session; throw to fail the create. */
     create?: (agentId: string) => Promise<void>;
@@ -85,11 +92,11 @@ export async function automationFixture(automation: Partial<AutomationSettings> 
   const paseo = {
     agents: {
       ref: (id: string) => ({
-        refresh: async () => { await hooks.refresh?.(id); return agents.has(id) ? { agent: agents.get(id) } : null; },
+        refresh: async () => ((await hooks.refresh?.(id)) !== "missing" && agents.has(id) ? { agent: agents.get(id) } : null),
         send: async (text: string, options: { activeTurnBehavior?: string; messageId?: string; images?: unknown[] } = {}) => {
           await hooks.send?.();
-          expect(options.activeTurnBehavior).toBe("steer");
-          expect(options.messageId).toBeTruthy();
+          if (options.activeTurnBehavior !== "steer") violations.push(`send to ${id} with activeTurnBehavior=${options.activeTurnBehavior}`);
+          if (!options.messageId) violations.push(`send to ${id} without a messageId`);
           if (!agents.has(id)) throw new Error("no such agent");
           sent.push({ agentId: id, text, messageId: options.messageId, images: options.images });
         },
