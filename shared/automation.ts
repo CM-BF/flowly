@@ -79,12 +79,31 @@ export function readiness(board: Pick<Board, "tasks" | "links">, taskId: string)
 
 /** Only explicit provider failure messages, never completed assistant prose. */
 export const providerLimited = (message: string) => /\b429\b|rate[ -]?limit|quota (?:exceeded|exhausted|reached)|usage limit|overloaded|insufficient_quota/i.test(message);
-export function coolingProvider(board: Pick<Board, "automation">, provider: string | undefined, now: number, except?: string) {
-  return board.automation.some((job) => job.taskId !== except && job.state === "retry_wait" && job.code === "cooldown" && Date.parse(job.retryAt ?? "") > now && (!provider || !job.provider || job.provider === provider));
+/** Provider-limit retries before the job waits for a person; they never use up `failureLimit`. */
+export const cooldownLimit = 5;
+/** Wait before provider-limit retry n (1-based): 1, 2, 4, 8, then 15 minutes. */
+export const cooldownDelayMs = (n: number) => Math.min(60_000 * 2 ** Math.max(0, n - 1), 900_000);
+
+/**
+ * Whether a job other than `except` is cooling down after a limit of `provider`. A provider nobody
+ * knows (the asking side's or the cooling job's) is compared only within `projectId`: it never
+ * holds back the cards of every project and provider.
+ */
+export function coolingProvider(board: Pick<Board, "automation">, provider: string | undefined, now: number, scope: { except?: string; projectId?: string } = {}) {
+  return board.automation.some(
+    (job) =>
+      job.taskId !== scope.except &&
+      job.state === "retry_wait" &&
+      job.code === "cooldown" &&
+      Date.parse(job.retryAt ?? "") > now &&
+      (provider && job.provider ? job.provider === provider : scope.projectId !== undefined && job.projectId === scope.projectId),
+  );
 }
-export function providerCooling(board: Pick<Board, "automation" | "projects">, project: Project, now: number) {
-  const provider = project.automation?.implementer?.provider ?? project.agentModel?.provider;
-  return coolingProvider(board, provider, now) || (!!project.automation?.reviewer && coolingProvider(board, project.automation.reviewer.provider, now));
+/** Whether the project's next card would start on a cooling provider. `fallbackProvider`: the global default model's. */
+export function providerCooling(board: Pick<Board, "automation" | "projects">, project: Project, now: number, fallbackProvider?: string) {
+  const scope = { projectId: project.id };
+  const provider = project.automation?.implementer?.provider ?? project.agentModel?.provider ?? fallbackProvider;
+  return coolingProvider(board, provider, now, scope) || (!!project.automation?.reviewer && coolingProvider(board, project.automation.reviewer.provider, now, scope));
 }
 
 const priorityRank = { urgent: 0, high: 1, normal: 2, low: 3 } as const;
@@ -93,8 +112,9 @@ const priorityRank = { urgent: 0, high: 1, normal: 2, low: 3 } as const;
  * One dispatcher pass (Hermes `dispatch`): per project with automation on, the
  * retries that are due and the queued cards that fit in the free slots, highest
  * priority and longest waiting first. Projects with automation off do nothing.
+ * `fallbackProvider`: the global default model's provider, for projects that set none.
  */
-export function dispatchPlan(board: Pick<Board, "projects" | "tasks" | "links" | "automation">, now: number) {
+export function dispatchPlan(board: Pick<Board, "projects" | "tasks" | "links" | "automation">, now: number, fallbackProvider?: string) {
   const start: AutomationJob[] = [],
     retry: AutomationJob[] = [];
   for (const project of board.projects) {
@@ -102,7 +122,7 @@ export function dispatchPlan(board: Pick<Board, "projects" | "tasks" | "links" |
     if (!settings || project.archivedAt) continue;
     const jobs = board.automation.filter((j) => j.projectId === project.id);
     retry.push(...jobs.filter((j) => automationAllowed(board, j) && j.state === "retry_wait" && (!j.retryAt || Date.parse(j.retryAt) <= now)));
-    let free = providerCooling(board, project, now) ? 0 : settings.maxRunning - jobs.filter((j) => slotStates.includes(j.state)).length;
+    let free = providerCooling(board, project, now, fallbackProvider) ? 0 : settings.maxRunning - jobs.filter((j) => slotStates.includes(j.state)).length;
     const task = (j: AutomationJob) => board.tasks.find((t) => t.id === j.taskId);
     const candidates = jobs
       .filter((j) => j.state === "queued" && automationAllowed(board, j) && readiness(board, j.taskId).ready)
@@ -191,7 +211,7 @@ export function turnDecision(
   if (outcome.kind === "failed") {
     if (providerLimited(outcome.message)) {
       const count = (job.cooldowns ?? 0) + 1;
-      return count > 5 ? { kind: "wait", code: "cooldown" } : { kind: "retry", count, cooldown: true, at: new Date(now + Math.min(60_000 * 2 ** (count - 1), 900_000)).toISOString() };
+      return count > cooldownLimit ? { kind: "wait", code: "cooldown" } : { kind: "retry", count, cooldown: true, at: new Date(now + cooldownDelayMs(count)).toISOString() };
     }
     const count = job.failures + 1;
     if (count < settings.failureLimit) return { kind: "retry", count, at: new Date(now + retryDelayMs(count)).toISOString() };
@@ -301,6 +321,11 @@ export function nudgePrompt(count: number, limit: number, role: AutomationJob["r
 
 export function retryPrompt(count: number, limit: number, error: string) {
   return `${tag} The last turn failed: ${error.slice(0, 300) || "unknown error"}. Continue from the current state of the workspace; do not repeat work that is already done (attempt ${count + 1} of ${limit}).`;
+}
+
+/** The retry after a provider limit (429, quota, overload): counted against the cooldown budget, not the failure limit. */
+export function cooldownPrompt(count: number, error: string) {
+  return `${tag} The last turn stopped at a provider limit: ${error.slice(0, 300) || "unknown error"}. Continue from the current state of the workspace; do not repeat work that is already done (provider limit retry ${count} of ${cooldownLimit}).`;
 }
 
 /** Hermes sdlc-review lenses: each round looks at the work differently. */

@@ -160,3 +160,30 @@ test("recovery never re-creates the session of a job that waits for a person (da
   expect({ prepares, created: x.created.length }).toEqual({ prepares: 0, created: 0 });
   expect((await x.job("a")).state).toBe("needs_human");
 });
+
+test("provider-limit retries are logged and prompted against their own budget, not the failure limit", async () => {
+  const x = await setup({ enabled: true, failureLimit: 2 });
+  await x.automation.queue("a");
+  await x.automation.kick();
+  const impl = x.created[0].agentId;
+  for (let i = 1; i <= 3; i++) {
+    await x.startTurn(impl, "a");
+    x.advance(1000);
+    await x.record("a", { actor: "system", action: "agent.turn_ended", agentId: impl, outcome: "failed", note: "429 rate limit reached" });
+    x.agents.get(impl)!.status = "idle";
+    await x.automation.turnEnded(impl);
+    expect(await x.job("a")).toMatchObject({ state: "retry_wait", code: "cooldown", cooldowns: i, failures: 0 });
+    x.advance(20 * 60_000);
+    await x.automation.kick();
+  }
+  const notes = (await x.store.read()).events.filter((e) => e.action === "automation_retry").map((e) => e.note);
+  expect(notes).toEqual([
+    "Provider limit (1 of 5); retrying in 1 min: 429 rate limit reached",
+    "Provider limit (2 of 5); retrying in 2 min: 429 rate limit reached",
+    "Provider limit (3 of 5); retrying in 4 min: 429 rate limit reached",
+  ]);
+  const retries = x.sent.filter((s) => s.agentId === impl).map((s) => s.text);
+  expect(retries).toHaveLength(3);
+  for (const text of retries) expect(text).not.toMatch(/of 2\)/);
+  expect(retries[2]).toMatch(/provider limit[\s\S]*retry 3 of 5/);
+});

@@ -20,6 +20,9 @@ import {
   automationOf,
   changesPrompt,
   childrenPrompt,
+  cooldownDelayMs,
+  cooldownLimit,
+  cooldownPrompt,
   parentShouldWake,
   subCardSignature,
   type SubCardLine,
@@ -136,9 +139,12 @@ export class AutomationService {
     await this.reconcile();
     const settled = await this.store.read();
     for (const job of settled.automation) if (parentShouldWake(settled, job)) await this.wake(job);
-    const plan = dispatchPlan(await this.store.read(), this.clock());
+    const board = await this.store.read();
+    // Cooldown gating compares providers; a project that sets no model starts on the global default's.
+    const fallback = board.automation.some((j) => j.state === "retry_wait" && j.code === "cooldown") ? (await this.deps.globalModel().catch(() => null))?.provider : undefined;
+    const plan = dispatchPlan(board, this.clock(), fallback);
     for (const job of plan.retry) await this.resume(job);
-    for (const job of plan.start) await this.begin(job);
+    for (const job of plan.start) await this.begin(job, fallback);
   }
 
   // ---- People's actions -------------------------------------------------
@@ -420,7 +426,12 @@ export class AutomationService {
           job.retryAt = decision.at;
           job.code = decision.cooldown ? "cooldown" : "failed";
           job.detail = clip(outcome.kind === "failed" ? outcome.message : "");
-          note("automation_retry", `Turn failed (${decision.count} of ${settings.failureLimit}); retrying${job.detail ? `: ${job.detail}` : ""}`);
+          note(
+            "automation_retry",
+            decision.cooldown
+              ? `Provider limit (${decision.count} of ${cooldownLimit}); retrying in ${Math.round(cooldownDelayMs(decision.count) / 60_000)} min${job.detail ? `: ${job.detail}` : ""}`
+              : `Turn failed (${decision.count} of ${settings.failureLimit}); retrying${job.detail ? `: ${job.detail}` : ""}`,
+          );
           break;
         case "give_up": {
           job.failures += outcome.kind === "failed" ? 1 : 0;
@@ -519,8 +530,8 @@ export class AutomationService {
 
   // ---- Dispatcher -------------------------------------------------------
 
-  /** Claims a queued card and starts (or reuses) its implementer session. */
-  private async begin(seen: AutomationJob) {
+  /** Claims a queued card and starts (or reuses) its implementer session. `fallbackProvider`: the global default model's. */
+  private async begin(seen: AutomationJob, fallbackProvider?: string) {
     const place = await this.occupancy(seen);
     if (place === "unavailable") return this.workspaceGone(seen);
     if (place !== "free") return;
@@ -529,7 +540,7 @@ export class AutomationService {
       if (!job || job.generation !== seen.generation || job.state !== "queued" || !automationAllowed(board, job) || !readiness(board, job.taskId).ready) return { value: null, changed: false };
       const project = board.projects.find((p) => p.id === job.projectId)!;
       const slots = board.automation.filter((j) => j.projectId === project.id && slotStates.includes(j.state)).length;
-      if (slots >= automationOf(project)!.maxRunning || providerCooling(board, project, this.clock())) return { value: null, changed: false };
+      if (slots >= automationOf(project)!.maxRunning || providerCooling(board, project, this.clock(), fallbackProvider)) return { value: null, changed: false };
       const now = this.now();
       job.state = "starting";
       job.role = "implementer";
@@ -562,7 +573,8 @@ export class AutomationService {
       job.updatedAt = job.turnAt;
       delete job.retryAt;
       const settings = automationOf(board.projects.find((p) => p.id === job.projectId))!;
-      if (!job.instruction) this.instruct(job, job.role, retryPrompt(job.failures, settings.failureLimit, job.detail ?? ""), job.role === "reviewer" ? reviewPrompt(job.reviewRounds, settings.maxReviewRounds) : startPrompt({ review: !!settings.reviewer, again: false }));
+      const retry = job.code === "cooldown" ? cooldownPrompt(job.cooldowns ?? 1, job.detail ?? "") : retryPrompt(job.failures, settings.failureLimit, job.detail ?? "");
+      if (!job.instruction) this.instruct(job, job.role, retry, job.role === "reviewer" ? reviewPrompt(job.reviewRounds, settings.maxReviewRounds) : startPrompt({ review: !!settings.reviewer, again: false }));
       delete job.code;
       delete job.detail;
       return { value: { ...job }, changed: true };
@@ -674,7 +686,7 @@ export class AutomationService {
         // An RPC failure is unknown, never evidence that a session disappeared.
         const agent = (await paseo.agents.ref(id).refresh())?.agent;
         if (agent && !agent.archivedAt && agent.workspaceId === task.workspaceId) {
-          if (coolingProvider(board, agent.provider, this.clock(), job.taskId)) return;
+          if (coolingProvider(board, agent.provider, this.clock(), { except: job.taskId })) return;
           if (agent.status === "running" || agent.status === "initializing" || agent.activeTurn || agent.pendingPermissions?.length) return;
           if (!this.current(await this.store.read(), job, role)) return;
           await this.store.transaction((b) => { const j = this.current(b, job, role); if (!j) return { value: null, changed: false }; j.provider = agent.provider; return { value: null, changed: true }; });
@@ -719,7 +731,7 @@ export class AutomationService {
     const chosen = launch?.model ?? (role === "reviewer" ? settings?.reviewer : await this.implementerModel(project, settings, paseo));
     const model = chosen && (launch ? chosen : executionModel(chosen, project.agentModel, settings?.fullAccess ? unattendedModes[chosen.provider] : undefined));
     if (!model) throw new Error(role === "reviewer" ? "No reviewer model is set." : "No available model to start an agent with.");
-    if (coolingProvider(await this.store.read(), model.provider, this.clock(), job.taskId)) return;
+    if (coolingProvider(await this.store.read(), model.provider, this.clock(), { except: job.taskId })) return;
     await this.store.transaction((board) => { const j = this.current(board, job, role); if (!j) return { value: null, changed: false }; j.provider = model.provider; return { value: null, changed: true }; });
     const mode = model.modeId;
     let featureValues = model.featureValues;
@@ -834,11 +846,11 @@ export class AutomationService {
       const gone = error instanceof SessionGone;
       if (!gone && providerLimited(message)) {
         job.cooldowns = (job.cooldowns ?? 0) + 1;
-        if (job.cooldowns > 5) return waitForPerson("cooldown", message);
+        if (job.cooldowns > cooldownLimit) return waitForPerson("cooldown", message);
         job.state = "retry_wait";
         job.code = "cooldown";
         job.detail = message;
-        job.retryAt = new Date(this.clock() + Math.min(60_000 * 2 ** (job.cooldowns - 1), 900_000)).toISOString();
+        job.retryAt = new Date(this.clock() + cooldownDelayMs(job.cooldowns)).toISOString();
         job.updatedAt = this.now();
         return { value: null, changed: true };
       }

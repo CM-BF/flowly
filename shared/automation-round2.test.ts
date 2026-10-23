@@ -204,3 +204,24 @@ test.each([
   expect(automationAllowed(b, jobIn(b, "grand"))).toBe(false);
   expect(dispatchPlan(b, now).start).toEqual([]);
 });
+
+test("a provider cooldown holds back that provider's cards only; an unknown provider never holds back other projects", () => {
+  const cooling = (taskId: string, projectId: string, provider?: string) =>
+    job(taskId, { projectId, state: "retry_wait", code: "cooldown", retryAt: new Date(now + 600_000).toISOString(), ...(provider ? { provider } : {}) });
+  const claude = { provider: "claude", model: "claude-haiku-4-5" };
+  const codex = { provider: "codex", model: "gpt-6-luna" };
+  const b = board({
+    projects: [project("A", { automation: on({ implementer: codex }) }), project("B"), project("C", { agentModel: claude }), project("D", { agentModel: codex })],
+    tasks: [task("a1", "development", { projectId: "A" }), task("a2", "todo", { projectId: "A" }), task("b1", "todo", { projectId: "B" }), task("c1", "todo", { projectId: "C" }), task("d1", "todo", { projectId: "D" })],
+    automation: [cooling("a1", "A", "codex"), job("a2", { projectId: "A" }), job("b1", { projectId: "B" }), job("c1", { projectId: "C" }), job("d1", { projectId: "D" })],
+  });
+  const started = (fallback?: string) => dispatchPlan(b, now, fallback).start.map((j) => j.taskId).sort();
+  // Codex cools down: A and D (codex) wait; C (claude) and B (provider unknown) start.
+  expect(started()).toEqual(["b1", "c1"]);
+  // B follows the global default model: codex waits too, claude does not.
+  expect(started("codex")).toEqual(["c1"]);
+  expect(providerCooling(b, b.projects[1], now, "claude")).toBe(false);
+  // A cooling job whose provider was never recorded holds back its own project only.
+  delete jobIn(b, "a1").provider;
+  expect(started()).toEqual(["b1", "c1", "d1"]);
+});
