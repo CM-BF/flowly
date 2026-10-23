@@ -23,25 +23,35 @@ const job = (at: string, extra: Partial<AutomationJob> = {}): AutomationJob => (
 });
 const start = { id: "instruction-1", role: "implementer" as const, text: "[Flowly automation] start", fresh: "[Flowly automation] start" };
 
-test.each([
-  ["error", { status: "error", lastError: "provider process exited" }, /error[\s\S]*provider process exited/],
-  ["closed", { status: "closed" }, /closed/],
-] as const)("a session left in %s status by a lost turn end releases its slot conservatively", async (_, snapshot, detail) => {
+test("a session left closed by a lost turn end releases its slot and waits for a person", async () => {
   const x = await setup({ enabled: true, maxRunning: 1 });
   await x.automation.queue("a");
   await x.automation.kick();
   await x.automation.queue("b");
   const impl = x.created[0].agentId;
-  // The turn started; its turn_ended hook never reached Flowly (a reload, a crashed provider process).
+  // The turn started; its turn_ended hook never reached Flowly, and the session cannot continue.
   await x.startTurn(impl, "a");
-  Object.assign(x.agents.get(impl)!, snapshot);
+  Object.assign(x.agents.get(impl)!, { status: "closed" });
   await x.automation.kick();
   expect((await x.job("a")).state).toBe("working");
   x.advance(121_000);
   await x.automation.kick();
-  expect(await x.job("a")).toMatchObject({ state: "needs_human", code: "interrupted", detail: expect.stringMatching(detail) });
+  expect(await x.job("a")).toMatchObject({ state: "needs_human", code: "interrupted", detail: expect.stringMatching(/closed/) });
   expect(x.created.map((c) => c.workspaceId)).toEqual(["w-a", "w-b"]);
   expect((await x.store.read()).events.filter((e) => e.action === "agent.turn_ended")).toHaveLength(0);
+});
+
+test("a session left in error status by a lost turn end is a failed turn: recorded and retried, so the card goes on", async () => {
+  const x = await setup({ enabled: true, maxRunning: 1 });
+  await x.automation.queue("a");
+  await x.automation.kick();
+  const impl = x.created[0].agentId;
+  await x.startTurn(impl, "a");
+  Object.assign(x.agents.get(impl)!, { status: "error", lastError: "provider process exited" });
+  x.advance(121_000);
+  await x.automation.kick();
+  expect(await x.job("a")).toMatchObject({ state: "retry_wait", code: "failed", failures: 1, detail: "provider process exited" });
+  expect((await x.store.read()).events.filter((e) => e.action === "agent.turn_ended")).toEqual([expect.objectContaining({ agentId: impl, outcome: "failed", note: "provider process exited" })]);
 });
 
 test("a reload between the claim and the first send creates exactly one session from the stored instruction", async () => {
