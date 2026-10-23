@@ -1,4 +1,4 @@
-import { cardHandoff } from "./automation-handoff";
+import { linkExtras, type LinkHandoff } from "./automation-handoff";
 import { resumeStage } from "./progress-rules";
 import { authorizeCardActor, authorizeCardCreation, checkStartable, type AgentCardActor } from "./agent-card-guard";
 import { isSummarizer } from "../shared/summary";
@@ -470,8 +470,10 @@ export class AgentService {
    * `markArtifacts`: this call is the session reading its card (flowly_get_task),
    * so artifacts it returns stop being unread for that session. The context
    * returned after a write shows the flags without clearing them.
+   * `handoffs: false` (the context returned after a write): links without handoffs or branches,
+   * so a write never pays for reading linked workspaces; get_task has them.
    */
-  async get(identity: ToolIdentity, recordAccess = true, markArtifacts = recordAccess): Promise<ToolContext> {
+  async get(identity: ToolIdentity, recordAccess = true, markArtifacts = recordAccess, { handoffs: withHandoffs = true }: { handoffs?: boolean } = {}): Promise<ToolContext> {
     // Taken before reading the board: an artifact added meanwhile stays unread.
     const readAt = new Date(Math.max(Date.now(), this.clock())).toISOString();
     const lastRead = await this.artifactReads.lastRead(identity.agentId).catch(() => undefined);
@@ -539,7 +541,7 @@ export class AgentService {
       },
       sessions: { entries: entries.slice(0, 20), partial, unavailableReason },
       ...(await this.store.read().then(async (board) => {
-        const handoffs = new Map(await Promise.all(linksOf(board, r.task.id).filter((v) => v.other && (v.relation === "sub_card" || v.relation === "blocked_by")).map(async (v) => [v.other!.id, await cardHandoff(board, v.other!.id, r.paseo)] as const)));
+        const { handoffs, branches } = withHandoffs ? await linkExtras(board, r.task.id, r.paseo, this.git) : { handoffs: new Map<string, LinkHandoff>(), branches: new Map<string, string>() };
         setup = setupContext(setupMissing(r.task, workpadOf(board.workpads, r.task.id), workpadEnabled(r.project)), r.task.status);
         return {
           activity: board.events.filter((e) => e.taskId === r.task.id).slice(-20),
@@ -593,7 +595,8 @@ export class AgentService {
               status: other!.status,
               laneName: laneName(r.project, other!.status),
               archived: !!other!.archivedAt,
-              ...(handoffs.get(other!.id) ? { handoff: { branch: handoffs.get(other!.id)!.branch, directory: handoffs.get(other!.id)!.directory, evidence: handoffs.get(other!.id)!.evidence ?? "", blockers: handoffs.get(other!.id)!.blockers ?? [] } } : {}),
+              ...(branches.has(other!.id) ? { branch: branches.get(other!.id)! } : {}),
+              ...(handoffs.has(other!.id) ? { handoff: handoffs.get(other!.id)! } : {}),
               ...(relation === "blocked_by" ? { resolved: isResolved(other) } : {}),
             })),
         };
@@ -1096,7 +1099,7 @@ export class AgentService {
     }
     const memoryField = memoryId ? { memoryId } : {};
     try {
-      const current = await this.get(identity, true, false);
+      const current = await this.get(identity, true, false, { handoffs: false });
       this.accesses.set(identity.agentId, {
         at: new Date(this.clock()).toISOString(),
         action,

@@ -441,7 +441,11 @@ export const toolContextSchema = z.object({
       }),
     )
     .optional(),
-  /** Linked cards, read-only (CARD-LINKS-SPEC §4). `resolved` only for blocked_by. */
+  /**
+   * Linked cards, read-only (CARD-LINKS-SPEC §4). `resolved` only for blocked_by. `branch`: the parent's branch on
+   * sub_card_of, the branch a Done blocker was delivered on. `handoff`: delivered or settled sub-cards and blockers
+   * (not Done, Cancelled or archived), with evidence bounded across all links; absent in the context after a write.
+   */
   links: z.array(
     z.object({
       relation: z.enum(relations),
@@ -451,6 +455,7 @@ export const toolContextSchema = z.object({
       laneName: z.string(),
       archived: z.boolean(),
       resolved: z.boolean().optional(),
+      branch: z.string().optional(),
       handoff: z.object({ branch: z.string().optional(), directory: z.string().optional(), evidence: z.string(), blockers: z.array(z.string()) }).optional(),
     }),
   ),
