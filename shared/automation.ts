@@ -222,8 +222,12 @@ export function turnDecision(
 
 /**
  * Whether a sub-card is still moving without its parent (SUB-CARDS-SPEC §5): an agent
- * works on it, waits for a person, or is about to start. A queued card held by blockers
- * that are not Done is not moving: it waits for the parent (or a person) to accept them.
+ * works on it, waits for a person (a question, a blocker, a permission: the person
+ * answers it, not the parent), or is about to start. A queued card held by blockers
+ * that are not Done moves only while one of them moves itself: a sibling delivered to
+ * In review waits for this parent to accept it, and a blocker nobody runs (delivered,
+ * failed, stopped, never run by automation) waits for a person. Either way the parent
+ * is told. `seen` ends the walk on a dependency cycle.
  */
 export function subCardActive(board: Pick<Board, "tasks" | "links" | "automation">, id: string, seen = new Set<string>()): boolean {
   if (seen.has(id)) return false;
@@ -232,25 +236,27 @@ export function subCardActive(board: Pick<Board, "tasks" | "links" | "automation
   if (!task || task.archivedAt || task.status === "done" || task.status === "cancelled") return false;
   const job = jobOf(board, id);
   if (!job || !isLive(job)) return false;
-  if (job.state === "needs_human") return false;
-  if (job.state === "queued") {
-    const ready = readiness(board, id);
-    if (ready.ready) return true;
-    if (ready.reason !== "blockers" || ready.cancelled.length) return false;
-    const parent = parentOf(board.links, id);
-    // Only a sibling delivery is something this parent can release by accepting it.
-    return ready.waiting.some((blocker) => parentOf(board.links, blocker.id) !== parent || (blocker.status !== "in_review" && subCardActive(board, blocker.id, new Set(seen))));
-  }
-  return true;
+  if (job.state !== "queued") return true;
+  const ready = readiness(board, id);
+  if (ready.ready) return true;
+  if (ready.reason !== "blockers" || ready.cancelled.length) return false;
+  const parent = parentOf(board.links, id);
+  const siblingDelivered = (blocker: Task) => !!parent && parentOf(board.links, blocker.id) === parent && blocker.status === "in_review";
+  return ready.waiting.some((blocker) => !siblingDelivered(blocker) && subCardActive(board, blocker.id, new Set(seen)));
 }
 
-/** The sub-cards' state as the parent last saw it; a different value wakes the parent. */
+/**
+ * The sub-cards' state as the parent last saw it; a different value wakes the parent. A queued
+ * sub-card also records whether it moves, which its blockers decide (one outside the parent's
+ * tree can be cancelled or archived while the sub-card itself does not change).
+ */
 export function subCardSignature(board: Pick<Board, "tasks" | "links" | "automation">, parentId: string) {
   return childrenOf(board.links, parentId)
     .map((id) => {
       const task = board.tasks.find((t) => t.id === id);
       const job = jobOf(board, id);
-      return `${id}:${task?.archivedAt ? "archived" : (task?.status ?? "gone")}:${job?.state ?? ""}:${job?.verdict ?? ""}`;
+      const held = job?.state === "queued" ? (subCardActive(board, id) ? ":moving" : ":held") : "";
+      return `${id}:${task?.archivedAt ? "archived" : (task?.status ?? "gone")}:${job?.state ?? ""}:${job?.verdict ?? ""}${held}`;
     })
     .join("|");
 }

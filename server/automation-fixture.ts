@@ -7,10 +7,11 @@ import type { PaseoApi } from "@getpaseo/client";
 import { BoardStore } from "./store";
 import { AutomationService } from "./automation";
 import type { AutomationSettings } from "../shared/automation";
+import type { AgentModel } from "../shared/agent-defaults";
 import { reviewerJob } from "../shared/automation";
 import type { ToolPreparation } from "../shared/tools";
 import { applyTurnEnded, applyTurnStarted } from "./progress-rules";
-import type { BoardEvent, Status, Task } from "../shared/model";
+import type { Board, BoardEvent, Status, Task } from "../shared/model";
 
 // Test fixture only; runtime entries never import this module. It never reaches a daemon:
 // the Paseo API is an in-memory fake and the board lives in a temp directory.
@@ -22,7 +23,9 @@ export async function cleanupAutomationFixtures() {
   await Promise.all(roots.splice(0).map((p) => rm(p, { recursive: true, force: true })));
 }
 
-type Agent = { id: string; workspaceId: string; archivedAt: string | null; status: string; provider?: string };
+type Agent = { id: string; workspaceId: string; archivedAt: string | null; status: string; provider?: string; activeTurn?: { turnId: string } | null; pendingPermissions?: unknown[]; lastError?: string };
+/** What the fake workspace refresh returns: a snapshot, null for a missing workspace, undefined for the default directory. */
+type WorkspaceSnapshot = { workspaceDirectory: string; archivingAt?: string | null } | null | undefined;
 type Created = { images?: { data: string; mimeType: string }[]; clientMessageId?: string; featureValues?: Record<string, boolean | string>; workspaceId: string; agentId: string; provider: string; modeId?: string; prompt: string; title: string; labels: Record<string, string> };
 
 /** A board with cards a, b (todo) and a fake Paseo that records created sessions and sent messages. */
@@ -69,11 +72,20 @@ export async function automationFixture(automation: Partial<AutomationSettings> 
   const sent: { agentId: string; text: string; messageId?: string; images?: unknown[] }[] = [];
   const prepared = new Map<string, string>();
   let failCreate = 0;
-  const hooks: { prepare?: () => Promise<void>; refresh?: () => Promise<void>; send?: () => Promise<void>; created?: (id: string) => Promise<void> } = {};
+  const hooks: {
+    prepare?: (taskId: string, op: string) => Promise<void>;
+    refresh?: (id: string) => Promise<void>;
+    send?: () => Promise<void>;
+    /** Runs before the fake creates the session; throw to fail the create. */
+    create?: (agentId: string) => Promise<void>;
+    created?: (id: string) => Promise<void>;
+    /** Each card workspace's refresh; the default is its own directory under the fixture root. */
+    workspace?: (workspaceId: string) => WorkspaceSnapshot | Promise<WorkspaceSnapshot>;
+  } = {};
   const paseo = {
     agents: {
       ref: (id: string) => ({
-        refresh: async () => { await hooks.refresh?.(); return agents.has(id) ? { agent: agents.get(id) } : null; },
+        refresh: async () => { await hooks.refresh?.(id); return agents.has(id) ? { agent: agents.get(id) } : null; },
         send: async (text: string, options: { activeTurnBehavior?: string; messageId?: string; images?: unknown[] } = {}) => {
           await hooks.send?.();
           expect(options.activeTurnBehavior).toBe("steer");
@@ -85,9 +97,13 @@ export async function automationFixture(automation: Partial<AutomationSettings> 
     },
     workspaces: {
       ref: (workspaceId: string) => ({
-        refresh: async () => ({ workspaceDirectory: join(root, workspaceId) }),
+        refresh: async () => {
+          const snapshot = await hooks.workspace?.(workspaceId);
+          return snapshot === undefined ? { workspaceDirectory: join(root, workspaceId) } : snapshot;
+        },
         agents: {
           create: async (o: { agentId: string; images?: { data: string; mimeType: string }[]; clientMessageId?: string; config: { provider: string; modeId?: string; featureValues?: Record<string, boolean | string> }; prompt: string; title: string; labels: Record<string, string> }) => {
+            await hooks.create?.(o.agentId);
             if (failCreate > 0) {
               failCreate--;
               throw new Error("provider down");
@@ -107,15 +123,17 @@ export async function automationFixture(automation: Partial<AutomationSettings> 
     },
   } as unknown as PaseoApi;
   let now = Date.parse(stamp);
-  const automationService = new AutomationService(store, {
+  let globalModel: AgentModel | null = null;
+  const deps = {
     clock: () => now,
-    globalModel: async () => null,
+    globalModel: async () => globalModel,
     prepare: async (taskId: string, op: string): Promise<ToolPreparation> => {
-      await hooks.prepare?.();
+      await hooks.prepare?.(taskId, op);
       if (!prepared.has(op)) prepared.set(op, `${taskId}-agent-${prepared.size + 1}`);
       return { agentId: prepared.get(op)!, contextFile: "/ctx", cliPath: "/cli", skillPath: "/skill", instructions: `card ${taskId}`, mcp: { type: "http", url: "http://x/mcp", headers: {} } };
     },
-  });
+  };
+  let automationService = new AutomationService(store, deps);
   services.push(automationService);
   automationService.attach(paseo);
   await automationService.kick();
@@ -182,7 +200,28 @@ export async function automationFixture(automation: Partial<AutomationSettings> 
   return {
     store,
     hooks,
-    automation: automationService,
+    paseo,
+    get automation() {
+      return automationService;
+    },
+    /**
+     * A plugin reload: the dispatcher stops, `seed` edits the saved board (what the old process left behind),
+     * and a new dispatcher attaches to it; its first pass runs, as on the first hook after a restart.
+     */
+    reload: async (seed?: (board: Board) => void) => {
+      await automationService.stop();
+      if (seed) await store.mutate(seed);
+      automationService = new AutomationService(store, deps);
+      services.push(automationService);
+      automationService.attach(paseo);
+      await automationService.kick();
+      return automationService;
+    },
+    /** The agent op a preparation id maps to (the fake's prepare is idempotent per op). */
+    preparedFor: (op: string) => prepared.get(op),
+    setGlobalModel: (model: AgentModel | null) => {
+      globalModel = model;
+    },
     agents,
     created,
     sent,
@@ -197,6 +236,8 @@ export async function automationFixture(automation: Partial<AutomationSettings> 
     advance: (ms: number) => {
       now += ms;
     },
+    /** The test clock's current time as the board stores it. */
+    at: () => new Date(now).toISOString(),
     failNextCreates: (n: number) => {
       failCreate = n;
     },
