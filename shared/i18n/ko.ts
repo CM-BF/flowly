@@ -1435,5 +1435,12 @@ const catalog: Catalog = {
   "Nobody (saved on the card)": "없음(카드에 저장)",
   "Ask about progress or request changes right on the card: comments are saved here and sent to the card's agent.": "진행 상황을 묻거나 변경을 요청하려면 카드에서 바로 하세요. 댓글은 여기에 저장되고 카드의 에이전트에게 전달됩니다.",
   "Ask about progress or request changes right on the card. Comments stay on it and go to the card's agent, which also sees them when it reads the card.": "진행 상황을 묻거나 변경을 요청하려면 카드에서 바로 하세요. 댓글은 카드에 남아 에이전트에게 전달되고, 에이전트가 카드를 읽을 때도 보입니다.",
+  "Implementer fallback": "구현 담당 대체 모델",
+  "Reviewer fallback": "검토 담당 대체 모델",
+  "No fallback": "대체 모델 없음",
+  "Used when the implementer's model reports a rate or usage limit: a new session continues the card on this model. None: the card waits for the limit to reset.": "구현 담당 모델이 속도 또는 사용량 한도를 보고하면 사용합니다. 새 세션이 이 모델로 카드 작업을 이어갑니다. 없음: 한도가 초기화될 때까지 카드가 기다립니다.",
+  "Used when the reviewer's model reports a rate or usage limit: the review round runs again on this model. None: the review waits for the limit to reset.": "검토 담당 모델이 속도 또는 사용량 한도를 보고하면 사용합니다. 이 모델로 검토 라운드를 다시 진행합니다. 없음: 한도가 초기화될 때까지 검토가 기다립니다.",
+  "On the fallback model after a provider limit": "공급자 한도 이후 대체 모델로 실행 중",
+  "Switched to the fallback model": "대체 모델로 전환함",
 };
 export default catalog;

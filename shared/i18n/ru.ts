@@ -1435,5 +1435,12 @@ const catalog: Catalog = {
   "Nobody (saved on the card)": "Никому (сохранено на карточке)",
   "Ask about progress or request changes right on the card: comments are saved here and sent to the card's agent.": "Спрашивайте о ходе работы или просите изменения прямо в карточке: комментарии сохраняются здесь и отправляются агенту карточки.",
   "Ask about progress or request changes right on the card. Comments stay on it and go to the card's agent, which also sees them when it reads the card.": "Спрашивайте о ходе работы или просите изменения прямо в карточке. Комментарии остаются в ней и уходят её агенту, который видит их и при чтении карточки.",
+  "Implementer fallback": "Запасная модель исполнителя",
+  "Reviewer fallback": "Запасная модель рецензента",
+  "No fallback": "Без запасной модели",
+  "Used when the implementer's model reports a rate or usage limit: a new session continues the card on this model. None: the card waits for the limit to reset.": "Используется, когда модель исполнителя сообщает о лимите запросов или использования: новая сессия продолжает работу над карточкой на этой модели. Нет: карточка ждёт сброса лимита.",
+  "Used when the reviewer's model reports a rate or usage limit: the review round runs again on this model. None: the review waits for the limit to reset.": "Используется, когда модель рецензента сообщает о лимите запросов или использования: раунд проверки повторяется на этой модели. Нет: проверка ждёт сброса лимита.",
+  "On the fallback model after a provider limit": "На запасной модели после лимита провайдера",
+  "Switched to the fallback model": "Переключился на запасную модель",
 };
 export default catalog;

@@ -1435,5 +1435,12 @@ const catalog: Catalog = {
   "Nobody (saved on the card)": "なし（カードに保存）",
   "Ask about progress or request changes right on the card: comments are saved here and sent to the card's agent.": "進捗の質問や修正の依頼はカード上でそのまま。コメントはここに保存され、カードのエージェントに送られます。",
   "Ask about progress or request changes right on the card. Comments stay on it and go to the card's agent, which also sees them when it reads the card.": "進捗の質問や修正の依頼はカード上でそのまま。コメントはカードに残ってエージェントに送られ、エージェントがカードを読むときにも表示されます。",
+  "Implementer fallback": "実装担当の代替モデル",
+  "Reviewer fallback": "レビュー担当の代替モデル",
+  "No fallback": "代替モデルなし",
+  "Used when the implementer's model reports a rate or usage limit: a new session continues the card on this model. None: the card waits for the limit to reset.": "実装担当のモデルがレート制限や使用量の上限を報告したときに使います。新しいセッションがこのモデルでカードの作業を続けます。なし：上限がリセットされるまでカードは待機します。",
+  "Used when the reviewer's model reports a rate or usage limit: the review round runs again on this model. None: the review waits for the limit to reset.": "レビュー担当のモデルがレート制限や使用量の上限を報告したときに使います。このモデルでレビューラウンドをやり直します。なし：上限がリセットされるまでレビューは待機します。",
+  "On the fallback model after a provider limit": "プロバイダーの上限に達したため代替モデルで実行中",
+  "Switched to the fallback model": "代替モデルに切り替えました",
 };
 export default catalog;

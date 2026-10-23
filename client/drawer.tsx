@@ -1308,6 +1308,7 @@ const activityText: Record<string, string> = localizedLabels({
   automation_changes_requested: msg("Requested changes"),
   automation_waiting: msg("Waits for its sub-cards"),
   automation_woken: msg("Woke the agent: its sub-cards settled"),
+  automation_fallback: msg("Switched to the fallback model"),
 });
 
 function ActivityItem({

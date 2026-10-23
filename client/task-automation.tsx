@@ -120,6 +120,7 @@ export function TaskAutomation({ task, project, active, unavailable = false }: {
         </Label>
         {!!held.length && <Label muted size={font.sm}>{t("Waiting for blockers to be Done: {cards}", { cards: held.map((card) => `${card.title} (${laneName(project, card.status)})`).join(", ") })}</Label>}
         {!!reason && <Label muted size={font.sm}>{reason}</Label>}
+        {live && !!job?.fallback?.[job.role] && <Label muted size={font.sm}>{t("On the fallback model after a provider limit")}</Label>}
         {!!job?.detail && !["working", "reviewing", "starting"].includes(job.state) && (
           <Label muted size={font.sm} lines={3}>
             {job.detail}
@@ -155,7 +156,7 @@ export function AutomationSettingsGroup({
 }) {
   const current = value ?? { ...defaults, enabled: false };
   const set = (patch: Partial<AutomationSettings>) => onChange((previous) => ({ ...(previous ?? { ...defaults, enabled: false }), ...patch }));
-  const model = (key: "implementer" | "reviewer", next: AgentModel | null) => {
+  const model = (key: "implementer" | "reviewer" | "implementerFallback" | "reviewerFallback", next: AgentModel | null) => {
     onChange((previous) => {
       const { [key]: _drop, ...rest } = previous ?? { ...defaults, enabled: false };
       return next ? { ...rest, [key]: next } : rest;
@@ -186,12 +187,28 @@ export function AutomationSettingsGroup({
             onChange={(next) => model("implementer", next)}
           />
           <ModelDefaultGroup execution cwd={cwd}
+            title={t("Implementer fallback")}
+            description={t("Used when the implementer's model reports a rate or usage limit: a new session continues the card on this model. None: the card waits for the limit to reset.")}
+            value={current.implementerFallback ?? null}
+            noneLabel={t("No fallback")}
+            onChange={(next) => model("implementerFallback", next)}
+          />
+          <ModelDefaultGroup execution cwd={cwd}
             title={t("Reviewer")}
             description={t("A second agent reviews each delivery and can send it back with requested changes.")}
             value={current.reviewer ?? null}
             noneLabel={t("No agent review")}
             onChange={(next) => model("reviewer", next)}
           />
+          {!!current.reviewer && (
+            <ModelDefaultGroup execution cwd={cwd}
+              title={t("Reviewer fallback")}
+              description={t("Used when the reviewer's model reports a rate or usage limit: the review round runs again on this model. None: the review waits for the limit to reset.")}
+              value={current.reviewerFallback ?? null}
+              noneLabel={t("No fallback")}
+              onChange={(next) => model("reviewerFallback", next)}
+            />
+          )}
           {!!current.reviewer && (
             <Choices
               title={t("Review rounds")}

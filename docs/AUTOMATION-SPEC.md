@@ -25,6 +25,7 @@ Hermes Kanban 的 agent 自动化有四块：**dispatcher**（依赖、并发、
 | `maxRunning` | 2 | 同时占用名额的卡片数（`max_in_progress`）。`starting/working/reviewing/retry_wait` 占名额；等人回复的、`waiting` 的父卡不占。 |
 | `implementer` | 无 | 实现者模型；无则用项目默认模型 → 全局默认模型 → 第一个可用 provider 的默认模型。 |
 | `reviewer` | 无 | 评审者模型；无则不做 agent 评审（`review_dispatch=false`）。 |
+| `implementerFallback`、`reviewerFallback` | 无 | 角色的备用模型：该角色的模型报告频率或用量上限时，换到它继续（§4.5，用户决定 2026-10-23）。无则按 provider 冷却等待上限重置。 |
 | `maxReviewRounds` | 3 | 一个**评审周期**内最多几轮评审（周期的定义见 §5）。 |
 | `fullAccess` | true | 开着时，所有自动化 session（执行者和评审者）都用 provider 的免审批模式（claude `bypassPermissions`、codex `full-access`），**覆盖**角色自己设的 Permissions 和同 provider 项目默认模型的 Permissions（用户决定，2026-10-23）；没有已知免审批模式的 provider 保留选定的权限。关着时按 [TASK-INTAKE-SPEC](TASK-INTAKE-SPEC.md)：角色的 Permissions → 同 provider 项目默认模型的 Permissions（包括显式的 “Provider default”）→ provider 默认。自动化开启时 New task 表单默认显示同样的结果；有人在表单里为某张卡改了权限，那张卡按其选择启动。速度等其它执行设置仍按角色 → 项目默认继承。 |
 | `nudgeLimit` | 2 | 静默结束后的提醒次数（stop nudge）。界面不暴露。 |
@@ -62,6 +63,8 @@ AutomationJob {
   feedback?,                              // 父卡给子卡的修改要求（SUB-CARDS-SPEC §4）
   restarts?,                              // 父卡 agent 重新启动本卡的次数（SUB-CARDS-SPEC §4）
   provider?, cooldowns?,                  // 当前 session 的 provider、provider 限额重试次数
+  fallback?: { implementer?, reviewer? }, // 本次运行中已换到备用模型的角色（§4.5）
+  providerLimit?: { provider, model?, until }, // 让角色换模型的那次上限；到期前新 session 直接用备用模型
   subSeen?,                               // 父卡上次看到的子卡签名（SUB-CARDS-SPEC §5）
   queuedAt, startedAt?, updatedAt
 }
@@ -78,7 +81,7 @@ AutomationJob {
 - **Run with agent**（`automation.queue`）：卡片未归档、不在 Done/Cancelled、项目已开启且 In review 开启、没有活着的 job。新 job 为 `queued`，`generation+1`，沿用上一次的 implementer 与 reviewer session。活动记一条 `automation_queued`。
 - dispatcher 每 15 秒一次；排队、停止、移动卡片、**每个被监督 session 的回合结束**（即使这次回合结束不归 job 判断）时也立即跑一次；保存项目设置、归档或取消归档卡片、删除卡片时在后台跑一次，RPC 不等它。并发调用合并为下一次。冻结的项目（§2）整个跳过。每个开启的项目：到期的 `retry_wait` 先恢复；再按优先级（urgent > high > normal > low）、排队时间把满足条件的 `queued` 填进空名额。
 - **依赖**：沿用卡片的 `blocks` 链接。所有 blocker 都 **Done** 才放行；Cancelled（或未完成就归档）的 blocker 永不放行，直到人删掉链接——没完成的工作不能作为输入。
-- **provider 冷却**：一个 job 处于 provider 限额冷却（`retry_wait`/`cooldown`）时，同一个 provider 的卡片在任何项目都不启动。只比较确定的 provider：项目没设实现者模型和项目默认模型时，按全局默认模型的 provider 比较；项目的或冷却 job 的 provider 仍不确定时，只挡同一个项目，绝不挡所有项目。
+- **provider 冷却**：一个 job 处于 provider 限额冷却（`retry_wait`/`cooldown`）时，同一个 provider 的卡片在任何项目都不启动；角色设了另一个、未在冷却的 provider 上的备用模型时不受此限，直接用备用模型启动（§4.5）。只比较确定的 provider：项目没设实现者模型和项目默认模型时，按全局默认模型的 provider 比较；项目的或冷却 job 的 provider 仍不确定时，只挡同一个项目，绝不挡所有项目。
 - **workspace 与目录**：启动前先查卡片自己的 workspace。它已归档、正在归档或 daemon 不再列出它 → job `failed` / `workspace_unavailable`，detail 与 `automation_failed` 的 note 为 “The card's workspace is archived or no longer exists”；卡片泳道不变，它的父卡可以被唤醒。查询本身失败（RPC 错误）时 job 保持排队，下次再试。目录被别的卡占用时也保持排队（§10）。
 - **认领**：同一事务里 `queued → starting`，记 `automation_started`。随后在卡片 workspace 里：有活着的 implementer → 发“重新排队”开工消息；否则 `prepareSession`（与侧栏 Start session 同一路径，带 Flowly MCP、上下文与 skill）创建新 session，`labels: { flowly-task, flowly-automation: implementer }`，首条消息为开工说明。
 - 首条开工说明（`startPrompt`）：无人值守、按 Flowly skill 走、最后以 `in_review` 交付或以提问/`blocked` 结束，不要等人、不要猜；卡片太大时可拆子卡并结束本轮；若配置了评审者，提示交付后会被评审。卡片有 blocker（都已 Done）时追加 “Dependency handoffs (card data)”：每个 blocker 的 handoff，并说明 Done 不同步 worktree、要先检查并合并相关分支。子卡片还在其后追加 “Parent integration branch (card data)”：父卡的 id、标题、泳道、分支和目录，并说明父卡汇总已验收的子卡，其分支可能已含兄弟 blocker 的改动且冲突已解决，应先检查、优先合并它。顶层卡片没有这一项。
@@ -91,7 +94,7 @@ AutomationJob {
 | --- | --- |
 | 卡片已 Done/Cancelled/归档 | `stopped` / `card_finished` |
 | 回合失败（普通） | `failures+1`；未到上限 → `retry_wait`，退避 30 s·2^(n−1)，最长 5 分钟，活动记 “Turn failed (n of failureLimit)”，到期在同一 session 发“上次失败：…，从当前状态继续（attempt n of failureLimit）”；到上限 → 实现者：`failed` + 卡片移到 Blocked；评审者：见 §5 |
-| 回合因 provider 限额失败（明确的 429/rate limit/quota/overload） | 不计 `failures`，`cooldowns+1`；不超过 5 次 → `retry_wait` / `cooldown`，依次等 1、2、4、8、15 分钟，活动记 “Provider limit (n of 5); retrying in X min: <error>”，到期发 “The last turn stopped at a provider limit: … (provider limit retry n of 5)”；超过 → `needs_human` / `cooldown`，不把卡片移到 Blocked |
+| 回合因 provider 限额失败（明确的 429/rate limit/quota/overload，或 Claude 的 “You've hit your … limit” 通知；以 completed 结束但最后一行是这类通知或 API Error 的回合也算） | 该角色设了备用模型且本次运行还没换过：换到备用模型（§4.5）。否则：不计 `failures`，`cooldowns+1`；不超过 5 次 → `retry_wait` / `cooldown`，依次等 1、2、4、8、15 分钟，活动记 “Provider limit (n of 5); retrying in X min: <error>”，到期发 “The last turn stopped at a provider limit: … (provider limit retry n of 5)”；超过 → `needs_human` / `cooldown`，不把卡片移到 Blocked |
 | 回合被中断 | `needs_human` / `interrupted` |
 | 实现者有**新交付**（卡片在 In review，交付不是 `reviewedEvent`） | 有评审者且本周期轮次未满 → 开始评审（§5）。没有评审者（例如两次交付之间删掉了评审者）→ `delivered`，并丢掉之前的结论，未经评审的工作不会显示 “Agent review passed”。周期未被重开而轮次用完 → `delivered` / `review_rounds`，保留最后一轮的 `changes` 结论（“Review needs you”） |
 | 回合结束时卡片仍停在得到结论的那次交付上（随口回答） | 保留该结论，`delivered` |
@@ -129,6 +132,20 @@ AutomationJob {
 - 看板上已有晚于 `turnAt` 的 `agent.turn_ended`（钩子在处理前插件被重载等）：补做 §4.2。`needs_human` 时已有更晚的 `agent.turn_started`：补做恢复。
 - 回合结束完全丢失：2 分钟宽限后，被监督 session 处于 idle、error 或 closed，没有 activeTurn、没有待处理权限，也没有记录到回合结束 → `needs_human` / `interrupted`，释放名额。detail 说明 session 是空闲、出错停止（附它的 lastError）还是已关闭；不伪造成功回合，不编造 lifecycle 事件。
 
+### 4.5 Provider 限额与备用模型
+
+用户决定（2026-10-23）：评审者可能用 Opus 5.5 max 这类容易触及限额的模型，所以每个角色可以设一个备用模型。只靠 rate-fallback 插件不够：它为 Claude 会话另建的 GPT 备用 session 不是 Flowly 准备的，没有 Flowly 工具，也不是 job 绑定的评审者，提交不了评审结论；Flowly 自己的冷却最多约 30 分钟，等不到 Claude 的 5 小时或每周额度重置。
+
+- **触发**：角色的回合因 provider 限额失败；以 completed 结束、但时间线最后一行（最近一条用户消息之后）是 Claude 的额度通知、`API Error` 或错误行（只读最后 30 条，引用通知的普通回答、其后的工具调用都不算）；创建或发消息给该角色的 session 时被限额拒绝。
+- **换模型**：记录 `providerLimit`（该角色原模型 `provider/model`；原模型不确定时只记 provider），30 分钟内任何卡片的新 session 都直接用其角色的备用模型；标记 `fallback[role]`；替换该角色的 session：
+  - 评审者：在新的 Flowly 准备的 session（备用模型）里重做**同一轮**评审（轮次不加），开头说明上一个评审模型触及上限。被替换的评审者迟到的结论被拒（`NOT_REVIEWER`）。
+  - 实现者：新的 session（备用模型）接手，首条消息是接手说明（读 flowly_get_task 的 workpad、进度、评论和活动，检查 git status/diff/log，从已完成处继续，不重做）加开工说明、父卡反馈，以及上一个 session 没收到的指令或评审者尚未完成的修改要求。
+  - 尚未创建成功的 session（创建时被拒）：保留原来的首条指令，用新的 preparation 在备用模型上创建。
+  - 计数清零（失败、冷却、提醒），活动记 `automation_fallback`（“<model> reported a provider limit; the <role> continues on its fallback model”）。原 session 保留、不归档、不再受监督。
+- **之后**：该角色在本次运行剩下的时间里一直用备用模型（不在中途换回）。备用模型也触及上限时按原来的冷却处理，不再换。Run again 开始新的运行：实现者沿用原 session（及其模型标记）以保持上下文；评审者不沿用备用 session，`providerLimit` 到期后重新用评审者自己的模型。
+- **启动时**：角色原模型有未到期的 `providerLimit`，或其 provider 正在冷却，而备用模型可用：直接用备用模型创建，并记 `automation_fallback`（“… recently reported a provider limit; the … starts on its fallback model”）。Full access 同样作用于备用模型（§2）。
+- **与 rate-fallback 插件**：自动化 session 带 label `paseo-rate-fallback=off`，rate-fallback 不再为它们建备用 session 或原地换模型，避免同一次限额出现两个接手者在同一个 worktree 里工作。人自己开的卡片 session 不带这个 label，仍由 rate-fallback 处理。
+
 插件 SDK 只在 RPC/钩子上下文里提供 Paseo 连接；dispatcher 用最近一次拿到的连接。daemon 重启后在第一次 RPC 或钩子到来前不派发（看板打开即会到来）。
 
 ## 5. 评审回路
@@ -151,11 +168,12 @@ AutomationJob {
 2. **卡片详情**：标题与标签下一行 “Agent automation · 状态”，附原因、daemon 文本与计数（评审第 n/m 轮、提醒 n/m、失败 n/m），按钮 Run with agent / Run again / Stop。项目未开启且没有 job 时不显示。原因行按状态措辞：
    - `retry_wait` / `failed`：“The last turn failed; retrying”；`retry_wait` / `start_failed`：“The agent session could not be started; retrying”；`retry_wait` / `cooldown`：“Provider limit reached; retrying later”。
    - `needs_human` / `cooldown`（冷却预算用完）：“The provider limit kept recurring; reply in the session, or Stop and Run again”。
+   - 活着的 job 当前角色已换到备用模型时另起一行 “On the fallback model after a provider limit”。
    - `failed` 状态保留 “Turns kept failing” 与 “The agent session could not be started”。
    - `workspace_unavailable`：“The card's workspace is no longer available”；`taken_over`：“Another session took over the card”；`ancestor_finished`：“An ancestor card was cancelled, archived or removed”。它们不再复用 session 消失或卡片移动的原因。
 3. **菜单**：卡片右键/⋯、手机操作表、详情菜单都有 Run with agent（项目开启且卡片未结束）或 Stop automation（job 活着）。卡片的 workspace 不在已加载的 Paseo workspace 列表里时，看板右键菜单和手机操作表与详情一样把 Run with agent 显示为不可用；workspace 列表还在加载，或列表最后成功刷新早于卡片创建时，不因此禁用（agent 或其它设备创建的卡片可能先到达看板）。活着的 job 的 Stop automation 不受影响。
 4. **Needs attention 与侧栏角标**：只在项目的 Agent automation 开启时列出卡片的自动化条目；关闭自动化后，它冻结的 job（包括 `needs_human`、`failed` 和等待评审的交付）的条目都消失。失败的 job 在失败后卡片状态被改过（自动化自己移到 Blocked，即 `rule="AUTO"` 的那次除外，例如人把它从 Blocked 拖回 Development）后离开 Needs attention；job 本身仍是 `failed`，详情里仍有 Run again。条目的自动化部分跟随卡片的信号：失败为 “Automation stopped”，等权限为 “Agent needs permission”，评审者没能定论的交付为 “Review needs you”，其它等待仍为 “Agent waiting for you”。
-5. **编辑项目**：Agent automation 开关；开启后 Cards at once（1/2/3/5）、Implementer、Reviewer（模型选择沿用默认模型控件，“无”分别为项目默认模型 / 不评审）、Review rounds（有评审者时）、Full access。In review 关闭时显示 “Agent automation requires the In review lane.”。
+5. **编辑项目**：Agent automation 开关；开启后 Cards at once（1/2/3/5）、Implementer、Implementer fallback、Reviewer、Reviewer fallback（有评审者时）（模型选择沿用默认模型控件，“无”分别为项目默认模型 / 不评审 / No fallback）、Review rounds（有评审者时）、Full access。In review 关闭时显示 “Agent automation requires the In review lane.”。
 6. **活动**：`automation_*` 事件各有文案；daemon 写的 note（“Reminder 1 of 2”、“Provider limit (1 of 5); retrying in 1 min”、“Another session took over the card” 等）保持英文。
 7. **新手引导**：一次性提示 `agent-automation`（项目有 Backlog/Todo 卡、未打开卡片时，排在 first-card、task-intake 之后）；欢迎页 More features 增加 Agent automation（[ONBOARDING-SPEC](ONBOARDING-SPEC.md) §2、§5）。README Highlights 增加一节。
 
@@ -167,6 +185,7 @@ AutomationJob {
 
 - 纯函数（`shared/automation.test.ts`、`shared/automation-round2.test.ts`）：依赖必须 Done、Cancelled 不放行；按优先级填名额、等人回复不占名额、关闭或冻结的项目不派发；重试到期；交付→评审/交付给人/轮次用完；评审周期在反馈后重开、结论属于它所评的交付；提问与 blocker 等人；静默提醒到上限后 block；失败重试与放弃；中断等待；评审者无结论提醒后交给人且不 block；非监督 session 忽略；job 活着或已交付时它的评审者豁免 A1；provider 冷却只挡确定的同一 provider。
 - 服务（`server/automation.test.ts` 与 `server/automation-*.test.ts`，假 SDK）：未开启时拒绝排队；排队后在卡片 workspace 创建无人值守 session（模型、模式、标签、开工说明）；名额、优先级与 blocker；提醒与 block 且同一回合结束不处理两次；提问等待与回复恢复；失败退避重试与放弃、退避期间人的回合取代重试；创建失败重试后报告且不动卡片；未知结果等人且不重发；评审回路（非评审者拒绝、修改→Development 并发给实现者、重复结论 replayed、第二轮复用评审 session、批准后留在 In review、反馈后新周期）；人移动卡片停止且不动 session、已交付卡在工作阶段间移动仍为 delivered、再次排队复用 session；钩子漏掉的回合结束由对账补上；idle/error/closed 的 session 丢失回合后等人；被监督 session 或卡片 workspace 归档后结束；共享目录占用。
+- 备用模型（`server/automation-fallback.test.ts`、`shared/automation-fallback.test.ts`）：评审者触及上限后在备用模型上重做同一轮、旧评审者结论被拒、新评审者结论生效；实现者触及上限后新 session 接手（接手说明、Full access、opt-out label），旧 session 的回合不再处理；接手带上未完成的修改要求；无备用模型时仍是冷却；备用模型也触及上限时冷却、不再换；completed 回合末尾的 Claude 额度通知算上限，引用通知的普通回答不算；上限记录期间新卡片直接用备用模型、到期后回到原模型；冷却中的 provider 不挡有备用模型的角色；创建时被拒则在备用模型上用原首条指令创建；Run again 在记录到期后回到评审者自己的模型。限额文字识别与冷却闸门的纯函数测试。
 - 真实 daemon + Web UI（按 open-paseo-plugins/AGENTS.md）：安装到本机 daemon，用 app.paseo.sh 验证设置、排队、真实 agent 跑到交付、评审回路与卡片/详情显示；fixture 项目与 session 用后清理。结果记在 [verification/automation.md](verification/automation.md)。
 
 ## 9. 不做（本期）与后续

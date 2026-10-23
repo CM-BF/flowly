@@ -1435,5 +1435,12 @@ const catalog: Catalog = {
   "Nobody (saved on the card)": "Personne (enregistré sur la carte)",
   "Ask about progress or request changes right on the card: comments are saved here and sent to the card's agent.": "Posez une question sur l’avancement ou demandez des modifications directement sur la carte : les commentaires sont enregistrés ici et envoyés à l’agent de la carte.",
   "Ask about progress or request changes right on the card. Comments stay on it and go to the card's agent, which also sees them when it reads the card.": "Posez une question sur l’avancement ou demandez des modifications directement sur la carte. Les commentaires y restent et partent vers son agent, qui les voit aussi quand il lit la carte.",
+  "Implementer fallback": "Modèle de secours de l'implémenteur",
+  "Reviewer fallback": "Modèle de secours du relecteur",
+  "No fallback": "Pas de modèle de secours",
+  "Used when the implementer's model reports a rate or usage limit: a new session continues the card on this model. None: the card waits for the limit to reset.": "Utilisé quand le modèle de l'implémenteur signale une limite de débit ou d'utilisation : une nouvelle session poursuit la carte avec ce modèle. Aucun : la carte attend que la limite soit réinitialisée.",
+  "Used when the reviewer's model reports a rate or usage limit: the review round runs again on this model. None: the review waits for the limit to reset.": "Utilisé quand le modèle du relecteur signale une limite de débit ou d'utilisation : le tour de revue est relancé avec ce modèle. Aucun : la revue attend que la limite soit réinitialisée.",
+  "On the fallback model after a provider limit": "Sur le modèle de secours après une limite du fournisseur",
+  "Switched to the fallback model": "Passage au modèle de secours",
 };
 export default catalog;

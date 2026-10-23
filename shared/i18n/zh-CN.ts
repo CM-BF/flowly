@@ -1435,5 +1435,12 @@ const catalog: Catalog = {
   "Nobody (saved on the card)": "无人（保存在卡片上）",
   "Ask about progress or request changes right on the card: comments are saved here and sent to the card's agent.": "直接在卡片上询问进度或要求修改：评论保存在这里，并发送给卡片的智能体。",
   "Ask about progress or request changes right on the card. Comments stay on it and go to the card's agent, which also sees them when it reads the card.": "直接在卡片上询问进度或要求修改。评论留在卡片上并发送给它的智能体，智能体读取卡片时也能看到。",
+  "Implementer fallback": "执行者备用模型",
+  "Reviewer fallback": "评审者备用模型",
+  "No fallback": "不使用备用模型",
+  "Used when the implementer's model reports a rate or usage limit: a new session continues the card on this model. None: the card waits for the limit to reset.": "执行者的模型报告频率或用量上限时使用：新的 session 用这个模型继续这张卡。无：卡片等待上限重置。",
+  "Used when the reviewer's model reports a rate or usage limit: the review round runs again on this model. None: the review waits for the limit to reset.": "评审者的模型报告频率或用量上限时使用：用这个模型重新进行本轮评审。无：评审等待上限重置。",
+  "On the fallback model after a provider limit": "provider 达到上限后改用备用模型",
+  "Switched to the fallback model": "改用备用模型",
 };
 export default catalog;

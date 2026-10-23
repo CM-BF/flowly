@@ -1,5 +1,15 @@
 # Implementation progress
 
+## Per-role fallback models — 2026-10-23
+
+User decision: the reviewer may run on a limit-prone model (Opus 5.5 max), so each automation role can name a fallback model ([AUTOMATION-SPEC](AUTOMATION-SPEC.md) §4.5). The rate-fallback plugin alone was not enough: its GPT backup of a Claude session has no Flowly tools and is not the bound reviewer, and Flowly's own cooldown (about 30 minutes) cannot wait out a Claude 5-hour or weekly limit.
+
+- [x] Settings `implementerFallback` / `reviewerFallback` (Edit project, nine catalogs). A role whose model reports a provider limit (a failed turn, Claude's quota notice as the last row of a completed turn, or a limit while creating or messaging the session) continues in a new Flowly-prepared session on its fallback: the reviewer reruns the same round (the limited reviewer's late verdict is refused), the implementer takes over from the workpad and workspace with any unfinished requested changes. The role stays on the fallback for the rest of the run; a limit on the fallback uses the cooldown. A recorded limit makes new sessions start on the fallback for 30 minutes, and a cooling provider no longer holds back roles with a fallback elsewhere. Claude's "You've hit your … limit" wording now counts as a provider limit everywhere.
+- [x] Automation sessions carry the label `paseo-rate-fallback=off`; the rate-fallback plugin honours it (its own change), so one limit never yields two takeovers in one worktree.
+- [x] Tests: `server/automation-fallback.test.ts` (11), `shared/automation-fallback.test.ts` (4); typecheck and full suite green.
+- Onboarding: no new tip or tour line. This is a settings option for people who already use automation, and its effect appears on the card ("On the fallback model after a provider limit") and in the activity.
+- [ ] UNRUN live: a real provider limit cannot be triggered on demand; covered offline only.
+
 ## Card comments — 2026-10-23
 
 - [x] Spec [CARD-COMMENTS-SPEC](CARD-COMMENTS-SPEC.md) (user decision 2026-10-23), with implementation notes in §7.

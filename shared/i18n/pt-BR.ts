@@ -1435,5 +1435,12 @@ const catalog: Catalog = {
   "Nobody (saved on the card)": "Ninguém (salvo no cartão)",
   "Ask about progress or request changes right on the card: comments are saved here and sent to the card's agent.": "Pergunte sobre o andamento ou peça alterações direto no cartão: os comentários ficam salvos aqui e vão para o agente do cartão.",
   "Ask about progress or request changes right on the card. Comments stay on it and go to the card's agent, which also sees them when it reads the card.": "Pergunte sobre o andamento ou peça alterações direto no cartão. Os comentários ficam nele e vão para o agente, que também os vê ao ler o cartão.",
+  "Implementer fallback": "Modelo reserva do implementador",
+  "Reviewer fallback": "Modelo reserva do revisor",
+  "No fallback": "Sem modelo reserva",
+  "Used when the implementer's model reports a rate or usage limit: a new session continues the card on this model. None: the card waits for the limit to reset.": "Usado quando o modelo do implementador informa um limite de taxa ou de uso: uma nova sessão continua o card com este modelo. Nenhum: o card espera o limite ser restabelecido.",
+  "Used when the reviewer's model reports a rate or usage limit: the review round runs again on this model. None: the review waits for the limit to reset.": "Usado quando o modelo do revisor informa um limite de taxa ou de uso: a rodada de revisão é refeita com este modelo. Nenhum: a revisão espera o limite ser restabelecido.",
+  "On the fallback model after a provider limit": "No modelo reserva após um limite do provedor",
+  "Switched to the fallback model": "Mudou para o modelo reserva",
 };
 export default catalog;
