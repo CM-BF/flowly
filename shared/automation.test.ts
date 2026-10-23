@@ -102,8 +102,8 @@ test("only a delivery with a verdict on it is settled again; new work after feed
   // A casual answer after the verdict on d1 (also for jobs recorded before reviewedEvent existed).
   expect(judge({ verdict: "approved", reviewedEvent: "d1", deliveryEvent: "d1", reopened: true })).toEqual({ kind: "deliver" });
   expect(judge({ verdict: "approved", deliveryEvent: "d1", reopened: true })).toEqual({ kind: "deliver" });
-  // d1 was under review but got no verdict before the person spoke to the implementer.
-  expect(judge({ deliveryEvent: "d1", reopened: true })).toEqual({ kind: "review", delivery: "d1" });
+  // d1 was under review but got no verdict before the person spoke to the implementer: that round goes on.
+  expect(judge({ deliveryEvent: "d1", reopened: true })).toEqual({ kind: "resume_review" });
   // New work after feedback on a final-round approval.
   b.events.push({ id: "d2", taskId: "a", actor: "agent", action: "status_changed", agentId: "impl", to: "in_review", at });
   expect(judge({ verdict: "approved", reviewedEvent: "d1", deliveryEvent: "d1", reopened: true })).toEqual({ kind: "review", delivery: "d2" });

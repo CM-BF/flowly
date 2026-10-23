@@ -31,6 +31,7 @@ import {
   dispatchPlan,
   isLive,
   jobOf,
+  judgedDelivery,
   newestDelivery,
   nudgePrompt,
   readiness,
@@ -283,7 +284,11 @@ export class AutomationService {
         const task = board.tasks.find((t) => t.id === job.taskId);
         if (!task || task.archivedAt || task.status === "done" || task.status === "cancelled") return { value: null, changed: false };
         if (job.role === "reviewer") delete job.verdict;
+        // A round prompt that has not reached the reviewer yet waits for the review to go on (resume_review); one
+        // whose session was being created went out with it.
+        const held = job.role === "reviewer" && !job.pendingOp && job.instruction?.role === "reviewer" ? job.instruction : undefined;
         delete job.instruction; delete job.pendingOp; delete job.pendingRole;
+        if (held) job.instruction = held;
         job.role = "implementer";
         job.reopened = true;
         // Preserve the reviewed delivery until actual new work is delivered.
@@ -349,7 +354,7 @@ export class AutomationService {
     const outcome: TurnOutcome =
       ended.outcome === "failed" ? { kind: "failed", message: ended.note ?? "" } : ended.outcome === "canceled" ? { kind: "canceled" } : { kind: "completed" };
     const newDelivery = board.events.some((event) => event.taskId === job.taskId && event.agentId === agentId && event.actor === "agent" && event.to === "in_review" && (!job.turnAt || event.at > job.turnAt));
-    if (job.instruction && !job.pendingOp && outcome.kind === "completed" && !newDelivery && !askedThisTurn(board, job.taskId, agentId)) {
+    if (job.instruction?.role === job.role && !job.pendingOp && outcome.kind === "completed" && !newDelivery && !askedThisTurn(board, job.taskId, agentId)) {
       const pending = await this.store.transaction((b) => { const j = this.current(b, job, job.role); if (!j || latestTurnEnd(b, j.taskId, agentId)?.id !== ended.id) return { value: null, changed: false }; j.turnAt = ended.at; return { value: { ...j }, changed: true }; });
       if (pending) await this.deliver(pending);
       return;
@@ -376,6 +381,7 @@ export class AutomationService {
       const pendingInstruction = job.instruction;
       delete job.pendingOp; delete job.pendingRole; delete job.instruction;
       const now = this.now();
+      const handledAt = job.turnAt;
       job.turnAt = endedAt;
       job.updatedAt = now;
       if (outcome.kind === "completed") { job.failures = 0; job.cooldowns = 0; delete job.detail; }
@@ -420,6 +426,21 @@ export class AutomationService {
           job.state = "needs_human";
           job.code = decision.code;
           break;
+        case "resume_review": {
+          // Nothing new was delivered: the round on that delivery goes on, with its count (§4.2). Its prompt is sent
+          // only if it never reached the reviewer; a reviewer turn that already ended is judged on the next pass.
+          delete job.reopened;
+          job.role = "reviewer";
+          job.state = "reviewing";
+          job.nudges = 0;
+          delete job.code;
+          if (pendingInstruction?.role === "reviewer") job.instruction = pendingInstruction;
+          const reviewer = job.reviewerId ? latestLifecycle(board, job.taskId, job.reviewerId) : undefined;
+          if (!job.instruction && reviewer?.action === "agent.turn_ended") job.turnAt = new Date(Date.parse(reviewer.at) - 1).toISOString();
+          else if (handledAt) job.turnAt = handledAt;
+          else delete job.turnAt;
+          break;
+        }
         case "await_children":
           job.state = "waiting";
           job.code = "sub_cards";
@@ -490,7 +511,12 @@ export class AutomationService {
       if (!job || job.reviewerId !== identity.agentId)
         throw new ToolError("NOT_REVIEWER", "Only the reviewer session that Flowly's agent automation started for this card can submit a review.");
       const verdict = input.verdict === "approve" ? "approved" : "changes";
-      if (job.role !== "reviewer" || !["reviewing", "needs_human"].includes(job.state)) {
+      // A casual implementer turn reopened this review (§4.2): the verdict on the delivery under review still counts
+      // while that turn has delivered nothing newer.
+      const reopenedRound =
+        job.role === "implementer" && job.state === "working" && !!job.reopened && !!job.deliveryEvent &&
+        judgedDelivery(job) !== job.deliveryEvent && newestDelivery(board, job, job.implementerId) === job.deliveryEvent;
+      if (!reopenedRound && (job.role !== "reviewer" || !["reviewing", "needs_human"].includes(job.state))) {
         // A repeated call after a lost response: the same verdict is acknowledged, a different one is refused.
         if (job.verdict === verdict)
           return { value: { answer: { accepted: true, verdict: input.verdict, replayed: true, message: "This verdict was already recorded." } }, changed: false };
@@ -498,7 +524,10 @@ export class AutomationService {
       }
       const task = board.tasks.find((t) => t.id === job.taskId);
       const project = task && board.projects.find((p) => p.id === task.projectId);
-      if (!task || !project || task.status !== "in_review" || !automationAllowed(board, job))
+      // Rule A1 moves the card to a work stage for the implementer's turn; that turn's end puts it back.
+      const lastMove = reopenedRound ? [...board.events].reverse().find((e) => e.taskId === job.taskId && e.action === "status_changed") : undefined;
+      const resumedForTurn = lastMove?.rule === "A1" && lastMove.from === "in_review" && lastMove.agentId === job.implementerId;
+      if (!task || !project || (task.status !== "in_review" && !resumedForTurn) || !automationAllowed(board, job))
         throw new ToolError("REVIEW_CLOSED", "The card is no longer In review; nothing was changed.");
       const now = this.now();
       const text = [input.summary, ...input.findings.map((f) => `- ${f}`)].join("\n");
@@ -512,13 +541,16 @@ export class AutomationService {
       delete job.pendingOp; delete job.pendingRole; delete job.instruction;
       delete job.code;
       if (verdict === "approved") {
-        job.state = "delivered";
+        // During the implementer's turn the job stays with it: its end settles the card on this verdict unless it delivers new work.
+        if (!reopenedRound) job.state = "delivered";
         delete job.instruction;
         delete job.pendingOp;
         delete job.pendingRole;
         this.store.event(board, { taskId: task.id, actor: "agent", agentId: identity.agentId, action: "automation_review_approved", note: clip(text, 4000) });
         return { value: { answer: { accepted: true, verdict: input.verdict, message: "Approved. The card stays In review for the user to accept; end your turn." } }, changed: true };
       }
+      // The rework continues this review cycle: its delivery is the next round.
+      delete job.reopened;
       job.state = "working";
       job.turnAt = now;
       this.instruct(job, "implementer", changesPrompt(job.reviewRounds, automationOf(project)!.maxReviewRounds, input.summary, input.findings));
@@ -941,7 +973,7 @@ export class AutomationService {
       if (job.state === "queued" || job.state === "retry_wait") continue;
       const initialTurn = job.implementerId && latestLifecycle(currentBoard, job.taskId, job.implementerId);
       if (job.launchKey && !job.launchConsumed && initialTurn && initialTurn.at >= job.queuedAt) await this.consumeLaunch(job, "implementer");
-      if (job.instruction && ["starting", "working", "reviewing"].includes(job.state)) { await this.deliver(job); continue; }
+      if (job.instruction?.role === job.role && ["starting", "working", "reviewing"].includes(job.state)) { await this.deliver(job); continue; }
       const stale = Date.parse(job.updatedAt) + (this.deps.staleStartMs ?? 120_000) <= this.clock();
       const agentId = activeAgent(job);
       // Only a job that drives a session is recovered here; one waiting for a person waits for them.

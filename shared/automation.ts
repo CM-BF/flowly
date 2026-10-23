@@ -199,7 +199,9 @@ export type TurnDecision =
   /** Limits exhausted. `blockCard`: the card moves to Blocked so it stops looking active. */
   | { kind: "give_up"; code: AutomationCode; blockCard: boolean }
   /** The implementer dispatched sub-cards that are still moving: wait for them (Multica's sub-issue wakeup). */
-  | { kind: "await_children"; signature: string };
+  | { kind: "await_children"; signature: string }
+  /** A casual implementer turn during a review delivered nothing new: that review round goes on, it is not sent again. */
+  | { kind: "resume_review" };
 
 /** `agentId`'s events since its latest turn started. */
 function thisTurn(board: Pick<Board, "events">, taskId: string, agentId: string) {
@@ -266,6 +268,7 @@ export function turnDecision(
       if (onJudgedDelivery(board, job, agentId)) return { kind: "deliver" };
       if (!settings.reviewer) return { kind: "deliver", unreviewed: true };
       const delivery = newestDelivery(board, job, agentId);
+      if (job.reopened && delivery && delivery === job.deliveryEvent && judgedDelivery(job) !== delivery) return { kind: "resume_review" };
       // Feedback after a delivery (or during its review) starts a new cycle: its rounds count from zero (§4.2).
       const rounds = job.reopened ? 0 : job.reviewRounds;
       return rounds < settings.maxReviewRounds ? { kind: "review", ...(delivery && !isArrival(delivery) ? { delivery } : {}) } : { kind: "deliver", code: "review_rounds" };
