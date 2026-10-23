@@ -235,17 +235,18 @@ export class AgentService {
     const input = updateCardInputSchema.parse(raw);
     const signed = this.secrets.validateRequest(identity, input.request, input.expectedRevision);
     const r = await this.resources(identity);
-    if (r.task.archivedAt || r.project.archivedAt) throw new ToolError("ARCHIVED", "Task or project is archived.");
-    if (["done", "cancelled"].includes(r.task.status)) throw new ToolError("TASK_FINISHED", "A finished card cannot manage cards.");
-    if (!r.context.available) throw new ToolError("WORKSPACE_INCOMPATIBLE", r.context.reason || "Workspace is unavailable.");
     const actor: AgentCardActor = { ...identity, expectedRevision: input.expectedRevision, key: `${identity.agentId}:${digest(input.request.id)}`, payloadHash: digest(JSON.stringify({ action: "update_card", input })), start: "later" };
     type Answer = { cardId: string; status: Status; queued: boolean; replayed?: boolean; message: string; previous?: Status; moved?: Task };
     const result = await this.store.transaction<Answer>((board) => {
+      // A retry after a lost response gets its recorded result, also once this card has finished since.
       const existing = board.agentReceipts.find((receipt) => receipt.key === actor.key);
       if (existing) {
         if (existing.payloadHash !== actor.payloadHash || existing.action !== "update_card") throw requestReused();
         return { value: { cardId: existing.cardId!, status: existing.status === "in_progress" ? "development" : existing.status, queued: !!existing.queued, replayed: true, message: "This sub-card action was already recorded." }, changed: false };
       }
+      if (r.task.archivedAt || r.project.archivedAt) throw new ToolError("ARCHIVED", "Task or project is archived.");
+      if (["done", "cancelled"].includes(r.task.status)) throw new ToolError("TASK_FINISHED", "A finished card cannot manage cards.");
+      if (!r.context.available) throw new ToolError("WORKSPACE_INCOMPATIBLE", r.context.reason || "Workspace is unavailable.");
       this.fresh(signed.issuedAt);
       const { task: parent, project } = authorizeCardActor(board, actor);
       const child = board.tasks.find((t) => t.id === input.cardId);
@@ -254,6 +255,13 @@ export class AgentService {
       const job = jobOf(board, child.id);
       if (input.action === "start" && job?.state === "failed") throw new ToolError("NEEDS_PERSON", "This job failed. A person must choose Run again.");
       if (input.action === "start" && job?.state === "stopped") throw new ToolError("TAKEN_BY_PERSON", "This job was stopped or moved. A person must choose Run again.");
+      // A live job has no turn to take a note (or a rework of its delivery): refused, never acknowledged and dropped.
+      if (input.action === "start" && job && isLive(job) && (input.note || child.status === "in_review")) {
+        const dropped = input.note ? " and the note was not delivered" : "";
+        const liveWords: Partial<Record<string, string>> = { waiting: "waiting for its own sub-cards", retry_wait: "waiting to retry a turn", reviewing: "reviewing its delivery" };
+        if (job.state === "needs_human") throw new ToolError("NEEDS_PERSON", `This sub-card waits for a person (${job.code ?? "needs_human"}); a person answers it in its own session. Nothing was changed${dropped}.`);
+        throw new ToolError("CHILD_BUSY", `This sub-card's automation is still ${liveWords[job.state] ?? job.state}. Nothing was changed${dropped}; wait until it settles, then start it again with the note.`);
+      }
       const replayed = (input.action === "accept" && child.status === "done") || (input.action === "cancel" && child.status === "cancelled") || (input.action === "start" && isLive(job));
       if (!replayed && ["done", "cancelled"].includes(child.status)) throw new ToolError("TASK_FINISHED", "That sub-card is already finished.");
       if (!replayed && input.action === "accept" && child.status !== "in_review") throw new ToolError("NOT_DELIVERED", "Only a delivered sub-card in In review can be accepted.");
@@ -271,7 +279,7 @@ export class AgentService {
       const queued = isLive(jobOf(board, child.id));
       const receipt = this.cardReceipt(board, actor, "update_card");
       receipt.cardId = child.id; receipt.status = child.status; receipt.queued = queued;
-      return { value: { cardId: child.id, status: child.status, queued, ...(replayed ? { replayed: true } : {}), message: replayed ? "This sub-card is already in the requested state." : input.action === "accept" ? "Accepted: the sub-card is Done." : input.action === "cancel" ? "Cancelled." : queued ? "Queued for automation. End your turn only if this parent is supervised; otherwise check progress yourself." : "Agent automation is off; a person starts the card.", previous, moved: { ...child } }, changed: true };
+      return { value: { cardId: child.id, status: child.status, queued, ...(replayed ? { replayed: true } : {}), message: replayed ? (input.action === "start" ? "This sub-card is already queued or running; nothing changed." : "This sub-card is already in the requested state.") : input.action === "accept" ? "Accepted: the sub-card is Done." : input.action === "cancel" ? "Cancelled." : queued ? "Queued for automation. End your turn only if this parent is supervised; otherwise check progress yourself." : "Agent automation is off; a person starts the card.", previous, moved: { ...child } }, changed: true };
     });
     if (result.moved && result.previous !== result.status) this.onStatusChange?.(result.previous, result.moved, r.paseo);
     void this.automation?.kick();

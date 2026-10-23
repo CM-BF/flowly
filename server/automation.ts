@@ -12,6 +12,7 @@ import { isWorkStatus, type Board, type Project, type Task } from "../shared/mod
 import type { ToolIdentity, ToolPreparation } from "../shared/tools";
 import {
   activeAgent,
+  agentRestartLimit,
   automationAllowed,
   askedThisTurn,
   providerLimited,
@@ -198,6 +199,11 @@ export class AutomationService {
         if (!laneEnabled(project, "in_review")) throw new Error("Agent automation requires the In review lane.");
         if (by && existing?.state === "failed") throw new ToolError("NEEDS_PERSON", "This job failed. A person must choose Run again.");
         if (by && existing?.state === "stopped") throw new ToolError("TAKEN_BY_PERSON", "This job was stopped or moved. A person must choose Run again.");
+        // An agent queueing earlier work again counts until a person runs or moves the card; a first start does not.
+        const restarts = by && existing ? (existing.restarts ?? 0) + 1 : 0;
+        if (restarts > agentRestartLimit)
+          throw new ToolError("NEEDS_PERSON", `An agent already started this card again ${agentRestartLimit} times since a person last ran or moved it. Ask a person to check its work; their Run again lets agents restart it again.`);
+        if (restarts) job.restarts = restarts;
         if (feedback) job.feedback = feedback;
         return job;
   }
@@ -226,7 +232,13 @@ export class AutomationService {
       if (!job || (!isLive(job) && job.state !== "delivered")) return { value: false, changed: false };
       const finished = next === "done" || next === "cancelled";
       const taken = next === "backlog" || ((next === "todo" || next === "blocked") && job.state !== "queued");
-      if (!finished && !taken) return { value: false, changed: false };
+      if (!finished && !taken) {
+        // A person moving the card acted on it: its parent's agent may start it again (SUB-CARDS-SPEC §8).
+        const move = [...board.events].reverse().find((e) => e.taskId === taskId && e.action === "status_changed");
+        if (!job.restarts || move?.actor !== "human") return { value: false, changed: false };
+        delete job.restarts;
+        return { value: false, changed: true };
+      }
       this.close(job, "stopped", finished ? "card_finished" : "card_moved");
       this.store.event(board, { taskId, actor: "system", action: "automation_stopped", note: finished ? "The card was finished" : "The card was moved" });
       return { value: true, changed: true };
@@ -406,7 +418,6 @@ export class AutomationService {
           job.code = "sub_cards";
           job.subSeen = decision.signature;
           job.nudges = 0;
-          job.failures = 0;
           note("automation_waiting", `Waiting for ${childrenOf(board.links, job.taskId).length} sub-cards`);
           break;
         case "stop":

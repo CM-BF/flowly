@@ -7,6 +7,8 @@ import { agentModelSchema } from "./agent-defaults";
  * model.ts so the logic module can import the board types without a cycle.
  */
 export const automationLimits = { maxRunning: 10, reviewRounds: 5, nudges: 5, failures: 5, detail: 500, summary: 4000, finding: 1000, findings: 10 } as const;
+/** Restarts of a sub-card's delivered work by its parent's agent before a person must act (SUB-CARDS-SPEC §8). */
+export const agentRestartLimit = 2;
 
 /** A project's automation settings. Absent on a project means off. */
 export const automationSettingsSchema = z.strictObject({
@@ -109,6 +111,11 @@ export const automationJobSchema = z.object({
    */
   reviewedEvent: z.string().optional(),
   feedback: z.string().max(4000).optional(),
+  /**
+   * Times a parent card's agent queued this card again since a person last ran (Run again) or moved it.
+   * Carried into the next generation by agent queues; beyond `agentRestartLimit` a person must act.
+   */
+  restarts: z.number().int().nonnegative().optional(),
   reopened: z.boolean().optional(),
   provider: z.string().optional(),
   cooldowns: z.number().int().nonnegative().optional(),
