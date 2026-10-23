@@ -69,6 +69,9 @@ import { LinkOrigin, TaskLinks } from "./task-links";
 import { TaskArtifacts } from "./task-artifacts";
 import { TaskWorkpad } from "./task-workpad";
 import { TaskTags } from "./task-tags";
+import { TaskComments, newCommentMemory, type CommentMemory } from "./task-comments";
+import { commentTargets } from "./card-comments";
+import { commentsOf } from "../shared/comments";
 import { drawerSectionOrder, drawerSectionsOpen, type AnyDrawerSection, type DrawerSection } from "../shared/drawer-sections";
 import { ideaInstruction } from "../shared/ideas";
 import { getLocale, localizedLabels, msg, t, tn } from "../shared/i18n";
@@ -416,6 +419,22 @@ function TaskDrawerView({
   const openMenu = useMenuOpener();
   const automationCache = useQueryClient();
   const automationActions = useAutomationActions();
+  // Card comments (CARD-COMMENTS-SPEC §1). The composer's draft, recipient and failed delivery outlive opening a session.
+  const commentMemories = useRef(new Map<string, CommentMemory>());
+  if (!commentMemories.current.has(task.id)) commentMemories.current.set(task.id, newCommentMemory());
+  const commentMemory = commentMemories.current.get(task.id)!;
+  const commentEventList = commentsOf(events, task.id);
+  const commentEvents = useMemo(() => commentEventList, [commentEventList.map((e) => e.id).join(",")]);
+  // The job's sessions are recorded with the events this drawer re-renders for, so the cached board is current here.
+  const commentJob = automationCache.getQueryData<Board>(boardKey)?.automation.find((j) => j.taskId === task.id);
+  const recipients = commentTargets(sessions.data || [], { workspaceId: task.workspaceId, implementerId: commentJob?.implementerId, reviewerId: commentJob?.reviewerId });
+  const commentRecipients = useMemo(() => recipients, [JSON.stringify(recipients)]);
+  const commentLock = task.archivedAt
+    ? t("This card is archived. Restore it to comment.")
+    : project.archivedAt
+      ? t("This project is archived, so its cards can't take comments.")
+      : "";
+  const startSession = useStableCallback(() => setShowNew(true));
   const finished = task.status === "done" || task.status === "cancelled";
   // Wrapped up while kept on the board: its workspace/sessions are archived on
   // purpose, so neither offer Wrap up again nor warn that they are unavailable.
@@ -678,6 +697,22 @@ function TaskDrawerView({
       case "progress":
         return (
           <TaskProgress taskId={task.id} active={active} section={sectionStates.progress} />
+        );
+      case "comments":
+        return (
+          <TaskComments
+            taskId={task.id}
+            workspaceId={task.workspaceId}
+            events={commentEvents}
+            targets={commentRecipients}
+            loading={sessions.isPending}
+            lockedReason={commentLock}
+            active={active}
+            section={sectionStates.comments}
+            memory={commentMemory}
+            onPosted={stableRefreshAll}
+            onStartSession={unavailable ? undefined : startSession}
+          />
         );
       case "workpad":
         return (
@@ -1257,6 +1292,7 @@ const activityText: Record<string, string> = localizedLabels({
   workspace_restore_skipped: msg("Workspace not restored"),
   sessions_restored: msg("Restored the sessions"),
   progress_reported: msg("Reported progress"),
+  commented: msg("Commented"),
   "agent.turn_started": msg("Started a turn"),
   "agent.turn_ended": msg("Finished a turn"),
   automation_queued: msg("Queued the card for agent automation"),
