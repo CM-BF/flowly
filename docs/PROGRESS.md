@@ -4,8 +4,9 @@
 
 - [x] One task brief, start-agent default on every new card, agent metadata tool with revision/receipt checks, original input preserved.
 - [x] Project/implementer/reviewer permissions and provider speed controls; direct and supervised launches carry settings. Private queued first-message attachments, stable identities and lifecycle cleanup.
-- [x] Multica quick-create behavior researched; spec, skill, onboarding and nine catalogs updated. Typecheck and full suite: 988 passed, 65 pre-existing skipped. Full-access Luna review: [report](verification/task-intake-luna.md).
-- [ ] Install and desktop/compact Web UI + real agent verification: deferred while a nonfixture Flowly automation job runs; no reload during user work.
+- [x] Multica quick-create behavior researched; spec, skill, onboarding and nine catalogs updated. Typecheck and full suite after live metadata fix: 990 passed, 65 pre-existing skipped. Full-access Luna review: [report](verification/task-intake-luna.md).
+- [x] Installed 856c871; desktop/compact single input, start default, saved permissions/speed and a real direct session verified. [Live report](verification/task-intake.md).
+- [ ] Live agent skipped metadata organization: fixed in dc5a75c with setup checks; update/retest and automated image flow wait for a new nonfixture job to settle. Initial fixture cleaned up in both registries and on disk; remaining live checks will use a fresh fixture. No reload during user work.
 
 
 ## Automation/sub-card review hardening — 2026-10-22
