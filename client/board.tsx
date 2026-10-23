@@ -71,7 +71,8 @@ import { LaneList } from "./lane-list";
 import { perfConfigure, perfMark, usePerfRender } from "./perf";
 import { laneRows, sameRows } from "./lane-rows";
 import { LiveTaskCard, type CardDrag, type LiveTaskCardProps } from "./card";
-import { automationMenu, automationSignal, useAutomationActions } from "./task-automation";
+import { automationSignal, useAutomationActions } from "./task-automation";
+import { automationMenu, workspaceKnownMissing } from "./automation-view";
 import { useConnections } from "./connectors";
 import { faceKey, familyOf } from "../shared/connectors";
 import { cardProgress, useSummaries } from "./task-progress";
@@ -774,7 +775,7 @@ function BoardContent(
           setStartRequest({ taskId: card.id, key: `start-${Date.now()}` });
         },
       },
-      ...automationMenu(project ?? undefined, card, automationIndex.get(card.id), locked, automationActions),
+      ...automationMenu(project ?? undefined, card, automationIndex.get(card.id), locked, automationActions, runUnavailable(card)),
       { id: "link", label: t("Link to a card…"), icon: "Link", disabled: locked, onPress: () => setLinking(card) },
       { id: "follow-up", label: t("New follow-up task"), icon: "CornerDownRight", disabled: locked, onPress: () => followUp(card) },
       { id: "sub-card", label: t("New sub-card"), icon: "ListTree", disabled: locked, onPress: () => subCard(card) },
@@ -847,6 +848,8 @@ function BoardContent(
     const workspaceIds = new Set((resources.data?.workspaces || []).map((w) => w.id));
     return { eventsByTask, agentsByWorkspace, workspaceIds };
   }, [board?.events, agents.data, resources.data]);
+  // Run with agent needs the card's workspace, as in the drawer; not judged before the workspace list has loaded.
+  const runUnavailable = (card: Task) => workspaceKnownMissing(resources.data ? cardIndex.workspaceIds : null, card.workspaceId);
   const openIdeaCount = useMemo(() => {
     const counts = new Map<string, number>();
     if (ideasOn) for (const i of board?.ideas || []) if (i.status === "open") counts.set(i.taskId, (counts.get(i.taskId) || 0) + 1);
@@ -1322,7 +1325,7 @@ function BoardContent(
   }, [props.params?.intent, props.params?.at, data.isPending]);
   const attentionDetail = (item: AttentionItem) =>
     `${item.project.title} · ${laneName(item.project, item.task.status)} · ${[
-      item.automation && t("Agent waiting for you"),
+      item.automation && (automationSignal(automationIndex.get(item.task.id), item.task)?.text ?? t("Agent waiting for you")),
       item.questions && tn(item.questions, "{n} question", "{n} questions"),
       item.permissions && tn(item.permissions, "{n} approval", "{n} approvals"),
       item.errors && tn(item.errors, "{n} error", "{n} errors"),
@@ -2128,7 +2131,7 @@ function BoardContent(
                       setActionTask(null);
                     }}
                   />
-                  {[...automationMenu(project ?? undefined, actionTask, automationIndex.get(actionTask.id), !!project?.archivedAt || !!actionTask.archivedAt, automationActions), ...attentionMenuEntry(actionTask)].map((entry) => (
+                  {[...automationMenu(project ?? undefined, actionTask, automationIndex.get(actionTask.id), !!project?.archivedAt || !!actionTask.archivedAt, automationActions, runUnavailable(actionTask)), ...attentionMenuEntry(actionTask)].map((entry) => (
                     <Row
                       key={entry.id}
                       title={entry.label}

@@ -6,34 +6,17 @@ import { useRpc } from "@getpaseo/plugin/client";
 import { useQueryClient } from "@tanstack/react-query";
 import * as rpc from "../shared/rpc";
 import type { Project, Task } from "../shared/model";
-import { automationOf, isLive, readiness, type AutomationCode, type AutomationJob, type AutomationSettings } from "../shared/automation";
+import { automationOf, isLive, readiness, type AutomationJob, type AutomationSettings } from "../shared/automation";
+import { automationReason, type AutomationActions } from "./automation-view";
 import type { AgentModel } from "../shared/agent-defaults";
 import { boardKey, useBoardQuery } from "./queries";
 import { PulseDot } from "./motion";
 import { ModelDefaultGroup } from "./model-default";
 import { Button, Choices, Label, Toggle, font, message, space, toneColor, useTheme, type Tone } from "./ui";
-import { localizedLabels, msg, t } from "../shared/i18n";
+import { t } from "../shared/i18n";
 
 /** How a job reads on the card (AUTOMATION-SPEC §6.1). */
 export type AutomationSignal = { text: string; icon?: string; tone: Tone | "active" };
-
-const reasons: Record<AutomationCode, string> = localizedLabels({
-  question: msg("The agent asked a question"),
-  blocked: msg("The agent reported a blocker"),
-  permission: msg("The agent is waiting for a permission"),
-  interrupted: msg("The turn was interrupted"),
-  stopped: msg("Stopped by you"),
-  card_moved: msg("The card was moved"),
-  card_finished: msg("The card was finished"),
-  no_delivery: msg("The agent kept ending turns without a delivery"),
-  failed: msg("Turns kept failing"),
-  start_failed: msg("The agent session could not be started"),
-  session_unavailable: msg("The agent's session is no longer available"),
-  review_rounds: msg("All review rounds were used"),
-  review_incomplete: msg("The reviewer gave no verdict"),
-  cooldown: msg("Provider limit reached; retrying later"),
-  sub_cards: msg("It handed its work to sub-cards and waits for them"),
-});
 
 /** The card's automation in a few words; null when the lane already says it (stopped, delivered without a review, or the card is finished). */
 export function automationSignal(job: AutomationJob | undefined, task: Pick<Task, "status">): AutomationSignal | null {
@@ -73,7 +56,7 @@ export function SignalMark({ signal }: { signal: AutomationSignal }) {
 }
 
 /** Queue / stop with a toast; the board refreshes after either. */
-export function useAutomationActions() {
+export function useAutomationActions(): AutomationActions {
   const toast = useToast();
   const queryClient = useQueryClient();
   const queue = useRpc(rpc.queueAutomation),
@@ -98,13 +81,6 @@ export function useAutomationActions() {
   };
 }
 
-/** The card's menu entries: Run with agent while the project has automation on, Stop while a job is live. */
-export function automationMenu(project: Project | undefined, task: Task, job: AutomationJob | undefined, locked: boolean, actions: ReturnType<typeof useAutomationActions>, runUnavailable = false) {
-  if (isLive(job)) return [{ id: "automation-stop", label: t("Stop automation"), icon: "CircleStop", disabled: actions.pending, onPress: () => void actions.stop(task.id) }];
-  if (!automationOf(project) || isFinished(task)) return [];
-  return [{ id: "automation-run", label: t("Run with agent"), icon: "Bot", disabled: locked || runUnavailable || actions.pending, onPress: () => void actions.queue(task.id) }];
-}
-
 /**
  * The drawer's automation row (AUTOMATION-SPEC §6.2): what the agent is doing
  * or why it stopped, the counters behind it, and Run / Stop.
@@ -122,6 +98,7 @@ export function TaskAutomation({ task, project, active, unavailable = false }: {
   const ready = board.data && job?.state === "queued" ? readiness(board.data, task.id) : null;
   const held = ready && !ready.ready && ready.reason === "blockers" ? [...ready.waiting, ...ready.cancelled] : [];
   const finished = isFinished(task);
+  const reason = automationReason(job);
   // A delivery someone accepted (or a parent's agent, for a sub-card) is no longer waiting for a review.
   const status =
     signal?.text ?? (job?.state === "stopped" || job?.state === "failed" ? t("Automation stopped") : job?.state === "delivered" ? (finished ? t("Finished") : task.status === "in_review" ? t("Delivered; your review") : t("Not running")) : t("Not running"));
@@ -142,9 +119,7 @@ export function TaskAutomation({ task, project, active, unavailable = false }: {
           {` · ${status}`}
         </Label>
         {!!held.length && <Label muted size={font.sm}>{t("Waiting for blockers to be Done: {cards}", { cards: held.map((card) => `${card.title} (${laneName(project, card.status)})`).join(", ") })}</Label>}
-        {!!job?.code && (job.state !== "needs_human" || job.code !== "permission") && (
-          <Label muted size={font.sm}>{reasons[job.code]}</Label>
-        )}
+        {!!reason && <Label muted size={font.sm}>{reason}</Label>}
         {!!job?.detail && !["working", "reviewing", "starting"].includes(job.state) && (
           <Label muted size={font.sm} lines={3}>
             {job.detail}

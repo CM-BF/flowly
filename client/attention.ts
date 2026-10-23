@@ -1,4 +1,4 @@
-import { jobOf, type AutomationJob } from "../shared/automation";
+import { automationOf, jobOf, type AutomationJob } from "../shared/automation";
 import type { Project, Task, BoardEvent } from "../shared/model";
 import { openQuestion, silentTurn } from "../shared/progress";
 import { pendingRequests } from "../shared/permission-question";
@@ -32,6 +32,19 @@ export type AttentionItem = {
   /** Dismissed from Attention and nothing new since: not counted, listed under Dismissed. */
   dismissed: boolean;
 };
+
+/**
+ * Whether the card's automation job waits for a person. Only while the project has
+ * automation on: with it off the job is frozen and nobody supervises it. A failed job
+ * stops asking once someone moved the card after the failure (taking it back);
+ * the automatic move to Blocked (rule AUTO) is part of the failure itself.
+ */
+function automationNeedsYou(project: Project, task: Task, job: AutomationJob, own: readonly BoardEvent[]) {
+  if (!automationOf(project) || task.status === "done" || task.status === "cancelled") return false;
+  if (job.state === "needs_human") return true;
+  if (job.state === "failed") return !own.some((e) => e.action === "status_changed" && e.rule !== "AUTO" && e.at > job.updatedAt);
+  return task.status === "in_review" && job.state === "delivered" && (job.verdict === "incomplete" || job.code === "review_rounds");
+}
 
 /** Cards across all active projects whose sessions need a human. Running alone does not count. */
 export function attentionItems(
@@ -77,7 +90,7 @@ export function attentionItems(
       })
       .filter((s) => s.permission || s.error || s.question || s.unread);
     const job = jobOf({ automation: board.automation ?? [] }, task.id);
-    const automation = !!job && !["done", "cancelled"].includes(task.status) && (job.state === "needs_human" || job.state === "failed" || (task.status === "in_review" && job.state === "delivered" && (job.verdict === "incomplete" || job.code === "review_rounds")));
+    const automation = !!job && automationNeedsYou(project, task, job, own);
     if (!flagged.length && !automation) continue;
     const signals = [...flagged.flatMap((s) => s.signals), ...(automation ? [`automation:${job!.generation}:${job!.state}:${job!.updatedAt}`] : [])];
     items.push({
