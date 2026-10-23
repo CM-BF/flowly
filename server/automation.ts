@@ -272,13 +272,21 @@ export class AutomationService {
           return { value: null, changed: true };
         }
       }
+      // The host can start a reviewer's turn before create/send returns, including while the implementer
+      // briefly owns the job. Its pending preparation or dispatched prompt identifies that same review.
+      const presented = board.automation.find((j) =>
+        j.reviewerId === agentId && j.instruction?.role === "reviewer" && j.instruction.reviewDelivery === j.deliveryEvent &&
+        !!j.instruction.reviewDelivery && (j.instruction.dispatched || (j.pendingOp && j.pendingRole === "reviewer")) &&
+        (j.role === "reviewer" || j.reopened) && isLive(j) && automationAllowed(board, j),
+      );
+      if (presented) { delete presented.instruction; delete presented.pendingOp; delete presented.pendingRole; delete presented.unconfirmed; }
       const job = board.automation.find(
         (j) =>
           (activeAgent(j) === agentId && (j.state === "needs_human" || j.state === "starting" || j.state === "waiting" || j.state === "retry_wait")) ||
           // Feedback after a delivery: the implementer works again, and its next delivery is reviewed again (Hermes reopen-review).
           ((j.state === "delivered" || (j.role === "reviewer" && isLive(j))) && j.implementerId === agentId),
       );
-      if (!job) return { value: null, changed: false };
+      if (!job) return { value: null, changed: !!presented };
       const project = board.projects.find((p) => p.id === job.projectId);
       if (!automationAllowed(board, job)) return { value: null, changed: false };
       // A real implementer turn proves the initial message reached the daemon, even if create has not returned.
@@ -412,6 +420,7 @@ export class AutomationService {
           delete job.pendingOp;
           delete job.pendingRole;
           this.instruct(job, "reviewer", reviewPrompt(job.reviewRounds, settings.maxReviewRounds));
+          job.instruction!.reviewDelivery = job.deliveryEvent;
           note("automation_review_started", `Review round ${job.reviewRounds} of ${settings.maxReviewRounds}`);
           break;
         case "deliver":
@@ -518,6 +527,8 @@ export class AutomationService {
       if (!job || job.reviewerId !== identity.agentId)
         throw new ToolError("NOT_REVIEWER", "Only the reviewer session that Flowly's agent automation started for this card can submit a review.");
       const verdict = input.verdict === "approve" ? "approved" : "changes";
+      if (job.instruction?.reviewDelivery && job.instruction.reviewDelivery === job.deliveryEvent)
+        throw new ToolError("REVIEW_CLOSED", "This delivery has not reached its reviewer yet. Finish the previous turn and wait for Flowly's new review instruction.");
       // A casual implementer turn reopened this review (§4.2): the verdict on the delivery under review still counts
       // while that turn has delivered nothing newer.
       const reopenedRound =
@@ -773,7 +784,14 @@ export class AutomationService {
           const launch = role === "implementer" && current.launchKey && !current.launchConsumed ? await this.launches.read(task.id, current.launchKey) : undefined;
           const latest = this.current(await this.store.read(), job, role);
           if (!latest || (launch && (latest.launchConsumed || latest.launchKey !== current.launchKey))) return;
-          await paseo.agents.ref(id).send(text, { messageId: launch?.clientMessageId ?? instruction.id, activeTurnBehavior: "steer", ...(launch?.images ? { images: launch.images } : {}) });
+          const response = paseo.agents.ref(id).send(text, { messageId: launch?.clientMessageId ?? instruction.id, activeTurnBehavior: "steer", ...(launch?.images ? { images: launch.images } : {}) });
+          const dispatched = instruction.reviewDelivery ? this.store.transaction((b) => {
+            const j = this.confirmation(b, job, role);
+            if (!j?.instruction) return { value: null, changed: false };
+            j.instruction.dispatched = true;
+            return { value: null, changed: true };
+          }) : Promise.resolve();
+          await Promise.all([response, dispatched]);
           await this.consumeLaunch(current, role);
           await this.started(current, id);
           return;
@@ -1025,6 +1043,7 @@ export class AutomationService {
           const settings = automationOf(b.projects.find((p) => p.id === j.projectId))!;
           if (j.pendingRole && j.pendingRole !== j.role) { delete j.pendingOp; delete j.pendingRole; }
           this.instruct(j, j.role, j.role === "reviewer" ? reviewPrompt(j.reviewRounds, settings.maxReviewRounds) : startPrompt({ review: !!settings.reviewer, again: !!j.implementerId }));
+          if (j.role === "reviewer") j.instruction!.reviewDelivery = j.deliveryEvent;
           j.updatedAt = this.now();
           return { value: { ...j }, changed: true };
         });

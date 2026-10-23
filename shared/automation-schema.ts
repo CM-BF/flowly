@@ -105,7 +105,13 @@ export const automationJobSchema = z.object({
   /** Session preparations belong to one role; they can never be reused by its peer. */
   pendingRole: z.enum(["implementer", "reviewer"]).optional(),
   /** An instruction survives reloads and send failures with its original payload and identity. */
-  instruction: z.object({ id: z.string(), role: z.enum(["implementer", "reviewer"]), text: z.string(), fresh: z.string() }).optional(),
+  instruction: z.object({
+    id: z.string(), role: z.enum(["implementer", "reviewer"]), text: z.string(), fresh: z.string(),
+    /** Only a new round prompt has a delivery identity; reminders/retries still judge the presented round. */
+    reviewDelivery: z.string().optional(),
+    /** The send RPC was invoked; a subsequent turn start can confirm it before its response arrives. */
+    dispatched: z.boolean().optional(),
+  }).optional(),
   /** The delivery (the agent's status event to In review) the latest review round looks at. */
   deliveryEvent: z.string().optional(),
   /**
