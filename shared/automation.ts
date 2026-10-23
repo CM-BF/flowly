@@ -1,4 +1,4 @@
-import type { Board, Project, Task } from "./model";
+import type { Board, BoardEvent, Project, Task } from "./model";
 import { childrenOf, linksOf, parentOf } from "./links";
 import { laneEnabled } from "./lanes";
 import {
@@ -42,6 +42,14 @@ export function automationAllowed(board: Pick<Board, "tasks" | "projects" | "lin
   }
   return true;
 }
+
+/**
+ * Whether someone moved the card after its job failed: a person dragging it back, a session's turn resuming it.
+ * Automation's own move to Blocked (rule AUTO) is part of the failure. The daemon records it on the job
+ * (`takenBack`) while the move is still in the card's history, which keeps only its newest events.
+ */
+export const failureTakenBack = (job: Pick<AutomationJob, "taskId" | "state" | "updatedAt" | "takenBack">, events: readonly Pick<BoardEvent, "taskId" | "action" | "rule" | "at">[]) =>
+  job.state === "failed" && (!!job.takenBack || events.some((e) => e.taskId === job.taskId && e.action === "status_changed" && e.rule !== "AUTO" && e.at > job.updatedAt));
 
 /** The session the job supervises right now. */
 export const activeAgent = (job: Pick<AutomationJob, "role" | "implementerId" | "reviewerId">) =>

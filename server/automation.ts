@@ -29,6 +29,7 @@ import {
   subCardSignature,
   type SubCardLine,
   dispatchPlan,
+  failureTakenBack,
   isLive,
   jobOf,
   judgedDelivery,
@@ -140,6 +141,7 @@ export class AutomationService {
   private async tick() {
     if (!this.paseo || this.stopped) return;
     await this.launches.collect(await this.store.read());
+    await this.recordTakeBacks();
     await this.reconcile();
     const settled = await this.store.read();
     for (const job of settled.automation) if (parentShouldWake(settled, job)) await this.wake(job);
@@ -1019,6 +1021,17 @@ export class AutomationService {
         });
       }
     }
+  }
+
+  /** A failed job someone took back keeps that on the job, before the card's history drops the move (AUTOMATION-SPEC §6). */
+  private async recordTakeBacks() {
+    const due = (board: Board) => board.automation.filter((job) => !job.takenBack && failureTakenBack(job, board.events));
+    if (!due(await this.store.read()).length) return;
+    await this.store.transaction((board) => {
+      const jobs = due(board);
+      for (const job of jobs) job.takenBack = true;
+      return { value: null, changed: jobs.length > 0 };
+    });
   }
 
   /** A waiting parent whose sub-cards settled gets their summary and works again (SUB-CARDS-SPEC §5). */

@@ -1,4 +1,4 @@
-import { automationOf, jobOf, type AutomationJob } from "../shared/automation";
+import { automationOf, failureTakenBack, jobOf, type AutomationJob } from "../shared/automation";
 import type { Project, Task, BoardEvent } from "../shared/model";
 import { openQuestion, silentTurn } from "../shared/progress";
 import { pendingRequests } from "../shared/permission-question";
@@ -42,7 +42,7 @@ export type AttentionItem = {
 function automationNeedsYou(project: Project, task: Task, job: AutomationJob, own: readonly BoardEvent[]) {
   if (!automationOf(project) || task.status === "done" || task.status === "cancelled") return false;
   if (job.state === "needs_human") return true;
-  if (job.state === "failed") return !own.some((e) => e.action === "status_changed" && e.rule !== "AUTO" && e.at > job.updatedAt);
+  if (job.state === "failed") return !failureTakenBack(job, own);
   return task.status === "in_review" && job.state === "delivered" && (job.verdict === "incomplete" || job.code === "review_rounds");
 }
 

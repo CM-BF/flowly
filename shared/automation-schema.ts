@@ -127,6 +127,8 @@ export const automationJobSchema = z.object({
   cooldowns: z.number().int().nonnegative().optional(),
   /** What the sub-cards looked like when the parent last saw them (SUB-CARDS-SPEC §5); a change wakes it. */
   subSeen: z.string().max(20000).optional(),
+  /** Someone moved the card after this job failed (not automation's own move to Blocked): it no longer asks for attention (AUTOMATION-SPEC §6). */
+  takenBack: z.boolean().optional(),
   queuedAt: z.string(),
   startedAt: z.string().optional(),
   updatedAt: z.string(),
