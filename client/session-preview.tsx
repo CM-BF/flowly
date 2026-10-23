@@ -42,7 +42,7 @@ import {
   tint,
   noFocusRing } from "./ui";
 import { sessionTone } from "./status";
-import { resolveSend, sendBehaviorText, sendBehaviors, type SendBehavior } from "./send-queue";
+import { preferredSend, resolveSend, sendBehaviorText, sendBehaviors, type SendBehavior } from "./send-queue";
 import { useComposer } from "./composer";
 import { useLiveAgents } from "./queries";
 import { imageInputSupported, listenForImages, pickImageFiles, readImages, type Attachment } from "./web-images";
@@ -301,7 +301,7 @@ function SessionPreviewView({
     !current.isError &&
     !busy;
   const view = useBoardView();
-  const preferred: SendBehavior = view.values?.sendBehavior || "steer";
+  const preferred: SendBehavior = preferredSend(view.values);
   const setPreferred = (next: SendBehavior) => {
     if (view.values && view.values.sendBehavior !== next) void view.update({ sendBehavior: next });
   };

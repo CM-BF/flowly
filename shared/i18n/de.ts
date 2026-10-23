@@ -1431,6 +1431,8 @@ const catalog: Catalog = {
   "Resend": "Erneut senden",
   "This card's sessions are archived: the comment is saved on the card and not sent.": "Die Sitzungen dieser Karte sind archiviert: Der Kommentar wird auf der Karte gespeichert und nicht gesendet.",
   "No agent session on this card yet: the comment is saved, and an agent reads it when one starts.": "Diese Karte hat noch keine Agenten-Sitzung: Der Kommentar wird gespeichert, und ein Agent liest ihn, sobald eine startet.",
+  "This card's only live sessions are reviewers: the comment is saved on the card, and sent only if you choose one in To:.": "Die einzigen aktiven Sitzungen dieser Karte sind Prüfer: Der Kommentar wird auf der Karte gespeichert und nur gesendet, wenn du unter „An:“ eine davon wählst.",
+  "Nobody (saved on the card)": "Niemand (auf der Karte gespeichert)",
   "Ask about progress or request changes right on the card: comments are saved here and sent to the card's agent.": "Frag nach dem Fortschritt oder fordere Änderungen direkt auf der Karte an: Kommentare werden hier gespeichert und an den Agenten der Karte gesendet.",
   "Ask about progress or request changes right on the card. Comments stay on it and go to the card's agent, which also sees them when it reads the card.": "Frag nach dem Fortschritt oder fordere Änderungen direkt auf der Karte an. Kommentare bleiben auf der Karte und gehen an ihren Agenten, der sie auch sieht, wenn er die Karte liest.",
 };

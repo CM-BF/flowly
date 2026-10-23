@@ -1,4 +1,4 @@
-import { memo, useEffect, useRef, useState } from "react";
+import { memo, useCallback, useState, useSyncExternalStore } from "react";
 import { Platform, Pressable, View } from "react-native";
 import { Icon, useToast } from "@getpaseo/plugin/client/react-native";
 import { usePaseo, useRpc } from "@getpaseo/plugin/client";
@@ -6,46 +6,50 @@ import * as rpc from "../shared/rpc";
 import type { BoardEvent } from "../shared/model";
 import { commentLimits } from "../shared/comments";
 import {
+  chooseRecipient,
   commentList,
-  commentOperation,
-  deliverComment,
+  commentTransport,
+  composerNote,
+  dismissFailure,
+  editComment,
   postComment,
+  recipientPicker,
+  resendComment,
   resolveTarget,
   shownComments,
+  subscribeComments,
   type CommentDelivery,
+  type CommentMemory,
   type CommentTarget,
   type CommentTargets,
-  type CommentTransport,
+  type ComposerNote,
+  type FailedDelivery,
 } from "./card-comments";
 import { Section, type SectionState } from "./disclosure";
 import { useComposer } from "./composer";
 import { useBoardView } from "./board-view";
-import { sendCardInstruction, workspaceSession } from "./session";
 import { eventPoint, useMenuOpener, type MenuEntry } from "./context-menu";
 import { useShortcutBlock } from "./shortcuts";
 import { composerEnterAction, type ComposerKey } from "./session-input";
-import { Button, Label, Notice, TextBox, font, message, noFocusRing, radius, relativeTime, space, touch, useTheme } from "./ui";
-import { t, tn } from "../shared/i18n";
-
-/** What a card's comment composer keeps while the drawer shows a session instead (the section unmounts then). */
-export type CommentMemory = {
-  draft: string;
-  chosen: string | null;
-  failed: FailedDelivery | null;
-  /** The last post that got no answer: retrying the same text reuses its operation. */
-  last: { text: string; operationId: string } | null;
-};
-type FailedDelivery = { text: string; agentId: string; title: string; error: string };
-
-export const newCommentMemory = (): CommentMemory => ({ draft: "", chosen: null, failed: null, last: null });
+import { useStableCallback } from "./stable";
+import { Button, Label, Notice, TextBox, font, noFocusRing, radius, relativeTime, space, touch, useTheme } from "./ui";
+import { msg, t, tn } from "../shared/i18n";
 
 const sessionName = (target: Pick<CommentTarget, "title"> | null | undefined) => target?.title || t("Session");
+
+const noteText: Record<ComposerNote, string> = {
+  "no-session": msg("No agent session on this card yet: the comment is saved, and an agent reads it when one starts."),
+  archived: msg("This card's sessions are archived: the comment is saved on the card and not sent."),
+  reviewers: msg("This card's only live sessions are reviewers: the comment is saved on the card, and sent only if you choose one in To:."),
+};
 
 /**
  * The drawer's Comments section (CARD-COMMENTS-SPEC §1): the recent comments
  * and a composer. Posting records the comment on the card, then sends the exact
- * text to the chosen session through the session composer's path. Memoized:
- * the drawer passes stable callbacks and content-compared lists.
+ * text to the chosen session through the session composer's path. The draft,
+ * recipient, undelivered comments and the post in flight live in `memory`, so
+ * opening a session and coming back loses none of them. Memoized: the drawer
+ * passes stable callbacks and content-compared lists.
  */
 export const TaskComments = memo(function TaskComments({
   taskId,
@@ -53,6 +57,7 @@ export const TaskComments = memo(function TaskComments({
   events,
   targets,
   loading,
+  archivedKnown,
   lockedReason,
   active,
   section,
@@ -67,6 +72,8 @@ export const TaskComments = memo(function TaskComments({
   targets: CommentTargets;
   /** The card's sessions are still loading: the recipient is not known yet. */
   loading: boolean;
+  /** The archived sessions were read, so a card without live sessions can be told from a wrapped-up one. */
+  archivedKnown: boolean;
   /** Set when the card or its project is archived: no new comments. */
   lockedReason: string;
   active: boolean;
@@ -84,49 +91,22 @@ export const TaskComments = memo(function TaskComments({
   const composer = useComposer(false);
   const view = useBoardView();
   const openMenu = useMenuOpener();
-  const [draft, setDraftState] = useState(memory.draft);
-  const [chosen, setChosenState] = useState(memory.chosen);
-  const [failed, setFailedState] = useState(memory.failed);
-  const [posted, setPosted] = useState<BoardEvent[]>([]);
+  useSyncExternalStore(
+    useCallback((listener: () => void) => subscribeComments(memory, listener), [memory]),
+    () => memory.version,
+  );
   const [expanded, setExpanded] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
   const [focused, setFocused] = useState(false);
   useShortcutBlock(focused);
-  const mounted = useRef(true);
-  useEffect(() => () => void (mounted.current = false), []);
-  // Set before the first await: a second Enter in the same frame must not post or send again.
-  const lock = useRef(false);
-  const setDraft = (text: string) => {
-    memory.draft = text;
-    if (mounted.current) setDraftState(text);
-  };
-  const setFailed = (next: FailedDelivery | null) => {
-    memory.failed = next;
-    if (mounted.current) setFailedState(next);
-  };
-  const setChosen = (id: string) => {
-    memory.chosen = id;
-    setChosenState(id);
-  };
-  const target = resolveTarget(targets, chosen);
-  const behavior = view.values?.sendBehavior || "steer";
+  const target = resolveTarget(targets, memory.chosen);
+  const picker = recipientPicker(targets, target);
+  const note = composerNote(targets, target, { loading, archivedKnown });
   const locked = !!lockedReason || !active;
-  const transport: CommentTransport = {
-    send: async (agentId, text, mode) => {
-      // A comment never restores an archived session (CARD-COMMENTS-SPEC §1).
-      await workspaceSession(paseo, agentId, workspaceId, true);
-      await sendCardInstruction(paseo, { id: taskId, workspaceId }, agentId, contextRead, text, mode);
-    },
-    queue: (agentId, text) => composer.queue(taskId, agentId, text),
-  };
-  /** `resent`: the delivery of the failed comment itself, which clears its notice; a newer comment's success does not. */
-  const report = (delivery: CommentDelivery, text: string, to: CommentTarget | null, resent = false) => {
-    if (delivery.kind === "failed") {
-      setFailed({ text, agentId: delivery.agentId, title: sessionName(to), error: delivery.error });
-      return;
-    }
-    if (resent) setFailed(null);
+  const busy = memory.busy;
+  const transport = commentTransport({ paseo, contextRead, queue: (task, agentId, text) => composer.queue(task, agentId, text) }, { taskId, workspaceId });
+  // A failed delivery shows in the list below instead.
+  const announce = (delivery: CommentDelivery, to: CommentTarget | null) => {
+    if (delivery.kind === "failed") return;
     toast.show(
       delivery.kind === "sent"
         ? t("Comment sent to {session}", { session: sessionName(to) })
@@ -137,41 +117,21 @@ export const TaskComments = memo(function TaskComments({
     );
   };
   const submit = async (alternate = false) => {
-    const text = memory.draft;
-    if (lock.current || locked || loading || !text.trim()) return;
-    lock.current = true;
+    if (locked || loading) return;
     const to = target;
-    const operationId = commentOperation(memory.last, text);
-    memory.last = { text, operationId };
-    setBusy(true);
-    setError("");
-    try {
-      const { event, delivery } = await postComment({ record, ...transport }, { taskId, text, operationId, target: to, behavior, alternate });
-      memory.last = null;
-      if (memory.draft === text) setDraft("");
-      if (mounted.current) setPosted((list) => [...list, event]);
-      onPosted();
-      report(delivery, text, to);
-    } catch (e) {
-      // Not recorded: the text stays in the box, and the same text retries the same operation.
-      if (mounted.current) setError(message(e));
-    } finally {
-      lock.current = false;
-      if (mounted.current) setBusy(false);
-    }
+    const result = await postComment(memory, { record, ...transport }, { taskId, target: to, settings: view.values, alternate });
+    if (result.kind !== "posted") return;
+    onPosted();
+    announce(result.delivery, to);
   };
-  const resend = async () => {
-    if (!failed || !target || lock.current) return;
-    lock.current = true;
-    setBusy(true);
-    try {
-      report(await deliverComment(transport, target, failed.text, behavior), failed.text, target, true);
-    } finally {
-      lock.current = false;
-      if (mounted.current) setBusy(false);
-    }
-  };
-  const all = commentList(events, taskId, posted);
+  const resend = useStableCallback(async (eventId: string) => {
+    if (locked) return;
+    const to = target;
+    const delivery = await resendComment(memory, transport, eventId, to, view.values);
+    if (delivery) announce(delivery, to);
+  });
+  const dismiss = useStableCallback((eventId: string) => dismissFailure(memory, eventId));
+  const all = commentList(events, taskId, memory.posted);
   const shown = shownComments(all, expanded);
   const latest = all[all.length - 1];
   const pickTarget = (event: Parameters<typeof eventPoint>[0]) => {
@@ -180,11 +140,12 @@ export const TaskComments = memo(function TaskComments({
       label: c.role === "reviewer" ? t("{session} (reviewer)", { session: sessionName(c) }) : c.role === "implementer" ? t("{session} (automation)", { session: sessionName(c) }) : sessionName(c),
       icon: "MessageSquare",
       checked: c.id === target?.id,
-      onPress: () => setChosen(c.id),
+      onPress: () => chooseRecipient(memory, c.id),
     }));
     openMenu?.(eventPoint(event), t("Send comments to"), entries);
   };
-  const canSend = !locked && !loading && !busy && !!draft.trim();
+  const recipient = target ? sessionName(target) : t("Nobody (saved on the card)");
+  const canSend = !locked && !loading && !busy && !!memory.draft.trim();
   return (
     <Section
       id={taskId}
@@ -209,27 +170,27 @@ export const TaskComments = memo(function TaskComments({
         <CommentRow key={c.id} text={c.text} at={c.at} />
       ))}
       <View testID="comment-composer" style={{ gap: space[1.5] }}>
-        {!locked && targets.candidates.length > 0 && (
+        {!locked && picker.shown && (
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel={t("To: {session}. Change", { session: sessionName(target) })}
-            disabled={busy || !openMenu || targets.candidates.length < 2}
+            accessibilityLabel={t("To: {session}. Change", { session: recipient })}
+            disabled={busy || !openMenu || !picker.opens}
             onPress={pickTarget}
             hitSlop={6}
             style={{ ...noFocusRing, flexDirection: "row", alignItems: "center", gap: 2, alignSelf: "flex-start", minHeight: touch ? 32 : 22 }}
           >
             <Label muted size={font.sm} lines={1} selectable={false}>
-              {t("To:")} <Label size={font.sm} medium selectable={false}>{sessionName(target)}</Label>
+              {t("To:")} <Label size={font.sm} medium selectable={false}>{recipient}</Label>
             </Label>
-            {targets.candidates.length > 1 && <Icon name="ChevronDown" size={12} color={colors.foregroundMuted} />}
+            {picker.opens && <Icon name="ChevronDown" size={12} color={colors.foregroundMuted} />}
           </Pressable>
         )}
         <View style={{ flexDirection: "row", alignItems: "flex-end", gap: space[2] }}>
           <View style={{ flex: 1, minWidth: 0 }}>
             <TextBox
               accessibilityLabel={t("New comment")}
-              value={draft}
-              onChangeText={setDraft}
+              value={memory.draft}
+              onChangeText={(text) => editComment(memory, text)}
               editable={!locked && !busy}
               multiline
               maxLength={commentLimits.text}
@@ -268,28 +229,21 @@ export const TaskComments = memo(function TaskComments({
           </Button>
         </View>
         {!!lockedReason && <Label muted size={font.sm}>{lockedReason}</Label>}
-        {!!error && <Notice>{error}</Notice>}
-        {!!failed && (
+        {!!memory.error && <Notice>{memory.error}</Notice>}
+        {memory.failed.map((f) => (
+          <FailedComment
+            key={f.eventId}
+            failed={f}
+            resendTo={target && target.id !== f.agentId ? sessionName(target) : ""}
+            disabled={busy || !target || locked}
+            onResend={resend}
+            onDismiss={dismiss}
+          />
+        ))}
+        {!locked && note && (
           <View style={{ gap: space[1.5] }}>
-            <Notice tone="warning">
-              {`${failed.error} ${t("Saved on the card; not delivered to {session}.", { session: failed.title })}`}
-            </Notice>
-            <View style={{ flexDirection: "row", gap: space[2] }}>
-              <Button small icon="RotateCw" disabled={busy || !target || locked} onPress={() => void resend()}>
-                {target && target.id !== failed.agentId ? t("Resend to {session}", { session: sessionName(target) }) : t("Resend")}
-              </Button>
-              <Button small quiet onPress={() => setFailed(null)}>{t("Dismiss")}</Button>
-            </View>
-          </View>
-        )}
-        {!locked && !loading && !target && (
-          <View style={{ gap: space[1.5] }}>
-            <Label muted size={font.sm}>
-              {targets.archivedOnly
-                ? t("This card's sessions are archived: the comment is saved on the card and not sent.")
-                : t("No agent session on this card yet: the comment is saved, and an agent reads it when one starts.")}
-            </Label>
-            {!targets.archivedOnly && onStartSession && (
+            <Label muted size={font.sm}>{t(noteText[note])}</Label>
+            {note === "no-session" && onStartSession && (
               <View style={{ flexDirection: "row" }}>
                 <Button small quiet icon="Play" onPress={onStartSession}>{t("Start session")}</Button>
               </View>
@@ -298,6 +252,37 @@ export const TaskComments = memo(function TaskComments({
         )}
       </View>
     </Section>
+  );
+});
+
+/** A comment saved on the card but not delivered: which one, why, and Resend or Dismiss (CARD-COMMENTS-SPEC §7.6). */
+const FailedComment = memo(function FailedComment({
+  failed,
+  resendTo,
+  disabled,
+  onResend,
+  onDismiss,
+}: {
+  failed: FailedDelivery;
+  /** The current recipient's name when it is not the session the delivery failed for. */
+  resendTo: string;
+  disabled: boolean;
+  onResend(eventId: string): void;
+  onDismiss(eventId: string): void;
+}) {
+  return (
+    <View style={{ gap: space[1.5] }}>
+      <Notice tone="warning">
+        {`${failed.error} ${t("Saved on the card; not delivered to {session}.", { session: sessionName(failed) })}`}
+      </Notice>
+      <Label muted size={font.sm} lines={1}>{failed.text.replace(/\s+/g, " ").trim()}</Label>
+      <View style={{ flexDirection: "row", gap: space[2] }}>
+        <Button small icon="RotateCw" disabled={disabled} onPress={() => onResend(failed.eventId)}>
+          {resendTo ? t("Resend to {session}", { session: resendTo }) : t("Resend")}
+        </Button>
+        <Button small quiet onPress={() => onDismiss(failed.eventId)}>{t("Dismiss")}</Button>
+      </View>
+    </View>
   );
 });
 

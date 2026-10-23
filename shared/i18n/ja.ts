@@ -1431,6 +1431,8 @@ const catalog: Catalog = {
   "Resend": "再送信",
   "This card's sessions are archived: the comment is saved on the card and not sent.": "このカードのセッションはアーカイブ済みです。コメントはカードに保存され、送信はされません。",
   "No agent session on this card yet: the comment is saved, and an agent reads it when one starts.": "このカードにはまだエージェントのセッションがありません。コメントは保存され、セッションが始まるとエージェントが読みます。",
+  "This card's only live sessions are reviewers: the comment is saved on the card, and sent only if you choose one in To:.": "このカードで稼働中のセッションはレビュアーだけです。コメントはカードに保存され、「宛先:」でいずれかを選んだときだけ送信されます。",
+  "Nobody (saved on the card)": "なし（カードに保存）",
   "Ask about progress or request changes right on the card: comments are saved here and sent to the card's agent.": "進捗の質問や修正の依頼はカード上でそのまま。コメントはここに保存され、カードのエージェントに送られます。",
   "Ask about progress or request changes right on the card. Comments stay on it and go to the card's agent, which also sees them when it reads the card.": "進捗の質問や修正の依頼はカード上でそのまま。コメントはカードに残ってエージェントに送られ、エージェントがカードを読むときにも表示されます。",
 };

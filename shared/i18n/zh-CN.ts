@@ -1431,6 +1431,8 @@ const catalog: Catalog = {
   "Resend": "重新发送",
   "This card's sessions are archived: the comment is saved on the card and not sent.": "此卡片的会话已归档：评论只保存在卡片上，不会发送。",
   "No agent session on this card yet: the comment is saved, and an agent reads it when one starts.": "此卡片还没有智能体会话：评论会先保存，会话开始后智能体会读到。",
+  "This card's only live sessions are reviewers: the comment is saved on the card, and sent only if you choose one in To:.": "此卡片仅有的活动会话都是评审者：评论保存在卡片上，只有在“发送给：”中选择其中一个时才会发送。",
+  "Nobody (saved on the card)": "无人（保存在卡片上）",
   "Ask about progress or request changes right on the card: comments are saved here and sent to the card's agent.": "直接在卡片上询问进度或要求修改：评论保存在这里，并发送给卡片的智能体。",
   "Ask about progress or request changes right on the card. Comments stay on it and go to the card's agent, which also sees them when it reads the card.": "直接在卡片上询问进度或要求修改。评论留在卡片上并发送给它的智能体，智能体读取卡片时也能看到。",
 };

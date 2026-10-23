@@ -69,8 +69,8 @@ import { LinkOrigin, TaskLinks } from "./task-links";
 import { TaskArtifacts } from "./task-artifacts";
 import { TaskWorkpad } from "./task-workpad";
 import { TaskTags } from "./task-tags";
-import { TaskComments, newCommentMemory, type CommentMemory } from "./task-comments";
-import { commentTargets } from "./card-comments";
+import { TaskComments } from "./task-comments";
+import { cardRecipients, newCommentMemory, type CommentMemory } from "./card-comments";
 import { commentsOf } from "../shared/comments";
 import { drawerSectionOrder, drawerSectionsOpen, type AnyDrawerSection, type DrawerSection } from "../shared/drawer-sections";
 import { ideaInstruction } from "../shared/ideas";
@@ -426,8 +426,7 @@ function TaskDrawerView({
   const commentEventList = commentsOf(events, task.id);
   const commentEvents = useMemo(() => commentEventList, [commentEventList.map((e) => e.id).join(",")]);
   // The job's sessions are recorded with the events this drawer re-renders for, so the cached board is current here.
-  const commentJob = automationCache.getQueryData<Board>(boardKey)?.automation.find((j) => j.taskId === task.id);
-  const recipients = commentTargets(sessions.data || [], { workspaceId: task.workspaceId, implementerId: commentJob?.implementerId, reviewerId: commentJob?.reviewerId });
+  const recipients = cardRecipients(sessions.data || [], automationCache.getQueryData<Board>(boardKey), task);
   const commentRecipients = useMemo(() => recipients, [JSON.stringify(recipients)]);
   const commentLock = task.archivedAt
     ? t("This card is archived. Restore it to comment.")
@@ -706,6 +705,7 @@ function TaskDrawerView({
             events={commentEvents}
             targets={commentRecipients}
             loading={sessions.isPending}
+            archivedKnown={workspaceSessions.data !== undefined}
             lockedReason={commentLock}
             active={active}
             section={sectionStates.comments}
