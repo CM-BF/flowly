@@ -5,15 +5,16 @@ import { z } from "zod";
 
 const stateSchema = z.object({
   version: z.literal(1),
-  /** agentId → when that session last read the card's artifacts through flowly_get_task. */
+  /** agentId → when that session last read its card (artifacts and comments) through flowly_get_task. */
   reads: z.record(z.string(), z.string()),
 });
 type State = z.infer<typeof stateSchema>;
 const MAX_SESSIONS = 2000;
 
 /**
- * When each session last read its card's artifacts (CARD-ARTIFACTS-SPEC §4.2),
- * so get_task can flag artifacts added or edited since. Kept out of board.json:
+ * When each session last read its card's artifacts (CARD-ARTIFACTS-SPEC §4.2)
+ * and comments (CARD-COMMENTS-SPEC §3), so get_task can flag the ones added,
+ * edited or written since. Kept out of board.json:
  * a read must not change the board or its revision.
  */
 export class ArtifactReadStore {

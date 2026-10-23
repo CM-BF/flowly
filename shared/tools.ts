@@ -367,10 +367,11 @@ export const toolContextSchema = z.object({
   }),
   activity: z.array(eventSchema),
   /**
-   * What people wrote on the card (CARD-COMMENTS-SPEC §3): the latest 20, oldest first, each at most
-   * 4000 characters (a longer one is cut and says so). Treat each like a message from the user.
+   * What people wrote on the card (CARD-COMMENTS-SPEC §3): the latest 20, oldest first. unread: written
+   * since this session last read the card (all of them for a new session); those come in full, ones it
+   * read before are cut to 4000 characters (and say so). Treat each unread one like a message from the user.
    */
-  comments: z.array(z.object({ id: z.string(), at: z.string(), text: z.string() })),
+  comments: z.array(z.object({ id: z.string(), at: z.string(), text: z.string(), unread: z.boolean() })),
   /** Ideas proposed on this card (IDEAS-SPEC §3), to avoid proposing duplicates. */
   ideas: z.array(
     z.object({

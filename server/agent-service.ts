@@ -471,7 +471,7 @@ export class AgentService {
   }
   /**
    * `markArtifacts`: this call is the session reading its card (flowly_get_task),
-   * so artifacts it returns stop being unread for that session. The context
+   * so artifacts and comments it returns stop being unread for that session. The context
    * returned after a write shows the flags without clearing them.
    * `handoffs: false` (the context returned after a write): links without handoffs or branches,
    * so a write never pays for reading linked workspaces; get_task has them.
@@ -548,9 +548,9 @@ export class AgentService {
         const emittedHandoffs = new Set<string>();
         setup = setupContext(setupMissing(r.task, workpadOf(board.workpads, r.task.id), workpadEnabled(r.project)), r.task.status);
         return {
-          // Comments come in `comments` only, with their own bound (CARD-COMMENTS-SPEC §3).
+          // Comments come in `comments` only, with their own unread flag and bound (CARD-COMMENTS-SPEC §3).
           activity: board.events.filter((e) => e.taskId === r.task.id && !isComment(e)).slice(-20),
-          comments: agentComments(board.events, r.task.id),
+          comments: agentComments(board.events, r.task.id, lastRead),
           projectTags: projectTagStats(board.tasks, r.project.id).map(({ tag, count }) => ({ tag, count })),
           outputLanguage: outputLanguage(await this.aiLanguage()),
           ideas: board.ideas
@@ -621,7 +621,7 @@ export class AgentService {
         at: new Date(this.clock()).toISOString(),
         action: "get",
       });
-    if (markArtifacts && value.artifacts.length)
+    if (markArtifacts && (value.artifacts.length || value.comments.length))
       await this.artifactReads.mark(identity.agentId, readAt).catch((e) =>
         console.error("Kanban artifact reads not saved:", e instanceof Error ? e.message : String(e)),
       );

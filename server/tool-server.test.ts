@@ -127,6 +127,9 @@ test("MCP initialize/list can precede actor creation; live calls require SDK con
   expect(skillText).toContain("SETUP_INCOMPLETE");
   expect(described("flowly_update_status")).toContain("SETUP_INCOMPLETE");
   expect(described("flowly_get_task")).toContain("setup.missing");
+  // Comments (CARD-COMMENTS-SPEC §3): only unread ones are new to act on, and they come after the read's own steps.
+  expect(described("flowly_get_task")).toMatch(/comments[^.]*unread=true/);
+  expect(described("flowly_get_task").indexOf("setup.missing")).toBeLessThan(described("flowly_get_task").indexOf("comments"));
   for (const name of ["flowly_set_type", "flowly_set_tags", "flowly_update_workpad"])
     expect(described(name), name).toContain("at the start of the work, before you change code");
   expect(Object.keys(listed.find((t) => t.name === "flowly_update_workpad")!.inputSchema.properties)).toEqual(

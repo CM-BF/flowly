@@ -9,7 +9,7 @@ export const commentLimits = {
   text: 10000,
   /** Comments a card keeps. They do not count against its 100 other events, so automation noise never pushes them out. */
   perTask: 50,
-  /** flowly_get_task: the latest comments, each cut to this many characters. */
+  /** flowly_get_task: the latest comments; one this session already read is cut to `agentChars`. */
   agentCount: 20,
   agentChars: 4000,
 } as const;
@@ -34,18 +34,32 @@ export function commentsOf(events: readonly BoardEvent[], taskId: string): Board
   return events.filter((e) => e.taskId === taskId && isComment(e));
 }
 
-/** A long comment as an agent reads it: at most `max` characters, the cut said in the text. */
+/**
+ * A long comment the session already read, as get_task repeats it: at most `max`
+ * characters, the cut said in the text. Only read comments are cut, so the note
+ * is true whether or not the comment was ever sent to this session.
+ */
 export function clipComment(text: string, max: number = commentLimits.agentChars) {
   if (text.length <= max) return text;
-  const note = (shown: number) => `\n[Comment truncated: the first ${shown} of ${text.length} characters. The full text was sent to the card's session when it was written.]`;
+  const note = (shown: number) =>
+    `\n[Comment shortened: the first ${shown} of ${text.length} characters. This session received the full text in an earlier flowly_get_task.]`;
   // The note's length depends on the number in it; settle it once.
   const shown = max - note(max).length;
   return text.slice(0, shown) + note(shown);
 }
 
-/** flowly_get_task `comments`: the latest human comments, oldest first, each clipped (CARD-COMMENTS-SPEC §3). */
-export function agentComments(events: readonly BoardEvent[], taskId: string) {
+/**
+ * flowly_get_task `comments` (CARD-COMMENTS-SPEC §3): the latest human comments,
+ * oldest first. `lastRead`: when this session last read the card (none: it never
+ * did). A comment written since is unread and comes in full; one it read before
+ * is cut to `agentChars`.
+ */
+export function agentComments(events: readonly BoardEvent[], taskId: string, lastRead?: string) {
   return commentsOf(events, taskId)
     .slice(-commentLimits.agentCount)
-    .map((e) => ({ id: e.id, at: e.at, text: clipComment(e.note ?? "") }));
+    .map((e) => {
+      const unread = !lastRead || e.at > lastRead;
+      const text = e.note ?? "";
+      return { id: e.id, at: e.at, text: unread ? text : clipComment(text), unread };
+    });
 }
