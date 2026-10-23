@@ -54,6 +54,16 @@ test("a long comment reaches the agent cut to 4000 characters, with the cut said
   expect(exact.text).toBe("b".repeat(commentLimits.agentChars));
 });
 
+test("a comment is not repeated in activity, so its 4000-character bound holds", async () => {
+  const x = await setup();
+  await addComment(x.store, { taskId: "t", text: "c".repeat(9000), operationId: "long" });
+  await x.store.mutate((b) => void x.store.event(b, { taskId: "t", actor: "agent", agentId: "actor", action: "progress_reported", note: "Agent note" }));
+  const context = await x.service.get(x.identity);
+  expect(context.activity.map((e) => e.action)).not.toContain("commented");
+  expect(context.activity.at(-1)).toMatchObject({ action: "progress_reported", note: "Agent note" });
+  expect(context.comments).toHaveLength(1);
+});
+
 test("the agent-facing text tells agents and reviewers what comments are", () => {
   // The skill (both copies are compared byte for byte in tool-server.test.ts).
   expect(skillText).toMatch(/comments in flowly_get_task/);

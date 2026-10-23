@@ -2,7 +2,7 @@ import { linkExtras, type LinkHandoff } from "./automation-handoff";
 import { resumeStage } from "./progress-rules";
 import { authorizeCardActor, authorizeCardCreation, checkStartable, refuseAbandonedTree, type AgentCardActor } from "./agent-card-guard";
 import { isSummarizer } from "../shared/summary";
-import { agentComments } from "../shared/comments";
+import { agentComments, isComment } from "../shared/comments";
 import { outputLanguage } from "../shared/ai-language";
 import type { LocaleCode } from "../shared/i18n";
 import { enabledStatuses, laneEnabled, laneName } from "../shared/lanes";
@@ -548,7 +548,8 @@ export class AgentService {
         const emittedHandoffs = new Set<string>();
         setup = setupContext(setupMissing(r.task, workpadOf(board.workpads, r.task.id), workpadEnabled(r.project)), r.task.status);
         return {
-          activity: board.events.filter((e) => e.taskId === r.task.id).slice(-20),
+          // Comments come in `comments` only, with their own bound (CARD-COMMENTS-SPEC §3).
+          activity: board.events.filter((e) => e.taskId === r.task.id && !isComment(e)).slice(-20),
           comments: agentComments(board.events, r.task.id),
           projectTags: projectTagStats(board.tasks, r.project.id).map(({ tag, count }) => ({ tag, count })),
           outputLanguage: outputLanguage(await this.aiLanguage()),

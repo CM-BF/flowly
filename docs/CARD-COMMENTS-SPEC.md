@@ -57,6 +57,7 @@
 5. **不恢复已归档的 session。** 发送前先确认 session 未归档（`workspaceSession(..., true)`），然后走 `sendCardInstruction`；`sendCardInstruction` 本身允许发给已归档的 session（Paseo 会恢复它），评论不允许。卡片只有已归档的 session（例如 wrap up 之后）时，提示 “This card's sessions are archived: the comment is saved on the card and not sent.”
 6. **失败与重发。** 失败提示（原因 + “Saved on the card; not delivered to {session}.”）一直保留到重发成功或点 Dismiss；之后发出的新评论成功不会清掉它。Resend 发给当前 To: 选中的 session（与失败时不同则按钮写 “Resend to {session}”），只发送，不再记录。排队（Queue）失败也算发送失败。
 7. **抽屉。** Comments 是可移动的侧栏分区（DRAWER-SPEC, Section order），默认在 Progress 下方、默认展开；已保存过分区顺序的用户也会看到它出现在 Progress 之后。草稿、To: 选择和失败提示在打开某个 session 再返回时保留（抽屉内存，不写入 daemon）。Enter 发送、Shift+Enter 换行、⌘/Ctrl+Enter 用 When running 的另一种方式，与 session 输入框相同。
-8. **新手引导。** 提示 `card-comments` 的条件是：打开的卡片有未归档的 session，且卡片未归档（输入框可用）。优先级在其它“打开卡片”类提示之前（`connectors` 之前）。
+8. **Agent 只在 `comments` 里看到评论。** `flowly_get_task.activity`（最近 20 条事件）不再包含 `commented` 事件，否则同一条评论会出现两次，而且绕过 4000 字符的上限。
+9. **新手引导。** 提示 `card-comments` 的条件是：打开的卡片有未归档的 session，且卡片未归档（输入框可用）。优先级在其它“打开卡片”类提示之前（`connectors` 之前）。
 
 验收（§6）：单元部分全部覆盖并先见红：`server/comments.test.ts`（事件写入、revision 不变、幂等重放、归档拒绝、Done/Cancelled 可评论、不被 100 条上限挤掉、删除与备份、RPC 输入）、`server/get-task-comments.test.ts`（数量、顺序、截断、skill 与评审提示）、`client/card-comments.test.ts`（收件 session 选择、列表、发送偏好、失败不丢评论、重发不重复记录、重试复用 operation）、`client/onboarding-logic.test.ts`（`card-comments`）、`shared/drawer-sections.test.ts`。实测部分（本机 daemon + app.paseo.sh）**未运行**：本次没有安装到 daemon。
