@@ -103,6 +103,14 @@ export async function automationFixture(automation: Partial<AutomationSettings> 
       }),
     },
     workspaces: {
+      list: async () => {
+        const ids = [...new Set((await store.read()).tasks.map((task) => task.workspaceId))];
+        const snapshots = await Promise.all(ids.map(async (id) => {
+          const snapshot = await hooks.workspace?.(id);
+          return snapshot === null ? null : { id, ...(snapshot ?? { workspaceDirectory: join(root, id) }) };
+        }));
+        return { entries: snapshots.filter((workspace) => workspace !== null), pageInfo: { nextCursor: null } };
+      },
       ref: (workspaceId: string) => ({
         refresh: async () => {
           const snapshot = await hooks.workspace?.(workspaceId);

@@ -656,22 +656,31 @@ export class AutomationService {
     const board = await this.store.read();
     const task = board.tasks.find((t) => t.id === seen.taskId);
     if (!task) return "unknown";
-    const directories = new Map<string, Promise<string | null>>();
-    const directory = (workspaceId: string) => {
-      let found = directories.get(workspaceId);
-      if (!found) {
-        found = this.api()
-          .workspaces.ref(workspaceId)
-          .refresh()
-          .then((workspace) => (!workspace || workspace.archivingAt ? null : realpath(workspace.workspaceDirectory).catch(() => workspace.workspaceDirectory)));
-        directories.set(workspaceId, found);
-      }
-      return found;
-    };
     try {
+      // Workspace ref.refresh scans the full list too; share one paginated snapshot for this attempt.
+      const workspaces = new Map<string, { workspaceDirectory: string; archivingAt?: string | null }>();
+      let cursor: string | undefined;
+      do {
+        const page = await this.api().workspaces.list({ page: { limit: 200, cursor } });
+        for (const workspace of page.entries) workspaces.set(workspace.id, workspace);
+        cursor = page.pageInfo.nextCursor ?? undefined;
+      } while (cursor);
+      const directories = new Map<string, Promise<string | null>>();
+      const directory = (workspaceId: string) => {
+        let found = directories.get(workspaceId);
+        if (!found) {
+          const workspace = workspaces.get(workspaceId);
+          found = !workspace || workspace.archivingAt
+            ? Promise.resolve(null)
+            : realpath(workspace.workspaceDirectory).catch(() => workspace.workspaceDirectory);
+          directories.set(workspaceId, found);
+        }
+        return found;
+      };
       const target = await directory(task.workspaceId);
       if (!target) return "unavailable";
       const others = board.automation.flatMap((job) => {
+        if (!slotStates.includes(job.state) && !activeAgent(job)) return [];
         const other = job.taskId !== seen.taskId ? board.tasks.find((t) => t.id === job.taskId) : undefined;
         return other && !other.archivedAt && other.status !== "done" && other.status !== "cancelled" ? [{ job, other }] : [];
       });

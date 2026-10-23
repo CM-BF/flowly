@@ -41,6 +41,43 @@ test("a stopped job whose session still runs in the shared directory holds it un
   expect(x.created.map((c) => c.workspaceId)).toEqual(["w-a", "w-b"]);
 });
 
+test("one blocked dispatch scans the workspace pages once, without scanning again for each old in-play card", async () => {
+  const x = await setup({ enabled: true, maxRunning: 5 });
+  x.hooks.workspace = () => shared;
+  await x.store.mutate((board) => {
+    for (let i = 0; i < 20; i++) {
+      const id = `inactive-${i}`;
+      board.tasks.push({ ...board.tasks[0], id, workspaceId: `w-${id}`, operationId: id, status: "development" });
+      board.automation.push({ taskId: id, projectId: "p", state: "stopped", role: "implementer", generation: 1, nudges: 0, failures: 0, reviewRounds: 0, queuedAt: x.at(), updatedAt: x.at() });
+    }
+  });
+  await x.automation.queue("a");
+  await x.automation.kick();
+  await x.automation.queue("b");
+  await x.automation.kick();
+  expect((await x.job("b")).state).toBe("queued");
+  const list = x.paseo.workspaces.list.bind(x.paseo.workspaces);
+  const ref = x.paseo.workspaces.ref.bind(x.paseo.workspaces);
+  const pages: (string | undefined)[] = [];
+  const refreshed: string[] = [];
+  x.paseo.workspaces.list = (async (options: { page?: { cursor?: string } }) => {
+    const page = await list({});
+    pages.push(options.page?.cursor);
+    return options.page?.cursor
+      ? { entries: page.entries.slice(1), pageInfo: { nextCursor: null } }
+      : { entries: page.entries.slice(0, 1), pageInfo: { nextCursor: "remaining" } };
+  }) as typeof x.paseo.workspaces.list;
+  x.paseo.workspaces.ref = (workspace) => {
+    const id = typeof workspace === "string" ? workspace : workspace.id;
+    const handle = ref(workspace);
+    return { ...handle, refresh: async () => { refreshed.push(id); return handle.refresh(); } };
+  };
+  await x.automation.kick();
+  expect(pages).toEqual([undefined, "remaining"]);
+  expect(refreshed).toEqual([]);
+  expect(x.created.map((c) => c.workspaceId)).toEqual(["w-a"]);
+});
+
 test("a card held back by the directory does not probe the sessions of finished cards on every pass", async () => {
   const x = await setup({ enabled: true, maxRunning: 5 });
   x.hooks.workspace = () => shared;
