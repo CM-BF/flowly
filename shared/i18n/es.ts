@@ -1431,5 +1431,7 @@ const catalog: Catalog = {
   "Resend": "Reenviar",
   "This card's sessions are archived: the comment is saved on the card and not sent.": "Las sesiones de esta tarjeta están archivadas: el comentario se guarda en la tarjeta y no se envía.",
   "No agent session on this card yet: the comment is saved, and an agent reads it when one starts.": "Esta tarjeta aún no tiene una sesión de agente: el comentario se guarda y un agente lo leerá cuando empiece una.",
+  "Ask about progress or request changes right on the card: comments are saved here and sent to the card's agent.": "Pregunta por el avance o pide cambios directamente en la tarjeta: los comentarios se guardan aquí y se envían al agente de la tarjeta.",
+  "Ask about progress or request changes right on the card. Comments stay on it and go to the card's agent, which also sees them when it reads the card.": "Pregunta por el avance o pide cambios directamente en la tarjeta. Los comentarios se quedan en ella y llegan a su agente, que también los ve al leer la tarjeta.",
 };
 export default catalog;

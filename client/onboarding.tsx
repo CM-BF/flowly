@@ -242,6 +242,7 @@ function FeaturesPage() {
     { icon: "Sparkles", color: colors.accent, title: t("Suggested next steps"), text: t("Tap one to fill in the message box. Nothing is sent until you send it.") },
   ];
   const more = [
+    { icon: "MessagesSquare", color: colors.accent, title: t("Comments"), text: t("Ask about progress or request changes right on the card. Comments stay on it and go to the card's agent, which also sees them when it reads the card.") },
     { icon: "ListTree", color: colors.accent, title: t("Sub-cards"), text: t("Agents can split work into sub-cards with their own workspaces. A supervised parent waits, checks their deliveries and accepts them. Failed or stopped jobs need your Run again.") },
     { icon: "Bot", color: colors.accent, title: t("Agent automation"), text: t("Optional per project: Run with agent queues a card, and Flowly starts it when its blockers are Done, reminds or retries the agent when it stalls, and can have a reviewer agent check the delivery. Done stays yours.") },
     { icon: "ListChecks", color: colors.statusSuccess, title: t("Workpad"), text: t("Agents set the card's type and tags and write a workpad before they start: acceptance criteria, checks marked passed, failed or not run on a named commit, and what confused them. Delivering without them needs a note.") },

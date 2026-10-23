@@ -1431,5 +1431,7 @@ const catalog: Catalog = {
   "Resend": "重新傳送",
   "This card's sessions are archived: the comment is saved on the card and not sent.": "此卡片的工作階段已封存：留言只儲存在卡片上，不會傳送。",
   "No agent session on this card yet: the comment is saved, and an agent reads it when one starts.": "此卡片還沒有智慧體工作階段：留言會先儲存，工作階段開始後智慧體會讀到。",
+  "Ask about progress or request changes right on the card: comments are saved here and sent to the card's agent.": "直接在卡片上詢問進度或要求修改：留言儲存在這裡，並傳送給卡片的智慧體。",
+  "Ask about progress or request changes right on the card. Comments stay on it and go to the card's agent, which also sees them when it reads the card.": "直接在卡片上詢問進度或要求修改。留言留在卡片上並傳送給它的智慧體，智慧體讀取卡片時也能看到。",
 };
 export default catalog;

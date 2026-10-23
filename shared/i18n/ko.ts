@@ -1431,5 +1431,7 @@ const catalog: Catalog = {
   "Resend": "다시 보내기",
   "This card's sessions are archived: the comment is saved on the card and not sent.": "이 카드의 세션은 보관되었습니다. 댓글은 카드에 저장되고 보내지지 않습니다.",
   "No agent session on this card yet: the comment is saved, and an agent reads it when one starts.": "이 카드에는 아직 에이전트 세션이 없습니다. 댓글은 저장되며 세션이 시작되면 에이전트가 읽습니다.",
+  "Ask about progress or request changes right on the card: comments are saved here and sent to the card's agent.": "진행 상황을 묻거나 변경을 요청하려면 카드에서 바로 하세요. 댓글은 여기에 저장되고 카드의 에이전트에게 전달됩니다.",
+  "Ask about progress or request changes right on the card. Comments stay on it and go to the card's agent, which also sees them when it reads the card.": "진행 상황을 묻거나 변경을 요청하려면 카드에서 바로 하세요. 댓글은 카드에 남아 에이전트에게 전달되고, 에이전트가 카드를 읽을 때도 보입니다.",
 };
 export default catalog;
