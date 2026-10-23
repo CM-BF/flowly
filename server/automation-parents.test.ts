@@ -46,6 +46,25 @@ test("a sub-card asking a person keeps its parent waiting; the parent wakes once
   expect(toParent()).toHaveLength(1);
 });
 
+test("a sub-card whose workspace is gone settles as failed, so its waiting parent wakes and hears why", async () => {
+  // One slot: the parent holds it, so the sub-card is dispatched only once the parent waits.
+  const x = await setup({ enabled: true, maxRunning: 1 });
+  await x.store.mutate((board) => void board.links.push(link("subtask", "b", "a")));
+  x.hooks.workspace = (id) => (id === "w-b" ? null : undefined);
+  await x.automation.queue("a");
+  await x.automation.kick();
+  const parent = x.created[0].agentId;
+  await x.automation.queue("b");
+  await x.automation.kick();
+  expect((await x.job("b")).state).toBe("queued");
+  // The parent's silent turn end waits for b, which frees the slot; b's dispatch finds no workspace.
+  await x.turn(parent, "a");
+  expect((await x.store.read()).events.some((e) => e.taskId === "a" && e.action === "automation_waiting")).toBe(true);
+  expect(await x.job("b")).toMatchObject({ state: "failed", code: "session_unavailable" });
+  expect((await x.job("a")).state).toBe("working");
+  expect(x.sent.filter((s) => s.agentId === parent)).toEqual([expect.objectContaining({ text: expect.stringMatching(/Card b \(b\): Todo; automation failed \(session_unavailable\)/) })]);
+});
+
 test("a parent whose sub-cards settled waits for a free slot before it wakes", async () => {
   const { x, toParent } = await family({ maxRunning: 1 });
   const child = x.created.find((c) => c.workspaceId === "w-b")!.agentId;

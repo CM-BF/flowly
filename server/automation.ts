@@ -31,6 +31,7 @@ import {
   retryDelayMs,
   retryPrompt,
   reviewInputSchema,
+  slotStates,
   reviewPrompt,
   startPrompt,
   turnDecision,
@@ -520,12 +521,14 @@ export class AutomationService {
 
   /** Claims a queued card and starts (or reuses) its implementer session. */
   private async begin(seen: AutomationJob) {
-    if (!(await this.canOccupy(seen))) return;
+    const place = await this.occupancy(seen);
+    if (place === "unavailable") return this.workspaceGone(seen);
+    if (place !== "free") return;
     const claimed = await this.store.transaction((board) => {
       const job = jobOf(board, seen.taskId);
       if (!job || job.generation !== seen.generation || job.state !== "queued" || !automationAllowed(board, job) || !readiness(board, job.taskId).ready) return { value: null, changed: false };
       const project = board.projects.find((p) => p.id === job.projectId)!;
-      const slots = board.automation.filter((j) => j.projectId === project.id && ["starting", "working", "reviewing", "retry_wait"].includes(j.state)).length;
+      const slots = board.automation.filter((j) => j.projectId === project.id && slotStates.includes(j.state)).length;
       if (slots >= automationOf(project)!.maxRunning || providerCooling(board, project, this.clock())) return { value: null, changed: false };
       const now = this.now();
       job.state = "starting";
@@ -568,33 +571,63 @@ export class AutomationService {
     await this.deliver(job);
   }
 
-  /** Directory workspaces can be distinct native resources over the same physical checkout. */
-  private async canOccupy(seen: AutomationJob) {
+  /**
+   * Whether the job's card may take its workspace's directory now. Directory workspaces can be distinct
+   * native resources over the same physical checkout: another card holds it while its job runs, or while
+   * its session still runs, waits for a permission or is mid-turn (a stopped job's session too). Only cards
+   * still in play are asked: a finished or archived card's jobs ended and its sessions are a person's.
+   * `unavailable`: the card's own workspace is archived or gone; `unknown`: the daemon did not answer.
+   */
+  private async occupancy(seen: AutomationJob): Promise<"free" | "occupied" | "unavailable" | "unknown"> {
     const board = await this.store.read();
     const task = board.tasks.find((t) => t.id === seen.taskId);
-    if (!task) return false;
-    const directory = async (workspaceId: string) => {
-      const workspace = await this.api().workspaces.ref(workspaceId).refresh();
-      if (!workspace || workspace.archivingAt) return null;
-      return realpath(workspace.workspaceDirectory).catch(() => workspace.workspaceDirectory);
+    if (!task) return "unknown";
+    const directories = new Map<string, Promise<string | null>>();
+    const directory = (workspaceId: string) => {
+      let found = directories.get(workspaceId);
+      if (!found) {
+        found = this.api()
+          .workspaces.ref(workspaceId)
+          .refresh()
+          .then((workspace) => (!workspace || workspace.archivingAt ? null : realpath(workspace.workspaceDirectory).catch(() => workspace.workspaceDirectory)));
+        directories.set(workspaceId, found);
+      }
+      return found;
     };
     try {
       const target = await directory(task.workspaceId);
-      if (!target) return false;
-      for (const job of board.automation.filter((j) => j.taskId !== seen.taskId)) {
-        let holds = ["starting", "working", "reviewing", "retry_wait"].includes(job.state);
-        if (!holds && activeAgent(job)) {
-          const agent = (await this.api().agents.ref(activeAgent(job)!).refresh())?.agent;
-          holds = !!agent && !agent.archivedAt && (agent.status === "running" || !!agent.activeTurn || !!agent.pendingPermissions?.length);
-        }
-        if (!holds) continue;
-        const other = board.tasks.find((t) => t.id === job.taskId);
-        if (other && target === await directory(other.workspaceId)) return false;
-      }
-      return true;
-    } catch { return false; }
+      if (!target) return "unavailable";
+      const others = board.automation.flatMap((job) => {
+        const other = job.taskId !== seen.taskId ? board.tasks.find((t) => t.id === job.taskId) : undefined;
+        return other && !other.archivedAt && other.status !== "done" && other.status !== "cancelled" ? [{ job, other }] : [];
+      });
+      const shared = (await Promise.all(others.map(async ({ job, other }) => ((await directory(other.workspaceId)) === target ? [job] : [])))).flat();
+      const holds = await Promise.all(
+        shared.map(async (job) => {
+          if (slotStates.includes(job.state)) return true;
+          const id = activeAgent(job);
+          if (!id) return false;
+          const agent = (await this.api().agents.ref(id).refresh())?.agent;
+          return !!agent && !agent.archivedAt && (agent.status === "running" || !!agent.activeTurn || !!agent.pendingPermissions?.length);
+        }),
+      );
+      return holds.some(Boolean) ? "occupied" : "free";
+    } catch {
+      return "unknown";
+    }
   }
 
+  /** The card's own workspace is archived or gone: the job settles with the reason, so its parent can wake. */
+  private workspaceGone(seen: AutomationJob) {
+    return this.store.transaction((board) => {
+      const job = jobOf(board, seen.taskId);
+      if (!job || job.generation !== seen.generation || job.state !== seen.state || !automationAllowed(board, job)) return { value: null, changed: false };
+      this.close(job, "failed", "session_unavailable");
+      job.detail = "The card's workspace is archived or no longer exists.";
+      this.store.event(board, { taskId: job.taskId, actor: "system", action: "automation_failed", note: "The card's workspace is archived or no longer exists" });
+      return { value: null, changed: true };
+    });
+  }
 
   /**
    * Gives `role`'s session of the job `text`: sent to the live session, or the
@@ -783,16 +816,26 @@ export class AutomationService {
       if (!job || !this.current(board, seen, role)) return { value: null, changed: false };
       const settings = automationOf(board.projects.find((p) => p.id === job.projectId));
       const code = error && typeof error === "object" && "code" in error ? String(error.code) : "";
-      if (code === "agent_request_outcome_unknown" || message.includes("agent_request_outcome_unknown")) {
-        job.state = "needs_human"; job.code = "interrupted";
-        job.detail = "The daemon cannot confirm whether the instruction reached the provider. Check the session before resuming.";
+      // Waiting for a person drops the instruction and any preparation: nothing is sent or created until they act.
+      // A session the daemon did create stays reachable through its recorded id (turnStarted resumes it).
+      const waitForPerson = (why: AutomationCode, detail: string) => {
+        job.state = "needs_human";
+        job.code = why;
+        job.detail = detail;
         job.updatedAt = this.now();
+        delete job.pendingOp;
+        delete job.pendingRole;
+        delete job.instruction;
+        delete job.retryAt;
         return { value: null, changed: true };
-      }
+      };
+      if (code === "agent_request_outcome_unknown" || message.includes("agent_request_outcome_unknown"))
+        return waitForPerson("interrupted", "The daemon cannot confirm whether the instruction reached the provider. Check the session before resuming.");
       const gone = error instanceof SessionGone;
       if (!gone && providerLimited(message)) {
         job.cooldowns = (job.cooldowns ?? 0) + 1;
-        job.state = job.cooldowns > 5 ? "needs_human" : "retry_wait";
+        if (job.cooldowns > 5) return waitForPerson("cooldown", message);
+        job.state = "retry_wait";
         job.code = "cooldown";
         job.detail = message;
         job.retryAt = new Date(this.clock() + Math.min(60_000 * 2 ** (job.cooldowns - 1), 900_000)).toISOString();
@@ -865,7 +908,8 @@ export class AutomationService {
       if (job.instruction && ["starting", "working", "reviewing"].includes(job.state)) { await this.deliver(job); continue; }
       const stale = Date.parse(job.updatedAt) + (this.deps.staleStartMs ?? 120_000) <= this.clock();
       const agentId = activeAgent(job);
-      if (stale && (job.state === "starting" || job.pendingOp || !agentId)) {
+      // Only a job that drives a session is recovered here; one waiting for a person waits for them.
+      if (stale && ["starting", "working", "reviewing"].includes(job.state) && (job.state === "starting" || job.pendingOp || !agentId)) {
         const recovered = await this.store.transaction((b) => {
           const j = jobOf(b, job.taskId);
           if (!j || !isLive(j) || j.generation !== job.generation || !automationAllowed(b, j)) return { value: null, changed: false };
@@ -888,14 +932,20 @@ export class AutomationService {
       const last = latestLifecycle(currentBoard, job.taskId, agentId);
       if (last?.action === "agent.turn_ended" && (!job.turnAt || last.at > job.turnAt)) await this.judgeTurnEnd(agentId);
       else if ((agent.status === "running" || agent.activeTurn) && (job.state === "waiting" || (job.state === "needs_human" && job.code !== "permission"))) await this.turnStarted(agentId);
-      else if (stale && ["working", "reviewing"].includes(job.state) && agent.status === "idle" && !agent.activeTurn && !agent.pendingPermissions?.length) {
-        // An idle session proves there is no running worker, not how its missing turn ended.
+      else if (stale && ["working", "reviewing"].includes(job.state) && agent.status !== "running" && agent.status !== "initializing" && !agent.activeTurn && !agent.pendingPermissions?.length) {
+        // An idle, errored or closed session proves there is no running worker, not how its missing turn ended.
+        const detail =
+          agent.status === "error"
+            ? `The session stopped with an error and its turn outcome was not recorded${agent.lastError ? `: ${agent.lastError}` : ""}. Check it before resuming.`
+            : agent.status === "closed"
+              ? "The session closed and its turn outcome was not recorded. Check it before resuming."
+              : "The session is idle but its turn outcome was not recorded. Check it before resuming.";
         await this.store.transaction((b) => {
           const j = jobOf(b, job.taskId);
           if (!this.current(b, job, job.role) || !j || j.updatedAt !== job.updatedAt) return { value: null, changed: false };
           j.state = "needs_human";
           j.code = "interrupted";
-          j.detail = "The session is idle but its turn outcome was not recorded. Check it before resuming.";
+          j.detail = clip(detail);
           j.updatedAt = this.now();
           return { value: null, changed: true };
         });
@@ -906,7 +956,10 @@ export class AutomationService {
   /** A waiting parent whose sub-cards settled gets their summary and works again (SUB-CARDS-SPEC §5). */
   private async wake(seen: AutomationJob) {
     const board = await this.store.read();
-    if (!parentShouldWake(board, seen) || !(await this.canOccupy(seen))) return;
+    if (!parentShouldWake(board, seen)) return;
+    const place = await this.occupancy(seen);
+    if (place === "unavailable") return void (await this.workspaceGone(seen));
+    if (place !== "free") return;
     const project = board.projects.find((p) => p.id === seen.projectId);
     const lines = (await Promise.all(childrenOf(board.links, seen.taskId).map((id) => cardHandoff(board, id, this.api())))).filter((line): line is SubCardLine => !!line);
     const woken = await this.store.transaction((b) => {

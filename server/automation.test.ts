@@ -370,10 +370,14 @@ test("unknown send outcome pauses rather than reusing or replacing a message bli
   x.hooks.send = async () => { throw Object.assign(new Error("agent_request_outcome_unknown"), { code: "agent_request_outcome_unknown" }); };
   await x.automation.stopJob("a"); await x.automation.queue("a"); await x.automation.kick();
   expect(await x.job("a")).toMatchObject({ state: "needs_human", code: "interrupted", failures: 0 });
-  const id = (await x.job("a")).instruction!.id;
+  // Nothing is kept to re-send: a person checks the session first.
+  expect(await x.job("a")).not.toHaveProperty("instruction");
+  const sends = x.sent.length;
+  x.hooks.send = undefined;
   x.advance(1_000_000); await x.automation.kick();
-  expect((await x.job("a")).instruction!.id).toBe(id);
+  expect(x.sent).toHaveLength(sends);
   expect(x.created).toHaveLength(1);
+  expect((await x.job("a")).state).toBe("needs_human");
 });
 
 
