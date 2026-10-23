@@ -41,6 +41,7 @@ Spec: [AUTOMATION-SPEC](AUTOMATION-SPEC.md). Builds on the user's earlier decisi
 - [x] Live on the user's daemon through the web UI ([report](verification/automation.md)): dependencies, unattended Claude implementer, Codex reviewer approve and changes → fix → round 2, reminders → give-up → Blocked, Stop, Run again, plugin reload mid-turn, phone width. Three bugs found and fixed (project create on a desktop-managed daemon, Done not releasing at once, A1r's Blocked read as the agent's). Fixtures cleaned up.
 - [ ] UNRUN: real provider failure and retry, permission waiting, daemon restart mid-turn, slot contention live, Android device.
 - [ ] Not built (spec §9): Hermes orchestrator cards, goal mode, scheduled starts, per-card assignee or model. Decomposition came later through agent-created sub-cards (above).
+- [x] Review round 2 (61 findings, 59 confirmed): review cycles and verdicts per delivery, retry/turn-end fixes, parent wake and blocker walk, frozen projects without In review, cooldown gating, sub-card restart bound and refused notes, bounded get_task handoffs, client reasons and Attention; specs, onboarding spec and READMEs updated; tsc and `npx vitest run` pass (1105 passed, 65 skipped). Live daemon/Web UI UNRUN; client-docs-3 (Full access vs project default permissions) left for the owner ([review](verification/automation-review.md#round-2)).
 
 ## Registry listing art (card "发布v1.5.0") — 2026-10-21
 
