@@ -13,6 +13,7 @@ import type { ToolIdentity, ToolPreparation } from "../shared/tools";
 import {
   activeAgent,
   agentRestartLimit,
+  arrivalDelivery,
   automationAllowed,
   askedThisTurn,
   providerLimited,
@@ -30,6 +31,7 @@ import {
   dispatchPlan,
   isLive,
   jobOf,
+  newestDelivery,
   nudgePrompt,
   readiness,
   retryDelayMs,
@@ -367,6 +369,9 @@ export class AutomationService {
       const settings = automationOf(board.projects.find((p) => p.id === job.projectId))!;
       const decision = turnDecision(board, job, agentId, outcome, settings, this.clock());
       const task = board.tasks.find((t) => t.id === job.taskId)!;
+      // Kept on the job: the card's history holds only its newest events, and later turns are compared with it (§3).
+      const delivery = job.role === "implementer" ? newestDelivery(board, job, agentId) : undefined;
+      if (delivery) job.latestDelivery = delivery;
       if (job.launchKey && job.implementerId === agentId) job.launchConsumed = true;
       const pendingInstruction = job.instruction;
       delete job.pendingOp; delete job.pendingRole; delete job.instruction;
@@ -381,7 +386,9 @@ export class AutomationService {
         case "review":
           if (job.reopened) job.reviewRounds = 0;
           delete job.reopened;
-          job.deliveryEvent = decision.delivery;
+          // The card reached In review without a delivery of the agent (a person moved it): this turn end stands for it.
+          job.deliveryEvent = decision.delivery ?? arrivalDelivery(endedAt);
+          job.latestDelivery = job.deliveryEvent;
           job.role = "reviewer";
           job.state = "reviewing";
           job.reviewRounds++;

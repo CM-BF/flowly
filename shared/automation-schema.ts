@@ -110,6 +110,12 @@ export const automationJobSchema = z.object({
    * again delivered nothing new (a casual answer keeps the verdict); any other delivery is new work.
    */
   reviewedEvent: z.string().optional(),
+  /**
+   * The implementer's newest delivery as of its last judged turn (`turn:<time>` when the card reached In review
+   * without one). The card's history keeps only its newest events; this is what a turn is compared with once
+   * the delivery event itself is gone. Absent on jobs recorded before it existed.
+   */
+  latestDelivery: z.string().optional(),
   feedback: z.string().max(4000).optional(),
   /**
    * Times a parent card's agent queued this card again since a person last ran (Run again) or moved it.

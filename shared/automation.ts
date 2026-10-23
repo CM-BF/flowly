@@ -60,6 +60,38 @@ export const reviewerJob = (board: Pick<Board, "automation">, agentId: string) =
 export const judgedDelivery = (job: Pick<AutomationJob, "reviewedEvent" | "deliveryEvent" | "verdict">) =>
   job.reviewedEvent ?? (job.verdict ? job.deliveryEvent : undefined);
 
+/** The delivery id of a review started on a card that reached In review without a delivery of the agent (a person moved it). */
+export const arrivalDelivery = (endedAt: string) => `turn:${endedAt}`;
+const isArrival = (id: string) => id.startsWith("turn:");
+
+/**
+ * The implementer's newest delivery: its latest status event to In review while the card's history (the newest
+ * 100 events per card) still has it, else the one the job recorded at its last judged turn (`latestDelivery`).
+ */
+export function newestDelivery(board: Pick<Board, "events">, job: Pick<AutomationJob, "taskId" | "latestDelivery">, agentId: string | undefined) {
+  for (let i = board.events.length - 1; agentId && i >= 0; i--) {
+    const e = board.events[i];
+    if (e.taskId === job.taskId && e.agentId === agentId && e.actor === "agent" && e.to === "in_review") return e.id;
+  }
+  return job.latestDelivery;
+}
+
+/**
+ * Whether the implementer's turn ended on the delivery the latest verdict judged: a casual answer, nothing new.
+ * A delivery the agent made this turn is always new. A review the card reached without a delivery of the agent
+ * (`turn:` ids) is only matched by a turn that rule A1r put back in In review, and so is a verdict whose delivery
+ * is unknown (jobs recorded before `latestDelivery` existed); any other arrival in In review is new.
+ */
+function onJudgedDelivery(board: Pick<Board, "events">, job: AutomationJob, agentId: string) {
+  const turn = thisTurn(board, job.taskId, agentId);
+  if (turn.some((e) => e.actor === "agent" && e.to === "in_review")) return false;
+  const restored = turn.some((e) => e.action === "status_changed" && e.rule === "A1r" && e.to === "in_review");
+  const delivery = newestDelivery(board, job, agentId);
+  const judged = judgedDelivery(job);
+  if (delivery && judged) return delivery === judged && (!isArrival(judged) || restored);
+  return !!job.verdict && (!!delivery || restored);
+}
+
 export type Readiness =
   | { ready: true }
   | { ready: false; reason: "missing" | "finished" }
@@ -152,7 +184,7 @@ export const retryDelayMs = (n: number) => Math.min(30_000 * 2 ** Math.max(0, n 
 export type TurnOutcome = { kind: "completed" } | { kind: "failed"; message: string } | { kind: "canceled" };
 export type TurnDecision =
   | { kind: "ignore" }
-  /** The implementer delivered `delivery` (its status event): start the next review round on it. */
+  /** The implementer delivered `delivery` (its status event; absent when the card reached In review without one): start the next review round on it. */
   | { kind: "review"; delivery?: string }
   /**
    * The implementer delivered and no (further) review runs: the user takes over. `unreviewed`: new
@@ -230,13 +262,13 @@ export function turnDecision(
     if (askedThisTurn(board, task.id, agentId)) return { kind: "wait", code: "question" };
   } else {
     if (task.status === "in_review") {
-      const delivery = [...board.events].reverse().find((e) => e.taskId === task.id && e.agentId === agentId && e.actor === "agent" && e.to === "in_review");
       // Nothing new since the latest verdict (a casual answer): the verdict still stands.
-      if (delivery && delivery.id === judgedDelivery(job)) return { kind: "deliver" };
+      if (onJudgedDelivery(board, job, agentId)) return { kind: "deliver" };
       if (!settings.reviewer) return { kind: "deliver", unreviewed: true };
+      const delivery = newestDelivery(board, job, agentId);
       // Feedback after a delivery (or during its review) starts a new cycle: its rounds count from zero (§4.2).
       const rounds = job.reopened ? 0 : job.reviewRounds;
-      return rounds < settings.maxReviewRounds ? { kind: "review", ...(delivery ? { delivery: delivery.id } : {}) } : { kind: "deliver", code: "review_rounds" };
+      return rounds < settings.maxReviewRounds ? { kind: "review", ...(delivery && !isArrival(delivery) ? { delivery } : {}) } : { kind: "deliver", code: "review_rounds" };
     }
     if (task.status === "blocked" && blockedThisTurn(board, task.id, agentId)) return { kind: "wait", code: "blocked" };
     if (askedThisTurn(board, task.id, agentId)) return { kind: "wait", code: "question" };
