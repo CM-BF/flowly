@@ -434,13 +434,13 @@ export function cooldownPrompt(count: number, error: string) {
 const lenses = [
   "Lens for this round: the artifact. Read the diff cold before the delivery note, form your own judgment, then compare it with the note and investigate every mismatch.",
   "Lens for this round: execution. Run the build, the tests and the reported behavior yourself; verify each claim of the delivery instead of re-reading it.",
-  "Lens for this round: the contract. Re-read the original card and its acceptance criteria and audit the delivery strictly against them, including every change requested in earlier rounds.",
+  "Lens for this round: the contract. Re-read the original card and its acceptance criteria and audit the delivery strictly against them, including every change requested in earlier rounds and in the comments.",
 ];
 
 export function reviewPrompt(round: number, max: number) {
   return [
     `${tag} You are the reviewer of this card (review round ${round} of ${max}). The implementer delivered it to In review. Verify it independently; you review, you do not take over the implementation.`,
-    "Read flowly_get_task: the card, its workpad (acceptance criteria and checks) and the delivery note in its activity. Inspect the actual changes in this workspace (git status, git diff, git log) and run the relevant checks.",
+    "Read flowly_get_task: the card, its workpad (acceptance criteria and checks), the people's comments (what they asked for counts like the card's requirements) and the delivery note in its activity. Inspect the actual changes in this workspace (git status, git diff, git log) and run the relevant checks.",
     lenses[Math.min(round, lenses.length) - 1],
     "Then call flowly_submit_review exactly once: verdict=approve when the acceptance criteria are met and the checks pass; verdict=changes with concrete findings the implementer can act on (file, problem, expected fix). Do not edit files, commit, push or change the card status. If only a person can decide something, ask with flowly_report_progress kind=question and end your turn.",
   ].join("\n\n");

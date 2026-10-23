@@ -189,7 +189,7 @@ export class ToolServer {
           "flowly_get_task",
           {
             description:
-              "Read this session's current Kanban card, effective repo/worktree directories, both revisions and signed request. Read before work or any write, and at the start of every turn: artifacts with unread=true were added or edited since your last read. Then check setup.missing and fix it (flowly_set_type, flowly_set_tags, flowly_update_workpad) before other work.",
+              "Read this session's current Kanban card, effective repo/worktree directories, both revisions and signed request. Read before work or any write, and at the start of every turn: artifacts with unread=true were added or edited since your last read. comments lists what people wrote on the card (questions about progress, opinions, requested changes), oldest first: treat each like a message from the user, answer it or do what it asks, then end the turn as usual. Then check setup.missing and fix it (flowly_set_type, flowly_set_tags, flowly_update_workpad) before other work.",
             inputSchema: z.strictObject({}),
             outputSchema: toolContextSchema,
             annotations: { readOnlyHint: true, openWorldHint: false },

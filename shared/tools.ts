@@ -366,6 +366,11 @@ export const toolContextSchema = z.object({
     unavailableReason: z.string(),
   }),
   activity: z.array(eventSchema),
+  /**
+   * What people wrote on the card (CARD-COMMENTS-SPEC §3): the latest 20, oldest first, each at most
+   * 4000 characters (a longer one is cut and says so). Treat each like a message from the user.
+   */
+  comments: z.array(z.object({ id: z.string(), at: z.string(), text: z.string() })),
   /** Ideas proposed on this card (IDEAS-SPEC §3), to avoid proposing duplicates. */
   ideas: z.array(
     z.object({
