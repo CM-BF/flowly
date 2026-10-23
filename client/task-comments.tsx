@@ -30,7 +30,7 @@ import { useComposer } from "./composer";
 import { useBoardView } from "./board-view";
 import { eventPoint, useMenuOpener, type MenuEntry } from "./context-menu";
 import { useShortcutBlock } from "./shortcuts";
-import { composerEnterAction, type ComposerKey } from "./session-input";
+import { composerKeys } from "./session-input";
 import { useStableCallback } from "./stable";
 import { Button, Label, Notice, TextBox, font, noFocusRing, radius, relativeTime, space, touch, useTheme } from "./ui";
 import { msg, t, tn } from "../shared/i18n";
@@ -196,16 +196,7 @@ export const TaskComments = memo(function TaskComments({
               maxLength={commentLimits.text}
               placeholder={t("Comment or ask the agent…")}
               placeholderTextColor={colors.foregroundMuted}
-              {...(Platform.OS === "web"
-                ? {
-                    onKeyPress: (event: { nativeEvent: unknown; preventDefault(): void }) => {
-                      const action = composerEnterAction(event.nativeEvent as ComposerKey);
-                      if (action === "native") return;
-                      event.preventDefault();
-                      if (action === "submit" || action === "alternate") void submit(action === "alternate");
-                    },
-                  }
-                : {})}
+              {...composerKeys(Platform.OS, (alternate) => void submit(alternate))}
               onFocus={() => setFocused(true)}
               onBlur={() => setFocused(false)}
               style={{
