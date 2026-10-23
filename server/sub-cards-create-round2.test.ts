@@ -86,6 +86,17 @@ test.each([
   expect((await x.store.read()).tasks.filter((t) => t.title === "Sub")).toHaveLength(1);
 });
 
+test("a blocker archived while the workspace is made: CARD_INVALID names the workspace, and so does every retry", async () => {
+  const x = await setup();
+  await x.store.mutate((board) => { board.tasks.push({ ...board.tasks[0], id: "blocker", title: "Blocker", workspaceId: "blocker-ws", operationId: "blocker-op" }); });
+  const input = { ...(await x.request()), title: "Sub", blockedBy: ["blocker"] };
+  x.during((board) => { board.tasks.find((t) => t.id === "blocker")!.archivedAt = new Date().toISOString(); });
+  await expect(x.service.createCard(x.identity, input)).rejects.toMatchObject({ code: "CARD_INVALID", message: expect.stringContaining("ws-1") });
+  await expect(x.service.createCard(x.identity, input)).rejects.toMatchObject({ code: "CARD_INVALID", message: expect.stringContaining("ws-1") });
+  expect(x.create).toHaveBeenCalledTimes(1);
+  expect(await x.bound("ws-1")).toEqual([]);
+});
+
 test("a card deleted after its request committed is not created again by a retry of that request", async () => {
   const x = await setup();
   const input = { ...(await x.request()), title: "Sub" };
