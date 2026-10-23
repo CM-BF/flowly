@@ -48,7 +48,7 @@ export async function launch() {
 }
 
 // Hide every project tab except `project` (the tab row's other labelled children; "+" and the chevron have no text).
-export async function hidePrivate(page, project) {
+export async function hidePrivate(page, project, sidebarWidth = SIDEBAR_WIDTH) {
   await page.evaluate(({ project, sidebar }) => {
     const label = (el) => el.textContent.trim();
     const leaf = [...document.querySelectorAll('*')].find((el) => !el.children.length && label(el) === project && el.getBoundingClientRect().x > sidebar && el.getBoundingClientRect().y < 140);
@@ -57,7 +57,7 @@ export async function hidePrivate(page, project) {
     while (tab.parentElement && [...tab.parentElement.children].filter((c) => label(c)).length < 2) tab = tab.parentElement;
     if (!tab.parentElement) return;
     for (const sib of tab.parentElement.children) if (sib !== tab && label(sib)) sib.style.display = 'none';
-  }, { project, sidebar: SIDEBAR_WIDTH - 20 });
+  }, { project, sidebar: sidebarWidth - 20 });
 }
 
 // Open Paseo, enter the Flowly project `project` (default Tinylink). Returns a session; `clip` excludes the sidebar.
@@ -78,8 +78,10 @@ export async function open(browser, { w, h, scheme = 'light', locale = 'en-US', 
 
 // Screenshot to `path`. An explicit clip is in page coordinates but is never allowed to reach into the sidebar.
 export async function shot(s, path, clip = s.clip) {
-  await hidePrivate(s.page, s.project);
-  const x = Math.max(clip.x, SIDEBAR_WIDTH);
+  // A compact direct plugin route has no host sidebar. Explicit opt-in is limited to phone widths.
+  const sidebar = s.compact && s.page.viewportSize()?.width <= 767 ? 0 : SIDEBAR_WIDTH;
+  await hidePrivate(s.page, s.project, sidebar);
+  const x = Math.max(clip.x, sidebar);
   await s.page.screenshot({ path, clip: { ...clip, x, width: clip.width - (x - clip.x) } });
 }
 
@@ -97,5 +99,5 @@ export async function pageText(s) {
       if (r.width && r.height && r.x >= sidebar) out.push(t);
     }
     return out.join('\n');
-  }, SIDEBAR_WIDTH);
+  }, s.compact && s.page.viewportSize()?.width <= 767 ? 0 : SIDEBAR_WIDTH);
 }
