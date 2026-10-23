@@ -282,6 +282,7 @@ export class AutomationService {
       if (job.launchKey && job.implementerId === agentId) job.launchConsumed = true;
       // A prepared session's first real turn proves its creation reached the daemon.
       if (job.pendingOp && activeAgent(job) === agentId) { delete job.instruction; delete job.pendingOp; delete job.pendingRole; }
+      if (activeAgent(job) === agentId) delete job.unconfirmed;
       if (job.state === "delivered" || (job.role === "reviewer" && job.implementerId === agentId)) {
         const task = board.tasks.find((t) => t.id === job.taskId);
         if (!task || task.archivedAt || task.status === "done" || task.status === "cancelled") return { value: null, changed: false };
@@ -852,6 +853,16 @@ export class AutomationService {
     });
   }
 
+  /** The session whose creation was unconfirmed exists: from now on its absence means it is gone. */
+  private confirmed(seen: AutomationJob) {
+    return this.store.transaction((board) => {
+      const job = jobOf(board, seen.taskId);
+      if (!job?.unconfirmed || job.generation !== seen.generation || activeAgent(job) !== activeAgent(seen)) return { value: null, changed: false };
+      delete job.unconfirmed;
+      return { value: null, changed: true };
+    });
+  }
+
   /** The first instruction reached the session. */
   private started(job: AutomationJob, agentId: string) {
     return this.store.transaction((board) => {
@@ -893,6 +904,8 @@ export class AutomationService {
         job.code = why;
         job.detail = detail;
         job.updatedAt = this.now();
+        // A session being created may still appear, or never: either way it is not gone.
+        if (job.pendingOp) job.unconfirmed = true;
         delete job.pendingOp;
         delete job.pendingRole;
         delete job.instruction;
@@ -995,10 +1008,14 @@ export class AutomationService {
       if (!agentId) continue;
       const agent = await paseo.agents.ref(agentId).refresh().then((r) => r?.agent ?? null, () => undefined);
       if (agent === undefined) continue;
+      // A session whose creation was never confirmed (a preparation left by an older version too) is not lost while
+      // it does not exist: the job keeps waiting for a person (§4.4).
+      if (!agent && job.state === "needs_human" && (job.unconfirmed || job.pendingOp)) continue;
       if (!agent || agent.archivedAt || agent.workspaceId !== task.workspaceId) {
         await this.sideEffectFailed(job, job.role, new SessionGone());
         continue;
       }
+      if (job.unconfirmed) await this.confirmed(job);
       const last = latestLifecycle(currentBoard, job.taskId, agentId);
       if (last?.action === "agent.turn_ended" && (!job.turnAt || last.at > job.turnAt)) await this.judgeTurnEnd(agentId);
       else if ((agent.status === "running" || agent.activeTurn) && (job.state === "waiting" || (job.state === "needs_human" && job.code !== "permission"))) await this.turnStarted(agentId);

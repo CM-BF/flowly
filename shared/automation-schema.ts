@@ -127,6 +127,12 @@ export const automationJobSchema = z.object({
   cooldowns: z.number().int().nonnegative().optional(),
   /** What the sub-cards looked like when the parent last saw them (SUB-CARDS-SPEC §5); a change wakes it. */
   subSeen: z.string().max(20000).optional(),
+  /**
+   * The job waits for a person while the creation of its session is unconfirmed (the daemon could not say whether
+   * it happened, or provider limits used up the budget): until that session turns up, its absence is not a lost
+   * session (AUTOMATION-SPEC §4.4).
+   */
+  unconfirmed: z.boolean().optional(),
   /** Someone moved the card after this job failed (not automation's own move to Blocked): it no longer asks for attention (AUTOMATION-SPEC §6). */
   takenBack: z.boolean().optional(),
   queuedAt: z.string(),
