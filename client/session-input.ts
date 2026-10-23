@@ -18,6 +18,33 @@ export function composerEnterAction(event: ComposerKey): "submit" | "alternate" 
   return event.ctrlKey || event.metaKey ? "alternate" : "submit";
 }
 
+/**
+ * The session composer's keys as TextInput props, for any composer that sends
+ * like it (the card's comment box too). Web handles the keys itself: Enter
+ * sends, ⌘/Ctrl+Enter sends with the alternate running behaviour, Shift+Enter
+ * adds a line. Native: Return sends through onSubmitEditing (modifiers are not
+ * reported there).
+ */
+export function composerKeys(os: string, submit: (alternate: boolean) => void) {
+  const web = os === "web";
+  return {
+    blurOnSubmit: false,
+    submitBehavior: web ? ("newline" as const) : ("submit" as const),
+    returnKeyType: "send" as const,
+    onKeyPress(event: { nativeEvent: unknown; preventDefault(): void }) {
+      if (!web) return;
+      const action = composerEnterAction(event.nativeEvent as ComposerKey);
+      if (action === "native") return;
+      event.preventDefault();
+      if (action === "submit" || action === "alternate") submit(action === "alternate");
+    },
+    onSubmitEditing(event: { nativeEvent: object }) {
+      if (web) return;
+      if (composerEnterAction({ ...event.nativeEvent, key: "Enter" }) === "submit") submit(false);
+    },
+  };
+}
+
 /** Keep input changes until their controlled parent props acknowledge them. */
 export function createDraftBuffer(initial: string) {
   let acknowledged = initial;

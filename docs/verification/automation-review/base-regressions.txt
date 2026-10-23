@@ -1,0 +1,771 @@
+
+ RUN  v4.1.11 /private/tmp/flowly-review-base.Hjz2kG
+
+stderr | server/automation.test.ts > busy sessions defer the exact instruction instead of interrupting a running turn
+Flowly automation could not reach the session: expected undefined to be 'steer' // Object.is equality
+
+stderr | server/automation.test.ts > reviewer creation exhaustion cannot reuse its preparation for the implementer
+Flowly automation could not reach the session: provider down
+
+stderr | server/automation.test.ts > reviewer creation exhaustion cannot reuse its preparation for the implementer
+Flowly automation could not reach the session: provider down
+
+stderr | server/automation.test.ts > successful turns reset the consecutive-failure counter
+Flowly automation could not reach the session: expected undefined to be 'steer' // Object.is equality
+
+ ❯ server/automation.test.ts (23 tests | 7 failed | 16 skipped) 90ms
+   × Stop while prepare is suspended prevents the old generation from creating a session 23ms
+   × busy sessions defer the exact instruction instead of interrupting a running turn 12ms
+   × reviewer creation exhaustion cannot reuse its preparation for the implementer 15ms
+   × disabled automation freezes pending starts and archived cards stop supervision 7ms
+   × transient refresh errors retry the same session and payload without creating a replacement 10ms
+   × successful turns reset the consecutive-failure counter 14ms
+   × an unrecorded idle outcome releases the slot conservatively after a grace period 8ms
+ ❯ server/sub-cards-regressions.test.ts (21 tests | 18 failed | 3 skipped) 738ms
+   × create refuses a stale signed task revision before provisioning 54ms
+   × create refuses a stale signed project revision before provisioning 31ms
+   × update refuses a stale signed task revision without moving its child 31ms
+   × update refuses a stale signed project revision without moving its child 28ms
+   × a done parent cannot create cards or accept children 58ms
+   × a cancelled parent cannot create cards or accept children 57ms
+   × an archived parent cannot create or manage a child 58ms
+   × an automation reviewer cannot create or accept cards in the reviewed card's name 31ms
+   × the parent cannot restart a 'stopped'/'stopped' child 32ms
+   × the parent cannot restart a 'stopped'/'card_moved' child 30ms
+   × the parent cannot restart a 'failed'/'no_delivery' child 31ms
+   × the parent cannot restart a 'failed'/'failed' child 31ms
+   × a full parent link budget rejects before workspace provisioning 38ms
+   × a full blocker link budget rejects before workspace provisioning 33ms
+   × a new sub-card cannot depend on its own parent before its workspace exists 29ms
+   × a replayed cancellation cannot cancel work a person reopened afterward 42ms
+   × separate-card chains share a lineage budget even when each creator is below its own cap 62ms
+   × one signed request cannot create a card and then write progress 61ms
+
+⎯⎯⎯⎯⎯⎯ Failed Tests 25 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  server/automation.test.ts > Stop while prepare is suspended prevents the old generation from creating a session
+AssertionError: expected [ { workspaceId: 'w-a', …(6) } ] to have a length of +0 but got 1
+
+- Expected
++ Received
+
+- 0
++ 1
+
+ ❯ server/automation.test.ts:374:21
+    372|   release();
+    373|   await x.automation.kick();
+    374|   expect(x.created).toHaveLength(0);
+       |                     ^
+    375|   expect(await x.job("a")).toMatchObject({ state: "stopped" });
+    376| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/25]⎯
+
+ FAIL  server/automation.test.ts > busy sessions defer the exact instruction instead of interrupting a running turn
+TypeError: Cannot read properties of undefined (reading 'text')
+ ❯ server/automation.test.ts:388:18
+    386|   const pending = (await x.job("a")).instruction!;
+    387|   expect(x.sent).toHaveLength(0);
+    388|   expect(pending.text).toMatch(/queued this card again/);
+       |                  ^
+    389|   x.agents.get(impl)!.status = "idle";
+    390|   await x.automation.kick();
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/25]⎯
+
+ FAIL  server/automation.test.ts > reviewer creation exhaustion cannot reuse its preparation for the implementer
+AssertionError: expected 'automation:a:b9113a5f-2434-4edc-95e9-…' to be undefined
+
+- Expected:
+undefined
+
++ Received:
+"automation:a:b9113a5f-2434-4edc-95e9-1bf0a9c751a7"
+
+ ❯ server/automation.test.ts:405:40
+    403|   await x.automation.kick();
+    404|   expect(await x.job("a")).toMatchObject({ state: "delivered", verdict…
+    405|   expect((await x.job("a")).pendingOp).toBeUndefined();
+       |                                        ^
+    406|   await x.automation.turnStarted(impl);
+    407|   x.advance(121_000);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/25]⎯
+
+ FAIL  server/automation.test.ts > disabled automation freezes pending starts and archived cards stop supervision
+AssertionError: expected [ { workspaceId: 'w-a', …(6) } ] to have a length of +0 but got 1
+
+- Expected
++ Received
+
+- 0
++ 1
+
+ ❯ server/automation.test.ts:425:21
+    423|   release();
+    424|   await x.automation.kick();
+    425|   expect(x.created).toHaveLength(0);
+       |                     ^
+    426|   expect((await x.job("a")).instruction).toBeTruthy();
+    427|   await x.store.mutate((b) => { b.projects[0].automation!.enabled = tr…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/25]⎯
+
+ FAIL  server/automation.test.ts > transient refresh errors retry the same session and payload without creating a replacement
+AssertionError: expected { taskId: 'a', projectId: 'p', …(11) } to match object { state: 'retry_wait', …(1) }
+(11 matching properties omitted from actual)
+
+- Expected
++ Received
+
+  {
+-   "implementerId": "a-agent-1",
+-   "state": "retry_wait",
++   "implementerId": "a-agent-2",
++   "state": "working",
+  }
+
+ ❯ server/automation.test.ts:444:28
+    442|   await x.automation.kick();
+    443|   const pending = (await x.job("a")).instruction!;
+    444|   expect(await x.job("a")).toMatchObject({ state: "retry_wait", implem…
+       |                            ^
+    445|   x.hooks.refresh = undefined;
+    446|   x.advance(30_000);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/25]⎯
+
+ FAIL  server/automation.test.ts > successful turns reset the consecutive-failure counter
+AssertionError: expected { taskId: 'a', projectId: 'p', …(13) } to match object { state: 'retry_wait', failures: 1 }
+(13 matching properties omitted from actual)
+
+- Expected
++ Received
+
+  {
+-   "failures": 1,
+-   "state": "retry_wait",
++   "failures": 2,
++   "state": "failed",
+  }
+
+ ❯ server/automation.test.ts:462:28
+    460|   await x.turn(impl, "a");
+    461|   await x.turn(impl, "a", "failed");
+    462|   expect(await x.job("a")).toMatchObject({ state: "retry_wait", failur…
+       |                            ^
+    463| });
+    464|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/25]⎯
+
+ FAIL  server/automation.test.ts > an unrecorded idle outcome releases the slot conservatively after a grace period
+AssertionError: expected { taskId: 'a', projectId: 'p', …(11) } to match object { state: 'needs_human', …(1) }
+(12 matching properties omitted from actual)
+
+- Expected
++ Received
+
+  {
+-   "code": "interrupted",
+-   "state": "needs_human",
++   "state": "working",
+  }
+
+ ❯ server/automation.test.ts:473:28
+    471|   x.advance(121_000);
+    472|   await x.automation.kick();
+    473|   expect(await x.job("a")).toMatchObject({ state: "needs_human", code:…
+       |                            ^
+    474|   expect(x.created).toHaveLength(2);
+    475|   expect((await x.store.read()).events.filter((e) => e.action === "age…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[7/25]⎯
+
+ FAIL  server/sub-cards-regressions.test.ts > create refuses a stale signed task revision before provisioning
+AssertionError: promise resolved "{ …(6) }" instead of rejecting
+
+- Expected
++ Received
+
+- Error {
+-   "message": "rejected promise",
++ {
++   "cardId": "536c9ac1-eb9a-4ea9-a0cf-b62075fa619a",
++   "message": "Created in Todo. Agent automation is off for this project, so a person starts it.",
++   "queued": false,
++   "status": "todo",
++   "subCardOf": "t",
++   "title": "Stale decision",
+  }
+
+ ❯ server/sub-cards-regressions.test.ts:46:89
+     44|   const signed = await x.request();
+     45|   await x.store.mutate((board) => { if (changed === "task") board.task…
+     46|   await expect(x.service.createCard(x.identity, { ...signed, title: "S…
+       |                                                                                         ^
+     47|   expect(x.create).not.toHaveBeenCalled();
+     48|   expect((await x.store.read()).tasks).toHaveLength(1);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[8/25]⎯
+
+ FAIL  server/sub-cards-regressions.test.ts > create refuses a stale signed project revision before provisioning
+AssertionError: promise resolved "{ …(6) }" instead of rejecting
+
+- Expected
++ Received
+
+- Error {
+-   "message": "rejected promise",
++ {
++   "cardId": "46cd683e-3f6a-423b-b140-4a783731471a",
++   "message": "Created in Todo. Agent automation is off for this project, so a person starts it.",
++   "queued": false,
++   "status": "todo",
++   "subCardOf": "t",
++   "title": "Stale decision",
+  }
+
+ ❯ server/sub-cards-regressions.test.ts:46:89
+     44|   const signed = await x.request();
+     45|   await x.store.mutate((board) => { if (changed === "task") board.task…
+     46|   await expect(x.service.createCard(x.identity, { ...signed, title: "S…
+       |                                                                                         ^
+     47|   expect(x.create).not.toHaveBeenCalled();
+     48|   expect((await x.store.read()).tasks).toHaveLength(1);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[9/25]⎯
+
+ FAIL  server/sub-cards-regressions.test.ts > update refuses a stale signed task revision without moving its child
+ FAIL  server/sub-cards-regressions.test.ts > update refuses a stale signed project revision without moving its child
+AssertionError: promise resolved "{ cardId: 'child', …(3) }" instead of rejecting
+
+- Expected
++ Received
+
+- Error {
+-   "message": "rejected promise",
++ {
++   "cardId": "child",
++   "message": "Accepted: the sub-card is Done.",
++   "queued": false,
++   "status": "done",
+  }
+
+ ❯ server/sub-cards-regressions.test.ts:57:90
+     55|   await x.store.mutate((board) => { if (changed === "task") board.task…
+     56|   const before = await x.store.read();
+     57|   await expect(x.service.updateCard(x.identity, { ...signed, cardId, a…
+       |                                                                                          ^
+     58|   expect(await x.store.read()).toEqual(before);
+     59|   expect(x.onStatusChange).not.toHaveBeenCalled();
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[10/25]⎯
+
+ FAIL  server/sub-cards-regressions.test.ts > a done parent cannot create cards or accept children
+ FAIL  server/sub-cards-regressions.test.ts > a cancelled parent cannot create cards or accept children
+AssertionError: promise resolved "{ cardId: 'child', …(3) }" instead of rejecting
+
+- Expected
++ Received
+
+- Error {
+-   "message": "rejected promise",
++ {
++   "cardId": "child",
++   "message": "Accepted: the sub-card is Done.",
++   "queued": false,
++   "status": "done",
+  }
+
+ ❯ server/sub-cards-regressions.test.ts:68:103
+     66|   const before = await x.store.read();
+     67|   await expect(x.service.createCard(x.identity, { ...(await x.request(…
+     68|   await expect(x.service.updateCard(x.identity, { ...(await x.request(…
+       |                                                                                                       ^
+     69|   expect(await x.store.read()).toEqual(before);
+     70|   expect(x.create).not.toHaveBeenCalled();
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[11/25]⎯
+
+ FAIL  server/sub-cards-regressions.test.ts > an archived parent cannot create or manage a child
+AssertionError: promise resolved "{ cardId: 'child', …(3) }" instead of rejecting
+
+- Expected
++ Received
+
+- Error {
+-   "message": "rejected promise",
++ {
++   "cardId": "child",
++   "message": "Accepted: the sub-card is Done.",
++   "queued": false,
++   "status": "done",
+  }
+
+ ❯ server/sub-cards-regressions.test.ts:80:103
+     78|   const before = await x.store.read();
+     79|   await expect(x.service.createCard(x.identity, { ...(await x.request(…
+     80|   await expect(x.service.updateCard(x.identity, { ...(await x.request(…
+       |                                                                                                       ^
+     81|   expect(await x.store.read()).toEqual(before);
+     82|   expect(x.create).not.toHaveBeenCalled();
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[12/25]⎯
+
+ FAIL  server/sub-cards-regressions.test.ts > an automation reviewer cannot create or accept cards in the reviewed card's name
+AssertionError: promise resolved "{ …(6) }" instead of rejecting
+
+- Expected
++ Received
+
+- Error {
+-   "message": "rejected promise",
++ {
++   "cardId": "1f589a63-2f14-494a-89c8-c8ed6f800a0f",
++   "message": "Created in Todo. Agent automation is off for this project, so a person starts it.",
++   "queued": false,
++   "status": "todo",
++   "subCardOf": "t",
++   "title": "Reviewer work",
+  }
+
+ ❯ server/sub-cards-regressions.test.ts:99:101
+     97|   });
+     98|   const before = await x.store.read();
+     99|   await expect(x.service.createCard(x.identity, { ...(await x.request(…
+       |                                                                                                     ^
+    100|   await expect(x.service.updateCard(x.identity, { ...(await x.request(…
+    101|   expect(await x.store.read()).toEqual(before);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[13/25]⎯
+
+ FAIL  server/sub-cards-regressions.test.ts > the parent cannot restart a 'stopped'/'stopped' child
+ FAIL  server/sub-cards-regressions.test.ts > the parent cannot restart a 'stopped'/'card_moved' child
+ FAIL  server/sub-cards-regressions.test.ts > the parent cannot restart a 'failed'/'no_delivery' child
+ FAIL  server/sub-cards-regressions.test.ts > the parent cannot restart a 'failed'/'failed' child
+AssertionError: promise resolved "{ cardId: 'child', …(3) }" instead of rejecting
+
+- Expected
++ Received
+
+- Error {
+-   "message": "rejected promise",
++ {
++   "cardId": "child",
++   "message": "Queued for agent automation. End your turn when you have dispatched what you need.",
++   "queued": true,
++   "status": "todo",
+  }
+
+ ❯ server/sub-cards-regressions.test.ts:123:102
+    121|   x.service.automation = automation;
+    122|   const before = await x.store.read();
+    123|   await expect(x.service.updateCard(x.identity, { ...(await x.request(…
+       |                                                                                                      ^
+    124|   expect(await x.store.read()).toEqual(before);
+    125|   expect(x.onStatusChange).not.toHaveBeenCalled();
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[14/25]⎯
+
+ FAIL  server/sub-cards-regressions.test.ts > a full parent link budget rejects before workspace provisioning
+AssertionError: expected "vi.fn()" to not be called at all, but actually been called 1 times
+
+Received:
+
+  1st vi.fn() call:
+
+    Array [
+      Object {
+        "idempotencyKey": "ultra-kanban:agent-card:b38263f8c42ec5be242a25cbfe524f8913b8868c37859b1091383d8084af56b1:919293ff3415410742944329e6f7ee505c2685abf44822b49e368614f58933d0:78d70e95e43adc06476de11b",
+        "source": Object {
+          "kind": "directory",
+          "path": "/private/var/folders/f1/2xjyyqkn5plc19fx4nt4tpt00000gn/T/flowly-agent-test-6InxAT/a",
+          "projectId": "native",
+        },
+        "title": "No orphan workspace",
+      },
+    ]
+
+
+Number of calls: 1
+
+ ❯ server/sub-cards-regressions.test.ts:193:24
+    191|     ...(await x.request()), title: "No orphan workspace", ...(full ===…
+    192|   })).rejects.toMatchObject({ code: "CARD_INVALID" });
+    193|   expect(x.create).not.toHaveBeenCalled();
+       |                        ^
+    194|   expect(await x.store.read()).toEqual(before);
+    195| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[15/25]⎯
+
+ FAIL  server/sub-cards-regressions.test.ts > a full blocker link budget rejects before workspace provisioning
+AssertionError: expected "vi.fn()" to not be called at all, but actually been called 1 times
+
+Received:
+
+  1st vi.fn() call:
+
+    Array [
+      Object {
+        "idempotencyKey": "ultra-kanban:agent-card:f84d66083d171085e5de2f32798c0ecdf4b095277478d81e9743e14297f5c81d:6d7eac6dea29db7675a6d2ea103f854286095f8ecf5bc449c9c0e88b053da674:2c47114cfd7ca93f9734b258",
+        "source": Object {
+          "kind": "directory",
+          "path": "/private/var/folders/f1/2xjyyqkn5plc19fx4nt4tpt00000gn/T/flowly-agent-test-4JfleE/a",
+          "projectId": "native",
+        },
+        "title": "No orphan workspace",
+      },
+    ]
+
+
+Number of calls: 1
+
+ ❯ server/sub-cards-regressions.test.ts:193:24
+    191|     ...(await x.request()), title: "No orphan workspace", ...(full ===…
+    192|   })).rejects.toMatchObject({ code: "CARD_INVALID" });
+    193|   expect(x.create).not.toHaveBeenCalled();
+       |                        ^
+    194|   expect(await x.store.read()).toEqual(before);
+    195| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[16/25]⎯
+
+ FAIL  server/sub-cards-regressions.test.ts > a new sub-card cannot depend on its own parent before its workspace exists
+AssertionError: promise resolved "{ …(6) }" instead of rejecting
+
+- Expected
++ Received
+
+- Error {
+-   "message": "rejected promise",
++ {
++   "cardId": "8af96cc2-9fcd-406f-a2b5-0f15c79ac034",
++   "message": "Created in Todo. Agent automation is off for this project, so a person starts it.",
++   "queued": false,
++   "status": "todo",
++   "subCardOf": "t",
++   "title": "Deadlocked child",
+  }
+
+ ❯ server/sub-cards-regressions.test.ts:202:122
+    200|   // subtask/blocks dependency cycle although neither edge kind cycles…
+    201|   const before = await x.store.read();
+    202|   await expect(x.service.createCard(x.identity, { ...(await x.request(…
+       |                                                                                                                          ^
+    203|   expect(x.create).not.toHaveBeenCalled();
+    204|   expect(await x.store.read()).toEqual(before);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[17/25]⎯
+
+ FAIL  server/sub-cards-regressions.test.ts > a replayed cancellation cannot cancel work a person reopened afterward
+AssertionError: expected { cardId: 'child', …(3) } to match object { replayed: true }
+(4 matching properties omitted from actual)
+
+- Expected
++ Received
+
+  {
+-   "replayed": true,
++   "cardId": "child",
++   "message": "Cancelled.",
++   "queued": false,
++   "status": "cancelled",
+  }
+
+ ❯ server/sub-cards-regressions.test.ts:214:57
+    212|   await x.store.mutate((board) => { const child = board.tasks.find((ta…
+    213|   const before = await x.store.read();
+    214|   expect(await x.service.updateCard(x.identity, input)).toMatchObject(…
+       |                                                         ^
+    215|   expect(await x.store.read()).toEqual(before);
+    216|   expect(x.onStatusChange).toHaveBeenCalledTimes(1);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[18/25]⎯
+
+ FAIL  server/sub-cards-regressions.test.ts > separate-card chains share a lineage budget even when each creator is below its own cap
+AssertionError: promise resolved "{ …(5) }" instead of rejecting
+
+- Expected
++ Received
+
+- Error {
+-   "message": "rejected promise",
++ {
++   "cardId": "4db3ff6c-f2c0-438c-a4fb-e2fb5b126025",
++   "message": "Created in Todo. Agent automation is off for this project, so a person starts it.",
++   "queued": false,
++   "status": "todo",
++   "title": "Over lineage",
+  }
+
+ ❯ server/sub-cards-regressions.test.ts:226:116
+    224|   });
+    225|   await x.service.createCard(x.identity, { ...(await x.request()), tit…
+    226|   await expect(x.service.createCard(x.identity, { ...(await x.request(…
+       |                                                                                                                    ^
+    227|   expect(x.create).toHaveBeenCalledTimes(1);
+    228| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[19/25]⎯
+
+ FAIL  server/sub-cards-regressions.test.ts > one signed request cannot create a card and then write progress
+AssertionError: promise resolved "{ receipt: { …(8) }, …(2) }" instead of rejecting
+
+- Expected
++ Received
+
+- Error {
+-   "message": "rejected promise",
++ {
++   "current": {
++     "activity": [
++       {
++         "action": "linked",
++         "actor": "agent",
++         "agentId": "actor",
++         "at": "2026-10-22T23:25:04.612Z",
++         "id": "d0c23e19-5835-4262-ac4c-c1ef5147afad",
++         "note": "Sub-card: Child",
++         "taskId": "t",
++       },
++       {
++         "action": "progress_reported",
++         "actor": "agent",
++         "agentId": "actor",
++         "at": "2026-10-22T23:25:04.629Z",
++         "id": "3071cfb5-621a-4fc8-a94d-c39817572944",
++         "note": "Another action",
++         "reportKind": "progress",
++         "taskId": "t",
++       },
++     ],
++     "allowedStatuses": [
++       "design",
++       "development",
++       "test",
++       "blocked",
++       "in_review",
++     ],
++     "artifacts": [],
++     "ideas": [],
++     "identity": {
++       "agentId": "actor",
++       "taskId": "t",
++       "workspaceId": "w",
++     },
++     "lanes": [
++       {
++         "name": "Backlog",
++         "status": "backlog",
++       },
++       {
++         "name": "Todo",
++         "status": "todo",
++       },
++       {
++         "name": "Design",
++         "status": "design",
++       },
++       {
++         "name": "Development",
++         "status": "development",
++       },
++       {
++         "name": "Test",
++         "status": "test",
++       },
++       {
++         "name": "In review",
++         "status": "in_review",
++       },
++       {
++         "name": "Blocked",
++         "status": "blocked",
++       },
++       {
++         "name": "Done",
++         "status": "done",
++       },
++       {
++         "name": "Cancelled",
++         "status": "cancelled",
++       },
++     ],
++     "links": [
++       {
++         "archived": false,
++         "laneName": "Todo",
++         "relation": "sub_card",
++         "status": "todo",
++         "taskId": "e3f6ff4e-bfed-4de9-8b02-7517d504f2ba",
++         "title": "Child",
++       },
++     ],
++     "outputLanguage": {
++       "code": "en",
++       "name": "English",
++     },
++     "plan": [],
++     "project": {
++       "archivedAt": null,
++       "createdAt": "2026-10-22T23:25:04.585Z",
++       "description": "",
++       "id": "p",
++       "paseoProjectId": "native",
++       "primaryPath": "/private/var/folders/f1/2xjyyqkn5plc19fx4nt4tpt00000gn/T/flowly-agent-test-1GuA94/a",
++       "repos": [
++         "/private/var/folders/f1/2xjyyqkn5plc19fx4nt4tpt00000gn/T/flowly-agent-test-1GuA94/a",
++         "/private/var/folders/f1/2xjyyqkn5plc19fx4nt4tpt00000gn/T/flowly-agent-test-1GuA94/b",
++       ],
++       "revision": 1,
++       "title": "Project",
++       "updatedAt": "2026-10-22T23:25:04.585Z",
++     },
++     "projectTags": [
++       {
++         "count": 1,
++         "tag": "fixture",
++       },
++     ],
++     "reason": "",
++     "request": {
++       "id": "eyJwdXJwb3NlIjoid3JpdGUiLCJkYXRhIjp7ImFnZW50SWQiOiJhY3RvciIsInRhc2tJZCI6InQiLCJ3b3Jrc3BhY2VJZCI6InciLCJub25jZSI6ImMyYTBkMTI5LTAzMWUtNDNjNy1hMTZhLTRhMDM3M2JjNmI0OSIsImlzc3VlZEF0IjoiMjAyNi0xMC0yMlQyMzoyNTowNC41ODVaIiwicmV2aXNpb24iOnsidGFzayI6MSwicHJvamVjdCI6MX19fQ.zPxim5LEMjL6EQXeszcmGsSLhRF9eIJKZ2RyTLvNzbM",
++       "issuedAt": "2026-10-22T23:25:04.585Z",
++     },
++     "revision": {
++       "project": 1,
++       "task": 1,
++     },
++     "scope": {
++       "directories": [
++         {
++           "directory": "/private/var/folders/f1/2xjyyqkn5plc19fx4nt4tpt00000gn/T/flowly-agent-test-1GuA94/a",
++           "repo": "/private/var/folders/f1/2xjyyqkn5plc19fx4nt4tpt00000gn/T/flowly-agent-test-1GuA94/a",
++         },
++         {
++           "directory": "/private/var/folders/f1/2xjyyqkn5plc19fx4nt4tpt00000gn/T/flowly-agent-test-1GuA94/b",
++           "repo": "/private/var/folders/f1/2xjyyqkn5plc19fx4nt4tpt00000gn/T/flowly-agent-test-1GuA94/b",
++         },
++       ],
++       "mode": "selected",
++       "repoPaths": [
++         "/private/var/folders/f1/2xjyyqkn5plc19fx4nt4tpt00000gn/T/flowly-agent-test-1GuA94/a",
++         "/private/var/folders/f1/2xjyyqkn5plc19fx4nt4tpt00000gn/T/flowly-agent-test-1GuA94/b",
++       ],
++     },
++     "sessions": {
++       "entries": [
++         {
++           "id": "actor",
++           "status": "idle",
++           "title": "First actor",
++         },
++         {
++           "id": "second",
++           "status": "idle",
++           "title": "Second actor",
++         },
++       ],
++       "partial": false,
++       "unavailableReason": "",
++     },
++     "setup": {
++       "missing": [],
++       "stage": "todo",
++       "tagsMissing": false,
++       "typeMissing": false,
++       "workpadMissing": false,
++     },
++     "task": {
++       "archivedAt": null,
++       "createdAt": "2026-10-22T23:25:04.585Z",
++       "description": "",
++       "id": "t",
++       "operationId": "create",
++       "position": 0,
++       "priority": "normal",
++       "projectId": "p",
++       "repoPaths": [],
++       "revision": 1,
++       "sourcePath": "/private/var/folders/f1/2xjyyqkn5plc19fx4nt4tpt00000gn/T/flowly-agent-test-1GuA94/a",
++       "status": "todo",
++       "tags": [
++         {
++           "at": "2026-10-22T23:25:04.585Z",
++           "by": "human",
++           "tag": "fixture",
++         },
++       ],
++       "title": "Card",
++       "type": "feature",
++       "updatedAt": "2026-10-22T23:25:04.585Z",
++       "workspaceId": "w",
++     },
++     "toolVersion": 1,
++     "workpad": {
++       "acceptance": [
++         {
++           "at": "2026-10-22T23:25:04.585Z",
++           "by": "human",
++           "done": true,
++           "id": "seeded",
++           "text": "Seeded criterion",
++         },
++       ],
++       "confusions": [],
++       "env": null,
++       "head": null,
++       "open": {
++         "failed": 0,
++         "stale": 0,
++         "total": 0,
++         "unchecked": 0,
++         "unrun": 0,
++       },
++       "revision": 1,
++       "validation": [],
++     },
++     "workpadEnabled": true,
++     "workspace": {
++       "directory": "/private/var/folders/f1/2xjyyqkn5plc19fx4nt4tpt00000gn/T/flowly-agent-test-1GuA94/a",
++       "id": "w",
++       "nativeOwner": "Foreign owner",
++       "repoPaths": [
++         "/private/var/folders/f1/2xjyyqkn5plc19fx4nt4tpt00000gn/T/flowly-agent-test-1GuA94/a",
++       ],
++       "status": "done",
++     },
++     "writable": true,
++   },
++   "receipt": {
++     "action": "progress",
++     "agentId": "actor",
++     "at": "2026-10-22T23:25:04.629Z",
++     "eventId": "3071cfb5-621a-4fc8-a94d-c39817572944",
++     "projectRevision": 1,
++     "status": "todo",
++     "taskId": "t",
++     "taskRevision": 1,
++   },
++   "replayed": false,
+  }
+
+ ❯ server/sub-cards-regressions.test.ts:234:113
+    232|   const signed = await x.request();
+    233|   await x.service.createCard(x.identity, { ...signed, title: "Child" }…
+    234|   await expect(x.service.write(x.identity, "progress", { ...signed, no…
+       |                                                                                                                 ^
+    235| });
+    236|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[20/25]⎯
+
+
+ Test Files  2 failed (2)
+      Tests  25 failed | 19 skipped (44)
+   Start at  16:25:03
+   Duration  1.22s (transform 324ms, setup 0ms, import 571ms, tests 828ms, environment 0ms)
+

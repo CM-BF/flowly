@@ -1,3 +1,4 @@
+import { automationLaunchSchema } from "./automation-launch";
 import { attentionDismissInput, attentionDismissalSchema, attentionRestoreInput } from "./attention-dismiss";
 import { defineRpc } from "@getpaseo/plugin";
 import { sessionInsightViewSchema } from "./session-insights";
@@ -32,6 +33,7 @@ import {
   planSnapshotSchema,
 } from "./model";
 import { healthSchema, preparationSchema } from "./tools";
+import { commentInput } from "./comments";
 import { connectionInput, connectionSchema, externalSummarySchema } from "./connectors";
 import { composerStateSchema, composerTarget, maxImages, outgoingImageSchema, queuedMessageSchema } from "./composer";
 import {
@@ -50,6 +52,7 @@ import { perfReportSchema } from "./perf";
 import { localeCodes } from "./i18n";
 import { workflowOverviewSchema, workflowViewSchema } from "./workflow-insights";
 import { insightsWithHabitsSchema } from "./agent-habits";
+import { automationJobSchema } from "./automation-schema";
 
 /** `{ etag }` in; the value is omitted when it still matches (PERFORMANCE-SPEC §3). */
 const etagInput = z.strictObject({ etag: z.string().max(200).optional() });
@@ -96,7 +99,7 @@ const collectionPatch = <T extends z.ZodType>(item: T) =>
 export const boardPatchSchema = z.object({
   revision: z.number().int().nonnegative(),
   events: z.array(eventSchema),
-  /** Events that left the board (a card keeps at most 100): drop them before appending `events`. */
+  /** Events that left the board (a card keeps its latest 100, and its latest comments apart from them): drop them before appending `events`. */
   removeEvents: z.array(z.string()).optional(),
   plans: z.array(planSnapshotSchema).optional(),
   projects: collectionPatch(projectSchema),
@@ -106,6 +109,7 @@ export const boardPatchSchema = z.object({
   artifacts: collectionPatch(artifactSchema),
   workpads: collectionPatch(workpadSchema),
   attentionDismissals: collectionPatch(attentionDismissalSchema),
+  automation: collectionPatch(automationJobSchema),
 });
 export const readBoardChanged = defineRpc({
   name: "board.read-changed",
@@ -219,6 +223,12 @@ export const updateTaskTags = defineRpc({
   name: "tasks.tags",
   input: taskTagsEdit,
   output: taskSchema,
+});
+/** A person's comment on a card, recorded as a "commented" event (CARD-COMMENTS-SPEC §4); the client sends it to a session afterwards. */
+export const commentTask = defineRpc({
+  name: "tasks.comment",
+  input: commentInput,
+  output: z.object({ event: eventSchema }),
 });
 /** Dismiss or restore an idea (IDEAS-SPEC §7). */
 export const updateIdea = defineRpc({
@@ -757,4 +767,16 @@ export const reviewForMemory = defineRpc({
   name: "memory.retro",
   input: z.strictObject({ taskId: z.string().min(1).max(200) }),
   output: z.object({ queued: z.boolean() }),
+});
+/** "Run with agent": queue the card for the project's agent automation (AUTOMATION-SPEC §4). */
+export const queueAutomation = defineRpc({
+  name: "automation.queue",
+  input: z.strictObject({ taskId: z.string().min(1), launch: automationLaunchSchema.optional() }),
+  output: automationJobSchema,
+});
+/** "Stop automation": no more dispatch, reminders or reviews; sessions are left alone (AUTOMATION-SPEC §4). */
+export const stopAutomation = defineRpc({
+  name: "automation.stop",
+  input: z.strictObject({ taskId: z.string().min(1) }),
+  output: automationJobSchema.nullable(),
 });

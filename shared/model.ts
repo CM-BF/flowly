@@ -3,6 +3,7 @@ import { agentModelSchema } from "./agent-defaults";
 import { connectorLimits, externalRefSchema, itemTypeSchema } from "./connectors";
 import { z } from "zod";
 import { attentionDismissLimits, attentionDismissalSchema } from "./attention-dismiss";
+import { automationJobSchema, automationSettingsSchema } from "./automation-schema";
 
 export const statuses = [
   "backlog",
@@ -116,6 +117,8 @@ export const projectSchema = z.object({
   agentModel: agentModelSchema.optional(),
   /** Linked multi-repo project: symlinks the plugin created inside its own root (PROJECT-PICKER-SPEC). */
   links: z.array(z.object({ name: z.string(), target: z.string() })).optional(),
+  /** Agent automation (AUTOMATION-SPEC). Absent means off. */
+  automation: automationSettingsSchema.optional(),
 });
 export const taskSchema = z.object({
   id: z.string(),
@@ -125,6 +128,10 @@ export const taskSchema = z.object({
   repoPaths: z.array(z.string()),
   title: z.string().trim().min(1).max(200),
   description: z.string().max(20000),
+  /** Original user input, preserved when the agent organizes metadata. */
+  brief: z.string().max(20000).optional(),
+  /** The brief's title and description were organized by an agent or confirmed by a person. */
+  intakeOrganized: z.boolean().optional(),
   status: statusSchema,
   priority: prioritySchema,
   /** Absent: no type (all cards created before task types). */
@@ -141,6 +148,8 @@ export const taskSchema = z.object({
   ownsWorkspace: z.boolean().optional(),
   /** Created from an idea proposed on another card (IDEAS-SPEC §2.2). */
   origin: z.object({ taskId: z.string(), ideaId: z.string() }).optional(),
+  /** Created by an agent working on card `taskId` (SUB-CARDS-SPEC §3). */
+  createdByAgent: z.object({ agentId: z.string(), taskId: z.string() }).optional(),
 });
 /** A follow-up an agent proposed on its card; the user may turn it into a card (IDEAS-SPEC). */
 export const ideaStatuses = ["open", "accepted", "dismissed"] as const;
@@ -171,12 +180,12 @@ export const ideaSchema = z.object({
 });
 export type Idea = z.infer<typeof ideaSchema>;
 /** A link between two cards of one project (CARD-LINKS-SPEC §2.1). */
-export const linkKinds = ["derived", "related", "blocks"] as const;
+export const linkKinds = ["derived", "related", "blocks", "subtask"] as const;
 export const linkLimits = { perTask: 50 } as const;
 export const linkSchema = z.object({
   id: z.string(),
   projectId: z.string(),
-  /** derived: from = follow-up card, to = source card. blocks: from blocks to. related: no direction. */
+  /** derived: from = follow-up card, to = source card. blocks: from blocks to. subtask: from = sub-card, to = its parent (SUB-CARDS-SPEC). related: no direction. */
   kind: z.enum(linkKinds),
   from: z.string(),
   to: z.string(),
@@ -388,7 +397,9 @@ export const eventSchema = z.object({
   /** status_changed into In review by an agent: the workpad's open items then (WORKPAD-SPEC §5.3). */
   workpad: deliverySchema.optional(),
   /** status_changed into In review by an agent that acknowledged missing card setup (CARD-SETUP-SPEC §3.4). */
-  setup: z.object({ missing: z.array(z.enum(["type", "tags", "workpad"])) }).optional(),
+  setup: z.object({ missing: z.array(z.enum(["metadata", "type", "tags", "workpad"])) }).optional(),
+  /** commented: the request that wrote it, so a retried request returns this event (CARD-COMMENTS-SPEC §4). */
+  operationId: z.string().max(200).optional(),
   at: timestamp,
 });
 export const boardSchema = z.object({
@@ -408,6 +419,8 @@ export const boardSchema = z.object({
   plans: z.array(planSnapshotSchema).default([]),
   /** Cards dismissed from Attention (ATTENTION-DISMISS-SPEC §4); absent in older files. */
   attentionDismissals: z.array(attentionDismissalSchema).max(attentionDismissLimits.records).default([]),
+  /** One automation job per queued card (AUTOMATION-SPEC §3); absent in older files. */
+  automation: z.array(automationJobSchema).default([]),
 });
 export const previousBoardSchema = boardSchema.extend({
   version: z.literal(2),
@@ -425,7 +438,14 @@ export const receiptSchema = z.object({
   agentId: z.string(),
   taskId: z.string(),
   payloadHash: z.string(),
-  action: z.enum(["status", "progress", "idea", "remember", "artifact", "artifact_remove", "tags", "type", "next_moves", "workpad"]),
+  action: z.enum(["status", "progress", "idea", "remember", "artifact", "artifact_remove", "tags", "type", "metadata", "next_moves", "workpad", "create_card", "update_card"]),
+  cardId: z.string().optional(),
+  /** Immutable provisioning intent, saved before calling Paseo so a retry cannot choose a new base branch. */
+  workspacePlan: z.discriminatedUnion("mode", [
+    z.object({ mode: z.literal("worktree"), sourcePath: z.string(), projectId: z.string(), baseRef: z.string(), branchName: z.string(), idempotencyKey: z.string() }),
+    z.object({ mode: z.literal("directory"), sourcePath: z.string(), projectId: z.string(), idempotencyKey: z.string() }),
+  ]).optional(),
+  queued: z.boolean().optional(),
   /** Empty when an artifact write changed nothing (same target already recorded). */
   eventId: z.string(),
   /** The artifact an artifact write added, updated or removed. */
@@ -464,6 +484,7 @@ export const emptyBoard = (): Board => ({
   workpads: [],
   plans: [],
   attentionDismissals: [],
+  automation: [],
   agentReceipts: [],
 });
 export const projectInput = z.strictObject({
@@ -516,12 +537,15 @@ export const projectEdit = z.strictObject({
   lanes: lanesSchema.optional(),
   /** A model sets the project default; null removes it (the global default applies again). */
   agentModel: agentModelSchema.nullable().optional(),
+  /** Agent automation settings, replaced as a whole (AUTOMATION-SPEC §2). */
+  automation: automationSettingsSchema.optional(),
 });
 export const taskInput = z.strictObject({
   projectId: z.string(),
   operationId: z.string().min(1).max(200),
   title: z.string().trim().min(1).max(200),
   description: z.string().max(20000).default(""),
+  brief: z.string().min(1).max(20000).optional(),
   status: statusSchema.default("todo"),
   priority: prioritySchema.default("normal"),
   type: taskTypeSchema.optional(),
@@ -534,6 +558,10 @@ export const taskInput = z.strictObject({
   ideaId: z.string().min(1).optional(),
   /** Create as a follow-up of this card (CARD-LINKS-SPEC §3); not together with ideaId. */
   followUpOf: z.string().min(1).optional(),
+  /** Create as a sub-card of this card (SUB-CARDS-SPEC §2). */
+  subCardOf: z.string().min(1).optional(),
+  /** Cards of the project the new card waits for (blocks links, SUB-CARDS-SPEC §2). */
+  blockedBy: z.array(z.string().min(1)).max(10).optional(),
   /** Create from this open workflow-insights suggestion (WORKFLOW-INSIGHTS-SPEC §5.2). */
   insightFindingId: z.string().min(1).max(100).optional(),
   /** External items added as inputs in the same write (EXTERNAL-TRACKER-SPEC §5.4, CONNECTORS-SPEC §8.2). */

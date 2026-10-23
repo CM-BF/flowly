@@ -1,0 +1,9 @@
+
+ RUN  v4.1.11 /private/tmp/flowly-b095a7a-test-batching-gdztohev
+
+
+ Test Files  2 passed (2)
+      Tests  8 passed (8)
+   Start at  23:44:24
+   Duration  350ms (transform 207ms, setup 0ms, import 315ms, tests 224ms, environment 0ms)
+

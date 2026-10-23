@@ -1,4 +1,8 @@
+import { linkExtras, type LinkHandoff } from "./automation-handoff";
+import { resumeStage } from "./progress-rules";
+import { authorizeCardActor, authorizeCardCreation, checkStartable, refuseAbandonedTree, type AgentCardActor } from "./agent-card-guard";
 import { isSummarizer } from "../shared/summary";
+import { agentComments, isComment } from "../shared/comments";
 import { outputLanguage } from "../shared/ai-language";
 import type { LocaleCode } from "../shared/i18n";
 import { enabledStatuses, laneEnabled, laneName } from "../shared/lanes";
@@ -33,6 +37,8 @@ import {
   artifactRemovalSchema,
   tagsInputSchema,
   typeInputSchema,
+  metadataInputSchema,
+  type MetadataInput,
   nextMovesInputSchema,
   workpadInputSchema,
   progressInputSchema,
@@ -55,17 +61,28 @@ import {
   type ReadExternalInput,
 } from "../shared/tools";
 import { BoardStore } from "./store";
-import { BoardService } from "./service";
+import { BoardService, preflightCardLinks } from "./service";
 import { ToolSecrets, digest } from "./tool-context";
 import { ToolError } from "./tool-error";
 import { ideaLimits, isWorkStatus, legacyStatus, type Board, type Idea, type Receipt, type Status } from "../shared/model";
 import { isLegacyScope } from "../shared/scope";
 import { MemoryError, type MemoryService } from "./memory";
+import type { AutomationService } from "./automation";
+import type { ReviewInput } from "../shared/automation-schema";
+import { automationOf, isLive, jobOf } from "../shared/automation";
+import { parentOf } from "../shared/links";
+import { createCardInputSchema, updateCardInputSchema, type CreateCardInput, type CreateCardResult, type UpdateCardInput } from "../shared/tools";
+import { taskInput, type Task, type TaskInput } from "../shared/model";
+import { existsSync } from "node:fs";
 
 /** A project-memory refusal as the tool error agents read (PROJECT-MEMORY-SPEC §4.1). */
 function memoryToolError(e: unknown): unknown {
   return e instanceof MemoryError ? new ToolError(e.code, e.message) : e;
 }
+
+/** Cards the agents of one card may create before they have to ask the user (SUB-CARDS-SPEC §3). */
+const requestReused = () =>
+  new ToolError("REQUEST_REUSED", "Request already committed with different parameters. Each card needs its own request: call flowly_get_task again before the next flowly_create_card.");
 
 export class AgentService {
   private paseo?: PaseoApi;
@@ -90,6 +107,214 @@ export class AgentService {
   connectors?: ConnectorService;
   /** Project memory (PROJECT-MEMORY-SPEC); set by the plugin entry. */
   memory?: MemoryService;
+  /** Agent automation (AUTOMATION-SPEC); set by the plugin entry. */
+  automation?: AutomationService;
+  /** Creates a card with its workspace (BoardService.createTask); set by the plugin entry. */
+  createTask?: (input: TaskInput, paseo: PaseoApi, agent: AgentCardActor) => Promise<Task>;
+  /** What a status move by a person triggers (automation, wrap-up, memory review); set by the plugin entry. */
+  onStatusChange?: (previous: string | undefined, task: Task, paseo: PaseoApi) => void;
+  /** A signed request no older than 15 minutes (the same window as write()). */
+  private fresh(issuedAt: string) {
+    const age = this.clock() - Date.parse(issuedAt);
+    if (age > 15 * 60 * 1000 || age < -30000) throw new ToolError("REQUEST_EXPIRED", "Request is expired. Re-read the task before a new update.");
+  }
+  /** Card creations in flight by request, so overlapping calls with one request make one card. */
+  private readonly cardRequests = new Map<string, { operationId: string; result: Promise<CreateCardResult> }>();
+  /**
+   * flowly_create_card (SUB-CARDS-SPEC §3): a new card of this project, by default a sub-card of
+   * this session's card, in its own workspace. One card per signed request: the same call again
+   * returns it, other parameters are REQUEST_REUSED like any write. start=now queues it for agent
+   * automation when the project has automation on.
+   */
+  async createCard(identity: ToolIdentity, raw: CreateCardInput): Promise<CreateCardResult> {
+    const input = createCardInputSchema.parse(raw);
+    const signed = this.secrets.validateRequest(identity, input.request, input.expectedRevision);
+    const requestKey = `agent-card:${digest(input.request.id)}`;
+    const operationId = `${requestKey}:${digest(JSON.stringify(input))}`;
+    // Claimed before the first await: agents issue tool calls in parallel with the request they just read.
+    const pending = this.cardRequests.get(requestKey);
+    if (pending) {
+      if (pending.operationId !== operationId) throw requestReused();
+      return { ...(await pending.result), replayed: true, message: "This card was already created by this request." };
+    }
+    const result = this.newCard(identity, input, signed.issuedAt, requestKey, operationId);
+    this.cardRequests.set(requestKey, { operationId, result });
+    try {
+      return await result;
+    } finally {
+      this.cardRequests.delete(requestKey);
+    }
+  }
+  private async newCard(identity: ToolIdentity, input: ReturnType<typeof createCardInputSchema.parse>, issuedAt: string, requestKey: string, operationId: string): Promise<CreateCardResult> {
+    const actor: AgentCardActor = { ...identity, expectedRevision: input.expectedRevision, key: `${identity.agentId}:${digest(input.request.id)}`, payloadHash: digest(JSON.stringify({ action: "create_card", input })), start: input.start };
+    try {
+      return await this.makeCard(identity, input, issuedAt, requestKey, operationId, actor);
+    } catch (e) {
+      // A workspace this request already made stays in every refusal until its card is saved (subcards-2).
+      if (!(e instanceof ToolError)) throw e;
+      const notice = (await this.store.read().catch(() => null))?.agentReceipts.find((rc) => rc.key === actor.key)?.notice;
+      if (!notice || e.message.includes(notice)) throw e;
+      throw new ToolError(e.code, `${e.message} ${notice}`, e.retryable);
+    }
+  }
+  private async makeCard(identity: ToolIdentity, input: ReturnType<typeof createCardInputSchema.parse>, issuedAt: string, requestKey: string, operationId: string, actor: AgentCardActor): Promise<CreateCardResult> {
+    const r = await this.resources(identity);
+    const before = await this.store.read();
+    const replay = before.tasks.find((t) => t.operationId.startsWith(`${requestKey}:`));
+    if (replay) {
+      if (replay.operationId !== operationId) throw requestReused();
+      return { cardId: replay.id, title: replay.title, status: replay.status, ...(input.subCard ? { subCardOf: r.task.id } : {}), queued: isLive(jobOf(before, replay.id)), replayed: true, message: "This card was already created by this request." };
+    }
+    // A request an earlier call reserved passed its signed-revision check then. Retrying it is the same decision,
+    // so a change since (often this card's own parallel write) cannot strand the workspace it made (subcards-2).
+    const reserved = before.agentReceipts.find((rc) => rc.key === actor.key);
+    if (reserved && (reserved.payloadHash !== actor.payloadHash || reserved.action !== "create_card")) throw requestReused();
+    if (reserved?.cardId) throw new ToolError("REQUEST_REUSED", "This request already created a card, which was deleted since. Call flowly_get_task again before creating another card.");
+    if (!reserved) this.fresh(issuedAt);
+    if (r.task.archivedAt || r.project.archivedAt) throw new ToolError("ARCHIVED", "Task or project is archived.");
+    if (["done", "cancelled"].includes(r.task.status)) throw new ToolError("TASK_FINISHED", "A finished card cannot manage cards.");
+    if (!r.context.available) throw new ToolError("WORKSPACE_INCOMPATIBLE", r.context.reason || "Workspace is unavailable.");
+    if (!this.createTask) throw new ToolError("TOOLS_UNAVAILABLE", "Card creation is unavailable in this Flowly build.", true);
+    const preferred: Status = input.start === "later" ? "backlog" : "todo";
+    const status = [preferred, preferred === "backlog" ? "todo" : "backlog"].find((s) => laneEnabled(r.project, s as Status)) as Status | undefined;
+    if (!status) throw new ToolError("STATUS_UNAVAILABLE", "This project has neither a Backlog nor a Todo lane for new cards.");
+    checkStartable(r.project, input.start);
+    const mode = input.workspace ?? (existsSync(join(r.project.primaryPath, ".git")) ? "worktree" : "directory");
+    let task: Task;
+    try {
+      const draft = taskInput.parse({
+          projectId: r.project.id,
+          operationId,
+          title: input.title,
+          description: input.description,
+          status,
+          priority: input.priority,
+          ...(input.type ? { type: input.type } : {}),
+          ...(input.tags?.length ? { tags: input.tags } : {}),
+          mode,
+          baseRef: input.baseRef ?? "",
+          ...(input.subCard ? { subCardOf: r.task.id } : {}),
+          ...(input.blockedBy.length ? { blockedBy: input.blockedBy } : {}),
+        });
+      authorizeCardCreation(before, actor, { revision: !reserved });
+      preflightCardLinks(this.store, before, draft);
+      await this.store.transaction((board) => {
+        // A new reservation checks the signed revision; an existing one did when it was made.
+        this.cardReceipt(board, actor, "create_card");
+        authorizeCardCreation(board, actor, { revision: false });
+        return { value: null, changed: true };
+      });
+      task = await this.createTask(draft,
+        r.paseo,
+        actor,
+      );
+    } catch (e) {
+      if (e instanceof ToolError) throw e;
+      throw new ToolError("CARD_INVALID", e instanceof Error ? e.message : String(e));
+    }
+    const queued = isLive(jobOf(await this.store.read(), task.id));
+    const note = input.start === "now" && !queued ? " Agent automation is off for this project, so a person starts it." : "";
+    if (queued) void this.automation?.kick();
+    const parentJob = jobOf(await this.store.read(), r.task.id);
+    const supervised = input.subCard && parentJob?.implementerId === identity.agentId && isLive(parentJob) && automationOf(r.project);
+    this.accesses.set(identity.agentId, { at: new Date(this.clock()).toISOString(), action: "create_card" });
+    return {
+      cardId: task.id,
+      title: task.title,
+      status: task.status,
+      ...(input.subCard ? { subCardOf: r.task.id } : {}),
+      queued,
+      message: queued
+        ? `Created and queued for agent automation.${supervised ? " End your turn after dispatching; Flowly wakes this supervised parent when its sub-cards settle." : " This session is not a supervised parent; check the card yourself or ask the user to run its automation."}${mode === "directory" ? " Directory workspaces share the project root and have no isolated branch; order conflicting work." : " Worktree starts at the project root branch by default; pass baseRef explicitly for parent-dependent work."}`
+        : input.start === "later"
+          ? `Created in ${laneName(r.project, task.status)} (parked). ${input.subCard ? "Start it later with flowly_update_card action=start." : "A person starts it with Run with agent; this card's agent can start only its direct sub-cards."}${note}`
+          : `Created in ${laneName(r.project, task.status)}.${note}`,
+    };
+  }
+  /**
+   * flowly_update_card (SUB-CARDS-SPEC §4): this session's card manages one of its direct
+   * sub-cards: start (queue it), accept (In review → Done) or cancel. Repeats are acknowledged.
+   */
+  private cardReceipt(board: Board, actor: AgentCardActor, action: "create_card" | "update_card") {
+    const previous = board.agentReceipts.find((r) => r.key === actor.key);
+    if (previous) {
+      if (previous.payloadHash !== actor.payloadHash || previous.action !== action) throw requestReused();
+      return previous;
+    }
+    board.agentReceipts = board.agentReceipts.filter((r) => Date.parse(r.expiresAt) > this.clock());
+    if (board.agentReceipts.length >= 5000) throw new ToolError("RECEIPTS_FULL", "Agent receipt capacity is full.", true);
+    const { task, project } = authorizeCardActor(board, actor);
+    const receipt: Receipt = { key: actor.key, agentId: actor.agentId, taskId: actor.taskId, payloadHash: actor.payloadHash, action, eventId: "", taskRevision: task.revision, projectRevision: project.revision, status: task.status, at: new Date(this.clock()).toISOString(), expiresAt: new Date(this.clock() + 7 * 86400000).toISOString() };
+    board.agentReceipts.push(receipt);
+    return receipt;
+  }
+
+  async updateCard(identity: ToolIdentity, raw: UpdateCardInput) {
+    const input = updateCardInputSchema.parse(raw);
+    const signed = this.secrets.validateRequest(identity, input.request, input.expectedRevision);
+    const r = await this.resources(identity);
+    const actor: AgentCardActor = { ...identity, expectedRevision: input.expectedRevision, key: `${identity.agentId}:${digest(input.request.id)}`, payloadHash: digest(JSON.stringify({ action: "update_card", input })), start: "later" };
+    type Answer = { cardId: string; status: Status; queued: boolean; replayed?: boolean; message: string; previous?: Status; moved?: Task };
+    const result = await this.store.transaction<Answer>((board) => {
+      // A retry after a lost response gets its recorded result, also once this card has finished since.
+      const existing = board.agentReceipts.find((receipt) => receipt.key === actor.key);
+      if (existing) {
+        if (existing.payloadHash !== actor.payloadHash || existing.action !== "update_card") throw requestReused();
+        return { value: { cardId: existing.cardId!, status: existing.status === "in_progress" ? "development" : existing.status, queued: !!existing.queued, replayed: true, message: "This sub-card action was already recorded." }, changed: false };
+      }
+      if (r.task.archivedAt || r.project.archivedAt) throw new ToolError("ARCHIVED", "Task or project is archived.");
+      if (["done", "cancelled"].includes(r.task.status)) throw new ToolError("TASK_FINISHED", "A finished card cannot manage cards.");
+      if (!r.context.available) throw new ToolError("WORKSPACE_INCOMPATIBLE", r.context.reason || "Workspace is unavailable.");
+      this.fresh(signed.issuedAt);
+      const { task: parent, project } = authorizeCardActor(board, actor);
+      const child = board.tasks.find((t) => t.id === input.cardId);
+      if (!child || child.projectId !== project.id || parentOf(board.links, child.id) !== parent.id) throw new ToolError("NOT_PARENT", "Only direct sub-cards of this session's card can be managed.");
+      if (child.archivedAt) throw new ToolError("ARCHIVED", "That sub-card is archived.");
+      // Automation never runs work under a cancelled or archived ancestor; cancelling stays possible.
+      if (input.action === "start") refuseAbandonedTree(board, parent.id, "start sub-cards");
+      const job = jobOf(board, child.id);
+      if (input.action === "start" && job?.state === "failed") throw new ToolError("NEEDS_PERSON", "This job failed. A person must choose Run again.");
+      if (input.action === "start" && job?.state === "stopped") throw new ToolError("TAKEN_BY_PERSON", "This job was stopped or moved. A person must choose Run again.");
+      // A live job has no turn to take a note (or a rework of its delivery): refused, never acknowledged and dropped.
+      if (input.action === "start" && job && isLive(job) && (input.note || child.status === "in_review")) {
+        const dropped = input.note ? " and the note was not delivered" : "";
+        const liveWords: Partial<Record<string, string>> = { waiting: "waiting for its own sub-cards", retry_wait: "waiting to retry a turn", reviewing: "reviewing its delivery" };
+        if (job.state === "needs_human") throw new ToolError("NEEDS_PERSON", `This sub-card waits for a person (${job.code ?? "needs_human"}); a person answers it in its own session. Nothing was changed${dropped}.`);
+        throw new ToolError("CHILD_BUSY", `This sub-card's automation is still ${liveWords[job.state] ?? job.state}. Nothing was changed${dropped}; wait until it settles, then start it again with the note.`);
+      }
+      const replayed = (input.action === "accept" && child.status === "done") || (input.action === "cancel" && child.status === "cancelled") || (input.action === "start" && isLive(job));
+      if (!replayed && ["done", "cancelled"].includes(child.status)) throw new ToolError("TASK_FINISHED", "That sub-card is already finished.");
+      if (!replayed && input.action === "accept" && child.status !== "in_review") throw new ToolError("NOT_DELIVERED", "Only a delivered sub-card in In review can be accepted.");
+      if (input.action === "start" && child.status === "in_review" && !input.note?.trim()) throw new ToolError("FEEDBACK_REQUIRED", "Describe the changes required when restarting a delivered sub-card.");
+      const target: Status = replayed ? child.status : input.action === "accept" ? "done" : input.action === "cancel" ? "cancelled" : child.status === "in_review" ? resumeStage(board, child, project) ?? child.status : child.status === "backlog" && laneEnabled(project, "todo") ? "todo" : child.status;
+      if (!laneEnabled(project, target)) throw new ToolError("STATUS_UNAVAILABLE", "The target lane is disabled.");
+      const previous = child.status;
+      if (!replayed && (target !== previous || input.note)) {
+        child.status = target;
+        child.revision++;
+        child.updatedAt = new Date(this.clock()).toISOString();
+        this.store.event(board, { taskId: child.id, actor: "agent", agentId: identity.agentId, action: target !== previous ? "status_changed" : "progress_reported", from: previous, to: target, note: input.note || `Parent card ${input.action}: ${parent.title}` });
+      }
+      if (!replayed && input.action === "start" && this.automation && automationOf(project)) this.automation.queueIn(board, child.id, { agentId: identity.agentId }, input.note);
+      const queued = isLive(jobOf(board, child.id));
+      const receipt = this.cardReceipt(board, actor, "update_card");
+      receipt.cardId = child.id; receipt.status = child.status; receipt.queued = queued;
+      return { value: { cardId: child.id, status: child.status, queued, ...(replayed ? { replayed: true } : {}), message: replayed ? (input.action === "start" ? "This sub-card is already queued or running; nothing changed." : "This sub-card is already in the requested state.") : input.action === "accept" ? "Accepted: the sub-card is Done." : input.action === "cancel" ? "Cancelled." : queued ? "Queued for automation. End your turn only if this parent is supervised; otherwise check progress yourself." : "Agent automation is off; a person starts the card.", previous, moved: { ...child } }, changed: true };
+    });
+    if (result.moved && result.previous !== result.status) this.onStatusChange?.(result.previous, result.moved, r.paseo);
+    void this.automation?.kick();
+    this.accesses.set(identity.agentId, { at: new Date(this.clock()).toISOString(), action: "update_card" });
+    const { previous: _previous, moved: _moved, ...answer } = result;
+    return answer;
+  }
+  /** flowly_submit_review (AUTOMATION-SPEC §5): the verdict of the reviewer session automation started for this card. */
+  async review(identity: ToolIdentity, input: ReviewInput) {
+    await this.resources(identity);
+    if (!this.automation) throw new ToolError("NOT_REVIEWER", "Agent automation is unavailable in this Flowly build.");
+    const result = await this.automation.submitReview(identity, input);
+    this.accesses.set(identity.agentId, { at: new Date(this.clock()).toISOString(), action: "review" });
+    return result;
+  }
   /** flowly_recall (PROJECT-MEMORY-SPEC §6.4): read-only. */
   async recall(identity: ToolIdentity, raw: RecallInput) {
     const input = recallInputSchema.parse(raw);
@@ -246,10 +471,12 @@ export class AgentService {
   }
   /**
    * `markArtifacts`: this call is the session reading its card (flowly_get_task),
-   * so artifacts it returns stop being unread for that session. The context
+   * so artifacts and comments it returns stop being unread for that session. The context
    * returned after a write shows the flags without clearing them.
+   * `handoffs: false` (the context returned after a write): links without handoffs or branches,
+   * so a write never pays for reading linked workspaces; get_task has them.
    */
-  async get(identity: ToolIdentity, recordAccess = true, markArtifacts = recordAccess): Promise<ToolContext> {
+  async get(identity: ToolIdentity, recordAccess = true, markArtifacts = recordAccess, { handoffs: withHandoffs = true }: { handoffs?: boolean } = {}): Promise<ToolContext> {
     // Taken before reading the board: an artifact added meanwhile stays unread.
     const readAt = new Date(Math.max(Date.now(), this.clock())).toISOString();
     const lastRead = await this.artifactReads.lastRead(identity.agentId).catch(() => undefined);
@@ -317,9 +544,13 @@ export class AgentService {
       },
       sessions: { entries: entries.slice(0, 20), partial, unavailableReason },
       ...(await this.store.read().then(async (board) => {
+        const { handoffs, branches } = withHandoffs ? await linkExtras(board, r.task.id, r.paseo, this.git) : { handoffs: new Map<string, LinkHandoff>(), branches: new Map<string, string>() };
+        const emittedHandoffs = new Set<string>();
         setup = setupContext(setupMissing(r.task, workpadOf(board.workpads, r.task.id), workpadEnabled(r.project)), r.task.status);
         return {
-          activity: board.events.filter((e) => e.taskId === r.task.id).slice(-20),
+          // Comments come in `comments` only, with their own unread flag and bound (CARD-COMMENTS-SPEC §3).
+          activity: board.events.filter((e) => e.taskId === r.task.id && !isComment(e)).slice(-20),
+          comments: agentComments(board.events, r.task.id, lastRead),
           projectTags: projectTagStats(board.tasks, r.project.id).map(({ tag, count }) => ({ tag, count })),
           outputLanguage: outputLanguage(await this.aiLanguage()),
           ideas: board.ideas
@@ -363,15 +594,22 @@ export class AgentService {
           ...(scripts.length ? { projectScripts: scripts } : {}),
           links: linksOf(board, r.task.id)
             .filter((v) => v.other)
-            .map(({ relation, other }) => ({
-              relation,
-              taskId: other!.id,
-              title: other!.title,
-              status: other!.status,
-              laneName: laneName(r.project, other!.status),
-              archived: !!other!.archivedAt,
-              ...(relation === "blocked_by" ? { resolved: isResolved(other) } : {}),
-            })),
+            .map(({ relation, other }) => {
+              const handoff = handoffs.get(other!.id);
+              const emitHandoff = !!handoff && !emittedHandoffs.has(other!.id);
+              if (emitHandoff) emittedHandoffs.add(other!.id);
+              return {
+                relation,
+                taskId: other!.id,
+                title: other!.title,
+                status: other!.status,
+                laneName: laneName(r.project, other!.status),
+                archived: !!other!.archivedAt,
+                ...(branches.has(other!.id) ? { branch: branches.get(other!.id)! } : {}),
+                ...(emitHandoff ? { handoff } : {}),
+                ...(relation === "blocked_by" ? { resolved: isResolved(other) } : {}),
+              };
+            }),
         };
       })),
     };
@@ -383,7 +621,7 @@ export class AgentService {
         at: new Date(this.clock()).toISOString(),
         action: "get",
       });
-    if (markArtifacts && value.artifacts.length)
+    if (markArtifacts && (value.artifacts.length || value.comments.length))
       await this.artifactReads.mark(identity.agentId, readAt).catch((e) =>
         console.error("Kanban artifact reads not saved:", e instanceof Error ? e.message : String(e)),
       );
@@ -409,11 +647,11 @@ export class AgentService {
   }
   async write(
     identity: ToolIdentity,
-    action: "status" | "progress" | "idea" | "remember" | "artifact" | "artifact_remove" | "tags" | "type" | "next_moves" | "workpad",
+    action: "status" | "progress" | "idea" | "remember" | "artifact" | "artifact_remove" | "tags" | "type" | "metadata" | "next_moves" | "workpad",
     raw: unknown,
   ): Promise<ToolResult> {
-    const input: StatusInput | ProgressInput | IdeaInput | RememberInput | ArtifactToolInput | ArtifactRemovalInput | TagsToolInput | TypeToolInput | NextMovesInput | WorkpadInput =
-      action === "status"
+    const input: MetadataInput | StatusInput | ProgressInput | IdeaInput | RememberInput | ArtifactToolInput | ArtifactRemovalInput | TagsToolInput | TypeToolInput | NextMovesInput | WorkpadInput =
+      action === "metadata" ? metadataInputSchema.parse(raw) : action === "status"
         ? statusInputSchema.parse(raw)
         : action === "remember"
           ? rememberInputSchema.parse(raw)
@@ -700,6 +938,24 @@ export class AgentService {
               });
             })()
           : undefined;
+      const metadataEvent = action === "metadata" ? (() => {
+        if (board.automation.some((job) => job.taskId === task.id && job.reviewerId === identity.agentId))
+          throw new ToolError("REVIEWER_ONLY", "A reviewer reports findings; the implementer organizes this card.");
+        const fields = input as MetadataInput;
+        if (task.brief && !task.intakeOrganized && fields.description !== undefined && !fields.description.trim())
+          throw new ToolError("INVALID_INPUT", "Organize task.brief into a non-empty, faithful description before confirming card setup.");
+        const changed = (["title", "description", "priority"] as const).filter((key) => fields[key] !== undefined && fields[key] !== task[key]);
+        const organized = !!task.brief && !task.intakeOrganized && fields.title !== undefined && fields.description !== undefined;
+        const at = new Date(this.clock()).toISOString();
+        if (!changed.length && !organized) return { id: "", at };
+        if (fields.title !== undefined) task.title = fields.title;
+        if (fields.description !== undefined) task.description = fields.description;
+        if (fields.priority !== undefined) task.priority = fields.priority;
+        if (organized) task.intakeOrganized = true;
+        task.revision++;
+        task.updatedAt = at;
+        return this.store.event(board, { taskId: task.id, agentId: identity.agentId, actor: "agent", action: "edited", note: `Organized card: ${changed.join(", ") || "confirmed title and description"}` });
+      })() : undefined;
       let workpadRevision: number | undefined;
       // Full replacement guarded by the workpad's own revision (WORKPAD-SPEC §2.4, §3).
       const workpadEvent =
@@ -765,6 +1021,7 @@ export class AgentService {
         artifactEvent ??
         tagsEvent ??
         typeEvent ??
+        metadataEvent ??
         movesEvent ??
         workpadEvent ??
         (action === "idea" || action === "remember"
@@ -782,8 +1039,8 @@ export class AgentService {
               action: next !== previous ? "status_changed" : "progress_reported",
               note: (input as StatusInput | ProgressInput).note,
               reportKind:
-                action === "progress" ? (input as ProgressInput).kind : "progress",
-              ...(next !== previous ? { from: previous, to: next } : {}),
+                action === "progress" ? (input as ProgressInput).kind : next === "blocked" ? "blocker" : "progress",
+              ...(action === "status" ? { from: previous, to: next } : {}),
               ...(deliveryPad ? { workpad: { ...delivered!, revision: deliveryPad.revision } } : {}),
               ...(setupGap.length ? { setup: { missing: setupGap } } : {}),
             }));
@@ -853,7 +1110,7 @@ export class AgentService {
     }
     const memoryField = memoryId ? { memoryId } : {};
     try {
-      const current = await this.get(identity, true, false);
+      const current = await this.get(identity, true, false, { handoffs: false });
       this.accesses.set(identity.agentId, {
         at: new Date(this.clock()).toISOString(),
         action,

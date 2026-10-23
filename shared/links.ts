@@ -2,7 +2,7 @@ import { localizedLabels, msg } from "./i18n";
 import type { Link, LinkKind, Task } from "./model";
 
 /** How a link reads from one of its cards (CARD-LINKS-SPEC §2.5). */
-export const relations = ["blocked_by", "blocks", "follow_up_of", "follow_up", "related"] as const;
+export const relations = ["blocked_by", "blocks", "follow_up_of", "follow_up", "sub_card_of", "sub_card", "related"] as const;
 export type Relation = (typeof relations)[number];
 
 export const relationLabels: Record<Relation, string> = localizedLabels({
@@ -10,6 +10,8 @@ export const relationLabels: Record<Relation, string> = localizedLabels({
   blocks: msg("Blocks"),
   follow_up_of: msg("Follow-up of"),
   follow_up: msg("Follow-up"),
+  sub_card_of: msg("Sub-card of"),
+  sub_card: msg("Sub-card"),
   related: msg("Related"),
 });
 
@@ -17,6 +19,7 @@ export function relationOf(link: Pick<Link, "kind" | "from">, taskId: string): R
   if (link.kind === "related") return "related";
   const outgoing = link.from === taskId;
   if (link.kind === "derived") return outgoing ? "follow_up_of" : "follow_up";
+  if (link.kind === "subtask") return outgoing ? "sub_card_of" : "sub_card";
   return outgoing ? "blocks" : "blocked_by";
 }
 
@@ -31,6 +34,10 @@ export function linkFor(relation: Relation, taskId: string, otherId: string): { 
       return { kind: "derived", from: taskId, to: otherId };
     case "follow_up":
       return { kind: "derived", from: otherId, to: taskId };
+    case "sub_card_of":
+      return { kind: "subtask", from: taskId, to: otherId };
+    case "sub_card":
+      return { kind: "subtask", from: otherId, to: taskId };
     case "related":
       return { kind: "related", from: taskId, to: otherId };
   }
@@ -121,7 +128,7 @@ export function linkContextLines(
   laneOf: (task: Task) => string,
   limit = 10,
 ): string[] {
-  const order: Relation[] = ["follow_up_of", "blocked_by", "blocks", "follow_up", "related"];
+  const order: Relation[] = ["sub_card_of", "sub_card", "follow_up_of", "blocked_by", "blocks", "follow_up", "related"];
   return order.flatMap((relation) => {
     const list = views.filter(
       (v) => v.relation === relation && v.other && (relation !== "blocked_by" || !isResolved(v.other)),
@@ -131,4 +138,40 @@ export function linkContextLines(
       ...(list.length > limit ? [`${relationLabels[relation]}: …and ${list.length - limit} more`] : []),
     ];
   });
+}
+
+/** Sub-cards (SUB-CARDS-SPEC §2): a card has at most one parent, and a tree is at most this many levels below its root. */
+export const subCardLimits = { depth: 3, perParent: 20 } as const;
+
+/** The parent of `taskId`, if it is a sub-card. */
+export const parentOf = (links: readonly Link[], taskId: string) => links.find((l) => l.kind === "subtask" && l.from === taskId)?.to;
+
+/** The direct sub-cards of `taskId`, in link order. */
+export const childrenOf = (links: readonly Link[], taskId: string) => links.filter((l) => l.kind === "subtask" && l.to === taskId).map((l) => l.from);
+
+/** How many parents `taskId` has above it (0 for a top-level card). */
+export function depthOf(links: readonly Link[], taskId: string) {
+  let depth = 0;
+  const seen = new Set([taskId]);
+  for (let at = parentOf(links, taskId); at && !seen.has(at); at = parentOf(links, at)) {
+    seen.add(at);
+    depth++;
+  }
+  return depth;
+}
+
+/** How many levels of sub-cards `taskId` has below it (0 for a leaf). */
+export function heightOf(links: readonly Link[], taskId: string, seen = new Set<string>()): number {
+  if (seen.has(taskId)) return 0;
+  seen.add(taskId);
+  return Math.max(0, ...childrenOf(links, taskId).map((c) => 1 + heightOf(links, c, seen)));
+}
+
+/** Why `childId` can't become a sub-card of `parentId`, or "" (SUB-CARDS-SPEC §2). */
+export function subCardProblem(links: readonly Link[], parentId: string, childId: string) {
+  if (parentOf(links, childId)) return "This card is already a sub-card of another card.";
+  if (childrenOf(links, parentId).length >= subCardLimits.perParent) return `A card can have at most ${subCardLimits.perParent} sub-cards.`;
+  if (depthOf(links, parentId) + 1 + heightOf(links, childId) > subCardLimits.depth)
+    return `Sub-cards go at most ${subCardLimits.depth} levels deep.`;
+  return "";
 }

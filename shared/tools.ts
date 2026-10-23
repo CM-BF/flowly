@@ -191,6 +191,15 @@ export const tagsInputSchema = z.strictObject({
     .default([])
     .describe("Tags to remove. Only tags an agent added can be removed."),
 });
+/** Organize this session's card without replacing the original task brief. */
+export const metadataInputSchema = z.strictObject({
+  expectedRevision: revisionSchema,
+  request: requestSchema,
+  title: z.string().trim().min(1).max(200).optional(),
+  description: z.string().max(20000).optional(),
+  priority: prioritySchema.optional(),
+}).refine((input) => input.title !== undefined || input.description !== undefined || input.priority !== undefined, "Include at least one metadata field.");
+export type MetadataInput = z.infer<typeof metadataInputSchema>;
 /** flowly_set_type (CARD-TYPE-SPEC §2): classify a card that has no type yet. */
 export const typeInputSchema = z.strictObject({
   expectedRevision: revisionSchema,
@@ -319,6 +328,7 @@ export const toolContextSchema = z.object({
   /** What the card still needs before work starts (CARD-SETUP-SPEC §3.1); fix `missing` first. */
   setup: z
     .object({
+      metadataMissing: z.boolean().optional(),
       typeMissing: z.boolean(),
       tagsMissing: z.boolean(),
       workpadMissing: z.boolean(),
@@ -356,6 +366,12 @@ export const toolContextSchema = z.object({
     unavailableReason: z.string(),
   }),
   activity: z.array(eventSchema),
+  /**
+   * What people wrote on the card (CARD-COMMENTS-SPEC §3): the latest 20, oldest first. unread: written
+   * since this session last read the card (all of them for a new session); those come in full, ones it
+   * read before are cut to 4000 characters (and say so). Treat each unread one like a message from the user.
+   */
+  comments: z.array(z.object({ id: z.string(), at: z.string(), text: z.string(), unread: z.boolean() })),
   /** Ideas proposed on this card (IDEAS-SPEC §3), to avoid proposing duplicates. */
   ideas: z.array(
     z.object({
@@ -431,7 +447,11 @@ export const toolContextSchema = z.object({
       }),
     )
     .optional(),
-  /** Linked cards, read-only (CARD-LINKS-SPEC §4). `resolved` only for blocked_by. */
+  /**
+   * Linked cards, read-only (CARD-LINKS-SPEC §4). `resolved` only for blocked_by. `branch`: the parent's branch on
+   * sub_card_of, the branch a Done blocker was delivered on. `handoff`: delivered or settled sub-cards and blockers
+   * (not Done, Cancelled or archived), with evidence bounded across all links; absent in the context after a write.
+   */
   links: z.array(
     z.object({
       relation: z.enum(relations),
@@ -441,6 +461,8 @@ export const toolContextSchema = z.object({
       laneName: z.string(),
       archived: z.boolean(),
       resolved: z.boolean().optional(),
+      branch: z.string().optional(),
+      handoff: z.object({ branch: z.string().optional(), directory: z.string().optional(), evidence: z.string(), blockers: z.array(z.string()) }).optional(),
     }),
   ),
 });
@@ -500,3 +522,53 @@ export type NextMovesInput = z.infer<typeof nextMovesInputSchema>;
 export type ArtifactToolInput = z.infer<typeof artifactInputSchema>;
 export type ArtifactRemovalInput = z.infer<typeof artifactRemovalSchema>;
 export type WorkpadInput = z.infer<typeof workpadInputSchema>;
+
+/** flowly_create_card (SUB-CARDS-SPEC §3): a new card of this project, by default a sub-card of the caller's card. */
+export const createCardInputSchema = z.strictObject({
+  expectedRevision: revisionSchema,
+  request: requestSchema,
+  title: z.string().trim().min(1).max(200),
+  description: z.string().max(20000).default(""),
+  type: taskTypeSchema.optional(),
+  priority: prioritySchema.default("normal"),
+  tags: tagInputList.optional(),
+  /** true: a sub-card of the caller's card; false: a separate card of the project. */
+  subCard: z.boolean().default(true),
+  /** now: Todo, and queued for agent automation when the project has it on; later: parked in Backlog. */
+  start: z.enum(["now", "later"]).default("now"),
+  /** Cards of the project this one waits for (ids from flowly_get_task links or earlier flowly_create_card results). */
+  blockedBy: z.array(z.string().min(1).max(200)).max(10).default([]),
+  /** Default: an isolated worktree when the project root is a git repository, else a directory workspace. */
+  workspace: z.enum(["worktree", "directory"]).optional(),
+  /** Worktree base: a branch or commit (default: the project root's current branch). */
+  baseRef: z.string().trim().max(200).optional(),
+});
+export type CreateCardInput = z.input<typeof createCardInputSchema>;
+export const createCardResultSchema = z.object({
+  cardId: z.string(),
+  title: z.string(),
+  status: statusSchema,
+  subCardOf: z.string().optional(),
+  queued: z.boolean(),
+  replayed: z.boolean().optional(),
+  message: z.string(),
+});
+export type CreateCardResult = z.infer<typeof createCardResultSchema>;
+
+/** flowly_update_card (SUB-CARDS-SPEC §4): the parent card's agent manages one of its direct sub-cards. */
+export const updateCardInputSchema = z.strictObject({
+  expectedRevision: revisionSchema,
+  request: requestSchema,
+  cardId: z.string().min(1).max(200),
+  /** start: queue a parked or idle sub-card; accept: Done for a delivered (In review) sub-card; cancel: Cancelled. */
+  action: z.enum(["start", "accept", "cancel"]),
+  note: z.string().trim().max(2000).default(""),
+});
+export type UpdateCardInput = z.input<typeof updateCardInputSchema>;
+export const updateCardResultSchema = z.object({
+  cardId: z.string(),
+  status: statusSchema,
+  queued: z.boolean(),
+  replayed: z.boolean().optional(),
+  message: z.string(),
+});

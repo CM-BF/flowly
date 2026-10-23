@@ -1,0 +1,46 @@
+
+> paseo-flowly@1.5.0 test
+> vitest run
+
+
+ RUN  v4.1.11 /private/var/folders/f1/2xjyyqkn5plc19fx4nt4tpt00000gn/T/flowly-r3-fixed-b095a7a-2tj8lc9s
+
+ ❯ server/automation-verdicts-round3.test.ts (5 tests | 1 failed) 10877ms
+   × casual turns after an approval keep it after the delivery has left the card's history, and start no review 5024ms
+ ❯ server/automation-attention-round3.test.ts (3 tests | 1 failed) 11218ms
+   × a failed job a person took back stays out of Needs attention after the move left the card's history 5046ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  server/automation-attention-round3.test.ts > a failed job a person took back stays out of Needs attention after the move left the card's history
+Error: Test timed out in 5000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".
+ ❯ server/automation-attention-round3.test.ts:35:1
+     33| }
+     34|
+     35| test("a failed job a person took back stays out of Needs attention aft…
+       | ^
+     36|   const x = await setup({ enabled: true, nudgeLimit: 1 });
+     37|   const impl = await failed(x);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  server/automation-verdicts-round3.test.ts > casual turns after an approval keep it after the delivery has left the card's history, and start no review
+Error: Test timed out in 5000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".
+ ❯ server/automation-verdicts-round3.test.ts:21:1
+     19| }
+     20|
+     21| test("casual turns after an approval keep it after the delivery has le…
+       | ^
+     22|   const { x, impl, rev } = await underReview({ maxReviewRounds: 1 });
+     23|   await x.automation.submitReview(as(rev), { verdict: "approve", summa…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  2 failed | 142 passed | 13 skipped (157)
+      Tests  2 failed | 1158 passed | 65 skipped (1225)
+   Start at  23:40:49
+   Duration  19.90s (transform 26.53s, setup 0ms, import 43.80s, tests 199.08s, environment 7ms)
+

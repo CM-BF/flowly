@@ -1,7 +1,7 @@
 import type { Task, Workpad } from "./model";
 
 /** What a card needs before work starts (CARD-SETUP-SPEC §3), in this fixed order. */
-export const setupItems = ["type", "tags", "workpad"] as const;
+export const setupItems = ["metadata", "type", "tags", "workpad"] as const;
 export type SetupItem = (typeof setupItems)[number];
 
 /**
@@ -9,11 +9,12 @@ export type SetupItem = (typeof setupItems)[number];
  * workpad on. An empty workpad (all three lists empty) counts as missing.
  */
 export function setupMissing(
-  task: Pick<Task, "type" | "tags">,
+  task: Pick<Task, "type" | "tags" | "brief" | "intakeOrganized">,
   workpad: Pick<Workpad, "acceptance" | "validation" | "confusions"> | null | undefined,
   workpadOn: boolean,
 ): SetupItem[] {
   const out: SetupItem[] = [];
+  if (task.brief && !task.intakeOrganized) out.push("metadata");
   if (!task.type) out.push("type");
   if (!task.tags?.length) out.push("tags");
   if (workpadOn && !(workpad && (workpad.acceptance.length || workpad.validation.length || workpad.confusions.length)))
@@ -24,6 +25,7 @@ export function setupMissing(
 /** get_task's `setup` (CARD-SETUP-SPEC §3.1). */
 export function setupContext(missing: readonly SetupItem[], stage: Task["status"]) {
   return {
+    metadataMissing: missing.includes("metadata"),
     typeMissing: missing.includes("type"),
     tagsMissing: missing.includes("tags"),
     workpadMissing: missing.includes("workpad"),
@@ -34,6 +36,7 @@ export function setupContext(missing: readonly SetupItem[], stage: Task["status"
 
 // Agent-facing, English (CARD-SETUP-SPEC §3.3, §3.4).
 const itemText: Record<SetupItem, string> = {
+  metadata: "unorganized task brief (flowly_update_metadata: supply both a concise title and a faithful description from task.brief)",
   type: "no type (flowly_set_type: feature, bugfix, research, refactor, docs or chore)",
   tags: "no tags (flowly_set_tags: 1-4 module or direction tags, reuse projectTags)",
   workpad: "no workpad (flowly_update_workpad: the acceptance criteria and the checks you will run, before you implement)",
@@ -52,6 +55,6 @@ export const setupIncompleteMessage = (missing: readonly SetupItem[]) =>
 export const setupContextLine = (missing: readonly SetupItem[]) =>
   missing.length
     ? `Card setup missing: ${missing.join(", ")}. Before you change anything, set them (${missing
-        .map((m) => (m === "type" ? "flowly_set_type" : m === "tags" ? "flowly_set_tags" : "flowly_update_workpad with acceptance criteria and the checks you will run"))
+        .map((m) => itemText[m])
         .join(", ")}); see "Start of every turn" in the Flowly skill.`
     : "";

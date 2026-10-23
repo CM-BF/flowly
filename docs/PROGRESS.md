@@ -1,5 +1,74 @@
 # Implementation progress
 
+## Per-role fallback models — 2026-10-23
+
+User decision: the reviewer may run on a limit-prone model (Opus 5.5 max), so each automation role can name a fallback model ([AUTOMATION-SPEC](AUTOMATION-SPEC.md) §4.5). The rate-fallback plugin alone was not enough: its GPT backup of a Claude session has no Flowly tools and is not the bound reviewer, and Flowly's own cooldown (about 30 minutes) cannot wait out a Claude 5-hour or weekly limit.
+
+- [x] Settings `implementerFallback` / `reviewerFallback` (Edit project, nine catalogs). A role whose model reports a provider limit (a failed turn, Claude's quota notice as the last row of a completed turn, or a limit while creating or messaging the session) continues in a new Flowly-prepared session on its fallback: the reviewer reruns the same round (the limited reviewer's late verdict is refused), the implementer takes over from the workpad and workspace with any unfinished requested changes. The role stays on the fallback for the rest of the run; a limit on the fallback uses the cooldown. A recorded limit makes new sessions start on the fallback for 30 minutes, and a cooling provider no longer holds back roles with a fallback elsewhere. Claude's "You've hit your … limit" wording now counts as a provider limit everywhere.
+- [x] Automation sessions carry the label `paseo-rate-fallback=off`; the rate-fallback plugin honours it (its own change), so one limit never yields two takeovers in one worktree.
+- [x] Tests: `server/automation-fallback.test.ts` (11), `shared/automation-fallback.test.ts` (4); typecheck and full suite green.
+- Onboarding: no new tip or tour line. This is a settings option for people who already use automation, and its effect appears on the card ("On the fallback model after a provider limit") and in the activity.
+- [ ] UNRUN live: a real provider limit cannot be triggered on demand; covered offline only.
+
+## Card comments — 2026-10-23
+
+- [x] Spec [CARD-COMMENTS-SPEC](CARD-COMMENTS-SPEC.md) (user decision 2026-10-23), with implementation notes in §7.
+- [x] `tasks.comment`: a human `commented` event with the exact text, board revision only (task revision unchanged), `operationId` replay returns the same event (also after archiving), `ARCHIVED` refusal for archived cards/projects. Comments are kept apart from the card's 100-event activity bound (latest 50). Text limit 10000 (the event note bound), not the spec's 20000.
+- [x] `flowly_get_task.comments`: the latest 20 human comments, oldest first, each with `unread` (written since this session last read the card; all of them for a new session). Unread comments come in full; read ones longer than 4000 characters are shortened with a note that is true for every session (spec §7.10; the first version cut every comment and claimed the full text had been sent to the session). Tool description, skill (both copies) and the reviewer's round prompt updated.
+- [x] Drawer **Comments** section under Progress (movable; stored layouts get it there too): latest 3 and Show all, composer with To: picker (automation implementer, else the most recently active non-reviewer main session; reviewers choosable; archived sessions never offered or restored), the session composer's send path and When running preference, failed delivery keeps the comment and Resend only sends; no-session and archived-sessions hints; archived card/project lock the composer. Activity label "commented".
+- [x] Onboarding: tip `card-comments` (open card with a live session, not archived; before the other open-card tips), tour More features line, README highlights (both languages), ONBOARDING-SPEC tip table, DRAWER-SPEC section list, nine catalogs.
+- [x] Offline behaviour tests for the §6 unit items: `server/comments.test.ts`, `server/get-task-comments.test.ts`, `client/card-comments.test.ts`, `client/onboarding-logic.test.ts`, `shared/drawer-sections.test.ts`. Typecheck and full suite at first delivery: 1193 passed / 65 pre-existing skipped. Correction: the first delivery claimed every §6 item was covered, but the Comments section's wiring (exact text, no restore of archived sessions, When running, resend only sends, implementer from the job) was untested and could be broken with every test passing.
+- [x] Review fixes (spec §7.4, §7.6, §7.7, §7.10, §7.11): the composer's state and the post in flight live in the drawer's `CommentMemory`, so a section remounted mid-post cannot send a comment twice and sees its result; the box clears once the comment is recorded; Return posts on phones, with the session composer's keys (`composerKeys`, shared); each failed delivery keeps its own notice; a reviewer-only card offers the reviewer in To: and says why nothing is sent; the no-session hint waits for the archived read; get_task comments carry `unread` and come in full until read. The section's decisions moved into pure functions in `client/card-comments.ts` (transport, recipients from the job, post, resend, To:, hint), each test seen failing against a port of the first version's logic. Typecheck and full suite after the fixes: 1207 passed / 65 pre-existing skipped. Live acceptance of the fixes is unrun too (not installed on the daemon).
+- [ ] UNRUN: live acceptance on the daemon and app.paseo.sh (§6: In-review automation card rework and re-review, question on a directly started card, card without a session, Activity, desktop and compact screenshots). The plugin was not installed or reloaded; the daemon still runs its pinned commit.
+- [ ] UNRUN: physical Android (keyboard over the inline composer).
+
+
+## Single task input and execution defaults — 2026-10-22
+
+- [x] One task brief, start-agent default on every new card, agent metadata tool with revision/receipt checks, original input preserved.
+- [x] Project/implementer/reviewer permissions and provider speed controls; direct and supervised launches carry settings. Private queued first-message attachments, stable identities and lifecycle cleanup.
+- [x] Multica quick-create behavior researched; spec, skill, onboarding and nine catalogs updated. Typecheck and full suite after live metadata fix: 990 passed, 65 pre-existing skipped. Full-access Luna review: [report](verification/task-intake-luna.md).
+- [x] Installed 856c871; desktop/compact single input, start default, saved permissions/speed and a real direct session verified. [Live report](verification/task-intake.md).
+- [x] Live agent skipped metadata organization: fixed in dc5a75c. Retested on 43efb13 (2026-10-23, installed once the user's pipeline was idle): a fresh direct agent organized title/type/tags before working; an automated image card read the attached image correctly; implementer Normal over project Fast and reviewer inheriting Fast reached the real sessions. Fixture cleaned up in both registries and on disk. [Live report](verification/task-intake.md).
+- [ ] UNRUN: physical Android.
+
+
+## Automation/sub-card review hardening — 2026-10-22
+
+- [x] Recovered completed Workflow review/verification/critic results; synthesized and deduplicated 118 kept entries into 20 coherent batches, preserving rejected/plausible distinctions.
+- [x] Hardened session roles, pending instructions, ownership races, revision/receipt/lineage limits, dependency/workspace scheduling, handoffs, review lifecycle, provider cooldown, CLI parity, client signals and attribution. Specs/skills/onboarding/nine catalogs updated.
+- [x] Typecheck; 980 tests passed / 65 pre-existing skipped; 25 targeted regressions failed on d143a86. Native daemon project inventory unchanged by offline tests.
+- [x] Live acceptance on the actual daemon: settings persistence/error, parent creates/starts child, maxRunning=1 wait/wake, branch/check handoff, integration/accept, child and parent reviewer approvals, desktop/compact board. Full-access Luna session a0c74ff7-e334-4309-9aad-965ea5f93d01; fixture resources removed/archived and inventory reconciled. [Report](verification/automation-review-live.md).
+- [x] Rounds 2 and 3 (59 and 15 confirmed findings) fixed and verified; 43efb13 passed typecheck and three full-suite runs (1,160 passed / 65 pre-existing skipped). [Round 3](verification/automation-review-round3.md).
+- [x] Live on 43efb13 (2026-10-23): Stop without interrupting the session, Run again reusing it with the instruction held until the busy turn ended, blocker reasons including a cancelled blocker, project automation off (no dispatch) and on (dispatch), reviewer changes → rework → approval. [Report](verification/automation-review-round3.md#live-acceptance-on-43efb13).
+- [ ] UNRUN: physical Android; provider-limit, unknown-receipt and lost-turn-end recovery on a live provider (offline regression coverage).
+- Evidence and host limitations: [report](verification/automation-review.md).
+
+## Agent-created cards and sub-cards (user: "agents should create cards and sub-cards themselves, like Multica") — 2026-10-22
+
+Spec: [SUB-CARDS-SPEC](SUB-CARDS-SPEC.md). The user owns the fork and decides which upstream rules apply (AGENTS.md "Fork ownership"); top-level Done stays human.
+
+- [x] Spec, AGENTS.md fork ownership and decision, SPEC-OUTLINE entry, README in both languages.
+- [x] Daemon: `subtask` links (one parent, 3 levels, 20 per parent), `createdByAgent`, `flowly_create_card` (own workspace, start now/later, blockedBy, one card per request) and `flowly_update_card` (start, accept In review → Done, cancel, direct sub-cards only; a move runs the same effects as a person's); automation `waiting` state without a slot and one wake message per change with lane, state, branch and directory (`server/agent-service.ts`, `server/automation.ts`, `shared/links.ts`).
+- [x] UI: New sub-card in the card menu, action sheet and drawer Links menu; *Sub-card of* in the new-card form; Links groups *Sub-card of* / *Sub-cards*; card signal *Sub-cards n/m*; *Waiting on sub-cards*; tip `sub-cards`; nine catalogs.
+- [x] Tests: `server/sub-cards.test.ts` (6); typecheck; `npm test` 934 passed, 65 skipped.
+- [x] Live on the user's daemon through the web UI ([report](verification/sub-cards.md)): the parent's agent split its card into two sub-cards, waited without a slot, was woken once with both branches, merged them, accepted both and delivered. Two bugs found and fixed (one request in parallel calls, a Done sub-card reading "Delivered; your review"), two timing-dependent automation tests fixed. Fixtures cleaned up.
+- [ ] UNRUN: the `REQUEST_REUSED` fix live (the agent refused an agent-relayed probe), start=later / cancel / blockedBy between sub-cards live, nested sub-cards, the New sub-card menu click-through, a parent without automation, Android device.
+
+## Agent automation (user: "integrate Hermes Kanban's agent automation into Flowly") — 2026-10-22
+
+Spec: [AUTOMATION-SPEC](AUTOMATION-SPEC.md). Builds on the user's earlier decision on the card "设计 Flowly × Kanban 整合" to build execution into the CM-BF/flowly fork (explicit enqueue, no auto Done, no PR automation).
+
+- [x] Spec, AGENTS.md exception (per project, off by default; Done stays human), SPEC-OUTLINE entry, README highlight in both languages.
+- [x] Daemon: `project.automation`, board `automation` jobs (etag/patch, removed with cards and projects), dispatcher (blockers Done, slots, priority), unattended managed sessions through `prepareSession`, Hermes worker supervision (reminders, retries with backoff, give-up to Blocked), review loop with `flowly_submit_review` (MCP; API action `review`), reconcile pass, rule A1 skips live reviewer sessions (`server/automation.ts`, `shared/automation*.ts`).
+- [x] UI: Edit project → Agent automation; Run with agent / Stop automation in the card menu, phone action sheet and drawer menu; card signal; drawer row with reason, reviewer summary and counters; activity labels; nine catalogs.
+- [x] Onboarding: tip `agent-automation` (after first-card), welcome tour More features entry, skill section "Automated runs".
+- [x] Tests: `shared/automation.test.ts` (8), `server/automation.test.ts` (12); typecheck; `npm test` 927 passed, 65 skipped.
+- [x] Live on the user's daemon through the web UI ([report](verification/automation.md)): dependencies, unattended Claude implementer, Codex reviewer approve and changes → fix → round 2, reminders → give-up → Blocked, Stop, Run again, plugin reload mid-turn, phone width. Three bugs found and fixed (project create on a desktop-managed daemon, Done not releasing at once, A1r's Blocked read as the agent's). Fixtures cleaned up.
+- [ ] UNRUN: real provider failure and retry, permission waiting, daemon restart mid-turn, slot contention live, Android device.
+- [ ] Not built (spec §9): Hermes orchestrator cards, goal mode, scheduled starts, per-card assignee or model. Decomposition came later through agent-created sub-cards (above).
+- [x] Review round 2 (61 findings, 59 confirmed): review cycles and verdicts per delivery, retry/turn-end fixes, parent wake and blocker walk, frozen projects without In review, cooldown gating, sub-card restart bound and refused notes, bounded get_task handoffs, client reasons and Attention; specs, onboarding spec and READMEs updated; tsc and `npx vitest run` pass (1105 passed, 65 skipped). Live daemon/Web UI UNRUN; client-docs-3 (Full access vs project default permissions) left for the owner ([review](verification/automation-review.md#round-2)).
+
 ## Registry listing art (card "发布v1.5.0") — 2026-10-21
 
 - [x] Researched the Paseo registry (getpaseo/plugins README, PROTOCOL, REVIEW, publishing guide): icon and screenshots come from `icon`/`media` in `paseo-plugin.json` (package-relative PNG icon; PNG/JPG/WebP/GIF/MP4/WebM media; first image is the thumbnail; SVG rejected), or from `listing.*` overrides a reviewer adds. The two screenshots in the previous listing were reviewer-added overrides.

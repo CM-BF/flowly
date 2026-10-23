@@ -1,3 +1,4 @@
+import { isAutomationMessage } from "./automation";
 import { z } from "zod";
 import { addDays, dayKey, projectInsightsSchema, type FlowEntry } from "./insights";
 import { openNextMoves } from "./next-moves";
@@ -133,7 +134,7 @@ export function turnPick(events: readonly BoardEvent[], agentId: string, userTex
 
 /** The text of a turn's user messages, from the timeline the `agent.turn_ended` hook receives. */
 export function userTexts(items: readonly { type?: unknown; text?: unknown }[]): string[] {
-  return items.flatMap((item) => (item.type === "user_message" && typeof item.text === "string" && item.text.trim() ? [item.text] : []));
+  return items.flatMap((item) => (item.type === "user_message" && typeof item.text === "string" && item.text.trim() && !isAutomationMessage(item.text) ? [item.text] : []));
 }
 
 /**

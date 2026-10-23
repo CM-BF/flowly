@@ -42,7 +42,7 @@ import {
   tint,
   noFocusRing } from "./ui";
 import { sessionTone } from "./status";
-import { resolveSend, sendBehaviorText, sendBehaviors, type SendBehavior } from "./send-queue";
+import { preferredSend, resolveSend, sendBehaviorText, sendBehaviors, type SendBehavior } from "./send-queue";
 import { useComposer } from "./composer";
 import { useLiveAgents } from "./queries";
 import { imageInputSupported, listenForImages, pickImageFiles, readImages, type Attachment } from "./web-images";
@@ -72,7 +72,7 @@ import { useSessionReads } from "./session-reads";
 import { sessionAttention } from "../shared/session-attention";
 import { Enter, MotionReveal, PulseDot, motionDuration, useMotionValue, useReducedMotion, useSettled, lerp } from "./motion";
 import { useKeyboardInset } from "./keyboard";
-import { composerEnterAction, createDraftBuffer, createDraftReporter, restoredDraft, type ComposerKey } from "./session-input";
+import { composerKeys, createDraftBuffer, createDraftReporter, restoredDraft } from "./session-input";
 import { t, tn } from "../shared/i18n";
 
 /** Composer text area: vertical padding and the one-line height (20 px line). */
@@ -301,7 +301,7 @@ function SessionPreviewView({
     !current.isError &&
     !busy;
   const view = useBoardView();
-  const preferred: SendBehavior = view.values?.sendBehavior || "steer";
+  const preferred: SendBehavior = preferredSend(view.values);
   const setPreferred = (next: SendBehavior) => {
     if (view.values && view.values.sendBehavior !== next) void view.update({ sendBehavior: next });
   };
@@ -670,21 +670,7 @@ function SessionPreviewView({
               }}
               multiline
               autoFocus={refocus.current}
-              blurOnSubmit={false}
-              submitBehavior={Platform.OS === "web" ? "newline" : "submit"}
-              returnKeyType="send"
-              onKeyPress={(event) => {
-                if (Platform.OS !== "web") return;
-                const action = composerEnterAction(event.nativeEvent as ComposerKey);
-                if (action === "native") return;
-                event.preventDefault();
-                if (action === "submit" || action === "alternate") void submitInstruction(action === "alternate");
-              }}
-              onSubmitEditing={(event) => {
-                if (Platform.OS === "web") return;
-                const action = composerEnterAction({ ...event.nativeEvent, key: "Enter" });
-                if (action === "submit") void submitInstruction();
-              }}
+              {...composerKeys(Platform.OS, (alternate) => void submitInstruction(alternate))}
               scrollEnabled
               editable={!!active}
               placeholder={

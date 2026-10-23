@@ -1,0 +1,88 @@
+
+ RUN  v4.1.11 /private/var/folders/f1/2xjyyqkn5plc19fx4nt4tpt00000gn/T/flowly-history-test-mutations-mwg3uw6o
+
+ ❯ server/automation-attention-round3.test.ts (3 tests | 1 failed) 101ms
+   × a failed job a person took back stays out of Needs attention after the move left the card's history 42ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  server/automation-attention-round3.test.ts > a failed job a person took back stays out of Needs attention after the move left the card's history
+AssertionError: expected [ { task: { id: 'a', …(14) }, …(12) } ] to deeply equal []
+
+- Expected
++ Received
+
+- []
++ [
++   {
++     "asks": 0,
++     "automation": true,
++     "dismissed": false,
++     "errors": 0,
++     "permissions": 0,
++     "project": {
++       "archivedAt": null,
++       "automation": {
++         "enabled": true,
++         "failureLimit": 2,
++         "fullAccess": true,
++         "maxReviewRounds": 3,
++         "maxRunning": 2,
++         "nudgeLimit": 1,
++       },
++       "createdAt": "2026-10-23T06:44:18.384Z",
++       "description": "",
++       "id": "p",
++       "pas
+ Test Files  1 failed (1)
+      Tests  1 failed | 2 passed (3)
+   Start at  23:44:18
+   Duration  341ms (transform 111ms, setup 0ms, import 169ms, tests 101ms, environment 0ms)
+
+eoProjectId": "native",
++       "primaryPath": "/var/folders/f1/2xjyyqkn5plc19fx4nt4tpt00000gn/T/flowly-automation-test-FBgzfC",
++       "repos": [
++         "/var/folders/f1/2xjyyqkn5plc19fx4nt4tpt00000gn/T/flowly-automation-test-FBgzfC",
++       ],
++       "revision": 1,
++       "title": "P",
++       "updatedAt": "2026-10-23T06:44:18.384Z",
++     },
++     "questions": 0,
++     "sessionId": null,
++     "signals": [
++       "automation:1:failed:2026-10-23T06:44:24.384Z",
++     ],
++     "silent": 0,
++     "task": {
++       "archivedAt": null,
++       "createdAt": "2026-10-23T06:44:18.384Z",
++       "description": "",
++       "id": "a",
++       "operationId": "create-a",
++       "position": 0,
++       "priority": "normal",
++       "projectId": "p",
++       "repoPaths": [],
++       "revision": 2,
++       "sourcePath": "/var/folders/f1/2xjyyqkn5plc19fx4nt4tpt00000gn/T/flowly-automation-test-FBgzfC",
++       "status": "development",
++       "title": "Card a",
++       "updatedAt": "2026-10-23T06:44:24.384Z",
++       "workspaceId": "w-a",
++     },
++     "unread": 0,
++     "updatedAt": "2026-10-23T06:44:24.384Z",
++   },
++ ]
+
+ ❯ server/automation-attention-round3.test.ts:51:29
+     49|   expect((await x.store.read()).events.some((e) => e.id === "drag")).t…
+     50|   expect(await x.job("a")).toMatchObject({ state: "failed", code: "no_…
+     51|   expect(await needsYou(x)).toEqual([]);
+       |                             ^
+     52| });
+     53|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+

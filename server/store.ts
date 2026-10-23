@@ -1,4 +1,4 @@
-import { laneName, laneProblem } from "../shared/lanes";
+import { laneEnabled, laneName, laneProblem } from "../shared/lanes";
 import { mkdir, readFile, writeFile, rename, copyFile } from "node:fs/promises";
 import { join } from "node:path";
 import { constants } from "node:fs";
@@ -8,6 +8,7 @@ import { ideaTitleKey } from "../shared/ideas";
 import { otherEnd, relationLabels, relationOf, touches } from "../shared/links";
 import { changeTags, mergeTagEdit, normalizeTags, tagChangeNote } from "../shared/tags";
 import { attentionDismissLimits, dismissalSignals, type AttentionDismissInput, type AttentionRestoreInput } from "../shared/attention-dismiss";
+import { commentAction, commentLimits } from "../shared/comments";
 import type { FlowLog } from "./flow-log";
 import type { ProjectSnapshot } from "./project-folder";
 import {
@@ -201,6 +202,9 @@ export class BoardStore {
           ? mergeTagEdit(task.tags || [], normalizeTags(input.tagsBase!), normalizeTags(input.tags), new Date().toISOString())
           : undefined;
       if (tagChange) setTags(task, tagChange.tags);
+      if (task.brief && input.actor === "human" &&
+          ((input.title !== undefined && input.title !== task.title) || (input.description !== undefined && input.description !== task.description)))
+        task.intakeOrganized = true;
       if (input.title !== undefined) task.title = input.title;
       if (input.description !== undefined) task.description = input.description;
       if (input.priority !== undefined) task.priority = input.priority;
@@ -340,6 +344,8 @@ export class BoardStore {
       if (input.workpad !== undefined) p.workpad = input.workpad;
       if (input.workflowInsights !== undefined) p.workflowInsights = input.workflowInsights;
       if (input.memory !== undefined) p.memory = input.memory;
+      if (input.automation !== undefined) p.automation = input.automation;
+      if (p.automation?.enabled && !laneEnabled(p, "in_review")) throw new Error("Agent automation requires the In review lane.");
       if (input.agentModel !== undefined) {
         if (input.agentModel) p.agentModel = input.agentModel;
         else delete p.agentModel;
@@ -389,6 +395,7 @@ export class BoardStore {
       board.workpads = board.workpads.filter((w) => !taskIds.has(w.taskId));
       board.plans = board.plans.filter((p) => !taskIds.has(p.taskId));
       board.attentionDismissals = board.attentionDismissals.filter((d) => !taskIds.has(d.taskId));
+      board.automation = board.automation.filter((j) => !taskIds.has(j.taskId));
       return { id: project.id, removedTasks: taskIds.size, backup };
     });
   }
@@ -498,6 +505,7 @@ export class BoardStore {
       board.workpads = board.workpads.filter((w) => w.taskId !== task.id);
       board.plans = board.plans.filter((p) => p.taskId !== task.id);
       board.attentionDismissals = board.attentionDismissals.filter((d) => d.taskId !== task.id);
+      board.automation = board.automation.filter((j) => j.taskId !== task.id);
       return { id: task.id, backup };
     });
   }
@@ -586,9 +594,16 @@ export class BoardStore {
     };
     board.events.push(event);
     this.pending.push(event);
-    const relevant = board.events.filter((e) => e.taskId === input.taskId);
-    if (relevant.length > 100) {
-      const remove = new Set(relevant.slice(0, -100).map((e) => e.id));
+    // These decisions outlive the bounded activity log, even when it fills before the next dispatcher pass.
+    const job = board.automation.find((job) => job.taskId === event.taskId);
+    if (job && event.actor === "agent" && event.agentId === job.implementerId && event.to === "in_review") job.latestDelivery = event.id;
+    if (job?.state === "failed" && event.action === "status_changed" && event.rule !== "AUTO") job.takenBack = true;
+    // A card keeps its latest 100 events, and apart from them its latest comments: a person's words are not activity noise (CARD-COMMENTS-SPEC §4).
+    const comment = event.action === commentAction;
+    const limit = comment ? commentLimits.perTask : 100;
+    const relevant = board.events.filter((e) => e.taskId === input.taskId && (e.action === commentAction) === comment);
+    if (relevant.length > limit) {
+      const remove = new Set(relevant.slice(0, -limit).map((e) => e.id));
       board.events = board.events.filter((e) => !remove.has(e.id));
     }
     return event;

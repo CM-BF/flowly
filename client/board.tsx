@@ -71,6 +71,8 @@ import { LaneList } from "./lane-list";
 import { perfConfigure, perfMark, usePerfRender } from "./perf";
 import { laneRows, sameRows } from "./lane-rows";
 import { LiveTaskCard, type CardDrag, type LiveTaskCardProps } from "./card";
+import { automationSignal, useAutomationActions } from "./task-automation";
+import { automationMenu, workspaceKnownMissing } from "./automation-view";
 import { useConnections } from "./connectors";
 import { faceKey, familyOf } from "../shared/connectors";
 import { cardProgress, useSummaries } from "./task-progress";
@@ -134,6 +136,7 @@ import { parentOf } from "../shared/subagents";
 
 /** One-time tip texts (ONBOARDING-SPEC §5). */
 const tipText: Record<TipId, () => string> = {
+  "task-intake": () => t("Describe your task once. New cards start an agent by default; it organizes the title, description and tags. Set speed and permissions in Edit project."),
   "first-card": () => t("Your card moves by itself as the agent works. Open it any time to see its sessions, output and summary."),
   "needs-you": () => t("A card is waiting for you. Reply goes straight to the session."),
   "first-idea": () => t("An agent suggested follow-up work. Good idea starts a card or continues here; Dismiss removes it."),
@@ -149,12 +152,15 @@ const tipText: Record<TipId, () => string> = {
   "project-menu": () => t("Drag a project tab to reorder it. Right-click it for its settings, a new task, Insights, Ideas or Remove."),
   subagents: () => t("When a session starts subagents, a Subagents chip appears above its message box. Click it to see their status and open one in Paseo."),
   "ai-language": () => t("AI-written text follows Settings → AI features → AI output language. It starts as your interface language."),
+  "sub-cards": () => t("Agents can split a card into sub-cards, each with its own workspace. The parent card shows Sub-cards 2/3, waits while they run and is woken to accept them and finish. New sub-card is in every card's menu."),
+  "agent-automation": () => t("Agents can now pick up cards on their own: turn on Agent automation in Edit project, then choose Run with agent on a card. The agent works it to In review, gets reminded or retried when it stalls, and an optional reviewer agent checks the delivery first."),
   "first-memory-candidate": () => t("An agent suggested something to remember. Confirm it in Memory and new sessions on this project will know it; you can edit or delete it any time."),
   "first-workflow-insight": () => t("Workflow insights found repeated work worth keeping. Open Insights to turn a suggestion into a card."),
   "card-display": () => t("Cards too busy? Choose what they show in Settings → Cards, or from the Sort menu → Card display."),
   "attention-dismiss": () => t("Not ready to decide? Dismiss a card from Attention. It comes back when something new happens."),
   "sidebar-order": () => t("Arrange an open card your way: reorder its sections and choose which start open in Settings → Cards → Card sidebar."),
   "session-history": () => t("A session's output now starts at the beginning of its current turn. Press Load earlier at the top to read further back."),
+  "card-comments": () => t("Ask about progress or request changes right on the card: comments are saved here and sent to the card's agent."),
   "first-workpad": () => t("This card has a workpad: the agent's acceptance criteria and checks. The card shows how many checks passed; open it to see which ran on which commit, and tick items yourself."),
 };
 
@@ -770,8 +776,10 @@ function BoardContent(
           setStartRequest({ taskId: card.id, key: `start-${Date.now()}` });
         },
       },
+      ...automationMenu(project ?? undefined, card, automationIndex.get(card.id), locked, automationActions, runUnavailable(card)),
       { id: "link", label: t("Link to a card…"), icon: "Link", disabled: locked, onPress: () => setLinking(card) },
       { id: "follow-up", label: t("New follow-up task"), icon: "CornerDownRight", disabled: locked, onPress: () => followUp(card) },
+      { id: "sub-card", label: t("New sub-card"), icon: "ListTree", disabled: locked, onPress: () => subCard(card) },
       ...attentionMenuEntry(card),
       { kind: "separator", id: "s1" },
       { kind: "label", id: "move", label: t("Move to") },
@@ -841,6 +849,8 @@ function BoardContent(
     const workspaceIds = new Set((resources.data?.workspaces || []).map((w) => w.id));
     return { eventsByTask, agentsByWorkspace, workspaceIds };
   }, [board?.events, agents.data, resources.data]);
+  // Agent-created cards can arrive before the slower workspace list refresh.
+  const runUnavailable = (card: Task) => workspaceKnownMissing(resources.data ? cardIndex.workspaceIds : null, card.workspaceId, { cardCreatedAt: card.createdAt, fetchedAt: resources.dataUpdatedAt });
   const openIdeaCount = useMemo(() => {
     const counts = new Map<string, number>();
     if (ideasOn) for (const i of board?.ideas || []) if (i.status === "open") counts.set(i.taskId, (counts.get(i.taskId) || 0) + 1);
@@ -867,6 +877,24 @@ function BoardContent(
     }
     return index;
   }, [board?.links, board?.tasks]);
+  // Sub-card progress of parent cards: Done (or Cancelled) of all (SUB-CARDS-SPEC §6).
+  const subCardIndex = useMemo(() => {
+    const index = new Map<string, { done: number; total: number }>();
+    if (!board?.links.length) return index;
+    const statusById = new Map(board.tasks.map((t) => [t.id, t.status] as const));
+    for (const l of board.links) {
+      if (l.kind !== "subtask" || !statusById.has(l.from)) continue;
+      const entry = index.get(l.to) ?? { done: 0, total: 0 };
+      entry.total++;
+      const status = statusById.get(l.from);
+      if (status === "done" || status === "cancelled") entry.done++;
+      index.set(l.to, entry);
+    }
+    return index;
+  }, [board?.links, board?.tasks]);
+  // Agent automation jobs by card (AUTOMATION-SPEC §6.1).
+  const automationIndex = useMemo(() => new Map((board?.automation || []).map((j) => [j.taskId, j] as const)), [board?.automation]);
+  const automationActions = useAutomationActions();
   // Stable for every card (memoized cards; PERFORMANCE-SPEC §3).
   const openCard = useStableCallback((t: Task) => {
     perfMark("drawer.open");
@@ -956,6 +984,13 @@ function BoardContent(
     setTaskForm({
       status: "todo",
       seed: { followUpOf: source.id, followUpTitle: source.title, title: "", description: "", type: source.type, priority: source.priority },
+    }),
+  );
+  // SUB-CARDS-SPEC §6: the new-task form, as a sub-card of `parent`.
+  const subCard = useStableCallback((parent: Task) =>
+    setTaskForm({
+      status: "todo",
+      seed: { subCardOf: parent.id, subCardTitle: parent.title, title: "", description: "", type: parent.type, priority: parent.priority },
     }),
   );
   const linkFrom = useStableCallback((source: Task) => setLinking(source));
@@ -1058,10 +1093,14 @@ function BoardContent(
           hasSubagent: projectHasSubagent,
           crowdedAttention: attention.length >= 3 && dismissedAttention.length === 0,
           cardWithSession: !!task && !!cardIndex.agentsByWorkspace.get(task.workspaceId)?.length,
+          cardCommentable: !!task && !task.archivedAt && !!cardIndex.agentsByWorkspace.get(task.workspaceId)?.length,
           fullSidebar: !!task && (board.artifacts.some((a) => a.taskId === task.id) || board.ideas.some((i) => i.taskId === task.id)),
           hasSummary: !task && !!summaries.data?.latest.some((e) => projectTasks.some((x) => x.id === e.taskId)),
           workflowSuggestion: workflowTipDue && !!workflowView.data?.findings.some((f) => f.status === "open"),
           memoryCandidate: !task && !!memoryCandidates,
+          taskIntake: !task && !!project,
+          automationCandidate: !task && projectTasks.some((x) => !x.archivedAt && (x.status === "todo" || x.status === "backlog")),
+          hasSubCards: !task && projectTasks.some((x) => subCardIndex.has(x.id)),
         },
         blocked: !onboarding.values || welcomeOpen || welcome === "show" || dialogOpen,
       });
@@ -1104,7 +1143,7 @@ function BoardContent(
   // card of the lane in the same frame as its animation.
   const cardDerived = useMemo(
     () => new WeakMap<Task, Omit<LiveTaskCardProps, "selected" | "flash" | "drag" | "dragging" | "disabled" | "display" | "onOpen" | "onActions" | "menuFor">>(),
-    [cardIndex, receipts, summaryState, attentionByTask, managedIds, summaries.data, !!board, openIdeaCount, externalKeys, project, workpadIndex, waitingIndex],
+    [cardIndex, receipts, summaryState, attentionByTask, managedIds, summaries.data, !!board, openIdeaCount, externalKeys, project, workpadIndex, waitingIndex, automationIndex, subCardIndex],
   );
   const derivedFor = (t: Task) => {
     let derived = cardDerived.get(t);
@@ -1130,6 +1169,8 @@ function BoardContent(
       workpad: project && workpadEnabled(project) ? workpadSignal(t, workpadIndex.get(t.id), events) : null,
       waiting: waitingIndex.get(t.id)?.count || 0,
       waitingTitles: waitingIndex.get(t.id)?.titles || "",
+      automation: automationSignal(automationIndex.get(t.id), t),
+      subCards: subCardIndex.get(t.id) ?? null,
     };
     cardDerived.set(t, derived);
     return derived;
@@ -1286,6 +1327,7 @@ function BoardContent(
   }, [props.params?.intent, props.params?.at, data.isPending]);
   const attentionDetail = (item: AttentionItem) =>
     `${item.project.title} · ${laneName(item.project, item.task.status)} · ${[
+      item.automation && (automationSignal(automationIndex.get(item.task.id), item.task)?.text ?? t("Agent waiting for you")),
       item.questions && tn(item.questions, "{n} question", "{n} questions"),
       item.permissions && tn(item.permissions, "{n} approval", "{n} approvals"),
       item.errors && tn(item.errors, "{n} error", "{n} errors"),
@@ -1425,6 +1467,7 @@ function BoardContent(
         onCreateFromIdea={ideasOn ? createFromIdea : undefined}
         onLink={linkFrom}
         onFollowUp={followUp}
+        onSubCard={subCard}
         onOpenTask={openTaskById}
         onStatusChanged={drawerStatusChanged}
         refresh={stableRefresh}
@@ -2081,7 +2124,16 @@ function BoardContent(
                       setActionTask(null);
                     }}
                   />
-                  {attentionMenuEntry(actionTask).map((entry) => (
+                  <Row
+                    title={t("New sub-card")}
+                    icon="ListTree"
+                    disabled={!!project?.archivedAt || !!actionTask.archivedAt}
+                    onPress={() => {
+                      subCard(actionTask);
+                      setActionTask(null);
+                    }}
+                  />
+                  {[...automationMenu(project ?? undefined, actionTask, automationIndex.get(actionTask.id), !!project?.archivedAt || !!actionTask.archivedAt, automationActions, runUnavailable(actionTask)), ...attentionMenuEntry(actionTask)].map((entry) => (
                     <Row
                       key={entry.id}
                       title={entry.label}
@@ -2216,7 +2268,7 @@ function BoardContent(
         )}
         {taskForm && project && (
           <TaskForm
-            key={taskForm.task?.id || taskForm.seed?.ideaId || taskForm.seed?.insightFindingId || taskForm.seed?.followUpOf || taskForm.status}
+            key={taskForm.task?.id || taskForm.seed?.ideaId || taskForm.seed?.insightFindingId || taskForm.seed?.followUpOf || taskForm.seed?.subCardOf || taskForm.status}
             project={project}
             task={taskForm.task}
             seed={taskForm.seed}

@@ -36,6 +36,8 @@ async function setup() {
   return { repoA, repoB, web, service };
 }
 
+vi.mock("./paseo-cli", () => ({ resolvePaseoCli: async () => "/__flowly-test__/paseo" }));
+
 // The service shells out to `paseo project create`; register the fixture instead.
 vi.mock("node:child_process", async (original) => {
   const actual = await original<typeof import("node:child_process")>();
@@ -43,12 +45,13 @@ vi.mock("node:child_process", async (original) => {
     ...actual,
     execFile: (file: string, args: string[], options: unknown, callback: (e: unknown, r?: unknown) => void) => {
       const cb = typeof options === "function" ? (options as typeof callback) : callback;
-      if (file === "paseo" && args[0] === "project" && args[1] === "create") {
+      if ((file === "/__flowly-test__/paseo") && args[0] === "project" && args[1] === "create") {
         registry.projects.push({ projectId: `native-${registry.projects.length}`, projectRootPath: args[2], projectDisplayName: args[2] });
         cb(null, { stdout: "{}", stderr: "" });
         return;
       }
-      return (actual.execFile as Function)(file, args, options, callback);
+      if (file === "git") return (actual.execFile as Function)(file, args, options, callback);
+      throw new Error(`Unexpected executable in offline test: ${file}`);
     },
   };
 });

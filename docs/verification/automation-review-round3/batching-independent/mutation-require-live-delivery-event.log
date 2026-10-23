@@ -1,0 +1,111 @@
+
+ RUN  v4.1.11 /private/tmp/flowly-b095a7a-test-batching-gdztohev
+
+ ❯ server/automation-verdicts-round3.test.ts (5 tests | 4 failed) 126ms
+   × casual turns after an approval keep it after the delivery has left the card's history, and start no review 54ms
+   × a card that reached In review without an agent delivery keeps its verdict through later casual turns 22ms
+   × an older job with a verdict on a delivery the history no longer has keeps it through a casual turn 12ms
+   × an older job with a verdict recorded before deliveries were kept on the job keeps it through a casual turn 8ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 4 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  server/automation-verdicts-round3.test.ts > casual turns after an approval keep it after the delivery has left the card's history, and start no review
+AssertionError: casual turn 1: expected { taskId: 'a', projectId: 'p', …(17) } to match object { state: 'delivered', …(2) }
+(17 matching properties omitted from actual)
+
+- Expected
++ Received
+
+  {
+    "reviewRounds": 1,
+-   "state": "delivered",
+-   "verdict": "approved",
++   "state": "reviewing",
+  }
+
+ ❯ server/automation-verdicts-round3.test.ts:39:54
+     37|   for (let i = 0; i < 3; i++) {
+     38|     await casualTurn(x, impl);
+     39|     expect(await x.job("a"), `casual turn ${i + 1}`).toMatchObject({ s…
+       |                                                      ^
+     40|   }
+     41|   // The scenario really reached past the history window.
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/4]⎯
+
+ FAIL  server/automation-verdicts-round3.test.ts > a card that reached In review without an agent delivery keeps its verdict through later casual turns
+AssertionError: casual turn 1: expected { taskId: 'a', projectId: 'p', …(17) } to match object { state: 'delivered', …(2) }
+(17 matching properties omitted from actual)
+
+- Expected
++ Received
+
+  {
+    "reviewRounds": 1,
+-   "state": "delivered",
+-   "verdict": "approved",
++   "state": "reviewing",
+  }
+
+ ❯ server/automation-verdicts-round3.test.ts:61:54
+     59|   for (let i = 0; i < 3; i++) {
+     60|     await casualTurn(x, impl);
+     61|     expect(await x.job("a"), `casual turn ${i + 1}`).toMatchObject({ s…
+       |                                                      ^
+     62|   }
+     63|   expect(toReviewer(x, rev)).toEqual([]);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/4]⎯
+
+ FAIL  server/automation-verdicts-round3.test.ts > an older job with a verdict on a delivery the history no longer has keeps it through a casual turn
+AssertionError: expected { taskId: 'a', projectId: 'p', …(15) } to match object { state: 'delivered', …(1) }
+(16 matching properties omitted from actual)
+
+- Expected
++ Received
+
+  {
+-   "state": "delivered",
+-   "verdict": "approved",
++   "state": "reviewing",
+  }
+
+ ❯ server/automation-verdicts-round3.test.ts:95:28
+     93|   x.agents.set("rev", { id: "rev", workspaceId: "w-a", archivedAt: nul…
+     94|   await casualTurn(x, "impl");
+     95|   expect(await x.job("a")).toMatchObject({ state: "delivered", verdict…
+       |                            ^
+     96|   expect(toReviewer(x, "rev")).toEqual([]);
+     97| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/4]⎯
+
+ FAIL  server/automation-verdicts-round3.test.ts > an older job with a verdict recorded before deliveries were kept on the job keeps it through a casual turn
+AssertionError: expected { taskId: 'a', projectId: 'p', …(14) } to match object { state: 'delivered', …(1) }
+(15 matching properties omitted from actual)
+
+- Expected
++ Received
+
+  {
+-   "state": "delivered",
+-   "verdict": "approved",
++   "state": "reviewing",
+  }
+
+ ❯ server/automation-verdicts-round3.test.ts:95:28
+     93|   x.agents.set("rev", { id: "rev", workspaceId: "w-a", archivedAt: nul…
+     94|   await casualTurn(x, "impl");
+     95|   expect(await x.job("a")).toMatchObject({ state: "delivered", verdict…
+       |                            ^
+     96|   expect(toReviewer(x, "rev")).toEqual([]);
+     97| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/4]⎯
+
+
+ Test Files  1 failed | 1 passed (2)
+      Tests  4 failed | 4 passed (8)
+   Start at  23:44:25
+   Duration  350ms (transform 204ms, setup 0ms, import 313ms, tests 229ms, environment 0ms)
+

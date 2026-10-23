@@ -1,4 +1,4 @@
-import { afterEach, expect, test } from "vitest";
+import { afterEach, expect, test, vi } from "vitest";
 import type { PaseoApi } from "@getpaseo/client";
 import { mkdtemp, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -16,7 +16,6 @@ const roots: string[] = [];
 afterEach(async () => {
   await Promise.all(roots.splice(0).map((p) => rm(p, { recursive: true, force: true })));
 });
-const settle = () => new Promise((r) => setTimeout(r, 30));
 const NOW = Date.parse("2026-10-16T12:00:00.000Z");
 
 async function setup(options: { rootWorkspace?: boolean } = {}) {
@@ -127,7 +126,10 @@ test("a past day's digest is generated once on read; today's only on refresh", a
   const x = await setup({ rootWorkspace: true });
   const first = await x.service.digest({ projectId: "p", tz: "UTC", day: "2026-10-15" }, x.paseo);
   expect(first).toMatchObject({ entry: null, running: true, empty: false });
-  await settle();
+  await vi.waitFor(async () => {
+    expect((await x.service.digest({ projectId: "p", tz: "UTC", day: "2026-10-15" }, x.paseo)).entry).not.toBeNull();
+    expect(x.archived()).toBe(1);
+  });
   const second = await x.service.digest({ projectId: "p", tz: "UTC", day: "2026-10-15" }, x.paseo);
   expect(second.entry).toMatchObject({ headline: "Login is ready for review", progressed: [{ text: "Login built", taskId: "t" }], model: "claude/claude-haiku-5-5" });
   expect(x.created.length).toBe(1);
@@ -148,7 +150,10 @@ test("auto generation follows the setting; failures are recorded and the session
   expect(off).toMatchObject({ running: false, enabled: false });
   x.setReply("not json");
   x.service.refresh({ projectId: "p", tz: "UTC", day: "2026-10-15" }, x.paseo);
-  await settle();
+  await vi.waitFor(async () => {
+    expect((await x.service.digest({ projectId: "p", tz: "UTC", day: "2026-10-15" }, x.paseo)).error?.message).toContain("no JSON");
+    expect(x.archived()).toBe(1);
+  });
   const failed = await x.service.digest({ projectId: "p", tz: "UTC", day: "2026-10-15" }, x.paseo);
   expect(failed.error?.message).toContain("no JSON");
   expect(x.created[0].workspaceId).toBe("w");
@@ -158,7 +163,10 @@ test("auto generation follows the setting; failures are recorded and the session
 test("project removal backs up and drops digests", async () => {
   const x = await setup({ rootWorkspace: true });
   await x.service.digest({ projectId: "p", tz: "UTC", day: "2026-10-15" }, x.paseo);
-  await settle();
+  await vi.waitFor(async () => {
+    expect((await x.digests.read()).entries).toHaveLength(1);
+    expect(x.archived()).toBe(1);
+  });
   expect((await x.digests.read()).entries.length).toBe(1);
   const backup = await x.digests.removeProject("p");
   expect(backup).toContain("p-digests-");

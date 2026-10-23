@@ -1,5 +1,10 @@
+import { authorizeCardCreation, cardReservation, checkStartable, orphanNotice, type AgentCardActor } from "./agent-card-guard";
+import type { AutomationService } from "./automation";
+import { automationOf, isLive, jobOf } from "../shared/automation";
+import { ToolError } from "./tool-error";
 import { laneName, laneProblem } from "../shared/lanes";
-import { linkContextLines, linksOf } from "../shared/links";
+import { resolvePaseoCli } from "./paseo-cli";
+import { childrenOf, depthOf, linkContextLines, linksOf, subCardLimits } from "../shared/links";
 import { artifactContextLines, artifactsOf } from "../shared/artifacts";
 import { addLink } from "./links";
 import { putArtifact } from "./artifacts";
@@ -15,7 +20,7 @@ import { promisify } from "node:util";
 import { BoardStore } from "./store";
 import { readSnapshot, SnapshotInvalidError, type ProjectSnapshot } from "./project-folder";
 import { linkLimits } from "../shared/model";
-import type { ProjectInput, TaskInput, Board, LinkedProjectInput, ProjectLinksEdit, Project, ProjectRemoval } from "../shared/model";
+import type { ProjectInput, TaskInput, Board, LinkedProjectInput, ProjectLinksEdit, Project, ProjectRemoval, Task, Receipt } from "../shared/model";
 import { effectiveRepos, sessionContext } from "../shared/scope";
 import { setupContextLine, setupMissing } from "../shared/card-setup";
 import { workpadEnabled, workpadOf } from "../shared/workpad";
@@ -145,6 +150,7 @@ export async function directory(path: string): Promise<string> {
 }
 
 export class BoardService {
+  automation?: AutomationService;
   private provision = Promise.resolve<unknown>(undefined);
   /** Reads external items added at creation (EXTERNAL-TRACKER-SPEC §5.4); set by the plugin entry. */
   connectors?: ConnectorService;
@@ -335,7 +341,7 @@ export class BoardService {
       if (!check.paseoExists) return { ...removed, paseo: { removed: false, workspaces: 0, error: "" } };
       try {
         const { stdout } = await execute(
-          "paseo",
+          await resolvePaseoCli(),
           ["project", "delete", check.paseoProjectId, "--home", paseoHome(), "--json"],
           { timeout: 60000, maxBuffer: 1024 * 1024 },
         );
@@ -360,7 +366,7 @@ export class BoardService {
     if (!native) {
       // From here on the directory may be referenced by a native project; keep it on failure.
       onRegistered?.();
-      await execute("paseo", ["project", "create", primaryPath, "--home", paseoHome(), "--json"], {
+      await execute(await resolvePaseoCli(), ["project", "create", primaryPath, "--home", paseoHome(), "--json"], {
         timeout: 30000,
         maxBuffer: 1024 * 1024,
       });
@@ -453,7 +459,8 @@ export class BoardService {
    * the card is written; the two live in different files, so a failed accept
    * leaves the card and the suggestion open (logged).
    */
-  async createTask(input: TaskInput, paseo: PaseoApi) {
+  /** `agent`: an agent working on another card creates this one (SUB-CARDS-SPEC §3). */
+  async createTask(input: TaskInput, paseo: PaseoApi, agent?: AgentCardActor) {
     const findingId = input.insightFindingId;
     if (findingId) {
       if (!this.insightFindings) throw new Error("Workflow insights are unavailable.");
@@ -461,23 +468,30 @@ export class BoardService {
       const board = await this.store.read();
       if (!board.tasks.some((t) => t.operationId === input.operationId)) await this.insightFindings.check(input.projectId, findingId);
     }
-    const task = await this.createCard(input, paseo);
+    const task = await this.createCard(input, paseo, agent);
     if (findingId)
       await this.insightFindings!.accept(input.projectId, findingId, task.id).catch((e) =>
         console.error("Workflow insights suggestion not marked accepted:", e instanceof Error ? e.message : String(e)),
       );
     return task;
   }
-  private createCard(input: TaskInput, paseo: PaseoApi) {
+  private createCard(input: TaskInput, paseo: PaseoApi, agent?: AgentCardActor) {
     return this.serialize(async () => {
       const board = await this.store.read();
       const previous = board.tasks.find(
         (t) => t.operationId === input.operationId,
       );
       if (previous) return previous;
+      // The signed revision was checked when the request was reserved (AgentService.newCard). From here on
+      // only what makes the card unsafe refuses it, and all of that is checked before a workspace exists.
+      if (agent) {
+        authorizeCardCreation(board, agent, { revision: false });
+        if (!cardReservation(board, agent)) throw new ToolError("REQUEST_REUSED", "Card request reservation is missing.");
+      }
       const project = board.projects.find((p) => p.id === input.projectId);
       if (!project || project.archivedAt)
         throw new Error("Project is unavailable or archived.");
+      if (agent) checkStartable(project, agent.start);
       const laneError = laneProblem(project, input.status);
       if (laneError) throw new Error(laneError);
       // Validated before any workspace exists (CARD-TAGS-SPEC §3).
@@ -487,6 +501,9 @@ export class BoardService {
       if (input.ideaId) openIdea(board, input.ideaId, project.id);
       if (input.ideaId && input.followUpOf) throw new Error("A card comes from an idea or follows up a card, not both.");
       if (input.followUpOf) followUpSource(board, input.followUpOf, project.id);
+      if (input.subCardOf) subCardParent(board, input.subCardOf, project.id);
+      if (input.blockedBy?.length) blockers(board, input.blockedBy, project.id);
+      preflightCardLinks(this.store, board, input);
       // Each external item is read before any workspace exists; one that can't be read refuses the card.
       const externals = input.externals?.length
         ? await (async () => {
@@ -521,45 +538,39 @@ export class BoardService {
         if (board.tasks.some((t) => t.workspaceId === workspaceId))
           throw new Error("Workspace is already bound to another card.");
       } else {
-        const branchName =
-          input.mode === "worktree"
-            ? input.branchName?.trim() || generatedBranchName(input.title, input.operationId)
-            : undefined;
-        const baseRef =
-          input.mode === "worktree"
-            ? await resolveWorktreeBaseRef(sourcePath, input.baseRef)
-            : undefined;
+        const reservation = agent ? cardReservation(board, agent) : undefined;
+        const saved = reservation?.workspacePlan;
+        if (reservation?.notice && !saved)
+          throw new ToolError("CARD_INVALID", "This request's workspace was created by an older Flowly version without a saved creation plan. Ask a person to link or archive that workspace before creating another card.");
+        if (saved && (saved.sourcePath !== sourcePath || saved.projectId !== project.paseoProjectId))
+          throw new ToolError("CARD_INVALID", "Project root changed since this request reserved its workspace. Ask a person to reconcile the original workspace.");
+        const mode = saved?.mode ?? input.mode;
+        const branchName = saved?.mode === "worktree" ? saved.branchName : mode === "worktree" ? input.branchName?.trim() || generatedBranchName(input.title, input.operationId) : undefined;
+        const baseRef = saved?.mode === "worktree" ? saved.baseRef : mode === "worktree" ? await resolveWorktreeBaseRef(sourcePath, input.baseRef) : undefined;
         const intent = createHash("sha256")
-          .update(
-            JSON.stringify({
-              projectId: project.paseoProjectId,
-              sourcePath,
-              mode: input.mode,
-              baseRef,
-              branchName,
-              title: input.title,
-            }),
-          )
+          .update(JSON.stringify({ projectId: project.paseoProjectId, sourcePath, mode, baseRef, branchName, title: input.title }))
           .digest("hex")
           .slice(0, 24);
+        const common = { sourcePath, projectId: project.paseoProjectId, idempotencyKey: `ultra-kanban:${input.operationId}:${intent}` };
+        const planned: NonNullable<Receipt["workspacePlan"]> = saved ?? (mode === "worktree"
+          ? { ...common, mode, baseRef: baseRef!, branchName: branchName! }
+          : { ...common, mode });
+        // The daemon may accept provisioning even if our final card transaction is refused or the plugin exits.
+        // Save its full intent first; resolving the root branch again would produce a different native request.
+        const plan = agent ? await this.store.transaction((current) => {
+          authorizeCardCreation(current, agent, { revision: false });
+          const receipt = cardReservation(current, agent);
+          if (!receipt) throw new ToolError("REQUEST_REUSED", "Card request reservation is missing.");
+          if (receipt.workspacePlan) return { value: receipt.workspacePlan, changed: false };
+          receipt.workspacePlan = planned;
+          return { value: planned, changed: true };
+        }) : planned;
         const created = await paseo.workspaces.create({
           title: input.title,
-          idempotencyKey: `ultra-kanban:${input.operationId}:${intent}`,
-          source:
-            input.mode === "directory"
-              ? {
-                  kind: "directory",
-                  path: sourcePath,
-                  projectId: project.paseoProjectId,
-                }
-              : {
-                  kind: "worktree",
-                  cwd: sourcePath,
-                  projectId: project.paseoProjectId,
-                  action: "branch-off",
-                  refName: baseRef,
-                  branchName,
-                },
+          idempotencyKey: plan.idempotencyKey,
+          source: plan.mode === "directory"
+            ? { kind: "directory", path: plan.sourcePath, projectId: plan.projectId }
+            : { kind: "worktree", cwd: plan.sourcePath, projectId: plan.projectId, action: "branch-off", refName: plan.baseRef, branchName: plan.branchName },
         });
         workspaceId = created.id;
       }
@@ -573,8 +584,12 @@ export class BoardService {
           const p = current.projects.find((p) => p.id === project.id);
           if (!p || p.archivedAt || p.primaryPath !== sourcePath)
             throw new Error("Project changed during workspace creation.");
+          // Not the signed revision: a write that committed while the workspace was made must not orphan it.
+          if (agent) authorizeCardCreation(current, agent, { revision: false });
           const idea = input.ideaId ? openIdea(current, input.ideaId, project.id) : undefined;
           if (input.followUpOf) followUpSource(current, input.followUpOf, project.id);
+          if (input.subCardOf) subCardParent(current, input.subCardOf, project.id);
+          if (input.blockedBy?.length) blockers(current, input.blockedBy, project.id);
           const now = new Date().toISOString();
           const task = {
             id: randomUUID(),
@@ -584,10 +599,13 @@ export class BoardService {
             repoPaths,
             title: input.title,
             description: input.description,
+            ...(input.brief ? { brief: input.brief } : {}),
             status: input.status,
             priority: input.priority,
             ...(input.type ? { type: input.type } : {}),
-            ...(tags.length ? { tags: tags.map((tag) => ({ tag, by: "human" as const, at: now })) } : {}),
+            ...(tags.length
+              ? { tags: tags.map((tag) => (agent ? { tag, by: "agent" as const, agentId: agent.agentId, at: now } : { tag, by: "human" as const, at: now })) }
+              : {}),
             position: Math.max(
               -1,
               ...current.tasks
@@ -603,13 +621,20 @@ export class BoardService {
             archivedAt: null,
             ownsWorkspace: input.mode !== "existing",
             ...(idea ? { origin: { taskId: idea.taskId, ideaId: idea.id } } : {}),
+            ...(agent ? { createdByAgent: { agentId: agent.agentId, taskId: agent.taskId } } : {}),
           };
           current.tasks.push(task);
           this.store.event(current, {
             taskId: task.id,
-            actor: "human",
+            actor: agent ? "agent" : "human",
+            ...(agent ? { agentId: agent.agentId } : {}),
             action: "created",
           });
+          const actor = agent ? { kind: "agent" as const, agentId: agent.agentId } : undefined;
+          // Sub-card and order links in the same write (SUB-CARDS-SPEC §2).
+          if (input.subCardOf) addLink(this.store, current, { kind: "subtask", from: task.id, to: input.subCardOf, createdBy: agent ? "system" : "human", actor });
+          for (const blocker of input.blockedBy ?? [])
+            addLink(this.store, current, { kind: "blocks", from: blocker, to: task.id, createdBy: agent ? "system" : "human", actor });
           // The new card follows up its source (CARD-LINKS-SPEC §3).
           if (idea)
             addLink(this.store, current, { kind: "derived", from: task.id, to: idea.taskId, ideaId: idea.id, createdBy: "system" }, { events: false, limit: false, archived: true });
@@ -629,13 +654,36 @@ export class BoardService {
               note: `${idea.title} → ${task.title}`,
             });
           }
+          if (agent) {
+            if (agent.start === "now" && this.automation && automationOf(p)) this.automation.queueIn(current, task.id, { agentId: agent.agentId });
+            const receipt = cardReservation(current, agent);
+            if (!receipt) throw new ToolError("REQUEST_REUSED", "Card request reservation is missing.");
+            delete receipt.notice;
+            receipt.cardId = task.id;
+            receipt.status = task.status;
+            receipt.queued = isLive(jobOf(current, task.id));
+          }
           return task;
         });
       } catch (error) {
-        throw new Error(
-          `Card was not saved. Workspace ${id} remains available; retry with the same operation or link it. ${error instanceof Error ? error.message : String(error)}`,
-        );
+        const reason = error instanceof Error ? error.message : String(error);
+        if (!agent) throw new Error(`Card was not saved. Workspace ${id} remains available; retry with the same operation or link it. ${reason}`);
+        // Any refusal after provisioning names the workspace and keeps it on the request's receipt, so a
+        // retry of the same request reports it, or reuses it through the same idempotency key.
+        const message = `Card was not saved: ${reason} ${orphanNotice(id)}`;
+        if (input.mode !== "existing") await this.keepOrphan(agent, id).catch((e) => console.error("Kanban orphan workspace not recorded:", e instanceof Error ? e.message : String(e)));
+        throw error instanceof ToolError ? new ToolError(error.code, message, error.retryable) : new Error(message);
       }
+    });
+  }
+  /** Records on the reservation that `workspaceId` exists without its card (subcards-2). */
+  private keepOrphan(agent: AgentCardActor, workspaceId: string) {
+    return this.store.transaction((board) => {
+      const receipt = cardReservation(board, agent);
+      const notice = orphanNotice(workspaceId);
+      if (!receipt || receipt.cardId || receipt.notice === notice) return { value: undefined, changed: false };
+      receipt.notice = notice;
+      return { value: undefined, changed: true };
     });
   }
   /** External inputs whose connection was removed (EXTERNAL-TRACKER-SPEC §2); unreadable stays empty on failure. */
@@ -707,10 +755,41 @@ export function followUpSource(board: Board, id: string, projectId: string) {
   return source;
 }
 
+/** The card a new sub-card goes under (SUB-CARDS-SPEC §2), or an error. */
+export function subCardParent(board: Board, id: string, projectId: string) {
+  const parent = board.tasks.find((t) => t.id === id);
+  if (!parent || parent.projectId !== projectId) throw new Error("The parent card is no longer in this project.");
+  if (parent.archivedAt) throw new Error("Archived cards can't get sub-cards.");
+  if (childrenOf(board.links, id).length >= subCardLimits.perParent) throw new Error(`A card can have at most ${subCardLimits.perParent} sub-cards.`);
+  if (depthOf(board.links, id) + 1 > subCardLimits.depth) throw new Error(`Sub-cards go at most ${subCardLimits.depth} levels deep.`);
+  return parent;
+}
+
+/** The cards a new card waits for: live cards of the same project. */
+export function blockers(board: Board, ids: readonly string[], projectId: string) {
+  return ids.map((id) => {
+    const blocker = board.tasks.find((t) => t.id === id);
+    if (!blocker || blocker.projectId !== projectId) throw new Error(`Card ${id} is not in this project.`);
+    if (blocker.archivedAt) throw new Error(`Card ${blocker.title} is archived.`);
+    return blocker;
+  });
+}
+
 /** The open idea `id` of this project, or an error (IDEAS-SPEC §6). */
 export function openIdea(board: Board, id: string, projectId: string) {
   const idea = board.ideas.find((i) => i.id === id);
   if (!idea || idea.status !== "open" || idea.projectId !== projectId)
     throw new Error("This idea is no longer open.");
   return idea;
+}
+
+
+/** Validate the entire prospective link set before provisioning native resources. */
+export function preflightCardLinks(store: BoardStore, board: Board, input: TaskInput) {
+  const pending = structuredClone(board);
+  const id = `pending:${input.operationId}`;
+  pending.tasks.push({ id, projectId: input.projectId, status: input.status, archivedAt: null } as Task);
+  if (input.subCardOf) addLink(store, pending, { kind: "subtask", from: id, to: input.subCardOf }, { events: false });
+  for (const blocker of new Set(input.blockedBy ?? [])) addLink(store, pending, { kind: "blocks", from: blocker, to: id }, { events: false });
+  if (input.followUpOf) addLink(store, pending, { kind: "derived", from: id, to: input.followUpOf }, { events: false });
 }

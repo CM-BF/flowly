@@ -1,3 +1,4 @@
+import { automationOf, failureTakenBack, jobOf, type AutomationJob } from "../shared/automation";
 import type { Project, Task, BoardEvent } from "../shared/model";
 import { openQuestion, silentTurn } from "../shared/progress";
 import { pendingRequests } from "../shared/permission-question";
@@ -18,6 +19,7 @@ export type AttentionItem = {
   unread: number;
   /** Open agent questions awaiting your reply (AUTO-STATUS M1). */
   questions: number;
+  automation?: boolean;
   /** Sessions waiting on an agent question (AskUserQuestion), answerable in the session. */
   asks: number;
   /** Unread sessions whose last turn ended without any Kanban report (M2). */
@@ -31,9 +33,22 @@ export type AttentionItem = {
   dismissed: boolean;
 };
 
+/**
+ * Whether the card's automation job waits for a person. Only while the project has
+ * automation on: with it off the job is frozen and nobody supervises it. A failed job
+ * stops asking once someone moved the card after the failure (taking it back);
+ * the automatic move to Blocked (rule AUTO) is part of the failure itself.
+ */
+function automationNeedsYou(project: Project, task: Task, job: AutomationJob, own: readonly BoardEvent[]) {
+  if (!automationOf(project) || task.status === "done" || task.status === "cancelled") return false;
+  if (job.state === "needs_human") return true;
+  if (job.state === "failed") return !failureTakenBack(job, own);
+  return task.status === "in_review" && job.state === "delivered" && (job.verdict === "incomplete" || job.code === "review_rounds");
+}
+
 /** Cards across all active projects whose sessions need a human. Running alone does not count. */
 export function attentionItems(
-  board: { projects: Project[]; tasks: Task[]; events: BoardEvent[]; attentionDismissals?: readonly AttentionDismissal[] },
+  board: { projects: Project[]; tasks: Task[]; events: BoardEvent[]; automation?: AutomationJob[]; attentionDismissals?: readonly AttentionDismissal[] },
   agents: readonly Agent[],
   receipts: readonly SessionReadReceipt[],
   readUnavailable: boolean,
@@ -74,11 +89,14 @@ export function attentionItems(
         };
       })
       .filter((s) => s.permission || s.error || s.question || s.unread);
-    if (!flagged.length) continue;
-    const signals = flagged.flatMap((s) => s.signals);
+    const job = jobOf({ automation: board.automation ?? [] }, task.id);
+    const automation = !!job && automationNeedsYou(project, task, job, own);
+    if (!flagged.length && !automation) continue;
+    const signals = [...flagged.flatMap((s) => s.signals), ...(automation ? [`automation:${job!.generation}:${job!.state}:${job!.updatedAt}`] : [])];
     items.push({
       task,
       project,
+      automation,
       permissions: flagged.filter((s) => s.permission).length,
       errors: flagged.filter((s) => s.error).length,
       unread: flagged.filter((s) => s.unread && !s.question).length,
@@ -86,7 +104,7 @@ export function attentionItems(
       asks: flagged.filter((s) => s.asks).length,
       silent: flagged.filter((s) => s.silent && !s.question).length,
       sessionId: flagged.length === 1 ? flagged[0].agent.id : null,
-      updatedAt: flagged
+      updatedAt: automation ? job!.updatedAt : flagged
         .map((s) => s.agent.updatedAt || "")
         .sort()
         .at(-1) || "",

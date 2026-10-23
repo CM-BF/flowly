@@ -85,9 +85,13 @@ test("MCP initialize/list can precede actor creation; live calls require SDK con
     "flowly_read_external",
     "flowly_read_ticket",
     "flowly_set_tags",
+    "flowly_update_metadata",
     "flowly_set_type",
     "flowly_suggest_next_moves",
     "flowly_update_workpad",
+    "flowly_submit_review",
+    "flowly_create_card",
+    "flowly_update_card",
   ]);
   // The soft delivery gate and the workpad's own revision are part of the tool schemas (WORKPAD-SPEC §3, §5.3).
   const listed = (await mcp("tools/list", {})).result.tools as { name: string; description: string; inputSchema: { properties: Record<string, unknown> } }[];
@@ -123,6 +127,9 @@ test("MCP initialize/list can precede actor creation; live calls require SDK con
   expect(skillText).toContain("SETUP_INCOMPLETE");
   expect(described("flowly_update_status")).toContain("SETUP_INCOMPLETE");
   expect(described("flowly_get_task")).toContain("setup.missing");
+  // Comments (CARD-COMMENTS-SPEC §3): only unread ones are new to act on, and they come after the read's own steps.
+  expect(described("flowly_get_task")).toMatch(/comments[^.]*unread=true/);
+  expect(described("flowly_get_task").indexOf("setup.missing")).toBeLessThan(described("flowly_get_task").indexOf("comments"));
   for (const name of ["flowly_set_type", "flowly_set_tags", "flowly_update_workpad"])
     expect(described(name), name).toContain("at the start of the work, before you change code");
   expect(Object.keys(listed.find((t) => t.name === "flowly_update_workpad")!.inputSchema.properties)).toEqual(

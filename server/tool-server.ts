@@ -29,6 +29,7 @@ import {
   externalReadSchema,
   tagsInputSchema,
   typeInputSchema,
+  metadataInputSchema,
   nextMovesInputSchema,
   workpadInputSchema,
   progressInputSchema,
@@ -38,6 +39,8 @@ import {
   type ToolIdentity,
   type ToolPreparation,
 } from "../shared/tools";
+import { reviewInputSchema, reviewResultSchema } from "../shared/automation-schema";
+import { createCardInputSchema, createCardResultSchema, updateCardInputSchema, updateCardResultSchema } from "../shared/tools";
 import { AgentService } from "./agent-service";
 import { BoardStore } from "./store";
 import { BoardService } from "./service";
@@ -186,7 +189,7 @@ export class ToolServer {
           "flowly_get_task",
           {
             description:
-              "Read this session's current Kanban card, effective repo/worktree directories, both revisions and signed request. Read before work or any write, and at the start of every turn: artifacts with unread=true were added or edited since your last read. Then check setup.missing and fix it (flowly_set_type, flowly_set_tags, flowly_update_workpad) before other work.",
+              "Read this session's current Kanban card, effective repo/worktree directories, both revisions and signed request. Read before work or any write, and at the start of every turn: artifacts with unread=true were added or edited since your last read. Then check setup.missing and fix it (flowly_set_type, flowly_set_tags, flowly_update_workpad) before other work. comments lists what people wrote on the card (questions about progress, opinions, requested changes), oldest first; those with unread=true were written since your last read: treat each of them like a message from the user and answer it or do what it asks. Comments you read before stay listed as context and are shortened when long.",
             inputSchema: z.strictObject({}),
             outputSchema: toolContextSchema,
             annotations: { readOnlyHint: true, openWorldHint: false },
@@ -197,7 +200,7 @@ export class ToolServer {
           "flowly_update_status",
           {
             description:
-              "Move this card to one of allowedStatuses from get_task (design, development, test, blocked or in_review when they are lanes of this project; lanes lists the names the user sees). Use the work stage that matches what you are doing now: design for plans/specs/research, development for implementation, test for verification; you decide where to start and may skip or go back. Keep it current: switch when the work changes, and at the start of each turn correct the stage the card was automatically resumed in if it does not match the work. Copy revisions and request from get_task, include a note. Done/cancelled are human decisions. Delivering to in_review with open workpad items returns WORKPAD_OPEN, and with missing card setup (no type, no tags or no workpad) SETUP_INCOMPLETE; both change nothing. Deliver anyway only with acknowledgeOpen=true and a note that explains every open item and why each setup item is missing. When you deliver (in_review), pass nextMoves: the 1-3 messages the user is most likely to send you next (same items as flowly_suggest_next_moves, recommended first; a moveTo=\"done\" move is only accepted together with in_review), or [] when nothing needs the user. Leave it out on mid-work stage changes. A delivery (in_review or blocked) that leaves this turn without next moves, or without any idea on the card, gets a reminders list in its result, and so does any write while the card setup is missing: text only, the write succeeded. A refused call records nothing: resend it with the same nextMoves. Retry identical uncertain requests only.",
+              "Move this card to one of allowedStatuses from get_task (design, development, test, blocked or in_review when they are lanes of this project; lanes lists the names the user sees). Use the work stage that matches what you are doing now: design for plans/specs/research, development for implementation, test for verification; you decide where to start and may skip or go back. Keep it current: switch when the work changes, and at the start of each turn correct the stage the card was automatically resumed in if it does not match the work. Copy revisions and request from get_task, include a note. Your own card's Done/cancelled are human decisions; direct sub-cards are accepted or cancelled only through flowly_update_card. Delivering to in_review with open workpad items returns WORKPAD_OPEN, and with missing card setup (no type, no tags or no workpad) SETUP_INCOMPLETE; both change nothing. Deliver anyway only with acknowledgeOpen=true and a note that explains every open item and why each setup item is missing. When you deliver (in_review), pass nextMoves: the 1-3 messages the user is most likely to send you next (same items as flowly_suggest_next_moves, recommended first; a moveTo=\"done\" move is only accepted together with in_review), or [] when nothing needs the user. Leave it out on mid-work stage changes. A delivery (in_review or blocked) that leaves this turn without next moves, or without any idea on the card, gets a reminders list in its result, and so does any write while the card setup is missing: text only, the write succeeded. A refused call records nothing: resend it with the same nextMoves. Retry identical uncertain requests only.",
             inputSchema: statusInputSchema,
             outputSchema: toolResultSchema,
             annotations: {
@@ -311,6 +314,16 @@ export class ToolServer {
           (input) => wrap(() => this.agents.write(identity, "tags", input)),
         );
         mcp.registerTool(
+          "flowly_update_metadata",
+          {
+            description: "Organize this session's card: a concise title, faithful description and priority. On a new card with brief, do this before implementation; preserve every requirement, path and acceptance criterion from the original brief, without inventing scope. Use set_type and set_tags for classification. Never overwrite human edits with stale revisions. Copy revisions/request from get_task. The original brief is immutable. Reviewers cannot use this tool.",
+            inputSchema: metadataInputSchema,
+            outputSchema: toolResultSchema,
+            annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+          },
+          (input) => wrap(() => this.agents.write(identity, "metadata", input)),
+        );
+        mcp.registerTool(
           "flowly_set_type",
           {
             description:
@@ -342,6 +355,39 @@ export class ToolServer {
             annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
           },
           (input) => wrap(() => this.agents.write(identity, "workpad", input)),
+        );
+        mcp.registerTool(
+          "flowly_submit_review",
+          {
+            description:
+              "Only for the reviewer session that Flowly's agent automation started for this card (your first instruction says so); every other session gets NOT_REVIEWER. Call it exactly once per review round, after you inspected the changes and ran the relevant checks: verdict=approve when the acceptance criteria are met and the checks pass (the card stays In review for the user to accept); verdict=changes with a summary and concrete findings (file, problem, expected fix) that Flowly sends to the implementer, moving the card back to work. Do not change the card status yourself. Repeating the same verdict is acknowledged (replayed); REVIEW_CLOSED means the round is over or the card left In review, so end your turn. No revisions or request needed.",
+            inputSchema: reviewInputSchema,
+            outputSchema: reviewResultSchema,
+            annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+          },
+          (input) => wrap(() => this.agents.review(identity, input)),
+        );
+        mcp.registerTool(
+          "flowly_create_card",
+          {
+            description:
+              "Create a card in this project, by default a sub-card of this card (subCard=false for a separate card). Use it to split work that is too big for one session or has parts that can run in parallel, and for follow-up work that must be done (not just suggested: suggestions stay flowly_propose_idea). Each card gets its own workspace (an isolated worktree when the project root is a git repository; baseRef picks the branch or commit it starts from). Its agent cannot see this conversation: put every decision, file, branch and acceptance criterion it needs in the description, and decide shared questions (names, formats, interfaces) here once instead of letting sub-cards each pick. start=now puts it in Todo and, when the project has agent automation on, queues it for an agent; start=later parks it in Backlog. Start a direct sub-card later with flowly_update_card action=start; a person starts a separate card with Run with agent. blockedBy lists card ids it waits for (it starts once they are Done). Only a live supervised parent implementer is woken after sub-cards settle; ordinary sessions check progress themselves. Directory workspaces share the root; worktrees default to the project root branch, so pass baseRef explicitly for parent-dependent changes. Creation is limited to 50 per source card and 100 across its entire creation lineage. Do not do a sub-card's work yourself. Each card needs its own request: call get_task again before the next card, also when you create several (one request in parallel calls makes one card, the others get REQUEST_REUSED). Repeating the same call returns the same card. Copy revisions/request from get_task.",
+            inputSchema: createCardInputSchema,
+            outputSchema: createCardResultSchema,
+            annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+          },
+          (input) => wrap(() => this.agents.createCard(identity, input)),
+        );
+        mcp.registerTool(
+          "flowly_update_card",
+          {
+            description:
+              "Manage a direct sub-card of this card (links relation sub_card in get_task): action=start queues a never-started parked sub-card, or requests rework of an In review delivery with a required concrete note; agents may restart a sub-card's delivered work twice, then NEEDS_PERSON until a person chooses Run again or moves the card; while the sub-card's automation is still live (queued, working, under review or waiting for a person) start with a note is refused and nothing is recorded (NEEDS_PERSON when it waits for a person, who answers it in its own session; CHILD_BUSY otherwise: send the note once it settles); failed/stopped jobs require a person to choose Run again (NEEDS_PERSON/TAKEN_BY_PERSON); action=accept moves a sub-card delivered to In review to Done after you checked its result (first merge its branch where later cards and this card need its changes: accepting is what releases cards blocked by it); action=cancel cancels one that is no longer needed. Only the active unfinished parent card's non-reviewer sessions may do this; NOT_PARENT otherwise, NOT_DELIVERED when accepting a sub-card that is not In review. Copy revisions/request from get_task.",
+            inputSchema: updateCardInputSchema,
+            outputSchema: updateCardResultSchema,
+            annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
+          },
+          (input) => wrap(() => this.agents.updateCard(identity, input)),
         );
         return mcp;
       },
@@ -428,7 +474,7 @@ export class ToolServer {
     }
     const body = z
       .strictObject({
-        action: z.enum(["get", "status", "progress", "idea", "remember", "recall", "artifact", "artifact_remove", "tags", "type", "next_moves", "workpad", "external", "ticket"]),
+        action: z.enum(["get", "status", "progress", "idea", "remember", "recall", "artifact", "artifact_remove", "tags", "type", "metadata", "next_moves", "workpad", "external", "ticket", "review", "create_card", "update_card"]),
         input: z.unknown(),
       })
       .parse(JSON.parse(Buffer.concat(chunks).toString("utf8")));
@@ -440,7 +486,13 @@ export class ToolServer {
           ? await this.agents.readExternal(identity, readExternalInputSchema.parse(body.input))
           : body.action === "recall"
             ? await this.agents.recall(identity, recallInputSchema.parse(body.input))
-            : await this.agents.write(identity, body.action, body.input);
+            : body.action === "review"
+              ? await this.agents.review(identity, reviewInputSchema.parse(body.input))
+              : body.action === "create_card"
+                ? await this.agents.createCard(identity, createCardInputSchema.parse(body.input))
+                : body.action === "update_card"
+                  ? await this.agents.updateCard(identity, updateCardInputSchema.parse(body.input))
+                  : await this.agents.write(identity, body.action, body.input);
     this.json(res, { ok: true, result: value });
   }
   private async prepare(

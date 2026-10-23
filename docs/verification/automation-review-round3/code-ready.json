@@ -1,0 +1,34 @@
+{
+  "ready": true,
+  "commit": "921f33686c1e03f6b6fff9b8a6ef4a5372d0fc82",
+  "fixCommits": [
+    "87daeab",
+    "579dcf4",
+    "921f33686c1e03f6b6fff9b8a6ef4a5372d0fc82"
+  ],
+  "checks": {
+    "focused": "11 automation suites, 92 tests passed",
+    "typecheck": "npm run typecheck passed",
+    "diffCheck": "git diff --check passed"
+  },
+  "redBeforeGreen": {
+    "pendingReviewerCreation": "prepare/features race tests failed before 87daeab; all four phases passed after",
+    "oldReviewerVerdict": "old reviewer approval was accepted before its new instruction; REVIEW_CLOSED test red before 579dcf4",
+    "unconfirmedAndPausedWaits": "four unknown/known-outcome tests failed before binding; paused send attempt-count tests failed with 2 attempts instead of 1; question wait test failed with reviewing instead of needs_human"
+  },
+  "finalFocusedTests": [
+    "server/automation.test.ts",
+    "server/automation-turn-hooks.test.ts",
+    "server/automation-recovery.test.ts",
+    "server/automation-round2.test.ts",
+    "server/automation-review-cycle.test.ts",
+    "server/automation-review-round3.test.ts",
+    "server/automation-verdicts-round3.test.ts",
+    "server/automation-review-pending.test.ts",
+    "server/automation-review-identity.test.ts",
+    "server/automation-review-unconfirmed.test.ts",
+    "server/automation-recovery-round3.test.ts"
+  ],
+  "daemonChanged": false,
+  "next": "Export the fixed commit and run final full suite and live checks after the user workload is quiet. Documentation/evidence drafts belong to root."
+}

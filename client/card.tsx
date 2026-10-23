@@ -15,6 +15,7 @@ import type { WorkpadSignal } from "../shared/workpad";
 import { activityLines, defaultCardDisplay, type CardDisplay } from "../shared/card-display";
 import { BrandIcon } from "./brand-icons";
 import type { ConnectorFamily } from "../shared/connectors";
+import { SignalMark, type AutomationSignal } from "./task-automation";
 
 export type CardDrag = {
   start(task: Task, point: Point): void;
@@ -34,7 +35,7 @@ export type LiveTaskCardProps = Omit<TaskCardProps, "output" | "menu" | "onOpen"
 };
 
 /** Derived props arrive as fresh objects each board render; compare their content. */
-const contentProps = new Set(["summary", "progress", "outputSession", "workpad", "display"]);
+const contentProps = new Set(["summary", "progress", "outputSession", "workpad", "display", "automation", "subCards"]);
 function sameLiveCard(a: LiveTaskCardProps, b: LiveTaskCardProps) {
   const keys = new Set([...Object.keys(a), ...Object.keys(b)]) as Set<keyof LiveTaskCardProps>;
   for (const key of keys) {
@@ -91,6 +92,8 @@ export function TaskCard({
   waiting = 0,
   waitingTitles = "",
   attentionDismissed = false,
+  automation = null,
+  subCards = null,
   display = defaultCardDisplay,
   flash = false,
   dragging,
@@ -128,6 +131,10 @@ export function TaskCard({
   waitingTitles?: string;
   /** Dismissed from Attention; its signals still show (ATTENTION-DISMISS-SPEC §3.3). */
   attentionDismissed?: boolean;
+  /** What agent automation is doing with the card (AUTOMATION-SPEC §6.1). */
+  automation?: AutomationSignal | null;
+  /** Its sub-cards: how many are finished of all (SUB-CARDS-SPEC §6). */
+  subCards?: { done: number; total: number } | null;
   /** Which fields show (CARD-DISPLAY-SPEC); the accessibility label always lists everything. */
   display?: CardDisplay;
   /** Briefly emphasize a card whose status just changed (often an automatic move). */
@@ -261,6 +268,8 @@ export function TaskCard({
           questions ? tn(questions, "Needs you: {n} open question", "Needs you: {n} open questions") : "",
           ideas ? tn(ideas, "{n} idea", "{n} ideas") : "",
           waiting ? tn(waiting, "Waiting on {n} card: {waitingTitles}", "Waiting on {n} cards: {waitingTitles}", { waitingTitles }) : "",
+          automation?.text ?? "",
+          subCards ? t("Sub-cards {done}/{total}", subCards) : "",
           progress ? t("Progress: {state}", { state: progress.state }) : "",
           workpad ? workpadText(workpad) : "",
           attentionDismissed ? t("Dismissed from Attention") : "",
@@ -313,6 +322,8 @@ export function TaskCard({
           ideas={ideas}
           workpad={workpad}
           waiting={waiting}
+          automation={automation}
+          subCards={subCards}
           attentionDismissed={attentionDismissed}
           display={display}
         />
@@ -441,6 +452,8 @@ function CardSignals({
   ideas,
   workpad,
   waiting,
+  automation,
+  subCards,
   attentionDismissed,
   display,
 }: {
@@ -456,6 +469,8 @@ function CardSignals({
   ideas: number;
   workpad: WorkpadSignal | null;
   waiting: number;
+  automation: AutomationSignal | null;
+  subCards: { done: number; total: number } | null;
   attentionDismissed: boolean;
   display: CardDisplay;
 }) {
@@ -465,6 +480,8 @@ function CardSignals({
   if (questions || (available && summary?.questions))
     items.push(<Signal key="question" icon="MessageCircleQuestion" color={colors.statusWarning} text={t("Needs you")} />);
   if (waiting) items.push(<Signal key="waiting" icon="Hourglass" text={t("Waiting on {waiting}", { waiting })} />);
+  if (automation) items.push(<AutomationItem key="automation" signal={automation} />);
+  if (subCards) items.push(<Signal key="sub-cards" icon="ListTree" text={t("Sub-cards {done}/{total}", subCards)} />);
   if (!available && wrapped)
     items.push(<Signal key="wrapped" icon="CircleCheck" text={t("Wrapped up")} />);
   else if (!available)
@@ -579,4 +596,16 @@ function workpadText(signal: WorkpadSignal) {
     case "acceptance":
       return t("Acceptance {done}/{total}", { done: signal.done, total: signal.total });
   }
+}
+
+/** The card's agent automation signal: a pulsing dot while an agent works on it, else an icon in its tone. */
+function AutomationItem({ signal }: { signal: AutomationSignal }) {
+  return (
+    <View style={{ flexDirection: "row", alignItems: "center", gap: 5 }}>
+      <SignalMark signal={signal} />
+      <Label size={font.sm} muted={signal.tone === "info"} selectable={false}>
+        {signal.text}
+      </Label>
+    </View>
+  );
 }

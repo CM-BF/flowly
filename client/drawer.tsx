@@ -9,8 +9,8 @@ import {
   useRpc,
   type PluginSurfaceProps,
 } from "@getpaseo/plugin/client";
-import { useQuery } from "@tanstack/react-query";
-import type { Task, Project, BoardEvent, Idea } from "../shared/model";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import type { Task, Project, BoardEvent, Idea, Board } from "../shared/model";
 import { historyStatusLabel, legacyStatus, priorities, taskTypeLabels, taskTypes, type Status } from "../shared/model";
 import { enabledStatuses, laneName } from "../shared/lanes";
 import * as rpc from "../shared/rpc";
@@ -48,6 +48,9 @@ import { Enter, MotionReveal, useSettled } from "./motion";
 import { perfLap } from "./perf";
 import { TaskMetadata } from "./task-metadata";
 import { Chevron, Collapse, Disclosure, Section, type SectionState } from "./disclosure";
+import { TaskAutomation, useAutomationActions } from "./task-automation";
+import { automationMenu } from "./automation-view";
+import { boardKey } from "./queries";
 import { WrapupModal } from "./wrapup";
 import { currentWrapup } from "../shared/wrapup-state";
 import { useComposer } from "./composer";
@@ -66,6 +69,9 @@ import { LinkOrigin, TaskLinks } from "./task-links";
 import { TaskArtifacts } from "./task-artifacts";
 import { TaskWorkpad } from "./task-workpad";
 import { TaskTags } from "./task-tags";
+import { TaskComments } from "./task-comments";
+import { cardRecipients, newCommentMemory, type CommentMemory } from "./card-comments";
+import { commentsOf } from "../shared/comments";
 import { drawerSectionOrder, drawerSectionsOpen, type AnyDrawerSection, type DrawerSection } from "../shared/drawer-sections";
 import { ideaInstruction } from "../shared/ideas";
 import { getLocale, localizedLabels, msg, t, tn } from "../shared/i18n";
@@ -88,6 +94,7 @@ function TaskDrawerView({
   onCreateFromIdea,
   onLink,
   onFollowUp,
+  onSubCard,
   onOpenTask,
   onStatusChanged,
   refresh,
@@ -123,6 +130,8 @@ function TaskDrawerView({
   onLink?(task: Task): void;
   /** Opens the new-task form as a follow-up of this card (CARD-LINKS-SPEC §5.5). */
   onFollowUp?(task: Task): void;
+  /** Opens the new-task form as a sub-card of this card (SUB-CARDS-SPEC §6). */
+  onSubCard?(task: Task): void;
   /** Opens another card's drawer (idea source or result). */
   onOpenTask?(id: string): void;
   /** After this drawer changed the card's status (the board may ask to wrap up). */
@@ -408,6 +417,23 @@ function TaskDrawerView({
   });
   const archivedSessions = ordered.filter((a) => !!a.archivedAt);
   const openMenu = useMenuOpener();
+  const automationCache = useQueryClient();
+  const automationActions = useAutomationActions();
+  // Card comments (CARD-COMMENTS-SPEC §1). The composer's draft, recipient and failed delivery outlive opening a session.
+  const commentMemories = useRef(new Map<string, CommentMemory>());
+  if (!commentMemories.current.has(task.id)) commentMemories.current.set(task.id, newCommentMemory());
+  const commentMemory = commentMemories.current.get(task.id)!;
+  const commentEventList = commentsOf(events, task.id);
+  const commentEvents = useMemo(() => commentEventList, [commentEventList.map((e) => e.id).join(",")]);
+  // The job's sessions are recorded with the events this drawer re-renders for, so the cached board is current here.
+  const recipients = cardRecipients(sessions.data || [], automationCache.getQueryData<Board>(boardKey), task);
+  const commentRecipients = useMemo(() => recipients, [JSON.stringify(recipients)]);
+  const commentLock = task.archivedAt
+    ? t("This card is archived. Restore it to comment.")
+    : project.archivedAt
+      ? t("This project is archived, so its cards can't take comments.")
+      : "";
+  const startSession = useStableCallback(() => setShowNew(true));
   const finished = task.status === "done" || task.status === "cancelled";
   // Wrapped up while kept on the board: its workspace/sessions are archived on
   // purpose, so neither offer Wrap up again nor warn that they are unavailable.
@@ -420,6 +446,7 @@ function TaskDrawerView({
       disabled: unavailable || !!task.archivedAt,
       onPress: () => setShowNew(true),
     },
+    ...automationMenu(project, task, automationCache.getQueryData<Board>(boardKey)?.automation.find((j) => j.taskId === task.id), !active || !!task.archivedAt || !!project.archivedAt, automationActions, unavailable),
     ...(attention && onAttention
       ? [
           attention === "dismissed"
@@ -659,6 +686,7 @@ function TaskDrawerView({
         />
       </View>
       <TaskTags task={task} active={active} readOnly={!!project.archivedAt} onFilterTag={onFilterTag} />
+      <TaskAutomation task={task} project={project} active={active} unavailable={unavailable} />
       {!!error && <Notice>{error}</Notice>}
     </>
   );
@@ -668,6 +696,23 @@ function TaskDrawerView({
       case "progress":
         return (
           <TaskProgress taskId={task.id} active={active} section={sectionStates.progress} />
+        );
+      case "comments":
+        return (
+          <TaskComments
+            taskId={task.id}
+            workspaceId={task.workspaceId}
+            events={commentEvents}
+            targets={commentRecipients}
+            loading={sessions.isPending}
+            archivedKnown={workspaceSessions.data !== undefined}
+            lockedReason={commentLock}
+            active={active}
+            section={sectionStates.comments}
+            memory={commentMemory}
+            onPosted={stableRefreshAll}
+            onStartSession={unavailable ? undefined : startSession}
+          />
         );
       case "workpad":
         return (
@@ -782,6 +827,7 @@ function TaskDrawerView({
               onOpenTask={onOpenTask}
               onLink={onLink}
               onFollowUp={onFollowUp}
+              onSubCard={onSubCard}
               section={sectionStates.links}
             />
           )
@@ -996,6 +1042,7 @@ function TaskDrawerView({
             {!!task.description && (
               <SessionMarkdown text={task.description} />
             )}
+            {task.brief && task.brief !== task.description && <OriginalBrief text={task.brief} />}
             {order.map((id) => <Fragment key={id}>{section(id)}</Fragment>)}
             {settled && (
             // Below the sessions, so mounting them after the transition moves nothing above.
@@ -1245,8 +1292,23 @@ const activityText: Record<string, string> = localizedLabels({
   workspace_restore_skipped: msg("Workspace not restored"),
   sessions_restored: msg("Restored the sessions"),
   progress_reported: msg("Reported progress"),
+  commented: msg("Commented"),
   "agent.turn_started": msg("Started a turn"),
   "agent.turn_ended": msg("Finished a turn"),
+  automation_queued: msg("Queued the card for agent automation"),
+  automation_started: msg("Started an agent on the card"),
+  automation_stopped: msg("Stopped agent automation"),
+  automation_resumed: msg("Resumed agent automation"),
+  automation_nudged: msg("Reminded the agent to deliver"),
+  automation_retry: msg("Retrying the agent"),
+  automation_failed: msg("Agent automation gave up"),
+  automation_delivered: msg("Handed the delivery to you"),
+  automation_review_started: msg("Started an agent review"),
+  automation_review_approved: msg("Approved the delivery"),
+  automation_changes_requested: msg("Requested changes"),
+  automation_waiting: msg("Waits for its sub-cards"),
+  automation_woken: msg("Woke the agent: its sub-cards settled"),
+  automation_fallback: msg("Switched to the fallback model"),
 });
 
 function ActivityItem({
@@ -1320,4 +1382,9 @@ function SessionGroup<T>({ list, render }: { list: T[]; render(item: T, index: n
       {list.map(render)}
     </View>
   );
+}
+
+function OriginalBrief({ text }: { text: string }) {
+  const [open, setOpen] = useState(false);
+  return <Disclosure title={t("Original task")} open={open} onChange={setOpen}><SessionMarkdown text={text} /></Disclosure>;
 }

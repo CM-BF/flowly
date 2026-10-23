@@ -1,3 +1,4 @@
+import { isAutomationMessage } from "../shared/automation";
 import { mkdir, readFile, writeFile, rename, copyFile, unlink } from "node:fs/promises";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
@@ -530,7 +531,7 @@ export class MemoryService {
       if (text) clues.push({ id: `${identity.agentId}:${qa.id}`, taskId: task.id, projectId: project.id, at, kind: "answer", ask: qa.ask.slice(0, memoryLimits.clueText), text });
     }
     const first = timeline.find((i) => i.type === "user_message" && typeof i.text === "string");
-    const own = first && !String(first.text).trimStart().startsWith(CODEX_ANSWERS_PREFIX) ? this.messageClue(identity, String(first.text), board, task.id) : null;
+    const own = first && !isAutomationMessage(String(first.text)) && !String(first.text).trimStart().startsWith(CODEX_ANSWERS_PREFIX) ? this.messageClue(identity, String(first.text), board, task.id) : null;
     if (own) clues.push({ id: randomUUID(), taskId: task.id, projectId: project.id, at, ...own });
     if (!clues.length) return;
     await this.store.update((state) => {

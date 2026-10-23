@@ -1,0 +1,37 @@
+
+> paseo-flowly@1.5.0 test
+> vitest run
+
+
+ RUN  v4.1.11 /private/var/folders/f1/2xjyyqkn5plc19fx4nt4tpt00000gn/T/flowly-r3-fixed-921f336-lr_a2wnw
+
+ ❯ server/git-stats.test.ts (2 tests | 1 failed) 5ms
+   × reports git errors without failing, and passes arguments as an array 3ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  server/git-stats.test.ts > reports git errors without failing, and passes arguments as an array
+AssertionError: expected null to be 'git is not installed.' // Object.is equality
+
+- Expected:
+"git is not installed."
+
++ Received:
+null
+
+ ❯ server/git-stats.test.ts:39:24
+     37|   });
+     38|   const result = await stats.commits(process.cwd(), Date.parse("2026-1…
+     39|   expect(result.error).toBe("git is not installed.");
+       |                        ^
+     40|   expect(result.commits).toEqual([]);
+     41|   expect(calls[0]).toContain("--all");
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed | 143 passed | 13 skipped (157)
+      Tests  1 failed | 1158 passed | 65 skipped (1224)
+   Start at  23:36:51
+   Duration  8.89s (transform 7.32s, setup 0ms, import 25.74s, tests 48.30s, environment 7ms)
+

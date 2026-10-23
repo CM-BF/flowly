@@ -104,3 +104,8 @@ test("turnText ignores plugin rows, so a summary row is never summarized again (
   const row = { type: "plugin", kind: "flowly-summary", data: { state: "S" } };
   expect(turnText([{ type: "assistant_message", text: "A" }, row])).toBe("Assistant: A");
 });
+
+
+test("summaries preserve automation findings with truthful attribution", () => {
+  expect(turnText([{ type: "user_message", text: "[Flowly automation] Reviewer findings" }])).toBe("Flowly automation: [Flowly automation] Reviewer findings");
+});

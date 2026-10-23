@@ -32,12 +32,12 @@ test("tour paging stays inside the pages", () => {
 });
 
 describe("tips", () => {
-  const none: TipFacts = { hasCard: false, needsYou: false, openIdea: false, movedToFinished: false, hasArtifact: false, hasAgentTag: false, agentQuestion: false, olderHidden: false, nextMove: false, hasTicket: false, noConnection: false, projectTabs: false, hasWorkpad: false, busyBoard: false, hasSubagent: false, workflowSuggestion: false, crowdedAttention: false, fullSidebar: false, cardOpen: false, cardWithSession: false, hasSummary: false, memoryCandidate: false };
+  const none: TipFacts = { hasCard: false, needsYou: false, openIdea: false, movedToFinished: false, hasArtifact: false, hasAgentTag: false, agentQuestion: false, olderHidden: false, nextMove: false, hasTicket: false, noConnection: false, projectTabs: false, hasWorkpad: false, busyBoard: false, hasSubagent: false, workflowSuggestion: false, crowdedAttention: false, fullSidebar: false, cardOpen: false, cardWithSession: false, hasSummary: false, memoryCandidate: false, automationCandidate: false, hasSubCards: false, cardCommentable: false };
   test("nothing to show without a fact", () => {
     expect(nextTip({ tipsSeen: [], facts: none, blocked: false })).toBeNull();
   });
   test("one tip at a time, waiting-for-you first", () => {
-    const facts = { hasCard: true, needsYou: true, openIdea: true, movedToFinished: false, hasArtifact: true, hasAgentTag: true, agentQuestion: false, olderHidden: false, nextMove: false, hasTicket: false, noConnection: false, projectTabs: false, hasWorkpad: false, busyBoard: false, hasSubagent: false, workflowSuggestion: false, crowdedAttention: false, fullSidebar: false, cardOpen: false, cardWithSession: false, hasSummary: false, memoryCandidate: false };
+    const facts = { hasCard: true, needsYou: true, openIdea: true, movedToFinished: false, hasArtifact: true, hasAgentTag: true, agentQuestion: false, olderHidden: false, nextMove: false, hasTicket: false, noConnection: false, projectTabs: false, hasWorkpad: false, busyBoard: false, hasSubagent: false, workflowSuggestion: false, crowdedAttention: false, fullSidebar: false, cardOpen: false, cardWithSession: false, hasSummary: false, memoryCandidate: false, automationCandidate: false, hasSubCards: false, cardCommentable: false };
     expect(nextTip({ tipsSeen: [], facts, blocked: false })).toBe("needs-you");
     expect(nextTip({ tipsSeen: ["needs-you"], facts, blocked: false })).toBe("first-idea");
     expect(nextTip({ tipsSeen: ["needs-you", "first-idea"], facts, blocked: false })).toBe("first-artifact");
@@ -168,4 +168,40 @@ test("stored onboarding settings tolerate missing or invalid fields", () => {
   expect(onboardingSettingsValues(undefined)).toEqual({ welcomeSeen: false, tipsSeen: [] });
   expect(onboardingSettingsValues({ welcomeSeen: true })).toEqual({ welcomeSeen: true, tipsSeen: [] });
   expect(onboardingSettingsValues({ welcomeSeen: "yes" }).welcomeSeen).toBe(false);
+});
+
+test("agent automation is introduced on a board with a card an agent could pick up, after the first-card tip", () => {
+  const none: TipFacts = { hasCard: false, needsYou: false, openIdea: false, movedToFinished: false, hasArtifact: false, hasAgentTag: false, agentQuestion: false, olderHidden: false, nextMove: false, hasTicket: false, noConnection: false, projectTabs: false, hasWorkpad: false, busyBoard: false, hasSubagent: false, workflowSuggestion: false, crowdedAttention: false, fullSidebar: false, cardOpen: false, cardWithSession: false, hasSummary: false, memoryCandidate: false, automationCandidate: false, hasSubCards: false, cardCommentable: false };
+  const facts = { ...none, hasCard: true, automationCandidate: true, busyBoard: true };
+  expect(nextTip({ tipsSeen: [], facts, blocked: false })).toBe("first-card");
+  expect(nextTip({ tipsSeen: ["first-card"], facts, blocked: false })).toBe("agent-automation");
+  expect(nextTip({ tipsSeen: ["first-card", "agent-automation"], facts, blocked: false })).toBe("card-display");
+  expect(nextTip({ tipsSeen: [], facts: { ...none, automationCandidate: false }, blocked: false })).toBeNull();
+});
+
+test("sub-cards are explained once a card of the project has them, before Paseo subagents", () => {
+  const none: TipFacts = { hasCard: false, needsYou: false, openIdea: false, movedToFinished: false, hasArtifact: false, hasAgentTag: false, agentQuestion: false, olderHidden: false, nextMove: false, hasTicket: false, noConnection: false, projectTabs: false, hasWorkpad: false, busyBoard: false, hasSubagent: false, workflowSuggestion: false, crowdedAttention: false, fullSidebar: false, cardOpen: false, cardWithSession: false, hasSummary: false, memoryCandidate: false, automationCandidate: false, hasSubCards: false, cardCommentable: false };
+  expect(nextTip({ tipsSeen: [], facts: { ...none, hasSubCards: true, hasSubagent: true }, blocked: false })).toBe("sub-cards");
+  expect(nextTip({ tipsSeen: ["sub-cards"], facts: { ...none, hasSubCards: true }, blocked: false })).toBeNull();
+});
+
+test("single-input guidance is shown once when the board is visible", () => {
+  const facts = { taskIntake: true } as TipFacts;
+  expect(nextTip({ tipsSeen: [], facts, blocked: false })).toBe("task-intake");
+  expect(nextTip({ tipsSeen: ["task-intake"], facts, blocked: false })).toBeNull();
+});
+
+test("card comments are announced once in an open card that has a session and takes comments, before the connectors tip (CARD-COMMENTS-SPEC §5)", () => {
+  const none: TipFacts = { hasCard: false, needsYou: false, openIdea: false, movedToFinished: false, hasArtifact: false, hasAgentTag: false, agentQuestion: false, olderHidden: false, nextMove: false, hasTicket: false, noConnection: false, projectTabs: false, hasWorkpad: false, busyBoard: false, hasSubagent: false, workflowSuggestion: false, crowdedAttention: false, fullSidebar: false, cardOpen: false, cardWithSession: false, hasSummary: false, memoryCandidate: false, automationCandidate: false, hasSubCards: false, cardCommentable: false };
+  const facts = { ...none, cardOpen: true, cardWithSession: true, cardCommentable: true };
+  expect(nextTip({ tipsSeen: [], facts, blocked: false })).toBe("card-comments");
+  expect(nextTip({ tipsSeen: ["card-comments"], facts, blocked: false })).toBe("connectors");
+  expect(nextTip({ tipsSeen: ["card-comments", "connectors"], facts, blocked: false })).toBe("session-history");
+  // Waiting-for-you tips still come first.
+  expect(nextTip({ tipsSeen: [], facts: { ...facts, needsYou: true }, blocked: false })).toBe("needs-you");
+  // An archived card (its composer is locked) or a card without a session: not yet.
+  expect(nextTip({ tipsSeen: ["connectors", "session-history"], facts: { ...none, cardOpen: true, cardWithSession: true }, blocked: false })).toBeNull();
+  // A new id, so users who saw every older tip get it once too.
+  expect(nextTip({ tipsSeen: tipIds.filter((id) => id !== "card-comments"), facts, blocked: false })).toBe("card-comments");
+  expect(nextTip({ tipsSeen: [...tipIds], facts, blocked: false })).toBeNull();
 });

@@ -3,8 +3,10 @@ import type { Link, Task } from "../shared/model";
 import { isResolved, linkFor, samePair, type LinkView, type Relation } from "../shared/links";
 
 /** Drawer groups, in order (CARD-LINKS-SPEC §5.2). "Was waiting on" holds resolved blockers. */
-export type Group = "waiting" | "blocks" | "follow_up_of" | "follow_up" | "related" | "waited";
+export type Group = "sub_card_of" | "sub_card" | "waiting" | "blocks" | "follow_up_of" | "follow_up" | "related" | "waited";
 export const groups: { id: Group; title: string }[] = [
+  { id: "sub_card_of", title: msg("Sub-card of") },
+  { id: "sub_card", title: msg("Sub-cards") },
   { id: "waiting", title: msg("Waiting on") },
   { id: "blocks", title: msg("Blocks") },
   { id: "follow_up_of", title: msg("Follow-up of") },

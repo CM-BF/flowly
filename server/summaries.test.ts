@@ -1,4 +1,4 @@
-import { afterEach, expect, test } from "vitest";
+import { afterEach, expect, test, vi } from "vitest";
 import type { PaseoApi } from "@getpaseo/client";
 import { mkdtemp, readdir, readFile, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -263,7 +263,8 @@ test("manual refresh summarizes the latest turn of the most recent managed sessi
   await expect(x.service.refresh("t", [], x.paseo)).rejects.toThrow(/no Kanban sessions/);
   x.replies.push({ text: x.json("refreshed") });
   expect(await x.service.refresh("t", ["old", "new"], x.paseo)).toEqual({ queued: true });
-  await settle();
+  await x.service.settled("t");
+  await vi.waitFor(() => expect(x.appended.map((a) => a.agentId)).toEqual(["new"]));
   expect(x.created[0].prompt).toContain("User: latest ask");
   expect(x.created[0].prompt).not.toContain("User: earlier");
   expect((await x.store.latest("t"))?.agentIds).toEqual(["new"]);

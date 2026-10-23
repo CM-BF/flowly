@@ -135,6 +135,7 @@ test("applying the daemon's patch gives back the board it was computed from", ()
       artifacts: [item("x"), item("y")],
       workpads: [{ taskId: "a", v: 1 }],
       attentionDismissals: [],
+      automation: [],
       ...over,
     }) as unknown as Parameters<typeof applyBoardPatch>[0];
   const before = make(1);

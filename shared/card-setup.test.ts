@@ -19,7 +19,7 @@ test("an empty workpad is missing; a project without the workpad never misses it
 });
 
 test("setupContext flags and texts name only the missing items", () => {
-  expect(setupContext(["tags"], "development")).toEqual({ typeMissing: false, tagsMissing: true, workpadMissing: false, stage: "development", missing: ["tags"] });
+  expect(setupContext(["tags"], "development")).toEqual({ metadataMissing: false, typeMissing: false, tagsMissing: true, workpadMissing: false, stage: "development", missing: ["tags"] });
   const r = setupReminder(["type", "workpad"]);
   expect(r).toContain("no type (flowly_set_type");
   expect(r).toContain("; no workpad (flowly_update_workpad");

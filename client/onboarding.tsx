@@ -235,12 +235,16 @@ function FeaturesPage() {
   const [moreOpen, setMoreOpen] = useState(false);
   // The headline features, shown as tiles; everything else folds under More features.
   const highlights = [
+    { icon: "Bot", color: colors.accent, title: t("Describe once, start working"), text: t("Describe your task once. New cards start an agent by default; it organizes the title, description and tags. Set speed and permissions in Edit project.") },
     { icon: "Activity", color: colors.accent, title: t("Automatic status"), text: t("Cards follow the agent's work through the lanes. Done stays yours.") },
     { icon: "Bell", color: colors.statusWarning, title: t("Needs-you reminders"), text: t("Questions, approvals and errors light up the card. Answer them right there.") },
     { icon: "Brain", color: colors.accent, title: t("Run summaries"), text: t("After every turn a cheap model keeps the card's state, recap and next step up to date.") },
     { icon: "Sparkles", color: colors.accent, title: t("Suggested next steps"), text: t("Tap one to fill in the message box. Nothing is sent until you send it.") },
   ];
   const more = [
+    { icon: "MessagesSquare", color: colors.accent, title: t("Comments"), text: t("Ask about progress or request changes right on the card. Comments stay on it and go to the card's agent, which also sees them when it reads the card.") },
+    { icon: "ListTree", color: colors.accent, title: t("Sub-cards"), text: t("Agents can split work into sub-cards with their own workspaces. A supervised parent waits, checks their deliveries and accepts them. Failed or stopped jobs need your Run again.") },
+    { icon: "Bot", color: colors.accent, title: t("Agent automation"), text: t("Optional per project: Run with agent queues a card, and Flowly starts it when its blockers are Done, reminds or retries the agent when it stalls, and can have a reviewer agent check the delivery. Done stays yours.") },
     { icon: "ListChecks", color: colors.statusSuccess, title: t("Workpad"), text: t("Agents set the card's type and tags and write a workpad before they start: acceptance criteria, checks marked passed, failed or not run on a named commit, and what confused them. Delivering without them needs a note.") },
     { icon: "Lightbulb", color: colors.statusSuccess, title: t("Follow-up ideas"), text: t("Work an agent finds along the way lands in the Ideas inbox. Good idea or Dismiss.") },
     { icon: "BookMarked", color: colors.accent, title: t("Project memory"), text: t("Decisions and pitfalls you confirm carry over to new cards' sessions. Agents and the review of finished cards suggest them; you edit or delete them any time.") },

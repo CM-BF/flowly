@@ -13,6 +13,9 @@ export const sendBehaviorText: Record<SendBehavior, { label: string; detail: str
   interrupt: { label: msg("Interrupt"), detail: msg("Enter interrupts, then sends. ⌘/Ctrl+Enter queues.") },
 };
 
+/** The board's "When running" setting, steer when unset (Paseo's default). */
+export const preferredSend = (values?: { sendBehavior?: SendBehavior } | null): SendBehavior => values?.sendBehavior || "steer";
+
 export type SendAction =
   | { kind: "send"; activeTurnBehavior?: "steer" | "interrupt" }
   | { kind: "queue" };

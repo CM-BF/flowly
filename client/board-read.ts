@@ -15,6 +15,7 @@ const patchKeys = {
   artifacts: (x: { id: string }) => x.id,
   workpads: (x: { taskId: string }) => x.taskId,
   attentionDismissals: (x: { taskId: string }) => x.taskId,
+  automation: (x: { taskId: string }) => x.taskId,
 } as const;
 
 /** Replaced and added items, removed ids, and (only when it differs) the final order; unchanged items keep their objects. */
