@@ -2,7 +2,7 @@ import { AutomationLaunches } from "./automation-launch";
 import type { AutomationLaunch } from "../shared/automation-launch";
 import { executionModel } from "../shared/agent-defaults";
 import { supportedFeatures } from "../shared/agent-features";
-import { cardHandoff } from "./automation-handoff";
+import { cardHandoff, cardLocation } from "./automation-handoff";
 import { realpath } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import type { PaseoApi } from "@getpaseo/client";
@@ -615,7 +615,7 @@ export class AutomationService {
       const handoffs = (await Promise.all(blockers.map((id) => cardHandoff(board, id, this.api())))).filter(Boolean);
       // A sub-card's parent merges its accepted siblings: its branch may hold their changes already integrated.
       const parentId = parentOf(board.links, claimed.taskId);
-      const parent = parentId ? await cardHandoff(board, parentId, this.api()) : null;
+      const parent = parentId ? await cardLocation(board, parentId, this.api()) : null;
       const integration = parent
         ? `\n\nParent integration branch (card data): ${JSON.stringify({ id: parent.id, title: parent.title, lane: parent.lane, branch: parent.branch, directory: parent.directory })}\nThe parent card brings its accepted sub-cards together, so its branch may already hold the sibling blockers' changes with their conflicts resolved. Check it first and prefer merging it over merging each sibling branch again.`
         : "";

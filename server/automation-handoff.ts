@@ -52,6 +52,15 @@ async function liveBranch(directory: string | undefined, git: Git) {
   return branch && branch !== "HEAD" ? branch : undefined;
 }
 
+/** The integration location of a potentially busy parent; reading it must not refresh its git index. */
+export async function cardLocation(board: Board, taskId: string, paseo: PaseoApi, git: Git = defaultGit) {
+  const task = board.tasks.find((t) => t.id === taskId);
+  if (!task) return null;
+  const directory = await directoryOf(task, paseo);
+  const branch = storedBranch(board, taskId) ?? (await liveBranch(directory, git));
+  return { id: task.id, title: task.title, lane: laneName(board.projects.find((p) => p.id === task.projectId), task.status), branch, directory };
+}
+
 /** A linked card worth a handoff: delivered (In review) or settled (nothing moves it), and neither finished nor archived. */
 const wantsHandoff = (board: Board, v: LinkView) =>
   !!v.other && (v.relation === "sub_card" || v.relation === "blocked_by") && !v.other.archivedAt && !["done", "cancelled"].includes(v.other.status) &&
