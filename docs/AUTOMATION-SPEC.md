@@ -94,7 +94,7 @@ AutomationJob {
 | --- | --- |
 | 卡片已 Done/Cancelled/归档 | `stopped` / `card_finished` |
 | 回合失败（普通） | `failures+1`；未到上限 → `retry_wait`，退避 30 s·2^(n−1)，最长 5 分钟，活动记 “Turn failed (n of failureLimit)”，到期在同一 session 发“上次失败：…，从当前状态继续（attempt n of failureLimit）”；到上限 → 实现者：`failed` + 卡片移到 Blocked；评审者：见 §5 |
-| 回合因 provider 限额失败（明确的 429/rate limit/quota/overload，或 Claude 的 “You've hit your … limit” 通知；以 completed 结束但最后一行是这类通知或 API Error 的回合也算） | 该角色设了备用模型且本次运行还没换过：换到备用模型（§4.5）。否则：不计 `failures`，`cooldowns+1`；不超过 5 次 → `retry_wait` / `cooldown`，依次等 1、2、4、8、15 分钟，活动记 “Provider limit (n of 5); retrying in X min: <error>”，到期发 “The last turn stopped at a provider limit: … (provider limit retry n of 5)”；超过 → `needs_human` / `cooldown`，不把卡片移到 Blocked |
+| 回合因 provider 限额失败（明确的 429/rate limit/quota/overload、模型 “at capacity … try a different model”，或 Claude 的 “You've hit your … limit” 通知；以 completed 结束但最后一行是这类通知或 API Error 的回合也算） | 该角色设了备用模型且本次运行还没换过：换到备用模型（§4.5）。否则：不计 `failures`，`cooldowns+1`；不超过 5 次 → `retry_wait` / `cooldown`，依次等 1、2、4、8、15 分钟，活动记 “Provider limit (n of 5); retrying in X min: <error>”，到期发 “The last turn stopped at a provider limit: … (provider limit retry n of 5)”；超过 → `needs_human` / `cooldown`，不把卡片移到 Blocked |
 | 回合被中断 | `needs_human` / `interrupted` |
 | 实现者有**新交付**（卡片在 In review，交付不是 `reviewedEvent`） | 有评审者且本周期轮次未满 → 开始评审（§5）。没有评审者（例如两次交付之间删掉了评审者）→ `delivered`，并丢掉之前的结论，未经评审的工作不会显示 “Agent review passed”。周期未被重开而轮次用完 → `delivered` / `review_rounds`，保留最后一轮的 `changes` 结论（“Review needs you”） |
 | 回合结束时卡片仍停在得到结论的那次交付上（随口回答） | 保留该结论，`delivered` |
@@ -130,7 +130,7 @@ AutomationJob {
 - 被监督的 session 已归档或不存在：实现者 → `failed`/`session_unavailable`；评审者 → 交付保留给人（`incomplete`）。refresh RPC 失败是未知状态，不当作 session 消失。启动结果未知或冷却预算用尽而尚未确认存在的 session（`unconfirmed`）一直保留等人状态；后续刷新仍为空不转成失败。session 迟到并开始回合后恢复监督。
 - 卡片自己的 workspace 已归档或不存在：job `failed` / `workspace_unavailable`，记录 `automation_failed`，不要求它曾启动过 session。祖先卡片取消、归档或缺失：后代 job `stopped` / `ancestor_finished`，记录 `automation_stopped`（“An ancestor card was cancelled, archived or removed”），不移动后代卡片。
 - 看板上已有晚于 `turnAt` 的 `agent.turn_ended`（钩子在处理前插件被重载等）：补做 §4.2。`needs_human` 时已有更晚的 `agent.turn_started`：补做恢复。
-- 回合结束完全丢失：2 分钟宽限后，被监督 session 处于 idle、error 或 closed，没有 activeTurn、没有待处理权限，也没有记录到回合结束 → `needs_human` / `interrupted`，释放名额。detail 说明 session 是空闲、出错停止（附它的 lastError）还是已关闭；不伪造成功回合，不编造 lifecycle 事件。
+- 回合结束完全丢失（插件重载或重启时钩子没送到）：2 分钟宽限后，被监督 session 没有 activeTurn、没有待处理权限，也没有记录到回合结束。先用 daemon 自己对这个 session 的记录恢复结果（用户决定 2026-10-23：重载后要能接着跑）：session 处于 `error` → 失败的回合（消息为它的 lastError）；最近一条指令之后 session 发出的 attention 为 `finished` → 完成的回合，为 `error` → 失败的回合。恢复的结果像钩子那样记成一条 `agent.turn_ended`（完成的回合 note 为 “Recovered from the session's state after a missed turn hook”），再按 §4.2 判断：交付、提问、提醒、重试或限额照常处理。daemon 没留下记录（attention 已被人读过而清掉）或 session 已 `closed` → `needs_human` / `interrupted`，释放名额，detail 说明 session 是空闲、出错停止（附 lastError）还是已关闭，不伪造结果。
 
 ### 4.5 Provider 限额与备用模型
 

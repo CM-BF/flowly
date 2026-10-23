@@ -1,5 +1,15 @@
 # Implementation progress
 
+## Automation resilience after a live stall — 2026-10-23
+
+The user's Next Workspace pipeline stalled on the daemon: C5b.2 failed on "Selected model is at capacity. Please try a different model." after two attempts 38 s apart (not recognised as a provider limit); a person then continued C5b.2's session by hand, but its parent C5b did not count that running sub-card as moving, was reminded twice and gave up (Blocked, `no_delivery`), so C5 asked for a person. The user also asked that Flowly resume on its own after a reload.
+
+- [x] "at capacity", "over capacity" and "try a different model" are provider limits: fallback model when set, otherwise cooldown retries ([AUTOMATION-SPEC](AUTOMATION-SPEC.md) §4.2, §4.5).
+- [x] A sub-card whose managed session is mid-turn moves, whatever its job says (6-hour bound against missed hooks); its signature ends in `:turn`, so the parent waits and wakes when that turn ends ([SUB-CARDS-SPEC](SUB-CARDS-SPEC.md) §5).
+- [x] A turn end missed during a reload is recovered from the daemon's record of the session (error status, the attention raised after the last instruction) and judged as usual; only without it (or for a closed session) does the card wait for a person (§4.4).
+- [x] Tests: `server/automation-resilience.test.ts` (7, five of them fail on `6b0d367`), `shared/automation-resilience.test.ts` (4), the recovery test updated for the new error-status rule; typecheck and full suite: 1232 passed / 65 pre-existing skipped.
+- Onboarding: no change (automation behaviour, nothing new to point out).
+
 ## Per-role fallback models — 2026-10-23
 
 User decision: the reviewer may run on a limit-prone model (Opus 5.5 max), so each automation role can name a fallback model ([AUTOMATION-SPEC](AUTOMATION-SPEC.md) §4.5). The rate-fallback plugin alone was not enough: its GPT backup of a Claude session has no Flowly tools and is not the bound reviewer, and Flowly's own cooldown (about 30 minutes) cannot wait out a Claude 5-hour or weekly limit.

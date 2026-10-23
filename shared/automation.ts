@@ -127,7 +127,8 @@ export function readiness(board: Pick<Board, "tasks" | "links">, taskId: string)
 const claudeLimitPrefix = /^(?:You've (?:hit|reached|exceeded) your (?:(?:session|weekly|(?:Opus|Sonnet|Haiku|Fable)(?: weekly| usage)?|fast|usage(?: credit)?) )?(?:limit|allowance)|You're out of (?:extra usage|usage credits))(?=\s*(?:[.·]|$))/i;
 /** Only explicit provider failure messages, never completed assistant prose. */
 export const providerLimited = (message: string) =>
-  /\b429\b|rate[ _-]?limit|quota (?:exceeded|exhausted|reached)|usage limit|overloaded|insufficient_quota|too many requests/i.test(message) || claudeLimitPrefix.test(message.trim());
+  /\b429\b|rate[ _-]?limit|quota (?:exceeded|exhausted|reached)|usage limit|overloaded|insufficient_quota|too many requests|\b(?:at|over) capacity\b|capacity (?:exceeded|reached)|try a different model/i.test(message) ||
+  claudeLimitPrefix.test(message.trim());
 
 /**
  * A provider limit inside a turn that ended "completed" (AUTOMATION-SPEC §4.5): Claude Code can finish a turn with its
@@ -153,6 +154,23 @@ export function limitNotice(items: readonly unknown[]): string | null {
     }
     if (item.type === "tool_call" || item.type === "reasoning") return null;
   }
+  return null;
+}
+
+/**
+ * The outcome of a supervised turn whose end hook was missed (a plugin reload or restart during the turn), from the
+ * daemon's own record of the session: an errored session, or the attention it raised when the turn finished or
+ * failed after `since`. Null when the daemon kept nothing (someone read the session since): a person decides then.
+ */
+export function recoveredOutcome(
+  agent: { status?: string | null; lastError?: string | null; attentionReason?: string | null; attentionTimestamp?: string | null },
+  since: string | undefined,
+): TurnOutcome | null {
+  const failed = (): TurnOutcome => ({ kind: "failed", message: agent.lastError || "The session stopped with an error." });
+  if (agent.status === "error") return failed();
+  if (!agent.attentionTimestamp || (since && agent.attentionTimestamp <= since)) return null;
+  if (agent.attentionReason === "error") return failed();
+  if (agent.attentionReason === "finished") return { kind: "completed" };
   return null;
 }
 
@@ -342,7 +360,7 @@ export function turnDecision(
     if (task.status === "blocked" && blockedThisTurn(board, task.id, agentId)) return { kind: "wait", code: "blocked" };
     if (askedThisTurn(board, task.id, agentId)) return { kind: "wait", code: "question" };
     const children = childrenOf(board.links, task.id);
-    const motion = children.length ? motionOf(board) : undefined;
+    const motion = children.length ? motionOf(board, now) : undefined;
     if (motion && children.some((id) => motion.has(id))) return { kind: "await_children", signature: subCardSignature(board, task.id, motion) };
   }
   if (job.nudges < settings.nudgeLimit) return { kind: "nudge", count: job.nudges + 1 };
@@ -351,6 +369,21 @@ export function turnDecision(
 
 /** The cards that move (`subCardActive`) on one board snapshot. */
 export type Motion = ReadonlySet<string>;
+
+/** How long a turn whose end was never recorded still counts as running: a missed hook must not hold a parent forever. */
+export const openTurnMs = 6 * 3600_000;
+/**
+ * Cards with a Flowly-managed session in the middle of a turn, from the lifecycle facts the turn hooks record on
+ * the card: whatever its automation job says, a person (or an agent) is working on it right now.
+ */
+export function cardsInTurn(board: Pick<Board, "events">, now: number): Set<string> {
+  const latest = new Map<string, BoardEvent>();
+  for (const event of board.events)
+    if ((event.action === "agent.turn_started" || event.action === "agent.turn_ended") && event.agentId) latest.set(`${event.taskId}|${event.agentId}`, event);
+  const open = new Set<string>();
+  for (const event of latest.values()) if (event.action === "agent.turn_started" && now - Date.parse(event.at) < openTurnMs) open.add(event.taskId);
+  return open;
+}
 
 /**
  * Every card still moving without its parent (SUB-CARDS-SPEC §5), on one board snapshot: an agent works on it,
@@ -361,7 +394,8 @@ export type Motion = ReadonlySet<string>;
  * move by themselves through the cards their motion holds up, so each card and link is visited once and a
  * dependency cycle never moves on its own.
  */
-export function motionOf(board: Pick<Board, "tasks" | "links" | "automation">): Motion {
+export function motionOf(board: Pick<Board, "tasks" | "links" | "automation" | "events">, now = Date.now()): Motion {
+  const inTurn = cardsInTurn(board, now);
   const tasks = new Map<string, Task>();
   for (const task of board.tasks) if (!tasks.has(task.id)) tasks.set(task.id, task);
   const jobs = new Map<string, AutomationJob>();
@@ -385,7 +419,9 @@ export function motionOf(board: Pick<Board, "tasks" | "links" | "automation">): 
     const job = jobs.get(id);
     const waiting = blockers.get(id) ?? [];
     const value =
-      !task || task.archivedAt || task.status === "done" || task.status === "cancelled" || !job || !isLive(job) ? null
+      !task || task.archivedAt || task.status === "done" || task.status === "cancelled" ? null
+      // A session working on the card moves it even when automation does not run it (a person took over a failed job).
+      : !job || !isLive(job) ? (inTurn.has(id) ? "self" : null)
       : job.state !== "queued" || !waiting.length ? "self"
       : waiting.some((b) => b.status === "cancelled" || b.archivedAt) ? null
       : "held";
@@ -409,27 +445,29 @@ export function motionOf(board: Pick<Board, "tasks" | "links" | "automation">): 
 }
 
 /** Whether a sub-card is still moving without its parent (`motionOf`); pass `motion` when asking about several cards of one snapshot. */
-export const subCardActive = (board: Pick<Board, "tasks" | "links" | "automation">, id: string, motion: Motion = motionOf(board)) => motion.has(id);
+export const subCardActive = (board: Pick<Board, "tasks" | "links" | "automation" | "events">, id: string, motion: Motion = motionOf(board)) => motion.has(id);
 
 /**
  * The sub-cards' state as the parent last saw it; a different value wakes the parent. A queued
  * sub-card also records whether it moves, which its blockers decide (one outside the parent's
  * tree can be cancelled or archived while the sub-card itself does not change).
  */
-export function subCardSignature(board: Pick<Board, "tasks" | "links" | "automation">, parentId: string, motion?: Motion) {
+export function subCardSignature(board: Pick<Board, "tasks" | "links" | "automation" | "events">, parentId: string, motion?: Motion) {
   let known = motion;
   return childrenOf(board.links, parentId)
     .map((id) => {
       const task = board.tasks.find((t) => t.id === id);
       const job = jobOf(board, id);
       const held = job?.state === "queued" ? ((known ??= motionOf(board)).has(id) ? ":moving" : ":held") : "";
-      return `${id}:${task?.archivedAt ? "archived" : (task?.status ?? "gone")}:${job?.state ?? ""}:${job?.verdict ?? ""}${held}`;
+      // A sub-card moved by a session outside automation: the end of that turn changes what the parent saw.
+      const turn = !isLive(job) && (known ??= motionOf(board)).has(id) ? ":turn" : "";
+      return `${id}:${task?.archivedAt ? "archived" : (task?.status ?? "gone")}:${job?.state ?? ""}:${job?.verdict ?? ""}${held}${turn}`;
     })
     .join("|");
 }
 
 /** A waiting parent wakes when none of its sub-cards is moving and they changed since it last looked. */
-export function parentShouldWake(board: Pick<Board, "tasks" | "links" | "automation" | "projects">, job: AutomationJob, motion?: Motion) {
+export function parentShouldWake(board: Pick<Board, "tasks" | "links" | "automation" | "projects" | "events">, job: AutomationJob, motion?: Motion) {
   if (job.state !== "waiting") return false;
   if (!automationAllowed(board, job)) return false;
   const project = board.projects.find((p) => p.id === job.projectId);

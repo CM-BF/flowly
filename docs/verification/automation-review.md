@@ -28,7 +28,7 @@ Luna validator: `a0c74ff7-e334-4309-9aad-965ea5f93d01`, `codex/gpt-6-luna`, expl
 - Preserve the spec's Done/Cancelled-only child completion counter. Archived unfinished cards are settled for supervision, not completed work. Optional invalid-parent picker affordances and warnings about existing ordinary sessions remain polish; server validation is authoritative.
 - Keep ordinary bounded failure policy for authentication/model-configuration errors; no additional speculative terminal-error classifier was added.
 - Paseo 0.12 has no atomic idle-only send. The refreshed busy check plus explicit steer avoids the known default-interrupt path, but the host can fall back to interruption if a new turn races the request and steering is unavailable. This limitation is documented; strict non-interruption needs a host API change.
-- When an entire native outcome is absent, idle proves only that execution stopped. Recovery asks a person rather than fabricating success or retrying uncertain paid work.
+- When an entire native outcome is absent, idle proves only that execution stopped. Recovery asks a person rather than fabricating success or retrying uncertain paid work. Amended 2026-10-23 (user: Flowly must resume after a reload): the daemon's own record of the session (error status, the attention its turn raised after the last instruction) is a recorded outcome, not an invention, so it is used; only without it does the card wait for a person ([AUTOMATION-SPEC](../AUTOMATION-SPEC.md) §4.4).
 - A session creation already accepted by the daemon can finish after Stop. The plugin cannot revoke that request and does not interrupt sessions; it rechecks all subsequent effects and never attaches the stale generation to a new job.
 
 ## Source and recovery

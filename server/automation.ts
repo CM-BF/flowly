@@ -37,6 +37,7 @@ import {
   newestDelivery,
   nudgePrompt,
   readiness,
+  recoveredOutcome,
   retryDelayMs,
   retryPrompt,
   reviewInputSchema,
@@ -153,7 +154,7 @@ export class AutomationService {
     await this.reconcile();
     const settled = await this.store.read();
     let motion: Motion | undefined;
-    for (const job of settled.automation) if (job.state === "waiting" && parentShouldWake(settled, job, (motion ??= motionOf(settled)))) await this.wake(job);
+    for (const job of settled.automation) if (job.state === "waiting" && parentShouldWake(settled, job, (motion ??= motionOf(settled, this.clock())))) await this.wake(job);
     const board = await this.store.read();
     // Cooldown gating compares providers; a project that sets no model starts on the global default's.
     const fallback = board.automation.some((j) => j.state === "retry_wait" && j.code === "cooldown") ? (await this.deps.globalModel().catch(() => null))?.provider : undefined;
@@ -1225,6 +1226,24 @@ export class AutomationService {
       if (last?.action === "agent.turn_ended" && (!job.turnAt || last.at > job.turnAt)) await this.judgeTurnEnd(agentId);
       else if ((agent.status === "running" || agent.activeTurn) && (job.state === "waiting" || (job.state === "needs_human" && job.code !== "permission"))) await this.turnStarted(agentId);
       else if (stale && ["working", "reviewing"].includes(job.state) && agent.status !== "running" && agent.status !== "initializing" && !agent.activeTurn && !agent.pendingPermissions?.length) {
+        // The daemon's own record of the session (an error, the attention its turn raised) tells how the missed turn
+        // ended: it is recorded as the hook would have, and judged the same way, so the card goes on (§4.4).
+        const outcome = agent.status === "closed" ? null : recoveredOutcome(agent, job.turnAt);
+        if (outcome) {
+          // A late hook may have recorded the real turn end meanwhile.
+          const hooked = (b: Board) => { const end = latestTurnEnd(b, job.taskId, agentId); return !!end && (!job.turnAt || end.at > job.turnAt); };
+          const recorded = await this.store.transaction((b) => {
+            const j = jobOf(b, job.taskId);
+            if (!this.current(b, job, job.role) || !j || j.updatedAt !== job.updatedAt || hooked(b)) return { value: false, changed: false };
+            this.store.event(b, {
+              taskId: j.taskId, actor: "system", action: "agent.turn_ended", agentId, outcome: outcome.kind,
+              note: outcome.kind === "failed" ? outcome.message : "Recovered from the session's state after a missed turn hook",
+            });
+            return { value: true, changed: true };
+          });
+          if (recorded) await this.judgeTurnEnd(agentId);
+          continue;
+        }
         // An idle, errored or closed session proves there is no running worker, not how its missing turn ended.
         const detail =
           agent.status === "error"
@@ -1259,7 +1278,7 @@ export class AutomationService {
   /** A waiting parent whose sub-cards settled gets their summary and works again (SUB-CARDS-SPEC §5). */
   private async wake(seen: AutomationJob) {
     const board = await this.store.read();
-    const motion = motionOf(board);
+    const motion = motionOf(board, this.clock());
     if (!parentShouldWake(board, seen, motion)) return;
     const place = await this.occupancy(seen);
     if (place === "unavailable") return void (await this.workspaceGone(seen));
@@ -1270,7 +1289,7 @@ export class AutomationService {
     const woken = await this.store.transaction((b) => {
       const job = jobOf(b, seen.taskId);
       if (!job || job.generation !== seen.generation) return { value: null, changed: false };
-      const moving = motionOf(b);
+      const moving = motionOf(b, this.clock());
       if (!parentShouldWake(b, job, moving) || subCardSignature(b, job.taskId, moving) !== signature) return { value: null, changed: false };
       job.state = "working";
       job.role = "implementer";
