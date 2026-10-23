@@ -21,6 +21,7 @@ import { resolveAiLanguage } from "./shared/ai-language";
 import { ComposerService, ComposerStore } from "./server/composer";
 import { adoptIdea } from "./server/ideas";
 import { createLink, deleteLink } from "./server/links";
+import { addComment } from "./server/comments";
 import { ArtifactService } from "./server/artifacts";
 import { WorkpadService } from "./server/workpad";
 import { ConnectorService, migrateTicketDirectory, refKey } from "./server/connectors/service";
@@ -390,6 +391,8 @@ export default function contribute(server: PluginServerContext) {
     return task;
   });
   server.handle(rpc.updateTaskTags, (input) => store.editTags(input));
+  // Card comments (CARD-COMMENTS-SPEC §4): recorded here; the client then sends the text to a session.
+  server.handle(rpc.commentTask, async (input) => ({ event: await addComment(store, input) }));
   server.handle(rpc.placeTask, async (input, { paseo }) => {
     const previous = await statusOf(input.id);
     const task = await store.placeTask(input);

@@ -398,6 +398,8 @@ export const eventSchema = z.object({
   workpad: deliverySchema.optional(),
   /** status_changed into In review by an agent that acknowledged missing card setup (CARD-SETUP-SPEC §3.4). */
   setup: z.object({ missing: z.array(z.enum(["metadata", "type", "tags", "workpad"])) }).optional(),
+  /** commented: the request that wrote it, so a retried request returns this event (CARD-COMMENTS-SPEC §4). */
+  operationId: z.string().max(200).optional(),
   at: timestamp,
 });
 export const boardSchema = z.object({

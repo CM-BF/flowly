@@ -33,6 +33,7 @@ import {
   planSnapshotSchema,
 } from "./model";
 import { healthSchema, preparationSchema } from "./tools";
+import { commentInput } from "./comments";
 import { connectionInput, connectionSchema, externalSummarySchema } from "./connectors";
 import { composerStateSchema, composerTarget, maxImages, outgoingImageSchema, queuedMessageSchema } from "./composer";
 import {
@@ -98,7 +99,7 @@ const collectionPatch = <T extends z.ZodType>(item: T) =>
 export const boardPatchSchema = z.object({
   revision: z.number().int().nonnegative(),
   events: z.array(eventSchema),
-  /** Events that left the board (a card keeps at most 100): drop them before appending `events`. */
+  /** Events that left the board (a card keeps its latest 100, and its latest comments apart from them): drop them before appending `events`. */
   removeEvents: z.array(z.string()).optional(),
   plans: z.array(planSnapshotSchema).optional(),
   projects: collectionPatch(projectSchema),
@@ -222,6 +223,12 @@ export const updateTaskTags = defineRpc({
   name: "tasks.tags",
   input: taskTagsEdit,
   output: taskSchema,
+});
+/** A person's comment on a card, recorded as a "commented" event (CARD-COMMENTS-SPEC §4); the client sends it to a session afterwards. */
+export const commentTask = defineRpc({
+  name: "tasks.comment",
+  input: commentInput,
+  output: z.object({ event: eventSchema }),
 });
 /** Dismiss or restore an idea (IDEAS-SPEC §7). */
 export const updateIdea = defineRpc({
