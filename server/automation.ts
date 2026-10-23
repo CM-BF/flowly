@@ -209,7 +209,8 @@ export class AutomationService {
   /**
    * A person (or a parent card's agent) moved the card. Done/Cancelled ends the job; Backlog ends it too,
    * and so do Todo and Blocked once an agent is on it (that is the person taking
-   * the card back). Moves between work stages are the agent's business.
+   * the card back). Moves between work stages are the agent's business; a delivered
+   * card moved back to work stays delivered, so feedback to its implementer reopens it (§4.2).
    */
   async cardMoved(taskId: string, previous: string | undefined, next: string) {
     if (previous === next) return;
@@ -217,7 +218,7 @@ export class AutomationService {
       const job = jobOf(board, taskId);
       if (!job || (!isLive(job) && job.state !== "delivered")) return { value: false, changed: false };
       const finished = next === "done" || next === "cancelled";
-      const taken = job.state === "delivered" || next === "backlog" || ((next === "todo" || next === "blocked") && job.state !== "queued");
+      const taken = next === "backlog" || ((next === "todo" || next === "blocked") && job.state !== "queued");
       if (!finished && !taken) return { value: false, changed: false };
       this.close(job, "stopped", finished ? "card_finished" : "card_moved");
       this.store.event(board, { taskId, actor: "system", action: "automation_stopped", note: finished ? "The card was finished" : "The card was moved" });
@@ -237,8 +238,10 @@ export class AutomationService {
     await this.store.transaction((board) => {
       if (taskId) {
         const owner = jobOf(board, taskId);
-        if (owner && automationAllowed(board, owner) && (isLive(owner) || owner.state === "delivered") && agentId !== owner.implementerId && agentId !== activeAgent(owner)) {
+        // Another managed session of the card took over. The job's own reviewer, outside its round, did not.
+        if (owner && automationAllowed(board, owner) && (isLive(owner) || owner.state === "delivered") && agentId !== owner.implementerId && agentId !== owner.reviewerId && agentId !== activeAgent(owner)) {
           this.close(owner, "stopped", "card_moved");
+          this.store.event(board, { taskId, actor: "system", agentId, action: "automation_stopped", note: "Another session took over the card" });
           return { value: null, changed: true };
         }
       }
@@ -359,7 +362,7 @@ export class AutomationService {
         case "review":
           if (job.reopened) job.reviewRounds = 0;
           delete job.reopened;
-          job.deliveryEvent = [...board.events].reverse().find((e) => e.taskId === job.taskId && e.actor === "agent" && e.to === "in_review")?.id;
+          job.deliveryEvent = decision.delivery;
           job.role = "reviewer";
           job.state = "reviewing";
           job.reviewRounds++;
@@ -383,6 +386,7 @@ export class AutomationService {
           delete job.pendingRole;
           if (decision.code) job.code = decision.code;
           else delete job.code;
+          if (decision.unreviewed) delete job.verdict;
           note("automation_delivered", decision.code === "review_rounds" ? `Review rounds used up (${settings.maxReviewRounds}); the card waits for you` : undefined);
           break;
         case "wait":
@@ -425,6 +429,7 @@ export class AutomationService {
             job.role = "implementer";
             job.state = "delivered";
             job.verdict = "incomplete";
+            job.reviewedEvent = job.deliveryEvent;
             job.code = decision.code;
             delete job.pendingOp;
             delete job.pendingRole;
@@ -468,6 +473,7 @@ export class AutomationService {
       const now = this.now();
       const text = [input.summary, ...input.findings.map((f) => `- ${f}`)].join("\n");
       job.verdict = verdict;
+      job.reviewedEvent = job.deliveryEvent;
       job.detail = clip(input.summary);
       job.updatedAt = now;
       job.nudges = 0;
@@ -807,6 +813,7 @@ export class AutomationService {
         job.role = "implementer";
         job.state = "delivered";
         job.verdict = "incomplete";
+        job.reviewedEvent = job.deliveryEvent;
         delete job.pendingOp;
         delete job.pendingRole;
         delete job.instruction;

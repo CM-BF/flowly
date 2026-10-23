@@ -7,7 +7,7 @@ import type { PaseoApi } from "@getpaseo/client";
 import { BoardStore } from "./store";
 import { AutomationService } from "./automation";
 import type { AutomationSettings } from "../shared/automation";
-import { reviewingJob } from "../shared/automation";
+import { reviewerJob } from "../shared/automation";
 import type { ToolPreparation } from "../shared/tools";
 import { applyTurnEnded, applyTurnStarted } from "./progress-rules";
 import type { BoardEvent, Status, Task } from "../shared/model";
@@ -154,7 +154,7 @@ export async function automationFixture(automation: Partial<AutomationSettings> 
     if (started) started.status = "running";
     await store.mutate((board) => {
       board.events.push({ id: randomUUID(), at: new Date(now).toISOString(), taskId, actor: "system", action: "agent.turn_started", agentId });
-      if (!reviewingJob(board, agentId)) applyTurnStarted(store, board, identity(agentId, taskId), "Session");
+      if (!reviewerJob(board, agentId)) applyTurnStarted(store, board, identity(agentId, taskId), "Session");
     });
     await automationService.turnStarted(agentId, taskId);
   };

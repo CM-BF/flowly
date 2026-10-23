@@ -43,11 +43,17 @@ export const activeAgent = (job: Pick<AutomationJob, "role" | "implementerId" | 
   job.role === "reviewer" ? job.reviewerId : job.implementerId;
 
 /**
- * The job reviewing with this session. Its turns are not work on the card:
- * rule A1 must not pull the card out of In review when the reviewer starts.
+ * The job this session is the reviewer of, while that job runs or its delivery waits for the user.
+ * The reviewer's turns are not work on the card, in its round or outside it (a person asking it about
+ * its verdict): rule A1 must not pull the card out of In review, and the job is not taken over.
  */
-export const reviewingJob = (board: Pick<Board, "automation">, agentId: string) =>
-  board.automation.find((j) => j.role === "reviewer" && j.reviewerId === agentId && isLive(j));
+export const reviewerJob = (board: Pick<Board, "automation">, agentId: string) =>
+  // Older jobs could carry one session in both roles; that session is the implementer.
+  board.automation.find((j) => j.reviewerId === agentId && j.reviewerId !== j.implementerId && (isLive(j) || j.state === "delivered"));
+
+/** The delivery the job's latest verdict was given on (jobs recorded before `reviewedEvent` existed: a verdict judged `deliveryEvent`). */
+export const judgedDelivery = (job: Pick<AutomationJob, "reviewedEvent" | "deliveryEvent" | "verdict">) =>
+  job.reviewedEvent ?? (job.verdict ? job.deliveryEvent : undefined);
 
 export type Readiness =
   | { ready: true }
@@ -121,10 +127,13 @@ export const retryDelayMs = (n: number) => Math.min(30_000 * 2 ** Math.max(0, n 
 export type TurnOutcome = { kind: "completed" } | { kind: "failed"; message: string } | { kind: "canceled" };
 export type TurnDecision =
   | { kind: "ignore" }
-  /** The implementer delivered: start the next review round. */
-  | { kind: "review" }
-  /** The implementer delivered and no (further) review runs: the user takes over. */
-  | { kind: "deliver"; code?: AutomationCode }
+  /** The implementer delivered `delivery` (its status event): start the next review round on it. */
+  | { kind: "review"; delivery?: string }
+  /**
+   * The implementer delivered and no (further) review runs: the user takes over. `unreviewed`: new
+   * work no reviewer will judge, so an earlier verdict does not describe it.
+   */
+  | { kind: "deliver"; code?: AutomationCode; unreviewed?: true }
   /** The session waits for a person; its next turn resumes supervision. */
   | { kind: "wait"; code: AutomationCode }
   | { kind: "stop"; code: AutomationCode }
@@ -196,9 +205,12 @@ export function turnDecision(
   } else {
     if (task.status === "in_review") {
       const delivery = [...board.events].reverse().find((e) => e.taskId === task.id && e.agentId === agentId && e.actor === "agent" && e.to === "in_review");
-      if (job.deliveryEvent && delivery?.id === job.deliveryEvent) return { kind: "deliver" };
-      if (!settings.reviewer) return { kind: "deliver" };
-      return job.reviewRounds < settings.maxReviewRounds ? { kind: "review" } : { kind: "deliver", code: "review_rounds" };
+      // Nothing new since the latest verdict (a casual answer): the verdict still stands.
+      if (delivery && delivery.id === judgedDelivery(job)) return { kind: "deliver" };
+      if (!settings.reviewer) return { kind: "deliver", unreviewed: true };
+      // Feedback after a delivery (or during its review) starts a new cycle: its rounds count from zero (§4.2).
+      const rounds = job.reopened ? 0 : job.reviewRounds;
+      return rounds < settings.maxReviewRounds ? { kind: "review", ...(delivery ? { delivery: delivery.id } : {}) } : { kind: "deliver", code: "review_rounds" };
     }
     if (task.status === "blocked" && blockedThisTurn(board, task.id, agentId)) return { kind: "wait", code: "blocked" };
     if (askedThisTurn(board, task.id, agentId)) return { kind: "wait", code: "question" };

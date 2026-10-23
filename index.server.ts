@@ -44,7 +44,7 @@ import { sessionModel } from "./server/agent-model";
 import { turnPick, userTexts } from "./shared/agent-habits";
 import { MemoryService } from "./server/memory";
 import { AutomationService } from "./server/automation";
-import { reviewingJob } from "./shared/automation";
+import { reviewerJob } from "./shared/automation";
 import { agentModelFromValues } from "./shared/agent-defaults";
 
 export default function contribute(server: PluginServerContext) {
@@ -549,8 +549,8 @@ export default function contribute(server: PluginServerContext) {
     const auto = await autoStatusOn();
     await store.mutate((board) => {
       recordLifecycle(store, board, identity, "agent.turn_started");
-      // An automation reviewer's turn is not work on the card: it stays In review (AUTOMATION-SPEC §5).
-      if (auto && !reviewingJob(board, identity.agentId)) applyTurnStarted(store, board, identity, event.agent.title);
+      // An automation reviewer's turn, in its round or after its verdict, is not work on the card: it stays In review (AUTOMATION-SPEC §5).
+      if (auto && !reviewerJob(board, identity.agentId)) applyTurnStarted(store, board, identity, event.agent.title);
     });
     void automation.turnStarted(identity.agentId, identity.taskId).catch((e) =>
       console.error("Flowly automation turn start not handled:", e instanceof Error ? e.message : String(e)),

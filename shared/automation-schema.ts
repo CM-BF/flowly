@@ -101,8 +101,13 @@ export const automationJobSchema = z.object({
   pendingRole: z.enum(["implementer", "reviewer"]).optional(),
   /** An instruction survives reloads and send failures with its original payload and identity. */
   instruction: z.object({ id: z.string(), role: z.enum(["implementer", "reviewer"]), text: z.string(), fresh: z.string() }).optional(),
-  /** The reviewed delivery, used to distinguish new work from a casual follow-up. */
+  /** The delivery (the agent's status event to In review) the latest review round looks at. */
   deliveryEvent: z.string().optional(),
+  /**
+   * The delivery the latest verdict (approved, changes, incomplete) was given on. A turn that ends on it
+   * again delivered nothing new (a casual answer keeps the verdict); any other delivery is new work.
+   */
+  reviewedEvent: z.string().optional(),
   feedback: z.string().max(4000).optional(),
   reopened: z.boolean().optional(),
   provider: z.string().optional(),

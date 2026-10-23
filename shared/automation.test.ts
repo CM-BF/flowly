@@ -1,6 +1,6 @@
 import { expect, test } from "vitest";
 import type { Board, Project, Status, Task } from "./model";
-import { automationSettingsSchema, subCardActive, dispatchPlan, readiness, reviewingJob, turnDecision, type AutomationJob, type AutomationSettings } from "./automation";
+import { automationSettingsSchema, subCardActive, dispatchPlan, readiness, reviewerJob, turnDecision, type AutomationJob, type AutomationSettings } from "./automation";
 
 const at = "2026-10-22T00:00:00.000Z";
 const now = Date.parse(at);
@@ -88,10 +88,27 @@ const decide = (status: Status, j: Partial<AutomationJob>, s = settings(), outco
   turnDecision(b, job("a", { state: "working", implementerId: "impl", reviewerId: "rev", ...j }), j.role === "reviewer" ? "rev" : "impl", outcome, s, now);
 
 test("a delivery goes to review while rounds remain, otherwise to the user", () => {
-  expect(decide("in_review", {})).toEqual({ kind: "deliver" });
+  expect(decide("in_review", {})).toEqual({ kind: "deliver", unreviewed: true });
   const reviewed = settings({ reviewer: { provider: "claude", model: "m" }, maxReviewRounds: 2 });
   expect(decide("in_review", { reviewRounds: 1 }, reviewed)).toEqual({ kind: "review" });
   expect(decide("in_review", { reviewRounds: 2 }, reviewed)).toEqual({ kind: "deliver", code: "review_rounds" });
+});
+
+test("only a delivery with a verdict on it is settled again; new work after feedback gets fresh review rounds", () => {
+  const reviewed = settings({ reviewer: { provider: "claude", model: "m" }, maxReviewRounds: 1 });
+  const b = board({ tasks: [task("a", "in_review")] });
+  b.events.push({ id: "d1", taskId: "a", actor: "agent", action: "status_changed", agentId: "impl", to: "in_review", at });
+  const judge = (j: Partial<AutomationJob>) => decide("in_review", { reviewRounds: 1, ...j }, reviewed, { kind: "completed" }, b);
+  // A casual answer after the verdict on d1 (also for jobs recorded before reviewedEvent existed).
+  expect(judge({ verdict: "approved", reviewedEvent: "d1", deliveryEvent: "d1", reopened: true })).toEqual({ kind: "deliver" });
+  expect(judge({ verdict: "approved", deliveryEvent: "d1", reopened: true })).toEqual({ kind: "deliver" });
+  // d1 was under review but got no verdict before the person spoke to the implementer.
+  expect(judge({ deliveryEvent: "d1", reopened: true })).toEqual({ kind: "review", delivery: "d1" });
+  // New work after feedback on a final-round approval.
+  b.events.push({ id: "d2", taskId: "a", actor: "agent", action: "status_changed", agentId: "impl", to: "in_review", at });
+  expect(judge({ verdict: "approved", reviewedEvent: "d1", deliveryEvent: "d1", reopened: true })).toEqual({ kind: "review", delivery: "d2" });
+  expect(judge({ verdict: "changes", reviewedEvent: "d1", deliveryEvent: "d1" })).toEqual({ kind: "deliver", code: "review_rounds" });
+  expect(decide("in_review", { verdict: "approved", reviewedEvent: "d1", reopened: true }, settings(), { kind: "completed" }, b)).toEqual({ kind: "deliver", unreviewed: true });
 });
 
 test("questions and blockers wait for a person; a silent end is nudged, then blocks the card", () => {
@@ -129,11 +146,15 @@ test("a reviewer without a verdict is nudged and never blocks the delivered card
   expect(turnDecision(b, job("a", { state: "working", implementerId: "impl" }), "someone-else", { kind: "completed" }, settings(), now)).toEqual({ kind: "ignore" });
 });
 
-test("only a live reviewer session is exempt from rule A1", () => {
-  const b = board({ automation: [job("a", { state: "reviewing", role: "reviewer", reviewerId: "rev" })] });
-  expect(reviewingJob(b, "rev")?.taskId).toBe("a");
+test("the job's reviewer session is exempt from rule A1 while the job runs or its delivery waits; not after the job ended", () => {
+  const b = board({ automation: [job("a", { state: "reviewing", role: "reviewer", reviewerId: "rev", implementerId: "impl" })] });
+  expect(reviewerJob(b, "rev")?.taskId).toBe("a");
   b.automation[0].state = "delivered";
-  expect(reviewingJob(b, "rev")).toBeUndefined();
+  b.automation[0].role = "implementer";
+  expect(reviewerJob(b, "rev")?.taskId).toBe("a");
+  expect(reviewerJob(b, "impl")).toBeUndefined();
+  b.automation[0].state = "stopped";
+  expect(reviewerJob(b, "rev")).toBeUndefined();
 });
 
 
