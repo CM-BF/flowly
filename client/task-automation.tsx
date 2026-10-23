@@ -202,7 +202,7 @@ export function AutomationSettingsGroup({
           )}
           <Toggle
             title={t("Full access")}
-            detail={t("Agents run without asking for permissions (Claude bypass, Codex full access). Off: they may stop to ask, and the card shows it.")}
+            detail={t("Agents run without asking for permissions (Claude bypass, Codex full access), whatever Permissions the implementer, the reviewer or the project default model chose. Off: those Permissions apply, agents may stop to ask, and the card shows it.")}
             value={current.fullAccess}
             onChange={(fullAccess) => set({ fullAccess })}
           />

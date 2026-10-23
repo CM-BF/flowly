@@ -26,7 +26,7 @@ Hermes Kanban 的 agent 自动化有四块：**dispatcher**（依赖、并发、
 | `implementer` | 无 | 实现者模型；无则用项目默认模型 → 全局默认模型 → 第一个可用 provider 的默认模型。 |
 | `reviewer` | 无 | 评审者模型；无则不做 agent 评审（`review_dispatch=false`）。 |
 | `maxReviewRounds` | 3 | 一个**评审周期**内最多几轮评审（周期的定义见 §5）。 |
-| `fullAccess` | true | session 用 provider 的免审批模式（claude `bypassPermissions`、codex `full-access`），其它 provider 用默认模式。权限的优先级按 [TASK-INTAKE-SPEC](TASK-INTAKE-SPEC.md)：角色自己设的 Permissions → 同 provider 项目默认模型的 Permissions（包括显式的 “Provider default”）→ `fullAccess`。所以项目默认模型设了 Permissions 时，这个开关对用它的角色不起作用；开关文案尚未说明这一点（评审 client-docs-3，留给用户决定是改优先级还是改文案）。 |
+| `fullAccess` | true | 开着时，所有自动化 session（执行者和评审者）都用 provider 的免审批模式（claude `bypassPermissions`、codex `full-access`），**覆盖**角色自己设的 Permissions 和同 provider 项目默认模型的 Permissions（用户决定，2026-10-23）；没有已知免审批模式的 provider 保留选定的权限。关着时按 [TASK-INTAKE-SPEC](TASK-INTAKE-SPEC.md)：角色的 Permissions → 同 provider 项目默认模型的 Permissions（包括显式的 “Provider default”）→ provider 默认。自动化开启时 New task 表单默认显示同样的结果；有人在表单里为某张卡改了权限，那张卡按其选择启动。速度等其它执行设置仍按角色 → 项目默认继承。 |
 | `nudgeLimit` | 2 | 静默结束后的提醒次数（stop nudge）。界面不暴露。 |
 | `failureLimit` | 2 | 连续失败回合上限（`failure_limit`）。界面不暴露。 |
 

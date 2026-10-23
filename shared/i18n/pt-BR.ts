@@ -1380,7 +1380,7 @@ const catalog: Catalog = {
   "No agent review": "Sem revisão por agente",
   "Review rounds": "Rodadas de revisão",
   "Full access": "Acesso total",
-  "Agents run without asking for permissions (Claude bypass, Codex full access). Off: they may stop to ask, and the card shows it.": "Os agentes rodam sem pedir permissões (bypass no Claude, full access no Codex). Desativado: eles podem parar para perguntar, e o card mostra isso.",
+  "Agents run without asking for permissions (Claude bypass, Codex full access), whatever Permissions the implementer, the reviewer or the project default model chose. Off: those Permissions apply, agents may stop to ask, and the card shows it.": "Os agentes rodam sem pedir permissões (bypass no Claude, full access no Codex), quaisquer que sejam as permissões escolhidas para o implementador, o revisor ou o modelo padrão do projeto. Desativado: essas permissões valem, os agentes podem parar para perguntar, e o card mostra isso.",
   "Agents can split a card into sub-cards, each with its own workspace. The parent card shows Sub-cards 2/3, waits while they run and is woken to accept them and finish. New sub-card is in every card's menu.": "Os agentes podem dividir um card em subcards, cada um com seu próprio workspace. O card pai mostra Subcards 2/3, espera enquanto eles rodam e é acordado para aceitá-los e concluir. Novo subcard está no menu de cada card.",
   "New sub-card": "Novo subcard",
   "Sub-cards {done}/{total}": "Subcards {done}/{total}",

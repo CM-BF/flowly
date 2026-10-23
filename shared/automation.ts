@@ -1,6 +1,7 @@
 import type { Board, BoardEvent, Project, Task } from "./model";
 import { childrenOf, linksOf, parentOf } from "./links";
 import { laneEnabled } from "./lanes";
+import { executionModel, type AgentModel } from "./agent-defaults";
 import {
   automationSettingsSchema,
   type AutomationCode,
@@ -384,6 +385,17 @@ export function parentShouldWake(board: Pick<Board, "tasks" | "links" | "automat
 
 /** Provider modes that never stop for approval; unattended sessions use them when full access is on. */
 export const unattendedModes: Readonly<Record<string, string>> = { claude: "bypassPermissions", codex: "full-access" };
+
+/**
+ * The execution settings an automation session starts with (AUTOMATION-SPEC §2): the role's model
+ * inherits model settings from a same-provider project default; with Full access on, the
+ * provider's no-approval mode overrides any Permissions the role or the project default chose.
+ */
+export function automationExecution(model: AgentModel, project: AgentModel | null | undefined, fullAccess: boolean): AgentModel {
+  const settled = executionModel(model, project);
+  const unattended = fullAccess ? unattendedModes[model.provider] : undefined;
+  return unattended ? { ...settled, modeId: unattended } : settled;
+}
 
 // Messages the daemon sends to sessions. Agent-facing text stays English (I18N-SPEC).
 export const automationTag = "[Flowly automation]";

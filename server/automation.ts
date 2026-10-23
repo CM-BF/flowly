@@ -1,6 +1,5 @@
 import { AutomationLaunches } from "./automation-launch";
 import type { AutomationLaunch } from "../shared/automation-launch";
-import { executionModel } from "../shared/agent-defaults";
 import { supportedFeatures } from "../shared/agent-features";
 import { cardHandoff, cardLocation } from "./automation-handoff";
 import { realpath } from "node:fs/promises";
@@ -45,7 +44,7 @@ import {
   reviewPrompt,
   startPrompt,
   turnDecision,
-  unattendedModes,
+  automationExecution,
   type AutomationCode,
   type AutomationJob,
   type AutomationSettings,
@@ -848,7 +847,7 @@ export class AutomationService {
     if (!recorded) return;
     const launch = role === "implementer" && job.launchKey && !job.launchConsumed ? await this.launches.read(task.id, job.launchKey) : undefined;
     const chosen = launch?.model ?? (role === "reviewer" ? settings?.reviewer : await this.implementerModel(project, settings, paseo));
-    const model = chosen && (launch ? chosen : executionModel(chosen, project.agentModel, settings?.fullAccess ? unattendedModes[chosen.provider] : undefined));
+    const model = chosen && (launch ? chosen : automationExecution(chosen, project.agentModel, !!settings?.fullAccess));
     if (!model) throw new Error(role === "reviewer" ? "No reviewer model is set." : "No available model to start an agent with.");
     if (coolingProvider(await this.store.read(), model.provider, this.clock(), { except: job.taskId })) return;
     await this.store.transaction((board) => { const j = this.current(board, job, role); if (!j) return { value: null, changed: false }; j.provider = model.provider; return { value: null, changed: true }; });

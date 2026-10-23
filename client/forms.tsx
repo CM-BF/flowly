@@ -2,7 +2,7 @@ import { enabledStatuses, laneName, projectLanes } from "../shared/lanes";
 import { LaneEditor } from "./lane-editor";
 import { Disclosure } from "./disclosure";
 import { taskDraft } from "../shared/task-draft";
-import { unattendedModes } from "../shared/automation";
+import { automationExecution } from "../shared/automation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { View } from "react-native";
@@ -27,7 +27,7 @@ import { AgentPicker, useAgentChoice, type AgentDefaults } from "./agent-choice"
 import { ModelDefaultGroup } from "./model-default";
 import { AutomationSettingsGroup } from "./task-automation";
 import type { AutomationSettings } from "../shared/automation-schema";
-import { agentModelFromValues, executionModel, startingAgent, type AgentModel } from "../shared/agent-defaults";
+import { agentModelFromValues, startingAgent, type AgentModel } from "../shared/agent-defaults";
 import { modelSettings, modelSettingsValues } from "../shared/settings";
 import { launchKanbanSession } from "./session";
 import { ImageAttachments, useImageAttachments } from "./image-attach";
@@ -509,7 +509,7 @@ export function TaskForm({
     provider: agentDefaults.provider, model: agentDefaults.model, thinking: agentDefaults.thinking,
     ...(agentDefaults.featureValues ? { featureValues: agentDefaults.featureValues } : {}),
   } : null);
-  const automationDefault = selected && automation ? executionModel(selected, project.agentModel, automation.fullAccess ? unattendedModes[selected.provider] : undefined) : null;
+  const automationDefault = selected && automation ? automationExecution(selected, project.agentModel, automation.fullAccess) : null;
   const choice = useAgentChoice({ enabled: startChosen, cwd: project.primaryPath,
     defaults: automationDefault ? startingAgent(agentDefaults, automationDefault) : agentDefaults });
   const queue = useRpc(rpc.queueAutomation);

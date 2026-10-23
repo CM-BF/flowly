@@ -15,7 +15,7 @@
 
 - 项目默认模型、自动化执行者与评审者可选择权限和 Fast，能力由 Paseo `providers.listModes/listFeatures` 返回。配置保存 `modeId`（空串代表显式 provider 默认）和 `featureValues`，通过 SDK `config` 传入。
 - 支持继承、明确 Standard/off、Fast/on。Claude 使用 `fast_mode`，Codex 使用返回的 `service_tier` 选项。切 provider 清空旧 provider 的配置；更换模型时不发送该模型不支持的特性。
-- 自动化角色明确设置优先于同 provider 的项目默认，再回退到旧 `fullAccess` 行为。显式 provider 默认不被旧 fullAccess 覆盖。
+- 自动化角色明确设置优先于同 provider 的项目默认。权限例外（用户决定，2026-10-23）：自动化的 **Full access** 开着时，执行者与评审者一律用 provider 的免审批模式，覆盖角色和项目默认的 Permissions；关着时才按 角色 → 项目默认 → provider 默认。New task 表单的默认值与此一致，单张卡在表单里改过的权限仍按该卡的选择。
 - 这些是新 session 的启动默认，不静默重配已经运行的 session。全局及摘要模型选择器不展示尚不能保存的执行设置。
 
 ## 数据与授权
