@@ -19,7 +19,8 @@ User decision: the reviewer may run on a limit-prone model (Opus 5.5 max), so ea
 - [x] Automation sessions carry the label `paseo-rate-fallback=off`; the rate-fallback plugin honours it (its own change), so one limit never yields two takeovers in one worktree.
 - [x] Tests: `server/automation-fallback.test.ts` (11), `shared/automation-fallback.test.ts` (4); typecheck and full suite green.
 - Onboarding: no new tip or tour line. This is a settings option for people who already use automation, and its effect appears on the card ("On the fallback model after a provider limit") and in the activity.
-- [ ] UNRUN live: a real provider limit cannot be triggered on demand; covered offline only.
+- [x] Live (`52ca423`): the fallback pickers save and persist, automation sessions carry `paseo-rate-fallback=off`, and Full access overrides a project default that asks for approvals. [Report](verification/card-comments.md).
+- [ ] UNRUN live: the switch itself (a real provider limit cannot be triggered on demand); covered offline only.
 
 ## Card comments — 2026-10-23
 
@@ -30,7 +31,8 @@ User decision: the reviewer may run on a limit-prone model (Opus 5.5 max), so ea
 - [x] Onboarding: tip `card-comments` (open card with a live session, not archived; before the other open-card tips), tour More features line, README highlights (both languages), ONBOARDING-SPEC tip table, DRAWER-SPEC section list, nine catalogs.
 - [x] Offline behaviour tests for the §6 unit items: `server/comments.test.ts`, `server/get-task-comments.test.ts`, `client/card-comments.test.ts`, `client/onboarding-logic.test.ts`, `shared/drawer-sections.test.ts`. Typecheck and full suite at first delivery: 1193 passed / 65 pre-existing skipped. Correction: the first delivery claimed every §6 item was covered, but the Comments section's wiring (exact text, no restore of archived sessions, When running, resend only sends, implementer from the job) was untested and could be broken with every test passing.
 - [x] Review fixes (spec §7.4, §7.6, §7.7, §7.10, §7.11): the composer's state and the post in flight live in the drawer's `CommentMemory`, so a section remounted mid-post cannot send a comment twice and sees its result; the box clears once the comment is recorded; Return posts on phones, with the session composer's keys (`composerKeys`, shared); each failed delivery keeps its own notice; a reviewer-only card offers the reviewer in To: and says why nothing is sent; the no-session hint waits for the archived read; get_task comments carry `unread` and come in full until read. The section's decisions moved into pure functions in `client/card-comments.ts` (transport, recipients from the job, post, resend, To:, hint), each test seen failing against a port of the first version's logic. Typecheck and full suite after the fixes: 1207 passed / 65 pre-existing skipped. Live acceptance of the fixes is unrun too (not installed on the daemon).
-- [ ] UNRUN: live acceptance on the daemon and app.paseo.sh (§6: In-review automation card rework and re-review, question on a directly started card, card without a session, Activity, desktop and compact screenshots). The plugin was not installed or reloaded; the daemon still runs its pinned commit.
+- [x] Live on the daemon (`52ca423`, 2026-10-23): a change request on a delivered automated card reached the implementer verbatim, reopened it and was reworked and re-reviewed; a question was answered without moving the card or dropping its approval; a card without a session only saved the comment; desktop and 430 px screenshots; the one-time tip. [Report](verification/card-comments.md).
+- [ ] UNRUN: physical Android.
 - [ ] UNRUN: physical Android (keyboard over the inline composer).
 
 
