@@ -24,11 +24,12 @@ async function failed(x: Fixture) {
 
 /** Turns on the card that move nothing: the card's history fills up. */
 async function laterTurns(x: Fixture, impl: string, n: number) {
-  for (let i = 0; i < n; i++)
-    await x.store.mutate((board) => {
+  await x.store.mutate((board) => {
+    for (let i = 0; i < n; i++) {
       x.store.event(board, { taskId: "a", actor: "system", action: "agent.turn_started", agentId: impl });
       x.store.event(board, { taskId: "a", actor: "system", action: "agent.turn_ended", agentId: impl, outcome: "completed" });
-    });
+    }
+  });
   await x.automation.kick();
 }
 

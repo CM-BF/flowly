@@ -18,18 +18,25 @@ async function casualTurn(x: Fixture, impl: string) {
   await x.automation.kick();
 }
 
+/** Fill the bounded history through the real event writer, without hundreds of unrelated disk commits. */
+async function fillHistory(x: Fixture, impl: string) {
+  await x.store.mutate((board) => {
+    for (let i = 0; i < 105; i++) x.store.event(board, { taskId: "a", actor: "agent", agentId: impl, action: "progress_reported", note: `History ${i}` });
+  });
+}
+
 test("casual turns after an approval keep it after the delivery has left the card's history, and start no review", async () => {
   const { x, impl, rev } = await underReview({ maxReviewRounds: 1 });
   await x.automation.submitReview(as(rev), { verdict: "approve", summary: "Checked" });
   await x.endTurn(rev, "a");
   const delivery = (await x.job("a")).reviewedEvent;
   expect(delivery).toBeDefined();
-  for (let i = 0; i < 25; i++) {
+  await fillHistory(x, impl);
+  expect(await deliveryKept(x, delivery)).toBe(false);
+  for (let i = 0; i < 3; i++) {
     await casualTurn(x, impl);
     expect(await x.job("a"), `casual turn ${i + 1}`).toMatchObject({ state: "delivered", verdict: "approved", reviewRounds: 1 });
   }
-  // The scenario really reached past the history window.
-  expect(await deliveryKept(x, delivery)).toBe(false);
   expect(toReviewer(x, rev)).toEqual([]);
   expect((await x.store.read()).events.some((e) => e.action === "automation_review_started")).toBe(false);
   expect((await x.task("a")).status).toBe("in_review");
@@ -57,7 +64,9 @@ test("new work after the history moved on is still reviewed again", async () => 
   const { x, impl, rev } = await underReview({ maxReviewRounds: 1 });
   await x.automation.submitReview(as(rev), { verdict: "approve", summary: "Checked" });
   await x.endTurn(rev, "a");
-  for (let i = 0; i < 20; i++) await casualTurn(x, impl);
+  const delivery = (await x.job("a")).reviewedEvent;
+  await fillHistory(x, impl);
+  expect(await deliveryKept(x, delivery)).toBe(false);
   // The person asks for more; the implementer reworks and delivers again.
   await x.startTurn(impl, "a");
   await x.deliver(impl, "a");
