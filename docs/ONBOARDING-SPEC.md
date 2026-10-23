@@ -49,6 +49,7 @@ Headline tiles:
 - *Suggested next steps*: tap one to fill in the message box; nothing is sent until you send it.
 
 Under More features (a new feature normally goes here; promote it to a tile only by replacing one):
+- *Comments*: ask about progress or request changes right on the card; comments stay on it and go to the card's agent, which also sees them when it reads the card ([CARD-COMMENTS-SPEC](CARD-COMMENTS-SPEC.md)).
 - *Sub-cards*: agents split work into sub-cards with their own workspaces; a supervised parent waits, checks their deliveries and accepts them; failed or stopped jobs need your Run again ([SUB-CARDS-SPEC](SUB-CARDS-SPEC.md)).
 - *Agent automation*: optional per project; Run with agent queues a card, Flowly starts it when its blockers are Done, reminds or retries the agent when it stalls, and can have a reviewer agent check the delivery; Done stays yours ([AUTOMATION-SPEC](AUTOMATION-SPEC.md)).
 - *Workpad*: agents set the card's type and tags and write a workpad before they start: acceptance criteria, checks (passed, failed or not run on a named commit) and confusions; delivering without them needs a note ([WORKPAD-SPEC](WORKPAD-SPEC.md), [CARD-SETUP-SPEC](CARD-SETUP-SPEC.md) §4). No new tip: the change is agent behavior with no new screen moment.
@@ -78,7 +79,7 @@ Title with detail "Your first three steps." (plus "Nothing is created until you 
 
 ### 5. One-time contextual tips (small, non-modal)
 
-A tip is a single dismissible banner row (icon, one sentence, **Got it**) under the overview bar; only **Got it** records it as seen. Priority when several apply: agent-question, needs-you, attention-dismiss, first-done, older-finished, next-move, first-workpad, sub-cards, subagents, first-idea, first-memory-candidate, first-workflow-insight, ai-language, first-artifact, first-ticket, first-tag, first-card, task-intake, agent-automation, card-display, connectors, session-history, sidebar-order, project-menu, jira-connect. The empty-project hint takes the same slot and wins at the top of the relevant surface, using theme colours. At most one tip is visible at a time; a tip appears at most once per host (`tipsSeen`); dismissing or acting on the feature records it. Tips never block input, never move a focused input, and are not shown while the welcome tour is open.
+A tip is a single dismissible banner row (icon, one sentence, **Got it**) under the overview bar; only **Got it** records it as seen. Priority when several apply: agent-question, needs-you, attention-dismiss, first-done, older-finished, next-move, first-workpad, sub-cards, subagents, first-idea, first-memory-candidate, first-workflow-insight, ai-language, first-artifact, first-ticket, first-tag, first-card, task-intake, agent-automation, card-display, card-comments, connectors, session-history, sidebar-order, project-menu, jira-connect. The empty-project hint takes the same slot and wins at the top of the relevant surface, using theme colours. At most one tip is visible at a time; a tip appears at most once per host (`tipsSeen`); dismissing or acting on the feature records it. Tips never block input, never move a focused input, and are not shown while the welcome tour is open.
 
 | Tip id | Shown when | Text |
 | --- | --- | --- |
@@ -101,6 +102,7 @@ A tip is a single dismissible banner row (icon, one sentence, **Got it**) under 
 | `older-finished` | the current project has old Done/Cancelled cards folded under "Show older" (and at least one of those lanes still folds them) | "Cards that finished a while ago fold under “Show older” at the bottom of Done and Cancelled. Settings → Workflow sets how long they stay." (FINISHED-CARDS-SPEC) |
 | `first-ticket` | a card of the project has an external input (Jira, Confluence, GitHub, GitLab) and no card is open (EXTERNAL-TRACKER-SPEC, CONNECTORS-SPEC) | "A card has an item from a connected service as an input. Agents read it every turn and see when it changes. Flowly never changes it there, and its status doesn't move the card." |
 | `card-display` | the current project has 6 or more active cards and no card is open (CARD-DISPLAY-SPEC §5) | "Cards too busy? Choose what they show in Settings → Cards, or from the Sort menu → Card display." |
+| `card-comments` | a card is open, it has a live session and is not archived, so its Comments composer is in view (CARD-COMMENTS-SPEC §5; new id, so every existing user sees it once) | "Ask about progress or request changes right on the card: comments are saved here and sent to the card's agent." |
 | `connectors` | a card is open, so its Artifacts + is in view (CONNECTORS-SPEC §8.5; new id, so every existing user sees it once) | "The Artifacts + now adds Confluence pages and GitHub or GitLab issues and pull requests too, besides files, links and Jira tickets. Connect services in Settings → Connections." |
 | `session-history` | a card is open and it has a session (SESSION-PANE-SPEC §1) | "A session's output now starts at the beginning of its current turn. Press Load earlier at the top to read further back." |
 | `ai-language` | a card of the current project has an AI progress summary (AI-LANGUAGE-SPEC §7) | "AI-written text follows Settings → AI features → AI output language. It starts as your interface language." |
@@ -155,4 +157,5 @@ Covered by unit tests: the pure logic (fresh user shows; existing user silently 
 ### Change notes
 
 - 2026-10-22, agent automation and sub-cards: the tour's More features gained *Sub-cards* and *Agent automation*, and the one-time tips `sub-cards` and `agent-automation` announce them to existing users (rows and priority above). The review of this feature added no tip id.
+- 2026-10-23, card comments (CARD-COMMENTS-SPEC): More features gained *Comments* (first in the list, the newest feature), and the one-time tip `card-comments` announces the Comments section the first time a card with a live session is open (row and priority above).
 - 2026-10-22, single task input (TASK-INTAKE-SPEC): the headline tile *Describe once, start working* and the `task-intake` tip (rows and priority above).

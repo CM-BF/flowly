@@ -46,6 +46,8 @@ agent 需要你拍板时，会提出一个明确的问题并停下。卡片亮�
 
 回合结束时，agent 可以在 session 输入框上方留下**建议的下一步**（如“用 Luna 验证”“提交并推送”）。点一下只会把内容填进输入框，由你修改或自行发送。工作提交并推送后，agent 还可以给出 **Move to Done**：它不填输入框，点击即移动卡片（Done 仍由你决定）。你发出下一条消息、开始新一轮后，这些建议就会消失。
 
+**评论**直接写在卡片上，像 Multica 的 issue 评论：在卡片的 **Comments** 里问进度、提意见或要求修改，不必先找到对应的 session。评论保存在卡片上（出现在 Activity 里，agent 在 `flowly_get_task` 中能看到最近的评论），原文通过与 session 输入框相同的路径、按同一个 *When running* 偏好发给卡片的 agent：默认发给自动化的执行者，否则发给最近活跃、不是评审者的 session；**To:** 可以改选。还没有 session 的卡片先保存评论，agent 启动后会读到；发送失败时评论也已保存，可以 **Resend**。评论不会移动卡片，Done 仍由你决定。
+
 ![会话输入框上方的下一步建议：Verify with Luna、Commit and push、Add 429 tests](docs/promo/screenshots/06-next-moves.png)
 
 ![卡片上 agent 的提问与 Reply 按钮](docs/promo/screenshots/02-needs-you-drawer.png)

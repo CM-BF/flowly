@@ -1,5 +1,7 @@
 # 卡片评论（Card comments）
 
+状态：**已实现，单元测试通过，实测未运行**（2026-10-23，见 §7）。
+
 用户决定，2026-10-23：像 Multica 的 issue 评论那样，人可以直接在卡片上对进度提问、写意见或要求修改，不必先找到并打开某个 session。顶层卡的 Done 仍由人决定（AGENTS.md 产品不变量不变）。
 
 ## 1. 行为
@@ -29,7 +31,7 @@
 ## 4. 数据与接口
 
 - `BoardEvent.action` 增加 `commented`。事件随卡片删除一起删（与其它事件相同），随删除备份写入 `removed/`。
-- RPC `tasks.comment`：`{ taskId, text (1–20000), operationId }` → `{ event }`。同一 `operationId` 重放返回同一条事件，不重复记录。拒绝：卡片或项目已归档（`ARCHIVED`）、卡片不存在。写入串行、原子，与其它看板写一致。
+- RPC `tasks.comment`：`{ taskId, text (1–10000，非空白；原定 20000，见 §7), operationId }` → `{ event }`。同一 `operationId` 重放返回同一条事件，不重复记录。拒绝：卡片或项目已归档（`ARCHIVED`）、卡片不存在。写入串行、原子，与其它看板写一致。
 - 发送由客户端在记录成功后进行（与 session 输入框相同的授权与发送代码）；记录与发送分开，所以发送失败不丢评论。
 
 ## 5. 新手引导
@@ -41,3 +43,20 @@
 
 - 单元：`commented` 事件写入与幂等重放、归档拒绝、revision 不变；`get_task.comments` 的数量与截断；收件 session 选择（自动化执行者优先、排除评审者、无 session）；发送失败不丢评论、重发不重复记录。
 - 实测（本机 daemon + app.paseo.sh）：对一张 In review 的自动化卡写评论要求修改 → 执行者收到原文、返工、重新评审；对一张直接启动的卡提问 → agent 回答，卡片不动；无 session 的卡只记录；桌面与窄布局截图；评论出现在 Activity。
+
+## 7. 实现说明（2026-10-23）
+
+代码：`shared/comments.ts`（常量、RPC 输入、`agentComments`）、`server/comments.ts`（`addComment`）、`shared/rpc.ts` + `index.server.ts`（`tasks.comment`）、`server/agent-service.ts` `get()`（`comments`）、`client/card-comments.ts`（收件 session、评论列表、先记录后发送；纯逻辑）、`client/task-comments.tsx`（Comments 区）、`client/drawer.tsx`。
+
+与上文不同或上文未写的地方：
+
+1. **单条评论最多 10000 字符，不是 20000。** 评论存为事件的 `note`，而 `eventSchema.note` 的上限是 10000：所有事件、客户端读到的看板和项目文件夹快照都按它校验。放宽到 20000 要改所有事件的数据契约；评论用不到这么长。输入框也限制在 10000。
+2. **评论不会被活动记录挤掉。** 卡片只保留最近 100 条事件，自动化每轮会写好几条，几十轮后评论就会消失（agent 也就看不到了）。所以评论不计入这 100 条，单独保留最近 50 条（`commentLimits.perTask`）；删除卡片时与其它事件一起删除并写入 `removed/` 备份。
+3. **幂等。** `operationId` 存在事件上（`BoardEvent.operationId`，可选字段）。同一 `operationId`、同一卡片、同一文字的重放返回原事件，不写文件，卡片归档后也一样；同一 `operationId` 换了内容则拒绝（`REQUEST_REUSED`）。客户端记录失败（例如回复丢失）后，对同一文字重试复用同一个 `operationId`，所以不会记两次。拒绝码：卡片或项目已归档 `ARCHIVED`，卡片不存在 `NOT_FOUND`。
+4. **收件 session。** To: 列出本卡 workspace 里未归档的主 session，按最近活跃（`updatedAt`）排序；Paseo subagent 不单列，由它的主 session 接收。评审者（`flowly-automation=reviewer` 或 job 的 `reviewerId`）可以手动选（标注 reviewer），但不会被默认选中。人选的 session 在它仍可选时一直有效，否则回到默认。
+5. **不恢复已归档的 session。** 发送前先确认 session 未归档（`workspaceSession(..., true)`），然后走 `sendCardInstruction`；`sendCardInstruction` 本身允许发给已归档的 session（Paseo 会恢复它），评论不允许。卡片只有已归档的 session（例如 wrap up 之后）时，提示 “This card's sessions are archived: the comment is saved on the card and not sent.”
+6. **失败与重发。** 失败提示（原因 + “Saved on the card; not delivered to {session}.”）一直保留到重发成功或点 Dismiss；之后发出的新评论成功不会清掉它。Resend 发给当前 To: 选中的 session（与失败时不同则按钮写 “Resend to {session}”），只发送，不再记录。排队（Queue）失败也算发送失败。
+7. **抽屉。** Comments 是可移动的侧栏分区（DRAWER-SPEC, Section order），默认在 Progress 下方、默认展开；已保存过分区顺序的用户也会看到它出现在 Progress 之后。草稿、To: 选择和失败提示在打开某个 session 再返回时保留（抽屉内存，不写入 daemon）。Enter 发送、Shift+Enter 换行、⌘/Ctrl+Enter 用 When running 的另一种方式，与 session 输入框相同。
+8. **新手引导。** 提示 `card-comments` 的条件是：打开的卡片有未归档的 session，且卡片未归档（输入框可用）。优先级在其它“打开卡片”类提示之前（`connectors` 之前）。
+
+验收（§6）：单元部分全部覆盖并先见红：`server/comments.test.ts`（事件写入、revision 不变、幂等重放、归档拒绝、Done/Cancelled 可评论、不被 100 条上限挤掉、删除与备份、RPC 输入）、`server/get-task-comments.test.ts`（数量、顺序、截断、skill 与评审提示）、`client/card-comments.test.ts`（收件 session 选择、列表、发送偏好、失败不丢评论、重发不重复记录、重试复用 operation）、`client/onboarding-logic.test.ts`（`card-comments`）、`shared/drawer-sections.test.ts`。实测部分（本机 daemon + app.paseo.sh）**未运行**：本次没有安装到 daemon。
