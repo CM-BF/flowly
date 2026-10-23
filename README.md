@@ -122,6 +122,8 @@ The first time you open Flowly, a short welcome tour explains projects, cards an
 
 Pick the model new sessions start with under **Settings → Models**. A project can set its own default in its settings, which wins over the global one; with neither, new sessions start from the latest session's settings.
 
+Summary models are an ordered fallback list in Settings → Models: add models and move them up or down to set priority; the default is Haiku → Luna.
+
 ![Settings → Models: default model and summary model](docs/promo/screenshots/settings/models.png)
 
 ### Data and safety
