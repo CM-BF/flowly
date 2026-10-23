@@ -284,17 +284,16 @@ export class AutomationService {
       // A real implementer turn proves the initial message reached the daemon, even if create has not returned.
       if (job.launchKey && job.implementerId === agentId) job.launchConsumed = true;
       // A prepared session's first real turn proves its creation reached the daemon.
-      if (job.pendingOp && activeAgent(job) === agentId) { delete job.instruction; delete job.pendingOp; delete job.pendingRole; }
+      if (job.pendingOp && activeAgent(job) === agentId && (!job.pendingRole || job.pendingRole === job.role)) { delete job.instruction; delete job.pendingOp; delete job.pendingRole; }
       if (activeAgent(job) === agentId) delete job.unconfirmed;
       if (job.state === "delivered" || (job.role === "reviewer" && job.implementerId === agentId)) {
         const task = board.tasks.find((t) => t.id === job.taskId);
         if (!task || task.archivedAt || task.status === "done" || task.status === "cancelled") return { value: null, changed: false };
         if (job.role === "reviewer") delete job.verdict;
-        // A round prompt that has not reached the reviewer yet waits for the review to go on (resume_review); one
-        // whose session was being created went out with it.
-        const held = job.role === "reviewer" && !job.pendingOp && job.instruction?.role === "reviewer" ? job.instruction : undefined;
-        delete job.instruction; delete job.pendingOp; delete job.pendingRole;
-        if (held) job.instruction = held;
+        // A preparation is not proof that its prompt reached the reviewer. Pause the entire pending operation;
+        // a casual answer resumes that same round, with the same preparation and instruction identities.
+        const held = job.role === "reviewer" && job.instruction?.role === "reviewer";
+        if (!held) { delete job.instruction; delete job.pendingOp; delete job.pendingRole; }
         job.role = "implementer";
         job.reopened = true;
         // Preserve the reviewed delivery until actual new work is delivered.
@@ -385,6 +384,7 @@ export class AutomationService {
       if (delivery) job.latestDelivery = delivery;
       if (job.launchKey && job.implementerId === agentId) job.launchConsumed = true;
       const pendingInstruction = job.instruction;
+      const pendingReview = pendingInstruction?.role === "reviewer" && job.pendingRole === "reviewer" ? job.pendingOp : undefined;
       delete job.pendingOp; delete job.pendingRole; delete job.instruction;
       const now = this.now();
       const handledAt = job.turnAt;
@@ -441,8 +441,9 @@ export class AutomationService {
           job.nudges = 0;
           delete job.code;
           if (pendingInstruction?.role === "reviewer") job.instruction = pendingInstruction;
+          if (pendingReview) { job.pendingOp = pendingReview; job.pendingRole = "reviewer"; }
           const reviewer = job.reviewerId ? latestLifecycle(board, job.taskId, job.reviewerId) : undefined;
-          if (!job.instruction && reviewer?.action === "agent.turn_ended") job.turnAt = new Date(Date.parse(reviewer.at) - 1).toISOString();
+          if (!job.instruction && reviewer?.action === "agent.turn_ended" && (!handledAt || reviewer.at > handledAt)) job.turnAt = new Date(Date.parse(reviewer.at) - 1).toISOString();
           else if (handledAt) job.turnAt = handledAt;
           else delete job.turnAt;
           break;
@@ -722,6 +723,13 @@ export class AutomationService {
     return !this.stopped && job && isLive(job) && automationAllowed(board, job) && job.generation === seen.generation && job.role === role && job.instruction?.id === seen.instruction?.id ? job : null;
   }
 
+  /** A successful send/create can be confirmed while a casual implementer turn has paused this same review. */
+  private confirmation(board: Board, seen: AutomationJob, role: Role) {
+    const job = jobOf(board, seen.taskId);
+    const paused = role === "reviewer" && job?.role === "implementer" && job.reopened && job.instruction?.role === "reviewer";
+    return this.current(board, seen, paused ? "implementer" : role);
+  }
+
   /** One side effect at a time per card, including lifecycle-hook follow-ups. */
   private deliver(job: AutomationJob): Promise<void> {
     const pending = this.sending.get(job.taskId);
@@ -845,7 +853,7 @@ export class AutomationService {
     await this.consumeLaunch(job, role);
     await this.store.transaction((board) => {
       const j = jobOf(board, job.taskId);
-      if (!this.current(board, job, role) || !j || j.pendingOp !== op) return { value: null, changed: false };
+      if (!this.confirmation(board, job, role) || !j || j.pendingOp !== op) return { value: null, changed: false };
       delete j.pendingOp;
       delete j.pendingRole;
       delete j.instruction;
@@ -879,7 +887,7 @@ export class AutomationService {
   private started(job: AutomationJob, agentId: string) {
     return this.store.transaction((board) => {
       const j = jobOf(board, job.taskId);
-      if (!j || !this.current(board, job, job.role) || activeAgent(j) !== agentId) return { value: null, changed: false };
+      if (!j || !this.confirmation(board, job, job.role) || (job.role === "reviewer" ? j.reviewerId : j.implementerId) !== agentId) return { value: null, changed: false };
       if (j.state === "starting") j.state = "working";
       delete j.instruction;
       j.updatedAt = this.now();
