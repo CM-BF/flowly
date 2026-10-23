@@ -20,7 +20,7 @@ The interrupted Claude workflow was recovered, not restarted. Its resumed run co
 
 ## Live acceptance
 
-Luna validator: `a0c74ff7-e334-4309-9aad-965ea5f93d01`, `codex/gpt-6-luna`, explicitly full-access. Real daemon: `srv_BSheQn5lzdEE`, `127.0.0.1:6767`, Paseo 0.12.0. Installation and desktop/compact Web UI results will be appended after the validator completes. No physical Android device test is claimed.
+Luna validator: `a0c74ff7-e334-4309-9aad-965ea5f93d01`, `codex/gpt-6-luna`, explicitly full-access. Real daemon: `srv_BSheQn5lzdEE`, `127.0.0.1:6767`, Paseo 0.12.0. The installed code revision `0caefa58` passed real project-setting persistence and lane validation, one-child parent orchestration, wait/wake with branch/check handoff, integration/acceptance and real reviewer approval, plus desktop/compact board inspection. [Live report and cleanup](automation-review-live.md). Stop/Run again, project-disable, blocker-reason display and reviewer-changes rework remain live UNRUN; their relevant core paths were checked offline. No physical Android device test is claimed. All fixture resources and the validator were removed or archived; final native inventory was reconciled with the concurrent fixture cleanup.
 
 ## Deliberate decisions and limits
 
