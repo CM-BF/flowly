@@ -131,7 +131,13 @@ export async function agentFixture(seed: { type?: boolean; tags?: boolean; workp
         pageInfo: { nextCursor: null },
       }),
     },
-    workspaces: { ref: () => ({ refresh: async () => workspace }) },
+    workspaces: {
+      list: async () => ({
+        entries: workspace ? [...new Set((await store.read()).tasks.map((task) => task.workspaceId))].map((id) => ({ ...workspace, id })) : [],
+        pageInfo: { nextCursor: null },
+      }),
+      ref: () => ({ refresh: async () => workspace }),
+    },
   } as unknown as PaseoApi;
   const service = new AgentService(store, secrets, () => now);
   service.attach(paseo);
