@@ -21,6 +21,7 @@
 ## 数据与授权
 
 - `brief` 可选，旧卡无需迁移。`flowly_update_metadata` 只改工具身份绑定的卡，使用既有签名 request、版本检查、receipt 与活动。重复请求不会重复修改；人工编辑导致旧版本被拒绝；结束/归档卡不能改。
+- 新 brief 卡的初始化缺项包含 metadata：get_task、写入提醒和 In review 的现有 SETUP_INCOMPLETE 检查都会要求整理。agent 同时提交 title 与 description 后标记 intakeOrganized（允许原值确认）；仅改 priority 不算完成。人手动编辑标题或描述也会确认，后续 agent 保留人的选择。旧卡没有 brief 不受影响。
 - agent 不得借整理描述覆盖原文要求；人工标签归属、直接子卡管理、顶层 Done 权限继续由各自接口约束。
 - UI、agent skill、README、引导与九语言目录同步更新。
 

@@ -328,6 +328,7 @@ export const toolContextSchema = z.object({
   /** What the card still needs before work starts (CARD-SETUP-SPEC §3.1); fix `missing` first. */
   setup: z
     .object({
+      metadataMissing: z.boolean().optional(),
       typeMissing: z.boolean(),
       tagsMissing: z.boolean(),
       workpadMissing: z.boolean(),

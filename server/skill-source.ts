@@ -11,6 +11,7 @@ Use this skill when working in the workspace of an attached Flowly card.
 
 1. Read flowly_get_task. Handle unread inputs first.
 2. Fix setup.missing before anything else, small cards included (a one-line fix still gets a type, one tag and a workpad with one acceptance criterion and the check you will run):
+   - metadata: flowly_update_metadata with both a concise title and a faithful description from task.brief;
    - type: flowly_set_type (only when missing; never change a set type);
    - tags: flowly_set_tags, 1-4 tags, reuse projectTags;
    - workpad: flowly_update_workpad with acceptance criteria and the exact checks, before you change code.
@@ -25,7 +26,7 @@ Like sub-issues in Multica: when this card is too big for one session, or has pa
 
 ## Organize a new card
 
-When get_task includes task.brief, it is the original task input. Before implementation, use flowly_update_metadata to turn it into a concise title and a clear description, then flowly_set_type and flowly_set_tags to classify the work. Keep every requirement, technical name, path and acceptance criterion; do not invent decisions or expand scope. Preserve explicit user priorities. Read get_task again between writes for fresh revisions and requests. The original brief stays available even after the description changes. If the card already has a suitable organized title and description, keep them; do not rewrite a person's later edits. A reviewer reports findings instead of editing metadata. CLI fallback: metadata --metadata '{"title":"Concise title","description":"Faithful task description"}' --request-file <get-task-json>.
+When get_task includes task.brief, it is the original task input. Before implementation, use flowly_update_metadata to turn it into a concise title and a clear description, then flowly_set_type and flowly_set_tags to classify the work. Keep every requirement, technical name, path and acceptance criterion; do not invent decisions or expand scope. Preserve explicit user priorities. Read get_task again between writes for fresh revisions and requests. The original brief stays available even after the description changes. When setup.metadataMissing is false, keep its organized title and description; do not rewrite a person's later edits. When it is true, supply both fields even if their current text is already suitable. A reviewer reports findings instead of editing metadata. CLI fallback: metadata --metadata '{"title":"Concise title","description":"Faithful task description"}' --request-file <get-task-json>.
 
 ## Automated runs
 

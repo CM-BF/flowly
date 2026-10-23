@@ -6,6 +6,8 @@
 - 一次 Flowly 工具都不调的回合，靠首条任务上下文写明缺项覆盖（§3.2）；卡面给用户显示缺项另提 idea，不在本卡。
 - 卡片第 5 项（daemon 摘要子 session 建议 type/tags）不做。
 
+2026-10-22 单输入建卡补充（[TASK-INTAKE-SPEC](TASK-INTAKE-SPEC.md)）：有 `brief` 且未确认 `intakeOrganized` 的卡在下面三项前增加 `metadata` 缺项和 `metadataMissing` 标志。工具读取、首条上下文、写入提醒、交付软检查共用此规则；agent 同时确认非空标题和忠实描述，或人实际修改标题/描述后清除。旧卡不迁移，显式 `acknowledgeOpen` 仍按原规则记录缺项后放行。
+
 ## 1. 现状数据
 
 来源：`~/.paseo/plugin-data/flowly/board.json`（2026-10-21 13:05 快照，只读）与 `paseo agent ls -a -g --json`。统计 2026-10-19 07:00（workpad 上线）之后创建、有 agent 回合的卡。卡片事件按卡只保留最近 100 条，长卡的“首次”时间可能被裁剪，下表只列短卡。

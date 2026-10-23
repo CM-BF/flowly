@@ -201,6 +201,9 @@ export class BoardStore {
           ? mergeTagEdit(task.tags || [], normalizeTags(input.tagsBase!), normalizeTags(input.tags), new Date().toISOString())
           : undefined;
       if (tagChange) setTags(task, tagChange.tags);
+      if (task.brief && input.actor === "human" &&
+          ((input.title !== undefined && input.title !== task.title) || (input.description !== undefined && input.description !== task.description)))
+        task.intakeOrganized = true;
       if (input.title !== undefined) task.title = input.title;
       if (input.description !== undefined) task.description = input.description;
       if (input.priority !== undefined) task.priority = input.priority;

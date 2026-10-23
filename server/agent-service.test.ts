@@ -897,7 +897,7 @@ test("setup: get_task names the missing items first; each clears once set, by an
   x.service.git = fakeGit({ head: "aaaaaaaaaaaa" });
   let ctx = await x.service.get(x.identity);
   expect(Object.keys(ctx).slice(0, 2)).toEqual(["identity", "setup"]);
-  expect(ctx.setup).toEqual({ typeMissing: true, tagsMissing: true, workpadMissing: true, stage: "todo", missing: ["type", "tags", "workpad"] });
+  expect(ctx.setup).toEqual({ metadataMissing: false, typeMissing: true, tagsMissing: true, workpadMissing: true, stage: "todo", missing: ["type", "tags", "workpad"] });
   // An empty workpad is still missing.
   await pad(x, {});
   expect((await x.service.get(x.identity)).setup?.missing).toEqual(["type", "tags", "workpad"]);

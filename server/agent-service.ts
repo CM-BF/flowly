@@ -903,15 +903,19 @@ export class AgentService {
         if (board.automation.some((job) => job.taskId === task.id && job.reviewerId === identity.agentId))
           throw new ToolError("REVIEWER_ONLY", "A reviewer reports findings; the implementer organizes this card.");
         const fields = input as MetadataInput;
+        if (task.brief && !task.intakeOrganized && fields.description !== undefined && !fields.description.trim())
+          throw new ToolError("INVALID_INPUT", "Organize task.brief into a non-empty, faithful description before confirming card setup.");
         const changed = (["title", "description", "priority"] as const).filter((key) => fields[key] !== undefined && fields[key] !== task[key]);
+        const organized = !!task.brief && !task.intakeOrganized && fields.title !== undefined && fields.description !== undefined;
         const at = new Date(this.clock()).toISOString();
-        if (!changed.length) return { id: "", at };
+        if (!changed.length && !organized) return { id: "", at };
         if (fields.title !== undefined) task.title = fields.title;
         if (fields.description !== undefined) task.description = fields.description;
         if (fields.priority !== undefined) task.priority = fields.priority;
+        if (organized) task.intakeOrganized = true;
         task.revision++;
         task.updatedAt = at;
-        return this.store.event(board, { taskId: task.id, agentId: identity.agentId, actor: "agent", action: "edited", note: `Organized card: ${changed.join(", ")}` });
+        return this.store.event(board, { taskId: task.id, agentId: identity.agentId, actor: "agent", action: "edited", note: `Organized card: ${changed.join(", ") || "confirmed title and description"}` });
       })() : undefined;
       let workpadRevision: number | undefined;
       // Full replacement guarded by the workpad's own revision (WORKPAD-SPEC §2.4, §3).

@@ -130,6 +130,8 @@ export const taskSchema = z.object({
   description: z.string().max(20000),
   /** Original user input, preserved when the agent organizes metadata. */
   brief: z.string().max(20000).optional(),
+  /** The brief's title and description were organized by an agent or confirmed by a person. */
+  intakeOrganized: z.boolean().optional(),
   status: statusSchema,
   priority: prioritySchema,
   /** Absent: no type (all cards created before task types). */
@@ -395,7 +397,7 @@ export const eventSchema = z.object({
   /** status_changed into In review by an agent: the workpad's open items then (WORKPAD-SPEC §5.3). */
   workpad: deliverySchema.optional(),
   /** status_changed into In review by an agent that acknowledged missing card setup (CARD-SETUP-SPEC §3.4). */
-  setup: z.object({ missing: z.array(z.enum(["type", "tags", "workpad"])) }).optional(),
+  setup: z.object({ missing: z.array(z.enum(["metadata", "type", "tags", "workpad"])) }).optional(),
   at: timestamp,
 });
 export const boardSchema = z.object({
