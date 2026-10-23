@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, test } from "vitest";
 import { cliSource } from "./cli-source";
+import { runCleanups, type Cleanup } from "./test-cleanup";
 
 interface WireCall {
   action: string;
@@ -18,10 +19,9 @@ interface CliResult {
   stdout: string;
   stderr: string;
 }
-const dispose: Array<() => Promise<void>> = [];
-afterEach(async () => {
-  for (const cleanup of dispose.splice(0).reverse()) await cleanup();
-});
+const dispose: Cleanup[] = [];
+// Every cleanup runs even if one fails, so the temp directory with its fixture context is always removed.
+afterEach(() => runCleanups(dispose));
 
 async function setup() {
   const directory = await mkdtemp(join(tmpdir(), "flowly-cli-regressions-"));
@@ -41,16 +41,17 @@ async function setup() {
       response.end(JSON.stringify({ ok: false, error: { code: "FIXTURE_BAD_REQUEST", message: String(error) } }));
     }
   });
-  dispose.push(async () => {
-    server.closeAllConnections();
-    await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
-  });
   await new Promise<void>((resolve, reject) => {
     server.once("error", reject);
     server.listen(0, "127.0.0.1", () => {
       server.removeListener("error", reject);
       resolve();
     });
+  });
+  // Only a listening server can be closed.
+  dispose.push(async () => {
+    server.closeAllConnections();
+    await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
   });
   const address = server.address();
   if (!address || typeof address === "string") throw new Error("Missing fixture loopback port");
@@ -191,6 +192,33 @@ test("card/review argument errors never reach the service", async () => {
     expect(result.code, args.join(" ")).toBe(1);
     expect(result.stdout, args.join(" ")).toBe("");
     expect(JSON.parse(result.stderr), args.join(" ")).toMatchObject({ code: "CLI_FAILURE" });
+  }
+  expect(x.calls).toEqual([]);
+});
+
+test("update-card carries --note into the card note, so a rework request is not dropped", async () => {
+  const x = await setup();
+  const card = { cardId: "task-child", action: "start" };
+  const result = await x.run(["update-card", "--card", JSON.stringify(card), "--note", "Fix the failing test\nthen rerun it.", "--request-file", x.snapshotPath]);
+  expect(result).toMatchObject({ code: 0, stderr: "" });
+  expect(x.calls.map((call) => call.input)).toEqual([{ ...card, note: "Fix the failing test\nthen rerun it.", expectedRevision: x.snapshot.revision, request: x.snapshot.request }]);
+});
+
+test("card and review commands refuse --note/--kind they cannot carry instead of dropping them", async () => {
+  const x = await setup();
+  const cases: Array<{ args: string[]; message: RegExp }> = [
+    { args: ["update-card", "--card", JSON.stringify({ cardId: "c", action: "accept", note: "In JSON" }), "--note", "Also a flag", "--request-file", x.snapshotPath], message: /--note.*once/ },
+    { args: ["update-card", "--card", JSON.stringify({ cardId: "c", action: "start" }), "--kind", "question", "--request-file", x.snapshotPath], message: /--kind is not valid for update-card/ },
+    { args: ["create-card", "--card", JSON.stringify({ title: "T" }), "--note", "n", "--request-file", x.snapshotPath], message: /--note and --kind are not valid for create-card/ },
+    { args: ["create-card", "--card", JSON.stringify({ title: "T" }), "--kind", "progress", "--request-file", x.snapshotPath], message: /--note and --kind are not valid for create-card/ },
+    { args: ["submit-review", "--review", JSON.stringify({ verdict: "approve", summary: "ok" }), "--note", "extra"], message: /--note and --kind are not valid for submit-review/ },
+    { args: ["submit-review", "--review", JSON.stringify({ verdict: "approve", summary: "ok" }), "--kind", "progress"], message: /--note and --kind are not valid for submit-review/ },
+  ];
+  for (const { args, message } of cases) {
+    const result = await x.run(args);
+    expect(result.code, args.join(" ")).toBe(1);
+    expect(result.stdout, args.join(" ")).toBe("");
+    expect(JSON.parse(result.stderr), args.join(" ")).toMatchObject({ code: "CLI_FAILURE", message: expect.stringMatching(message) });
   }
   expect(x.calls).toEqual([]);
 });
