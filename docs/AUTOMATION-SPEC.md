@@ -55,6 +55,8 @@ AutomationJob {
   instruction?: { id, role, text, fresh },   // 唯一的待发指令（§10）
   deliveryEvent?,                         // 最近一轮评审看的那次交付
   reviewedEvent?,                         // 最近一次结论针对的那次交付
+  latestDelivery?,                        // 最近一次交付身份，历史裁剪后仍保留
+  unconfirmed?, takenBack?,               // 未确认创建的session；人已接回失败的卡片
   reopened?,                              // 交付后有反馈，新交付开始新的评审周期
   feedback?,                              // 父卡给子卡的修改要求（SUB-CARDS-SPEC §4）
   restarts?,                              // 父卡 agent 重新启动本卡的次数（SUB-CARDS-SPEC §4）
@@ -65,7 +67,7 @@ AutomationJob {
 ```
 
 - `turnAt`：早于或等于它的回合结束不归本 job 处理（已处理，或早于最后一条指令）。`pendingOp`：正在创建的 session 的 preparation，重启后用同一个 op 再建同一个 id，绝不建第二个；`pendingRole` 标明它属于哪个角色。
-- “交付”指实现者**自己**把卡片设为 In review 的那条状态事件。`deliveryEvent` 是最近一轮评审所看的交付，总是实现者自己的事件（A1r 把卡恢复到 In review 不算交付）。`reviewedEvent` 是最近一次结论（approved、changes 或 incomplete）所针对的交付：回合结束时卡片仍停在这次交付上，就是没有新交付（随口回答）；其它交付都是新工作。`reviewedEvent` 出现之前保存的 job，有结论时以 `deliveryEvent` 代替。
+- “交付”指实现者**自己**把卡片设为 In review 的那条状态事件。`deliveryEvent` 是最近一轮评审所看的交付，总是实现者自己的事件（A1r 把卡恢复到 In review 不算交付）。`reviewedEvent` 是最近一次结论（approved、changes 或 incomplete）所针对的交付：回合结束时卡片仍停在这次交付上，就是没有新交付（随口回答）；其它交付都是新工作。`reviewedEvent` 出现之前保存的 job，有结论时以 `deliveryEvent` 代替。`latestDelivery` 将最近一次交付身份存在 job 上，不依赖只保留最近 100 条的活动历史；没有 agent 交付事件时用该回合身份。历史裁剪或没有新交付的闲聊都不使已给出的结论失效。
 - `restarts` 只由 agent 的排队带进下一代 job；人的 Run again 从 0 开始。
 
 ## 4. 生命周期
@@ -76,7 +78,7 @@ AutomationJob {
 - dispatcher 每 15 秒一次；排队、停止、移动卡片、**每个被监督 session 的回合结束**（即使这次回合结束不归 job 判断）时也立即跑一次；保存项目设置、归档或取消归档卡片、删除卡片时在后台跑一次，RPC 不等它。并发调用合并为下一次。冻结的项目（§2）整个跳过。每个开启的项目：到期的 `retry_wait` 先恢复；再按优先级（urgent > high > normal > low）、排队时间把满足条件的 `queued` 填进空名额。
 - **依赖**：沿用卡片的 `blocks` 链接。所有 blocker 都 **Done** 才放行；Cancelled（或未完成就归档）的 blocker 永不放行，直到人删掉链接——没完成的工作不能作为输入。
 - **provider 冷却**：一个 job 处于 provider 限额冷却（`retry_wait`/`cooldown`）时，同一个 provider 的卡片在任何项目都不启动。只比较确定的 provider：项目没设实现者模型和项目默认模型时，按全局默认模型的 provider 比较；项目的或冷却 job 的 provider 仍不确定时，只挡同一个项目，绝不挡所有项目。
-- **workspace 与目录**：启动前先查卡片自己的 workspace。它已归档、正在归档或 daemon 不再列出它 → job `failed` / `session_unavailable`，detail 与 `automation_failed` 的 note 为 “The card's workspace is archived or no longer exists”；卡片泳道不变，它的父卡可以被唤醒。查询本身失败（RPC 错误）时 job 保持排队，下次再试。目录被别的卡占用时也保持排队（§10）。
+- **workspace 与目录**：启动前先查卡片自己的 workspace。它已归档、正在归档或 daemon 不再列出它 → job `failed` / `workspace_unavailable`，detail 与 `automation_failed` 的 note 为 “The card's workspace is archived or no longer exists”；卡片泳道不变，它的父卡可以被唤醒。查询本身失败（RPC 错误）时 job 保持排队，下次再试。目录被别的卡占用时也保持排队（§10）。
 - **认领**：同一事务里 `queued → starting`，记 `automation_started`。随后在卡片 workspace 里：有活着的 implementer → 发“重新排队”开工消息；否则 `prepareSession`（与侧栏 Start session 同一路径，带 Flowly MCP、上下文与 skill）创建新 session，`labels: { flowly-task, flowly-automation: implementer }`，首条消息为开工说明。
 - 首条开工说明（`startPrompt`）：无人值守、按 Flowly skill 走、最后以 `in_review` 交付或以提问/`blocked` 结束，不要等人、不要猜；卡片太大时可拆子卡并结束本轮；若配置了评审者，提示交付后会被评审。卡片有 blocker（都已 Done）时追加 “Dependency handoffs (card data)”：每个 blocker 的 handoff，并说明 Done 不同步 worktree、要先检查并合并相关分支。子卡片还在其后追加 “Parent integration branch (card data)”：父卡的 id、标题、泳道、分支和目录，并说明父卡汇总已验收的子卡，其分支可能已含兄弟 blocker 的改动且冲突已解决，应先检查、优先合并它。顶层卡片没有这一项。
 
@@ -92,7 +94,7 @@ AutomationJob {
 | 回合被中断 | `needs_human` / `interrupted` |
 | 实现者有**新交付**（卡片在 In review，交付不是 `reviewedEvent`） | 有评审者且本周期轮次未满 → 开始评审（§5）。没有评审者（例如两次交付之间删掉了评审者）→ `delivered`，并丢掉之前的结论，未经评审的工作不会显示 “Agent review passed”。周期未被重开而轮次用完 → `delivered` / `review_rounds`，保留最后一轮的 `changes` 结论（“Review needs you”） |
 | 回合结束时卡片仍停在得到结论的那次交付上（随口回答） | 保留该结论，`delivered` |
-| 评审进行中、尚无结论时实现者随口答了一轮（卡片停在同一交付上） | 在同一交付上重开评审，作为新的第 1 轮；卡片不会未经评审就 `delivered`。此后评审者提交的结论照常有效 |
+| 评审进行中、尚无结论时实现者随口答了一轮（卡片停在同一交付上） | 恢复同一交付的同一评审轮次，不加轮次、不重发已送达的指令；尚在准备或发送的 reviewer 指令与 preparation 身份保留，闲聊结束后接着发送。评审者对这次交付的结论在闲聊期间也有效 |
 | 实现者本回合自己把卡片设为 Blocked（包括卡片已在 Blocked 时再设 `blocked`，记为 Blocked→Blocked 的进度报告） | `needs_human` / `blocked`（“The agent reported a blocker”）。卡片因别的原因停在 Blocked，例如重新运行时 A1r 在静默回合后把它恢复为 Blocked，按静默结束处理 |
 | 本回合提了问题或报了 blocker（`kind=question/blocker`） | `needs_human` / `question` |
 | 有子卡片仍在推进 | `waiting` / `sub_cards`（SUB-CARDS-SPEC §5） |
@@ -120,7 +122,7 @@ AutomationJob {
 每次派发前对每个活着的 job：
 - 只有 `starting`、`working`、`reviewing` 的 job 参与重启恢复。`starting` 或有 `pendingOp` 且超过 2 分钟没进展：用同一个 op 重新 `prepareSession`（得到同一 agentId），已存在就只补状态，不存在才创建（idempotencyKey 同侧栏）。
 - session 的创建或发送得到未知结果（`agent_request_outcome_unknown`），或在启动 session 时用完了 provider 限额预算：job 等人（`needs_human` / `interrupted` 或 `needs_human` / `cooldown`），不保留指令，也不保留 session preparation。在人回复该 session（在记录的 session 上恢复监督）或选择 Run again 之前，不重发、不重新准备、不重新创建任何东西。
-- 被监督的 session 已归档或不存在：实现者 → `failed`/`session_unavailable`；评审者 → 交付保留给人（`incomplete`）。refresh RPC 失败是未知状态，不当作 session 消失。
+- 被监督的 session 已归档或不存在：实现者 → `failed`/`session_unavailable`；评审者 → 交付保留给人（`incomplete`）。refresh RPC 失败是未知状态，不当作 session 消失。启动结果未知或冷却预算用尽而尚未确认存在的 session（`unconfirmed`）一直保留等人状态；后续刷新仍为空不转成失败。session 迟到并开始回合后恢复监督。
 - 卡片自己的 workspace 已归档或不存在：job `failed` / `workspace_unavailable`，记录 `automation_failed`，不要求它曾启动过 session。祖先卡片取消、归档或缺失：后代 job `stopped` / `ancestor_finished`，记录 `automation_stopped`（“An ancestor card was cancelled, archived or removed”），不移动后代卡片。
 - 看板上已有晚于 `turnAt` 的 `agent.turn_ended`（钩子在处理前插件被重载等）：补做 §4.2。`needs_human` 时已有更晚的 `agent.turn_started`：补做恢复。
 - 回合结束完全丢失：2 分钟宽限后，被监督 session 处于 idle、error 或 closed，没有 activeTurn、没有待处理权限，也没有记录到回合结束 → `needs_human` / `interrupted`，释放名额。detail 说明 session 是空闲、出错停止（附它的 lastError）还是已关闭；不伪造成功回合，不编造 lifecycle 事件。
@@ -178,10 +180,10 @@ AutomationJob {
 - `pendingOp` 增加 `pendingRole`。实现者与评审者不得使用同一 preparation/session；放弃评审、角色转换和确认创建后清除 preparation。Run again 保留已知的两种角色 session 供复用。
 - 修订 §1 的 outbox 取舍：每个 job 只保存一个 `instruction {id, role, text, fresh}`，与状态转换同事务写入。原文及稳定 messageId 在重载/发送失败后保留；确认送达后删除。它不是通用工作流队列。`feedback` 保存父卡给子卡的修改要求。
 - 发送前检查实际 session 的 running/initializing、activeTurn 和 pending permissions，忙时保留指令，下一次派发再试；显式 `activeTurnBehavior=steer`。Paseo 0.12 没有原子的 idle-only send：检查与请求到达之间仍有竞态，且 steer 不可用时 daemon 可回退为 interrupt；这是宿主 API 限制，所以只能说自动化**不主动**打断，不能声称严格不打断。已完成 message receipt 可安全重放；`agent_request_outcome_unknown` 按 §4.4 等人，绝不换 ID 盲发。
-- 真实 refresh RPC 失败是未知状态，不当作 session 消失。只有确定不存在/已归档/工作区不匹配才结束或替换。stale starting 或缺少角色 session 会重做原创建路径。回合钩子完全丢失时按 §4.4 保守地等人并释放名额。
+- 真实 refresh RPC 失败是未知状态，不当作 session 消失。启动结果未知或冷却预算用尽而尚未确认存在的 session（`unconfirmed`）一直保留等人状态；后续刷新仍为空不转成失败。session 迟到并开始回合后恢复监督。只有确定不存在/已归档/工作区不匹配才结束或替换。stale starting 或缺少角色 session 会重做原创建路径。回合钩子完全丢失时按 §4.4 保守地等人并释放名额。
 - 交付、`deliveryEvent`/`reviewedEvent` 与评审周期见 §3、§4.2、§5：A1r 恢复旧 In review 不启动新评审；结论只属于它所评的那次交付；实现者在评审期间开始工作会关闭旧评审归属，旧 reviewer 的迟到结论不生效；别的 managed session 接管时停止原自动化（§4.3）。
 - 成功回合清零连续失败计数。明确的 429/rate-limit/quota/overload 失败使用 `cooldowns`（最多 5 次，1、2、4、8、15 分钟，§4.2），不消耗普通 failureLimit；`provider` 来自实际当前 session，冷却按 §4.1 只挡确定的同一 provider。超过上限等人处理，不把整个队列刷成 Blocked。
 - 自动化需要启用 In review（§2）；旧的无效配置冻结，不派发也不关闭 job。
-- **共享目录**：启动与父卡唤醒都检查 maxRunning 和工作区实际目录（realpath）。Flowly 不会向另一张卡的自动化 session 正在用的物理目录派发 worker：另一张**仍在进行**的卡（未归档、不在 Done/Cancelled）的 job 占名额时，或它的自动化 session 仍在运行、在回合中或等权限时（包括 stopped 或等权限的 job），都算占用。Done、Cancelled 或已归档卡片的 job 不再占用目录，即使它的 session 仍在运行（那个 session 已是人的）。**这个保护只看自动化 job 的 session**：没有 job 的卡片上的普通 session（人自己开的，或在普通 session 里拆出子卡的父卡 agent）不被考虑，所以在非 git 项目（目录 workspace 共享项目根）里，普通 session 与自动化 worker 可能同时改同一份 checkout，这由用户自己协调（例如用 worktree 项目，或等普通 session 的回合结束再启动子卡）。人的直接操作也不受此调度规则控制。
+- **共享目录**：启动与父卡唤醒都检查 maxRunning 和工作区实际目录（realpath）。Flowly 不会向另一张卡的自动化 session 正在用的物理目录派发 worker：另一张**仍在进行**的卡（未归档、不在 Done/Cancelled）的 job 占名额时，或它的自动化 session 仍在运行、在回合中或等权限时（包括 stopped 或等权限的 job），都算占用。Done、Cancelled 或已归档卡片的 job 不再占用目录，即使它的 session 仍在运行（那个 session 已是人的）。每次占用判断只扫描一遍 workspace 分页列表，再按 id 复用；先排除既不占名额也没有 session 的旧 job，避免每张卡分别触发完整扫描。**这个保护只看自动化 job 的 session**：没有 job 的卡片上的普通 session（人自己开的，或在普通 session 里拆出子卡的父卡 agent）不被考虑，所以在非 git 项目（目录 workspace 共享项目根）里，普通 session 与自动化 worker 可能同时改同一份 checkout，这由用户自己协调（例如用 worktree 项目，或等普通 session 的回合结束再启动子卡）。人的直接操作也不受此调度规则控制。
 - `waiting`、`sub_cards`、`subSeen` 为子卡等待协议字段；父卡唤醒遵守同一项目开关、冻结、归属和名额。发送的是当前子卡 handoff（有界的交付、workpad 检查、目录、分支、未满足 blocker），原文失败后保留。
 - daemon 发出的 `[Flowly automation]` 文本不计入人的 memory clue 或 next-move 选择率；摘要保留内容但标作 Flowly automation。
