@@ -120,7 +120,7 @@ export const automationJobSchema = z.object({
    */
   reviewedEvent: z.string().optional(),
   /**
-   * The implementer's newest delivery as of its last judged turn (`turn:<time>` when the card reached In review
+   * The implementer's newest delivery, recorded when it is written (`turn:<time>` when the card reached In review
    * without one). The card's history keeps only its newest events; this is what a turn is compared with once
    * the delivery event itself is gone. Absent on jobs recorded before it existed.
    */

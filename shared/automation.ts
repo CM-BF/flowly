@@ -74,7 +74,7 @@ const isArrival = (id: string) => id.startsWith("turn:");
 
 /**
  * The implementer's newest delivery: its latest status event to In review while the card's history (the newest
- * 100 events per card) still has it, else the one the job recorded at its last judged turn (`latestDelivery`).
+ * 100 events per card) still has it, else the one recorded on the job when that delivery was written (`latestDelivery`).
  */
 export function newestDelivery(board: Pick<Board, "events">, job: Pick<AutomationJob, "taskId" | "latestDelivery">, agentId: string | undefined) {
   for (let i = board.events.length - 1; agentId && i >= 0; i--) {

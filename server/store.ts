@@ -593,6 +593,10 @@ export class BoardStore {
     };
     board.events.push(event);
     this.pending.push(event);
+    // These decisions outlive the bounded activity log, even when it fills before the next dispatcher pass.
+    const job = board.automation.find((job) => job.taskId === event.taskId);
+    if (job && event.actor === "agent" && event.agentId === job.implementerId && event.to === "in_review") job.latestDelivery = event.id;
+    if (job?.state === "failed" && event.action === "status_changed" && event.rule !== "AUTO") job.takenBack = true;
     const relevant = board.events.filter((e) => e.taskId === input.taskId);
     if (relevant.length > 100) {
       const remove = new Set(relevant.slice(0, -100).map((e) => e.id));
