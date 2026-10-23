@@ -438,6 +438,11 @@ export const receiptSchema = z.object({
   payloadHash: z.string(),
   action: z.enum(["status", "progress", "idea", "remember", "artifact", "artifact_remove", "tags", "type", "metadata", "next_moves", "workpad", "create_card", "update_card"]),
   cardId: z.string().optional(),
+  /** Immutable provisioning intent, saved before calling Paseo so a retry cannot choose a new base branch. */
+  workspacePlan: z.discriminatedUnion("mode", [
+    z.object({ mode: z.literal("worktree"), sourcePath: z.string(), projectId: z.string(), baseRef: z.string(), branchName: z.string(), idempotencyKey: z.string() }),
+    z.object({ mode: z.literal("directory"), sourcePath: z.string(), projectId: z.string(), idempotencyKey: z.string() }),
+  ]).optional(),
   queued: z.boolean().optional(),
   /** Empty when an artifact write changed nothing (same target already recorded). */
   eventId: z.string(),

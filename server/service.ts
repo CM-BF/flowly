@@ -20,7 +20,7 @@ import { promisify } from "node:util";
 import { BoardStore } from "./store";
 import { readSnapshot, SnapshotInvalidError, type ProjectSnapshot } from "./project-folder";
 import { linkLimits } from "../shared/model";
-import type { ProjectInput, TaskInput, Board, LinkedProjectInput, ProjectLinksEdit, Project, ProjectRemoval, Task } from "../shared/model";
+import type { ProjectInput, TaskInput, Board, LinkedProjectInput, ProjectLinksEdit, Project, ProjectRemoval, Task, Receipt } from "../shared/model";
 import { effectiveRepos, sessionContext } from "../shared/scope";
 import { setupContextLine, setupMissing } from "../shared/card-setup";
 import { workpadEnabled, workpadOf } from "../shared/workpad";
@@ -538,45 +538,39 @@ export class BoardService {
         if (board.tasks.some((t) => t.workspaceId === workspaceId))
           throw new Error("Workspace is already bound to another card.");
       } else {
-        const branchName =
-          input.mode === "worktree"
-            ? input.branchName?.trim() || generatedBranchName(input.title, input.operationId)
-            : undefined;
-        const baseRef =
-          input.mode === "worktree"
-            ? await resolveWorktreeBaseRef(sourcePath, input.baseRef)
-            : undefined;
+        const reservation = agent ? cardReservation(board, agent) : undefined;
+        const saved = reservation?.workspacePlan;
+        if (reservation?.notice && !saved)
+          throw new ToolError("CARD_INVALID", "This request's workspace was created by an older Flowly version without a saved creation plan. Ask a person to link or archive that workspace before creating another card.");
+        if (saved && (saved.sourcePath !== sourcePath || saved.projectId !== project.paseoProjectId))
+          throw new ToolError("CARD_INVALID", "Project root changed since this request reserved its workspace. Ask a person to reconcile the original workspace.");
+        const mode = saved?.mode ?? input.mode;
+        const branchName = saved?.mode === "worktree" ? saved.branchName : mode === "worktree" ? input.branchName?.trim() || generatedBranchName(input.title, input.operationId) : undefined;
+        const baseRef = saved?.mode === "worktree" ? saved.baseRef : mode === "worktree" ? await resolveWorktreeBaseRef(sourcePath, input.baseRef) : undefined;
         const intent = createHash("sha256")
-          .update(
-            JSON.stringify({
-              projectId: project.paseoProjectId,
-              sourcePath,
-              mode: input.mode,
-              baseRef,
-              branchName,
-              title: input.title,
-            }),
-          )
+          .update(JSON.stringify({ projectId: project.paseoProjectId, sourcePath, mode, baseRef, branchName, title: input.title }))
           .digest("hex")
           .slice(0, 24);
+        const common = { sourcePath, projectId: project.paseoProjectId, idempotencyKey: `ultra-kanban:${input.operationId}:${intent}` };
+        const planned: NonNullable<Receipt["workspacePlan"]> = saved ?? (mode === "worktree"
+          ? { ...common, mode, baseRef: baseRef!, branchName: branchName! }
+          : { ...common, mode });
+        // The daemon may accept provisioning even if our final card transaction is refused or the plugin exits.
+        // Save its full intent first; resolving the root branch again would produce a different native request.
+        const plan = agent ? await this.store.transaction((current) => {
+          authorizeCardCreation(current, agent, { revision: false });
+          const receipt = cardReservation(current, agent);
+          if (!receipt) throw new ToolError("REQUEST_REUSED", "Card request reservation is missing.");
+          if (receipt.workspacePlan) return { value: receipt.workspacePlan, changed: false };
+          receipt.workspacePlan = planned;
+          return { value: planned, changed: true };
+        }) : planned;
         const created = await paseo.workspaces.create({
           title: input.title,
-          idempotencyKey: `ultra-kanban:${input.operationId}:${intent}`,
-          source:
-            input.mode === "directory"
-              ? {
-                  kind: "directory",
-                  path: sourcePath,
-                  projectId: project.paseoProjectId,
-                }
-              : {
-                  kind: "worktree",
-                  cwd: sourcePath,
-                  projectId: project.paseoProjectId,
-                  action: "branch-off",
-                  refName: baseRef,
-                  branchName,
-                },
+          idempotencyKey: plan.idempotencyKey,
+          source: plan.mode === "directory"
+            ? { kind: "directory", path: plan.sourcePath, projectId: plan.projectId }
+            : { kind: "worktree", cwd: plan.sourcePath, projectId: plan.projectId, action: "branch-off", refName: plan.baseRef, branchName: plan.branchName },
         });
         workspaceId = created.id;
       }

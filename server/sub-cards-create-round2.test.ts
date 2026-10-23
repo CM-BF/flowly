@@ -1,5 +1,6 @@
 import { afterEach, expect, test, vi } from "vitest";
 import { rm } from "node:fs/promises";
+import { execFileSync } from "node:child_process";
 import { agentFixture } from "./agent-fixture";
 import { BoardService } from "./service";
 import { AutomationService } from "./automation";
@@ -69,6 +70,37 @@ test("a reserved creation can recover its workspace after the signed snapshot ex
   expect(new Set(x.create.mock.calls.map(([options]) => options.idempotencyKey)).size).toBe(1);
   await expect(x.service.createCard(x.identity, unreserved)).rejects.toMatchObject({ code: "REQUEST_EXPIRED" });
   expect(x.create).toHaveBeenCalledTimes(2);
+});
+
+test("a reserved worktree creation keeps its original base branch across a root branch change and service restart", async () => {
+  const x = await setup();
+  execFileSync("git", ["init", "-b", "initial", x.a]);
+  const input = { ...(await x.request()), title: "Recover original worktree" };
+  x.during((board) => { board.tasks[0].status = "done"; });
+  await expect(x.service.createCard(x.identity, input)).rejects.toMatchObject({ code: "TASK_FINISHED", message: expect.stringContaining("ws-1") });
+  execFileSync("git", ["-C", x.a, "symbolic-ref", "HEAD", "refs/heads/changed"]);
+  await x.store.mutate((board) => { board.tasks[0].status = "development"; });
+  const restarted = new BoardService(x.store);
+  x.service.createTask = (draft, paseo, agent) => restarted.createTask(draft, paseo, agent);
+  const result = await x.service.createCard(x.identity, input);
+  expect(await x.bound("ws-1")).toMatchObject([{ id: result.cardId }]);
+  expect(await x.bound("ws-2")).toEqual([]);
+  expect(new Set(x.create.mock.calls.map(([options]) => options.idempotencyKey)).size).toBe(1);
+  expect(x.create.mock.calls).toHaveLength(2);
+});
+
+test("an older orphan receipt without a saved creation plan keeps its workspace visible and refuses another provision", async () => {
+  const x = await setup();
+  const input = { ...(await x.request()), title: "Legacy orphan" };
+  x.during((board) => { board.tasks[0].status = "done"; });
+  await expect(x.service.createCard(x.identity, input)).rejects.toMatchObject({ code: "TASK_FINISHED" });
+  await x.store.mutate((board) => {
+    board.tasks[0].status = "development";
+    delete board.agentReceipts[0].workspacePlan;
+  });
+  await expect(x.service.createCard(x.identity, input)).rejects.toMatchObject({ code: "CARD_INVALID", message: expect.stringContaining("ws-1") });
+  expect(x.create).toHaveBeenCalledTimes(1);
+  expect(await x.bound("ws-1")).toEqual([]);
 });
 
 test.each(["task", "project"] as const)("a %s revision bump while the workspace is made does not orphan it: the card is saved on it", async (changed) => {
