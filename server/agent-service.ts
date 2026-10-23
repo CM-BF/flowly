@@ -544,6 +544,7 @@ export class AgentService {
       sessions: { entries: entries.slice(0, 20), partial, unavailableReason },
       ...(await this.store.read().then(async (board) => {
         const { handoffs, branches } = withHandoffs ? await linkExtras(board, r.task.id, r.paseo, this.git) : { handoffs: new Map<string, LinkHandoff>(), branches: new Map<string, string>() };
+        const emittedHandoffs = new Set<string>();
         setup = setupContext(setupMissing(r.task, workpadOf(board.workpads, r.task.id), workpadEnabled(r.project)), r.task.status);
         return {
           activity: board.events.filter((e) => e.taskId === r.task.id).slice(-20),
@@ -590,17 +591,22 @@ export class AgentService {
           ...(scripts.length ? { projectScripts: scripts } : {}),
           links: linksOf(board, r.task.id)
             .filter((v) => v.other)
-            .map(({ relation, other }) => ({
-              relation,
-              taskId: other!.id,
-              title: other!.title,
-              status: other!.status,
-              laneName: laneName(r.project, other!.status),
-              archived: !!other!.archivedAt,
-              ...(branches.has(other!.id) ? { branch: branches.get(other!.id)! } : {}),
-              ...(handoffs.has(other!.id) ? { handoff: handoffs.get(other!.id)! } : {}),
-              ...(relation === "blocked_by" ? { resolved: isResolved(other) } : {}),
-            })),
+            .map(({ relation, other }) => {
+              const handoff = handoffs.get(other!.id);
+              const emitHandoff = !!handoff && !emittedHandoffs.has(other!.id);
+              if (emitHandoff) emittedHandoffs.add(other!.id);
+              return {
+                relation,
+                taskId: other!.id,
+                title: other!.title,
+                status: other!.status,
+                laneName: laneName(r.project, other!.status),
+                archived: !!other!.archivedAt,
+                ...(branches.has(other!.id) ? { branch: branches.get(other!.id)! } : {}),
+                ...(emitHandoff ? { handoff } : {}),
+                ...(relation === "blocked_by" ? { resolved: isResolved(other) } : {}),
+              };
+            }),
         };
       })),
     };

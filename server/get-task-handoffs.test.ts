@@ -148,3 +148,26 @@ test("a Done blocker carries the branch it was delivered on, without a handoff o
   expect(x.git).not.toHaveBeenCalled();
   expect(x.refreshed.filter((id) => id !== "w")).toEqual([]);
 });
+
+
+test("a card linked as both sub-card and blocker spends and emits its handoff evidence once", async () => {
+  const cards: Card[] = Array.from({ length: 3 }, (_, i) => ({
+    id: `dual${i}`, status: "in_review", relation: "sub_card", delivered: "N".repeat(1000), pad: pad(`dual${i}`, {}, 4),
+  }));
+  const x = await setup(cards);
+  await x.store.mutate((board) => {
+    for (const c of cards) board.links.push({ id: `${c.id}-blocks`, projectId: "p", kind: "blocks", from: c.id, to: "t", createdBy: "human", createdAt: stamp });
+  });
+  const context = await x.service.get(x.identity);
+  expect(context.links).toHaveLength(6);
+  for (const c of cards) {
+    const links = context.links.filter((l) => l.taskId === c.id);
+    expect(links.map((l) => l.relation).sort()).toEqual(["blocked_by", "sub_card"]);
+    const evidence = links.flatMap((l) => l.handoff ? [l.handoff.evidence] : []);
+    expect(evidence).toHaveLength(1);
+    expect(evidence[0]).not.toMatch(/^Omitted/);
+  }
+  expect(context.links.flatMap((l) => l.handoff ? [l.handoff.evidence] : []).join("").length).toBeLessThanOrEqual(16_000);
+  expect(x.refreshed.filter((id) => id !== "w").sort()).toEqual(cards.map((c) => `${c.id}-ws`).sort());
+  expect(x.git).toHaveBeenCalledTimes(3);
+});

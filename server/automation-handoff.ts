@@ -66,9 +66,15 @@ const wantsHandoff = (board: Board, v: LinkView) =>
  */
 export async function linkExtras(board: Board, taskId: string, paseo: PaseoApi, git: Git) {
   const views = linksOf(board, taskId).filter((v) => v.other);
+  const seen = new Set<string>();
   const wanted = views
     .filter((v) => wantsHandoff(board, v))
-    .sort((a, b) => Number(b.other!.status === "in_review") - Number(a.other!.status === "in_review") || b.other!.updatedAt.localeCompare(a.other!.updatedAt));
+    .sort((a, b) => Number(b.other!.status === "in_review") - Number(a.other!.status === "in_review") || b.other!.updatedAt.localeCompare(a.other!.updatedAt))
+    .filter((v) => {
+      if (seen.has(v.other!.id)) return false;
+      seen.add(v.other!.id);
+      return true;
+    });
   let left: number = handoffBudget.total;
   const handoffs = new Map<string, LinkHandoff>();
   const branches = new Map<string, string>();
