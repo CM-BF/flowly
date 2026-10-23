@@ -68,6 +68,16 @@ describe("board Run with agent for a card whose workspace is gone (fixcheck-b-2,
     const entries = automationMenu(project(), task(), job({ state: "working" }), false, actions(), workspaceKnownMissing(new Set(), "wa"));
     expect(entries).toMatchObject([{ id: "automation-stop", disabled: false }]);
   });
+
+  test("a newly arrived card can Run while the cached workspace list predates its creation", () => {
+    const unavailable = workspaceKnownMissing(new Set(["other"]), "wa", { cardCreatedAt: later, fetchedAt: Date.parse(now) });
+    expect(automationMenu(project(), task("todo"), undefined, false, actions(), unavailable)).toMatchObject([{ id: "automation-run", disabled: false }]);
+  });
+
+  test("a refreshed list can confirm the new card's workspace is missing", () => {
+    expect(workspaceKnownMissing(new Set(["other"]), "wa", { cardCreatedAt: now, fetchedAt: Date.parse(later) })).toBe(true);
+    expect(workspaceKnownMissing(new Set(["wa"]), "wa", { cardCreatedAt: now, fetchedAt: Date.parse(later) })).toBe(false);
+  });
 });
 
 describe("Needs attention automation entries (client-docs-7)", () => {

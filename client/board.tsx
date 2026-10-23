@@ -848,8 +848,8 @@ function BoardContent(
     const workspaceIds = new Set((resources.data?.workspaces || []).map((w) => w.id));
     return { eventsByTask, agentsByWorkspace, workspaceIds };
   }, [board?.events, agents.data, resources.data]);
-  // Run with agent needs the card's workspace, as in the drawer; not judged before the workspace list has loaded.
-  const runUnavailable = (card: Task) => workspaceKnownMissing(resources.data ? cardIndex.workspaceIds : null, card.workspaceId);
+  // Agent-created cards can arrive before the slower workspace list refresh.
+  const runUnavailable = (card: Task) => workspaceKnownMissing(resources.data ? cardIndex.workspaceIds : null, card.workspaceId, { cardCreatedAt: card.createdAt, fetchedAt: resources.dataUpdatedAt });
   const openIdeaCount = useMemo(() => {
     const counts = new Map<string, number>();
     if (ideasOn) for (const i of board?.ideas || []) if (i.status === "open") counts.set(i.taskId, (counts.get(i.taskId) || 0) + 1);

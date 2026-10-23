@@ -44,8 +44,9 @@ export function automationReason(job: Pick<AutomationJob, "state" | "code"> | un
   return stateReasons[job.state]?.[job.code] ?? reasons[job.code];
 }
 
-/** True only when the workspace list is loaded (`known`) and lacks the card's workspace; never while loading. */
-export const workspaceKnownMissing = (known: ReadonlySet<string> | null | undefined, workspaceId: string) => !!known && !known.has(workspaceId);
+/** A cached list cannot prove a newer card's workspace is missing. */
+export const workspaceKnownMissing = (known: ReadonlySet<string> | null | undefined, workspaceId: string, snapshot?: { cardCreatedAt: string; fetchedAt: number }) =>
+  !!known && (!snapshot || Date.parse(snapshot.cardCreatedAt) <= snapshot.fetchedAt) && !known.has(workspaceId);
 
 const isFinished = (task: Pick<Task, "status">) => task.status === "done" || task.status === "cancelled";
 

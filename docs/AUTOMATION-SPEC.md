@@ -145,7 +145,7 @@ AutomationJob {
    - `retry_wait` / `failed`：“The last turn failed; retrying”；`retry_wait` / `start_failed`：“The agent session could not be started; retrying”；`retry_wait` / `cooldown`：“Provider limit reached; retrying later”。
    - `needs_human` / `cooldown`（冷却预算用完）：“The provider limit kept recurring; reply in the session, or Stop and Run again”。
    - `failed` 状态保留 “Turns kept failing” 与 “The agent session could not be started”。
-3. **菜单**：卡片右键/⋯、手机操作表、详情菜单都有 Run with agent（项目开启且卡片未结束）或 Stop automation（job 活着）。卡片的 workspace 不在已加载的 Paseo workspace 列表里时，看板右键菜单和手机操作表与详情一样把 Run with agent 显示为不可用；workspace 列表还在加载时不因此禁用。活着的 job 的 Stop automation 不受影响。
+3. **菜单**：卡片右键/⋯、手机操作表、详情菜单都有 Run with agent（项目开启且卡片未结束）或 Stop automation（job 活着）。卡片的 workspace 不在已加载的 Paseo workspace 列表里时，看板右键菜单和手机操作表与详情一样把 Run with agent 显示为不可用；workspace 列表还在加载，或列表最后成功刷新早于卡片创建时，不因此禁用（agent 或其它设备创建的卡片可能先到达看板）。活着的 job 的 Stop automation 不受影响。
 4. **Needs attention 与侧栏角标**：只在项目的 Agent automation 开启时列出卡片的自动化条目；关闭自动化后，它冻结的 job（包括 `needs_human`、`failed` 和等待评审的交付）的条目都消失。失败的 job 在失败后卡片状态被改过（自动化自己移到 Blocked，即 `rule="AUTO"` 的那次除外，例如人把它从 Blocked 拖回 Development）后离开 Needs attention；job 本身仍是 `failed`，详情里仍有 Run again。条目的自动化部分跟随卡片的信号：失败为 “Automation stopped”，等权限为 “Agent needs permission”，评审者没能定论的交付为 “Review needs you”，其它等待仍为 “Agent waiting for you”。
 5. **编辑项目**：Agent automation 开关；开启后 Cards at once（1/2/3/5）、Implementer、Reviewer（模型选择沿用默认模型控件，“无”分别为项目默认模型 / 不评审）、Review rounds（有评审者时）、Full access。In review 关闭时显示 “Agent automation requires the In review lane.”。
 6. **活动**：`automation_*` 事件各有文案；daemon 写的 note（“Reminder 1 of 2”、“Provider limit (1 of 5); retrying in 1 min”、“Another session took over the card” 等）保持英文。
