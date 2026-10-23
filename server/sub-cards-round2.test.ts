@@ -145,3 +145,15 @@ test("a person moving a delivered sub-card gives the parent's agent its restarts
   await x.redeliver();
   await expect(x.start("Rework (5)")).rejects.toMatchObject({ code: "NEEDS_PERSON" });
 });
+
+test.each(["cancelled", "archived"] as const)("under a %s ancestor, the parent's agent cannot start a sub-card but can still cancel it", async (root) => {
+  const x = await setup("backlog");
+  await x.store.mutate((board) => {
+    board.tasks.push({ ...board.tasks[0], id: "root", title: "Root", workspaceId: "root-workspace", operationId: "root-operation", status: root === "cancelled" ? "cancelled" : "development", archivedAt: root === "archived" ? new Date().toISOString() : null });
+    board.links.push({ id: "root-link", kind: "subtask", projectId: "p", from: "t", to: "root", createdBy: "human", createdAt: new Date().toISOString() });
+  });
+  await expect(x.start()).rejects.toMatchObject({ code: "ANCESTOR_FINISHED", message: expect.stringContaining("Root") });
+  expect(await x.childJob()).toBeUndefined();
+  expect((await x.store.read()).tasks.find((t) => t.id === "child")!.status).toBe("backlog");
+  await expect(x.service.updateCard(x.identity, { ...(await x.request()), cardId: "child", action: "cancel" })).resolves.toMatchObject({ status: "cancelled" });
+});

@@ -25,7 +25,7 @@
 
 - 一个 request 只建一张卡：`operationId = agent-card:<request id 摘要>:<参数摘要>`。同一请求同一参数重发返回同一张卡（`replayed`），不会建第二个 workspace；同一请求换了参数是 `REQUEST_REUSED`（与其他写操作一致）。并行的调用在进程内按 request 认领，第一个 await 之前就占住，所以 agent 用同一个 request 并行建两张卡时只建一张，另一个拿到 `REQUEST_REUSED`（实测中 agent 确实这样并行调用过）。已经建出卡片的请求，若那张卡之后被删除，重发得到 `REQUEST_REUSED`，不会再建一次。
 - **revision 只查一次**：签名请求里的 task/project revision 只在认领请求时检查。之后，在建 workspace 之前和提交时只重查权限与存活：父卡绑定、归档、结束、评审者身份、祖先、创建预算和认领。同一 agent 并行写状态、元数据或进度，或人在 worktree 创建期间编辑了卡片，都不再让提交被拒。
-- 拒绝：本卡已结束或归档；blocker 不在本项目（`CARD_INVALID`，且不会建 workspace）；超过限制（`CARD_LIMIT`、子卡片数量/层数）；`ANCESTOR_FINISHED`：沿子卡链接向上，本卡有已取消、已归档或已不存在的祖先时不能建卡（`subCard` 为 true 或 false 都一样），在建 workspace 之前检查，提交时再查一次；Done 的祖先不挡。`flowly_update_card` 不受这条影响。
+- 拒绝：本卡已结束或归档；blocker 不在本项目（`CARD_INVALID`，且不会建 workspace）；超过限制（`CARD_LIMIT`、子卡片数量/层数）；`ANCESTOR_FINISHED`：沿子卡链接向上，本卡有已取消、已归档或已不存在的祖先时不能建卡（`subCard` 为 true 或 false 都一样），在建 workspace 之前检查，提交时再查一次；Done 的祖先不挡。`flowly_update_card` 的 `action=start` 同样检查父卡的祖先（`ANCESTOR_FINISHED`，“…so this card cannot start sub-cards”），`accept`/`cancel` 不受影响，所以被放弃的树里仍可以取消子卡片。
 - `start=now` 而项目开着自动化却关了 In review 泳道（项目拒绝这种组合之前保存的旧配置）：在建 workspace 之前拒绝，`STATUS_UNAVAILABLE`：“Agent automation is on for this project but its In review lane is off, so a started card could never be delivered. Ask a person to turn the In review lane back on, or create the card with start=later.” `start=later` 仍在 Backlog 建卡。
 - **workspace 已建好之后被拒**：保留原错误码（`ARCHIVED`、`TASK_FINISHED`、`ANCESTOR_FINISHED`、`CARD_INVALID`……），消息为 “Card was not saved: <原因> Workspace <id> was created for this request but has no card yet: retry this same request to reuse it, or ask a person to link or archive it.” 这句话存在该请求的回执上（`notice`），同一请求之后的每次拒绝都附上它，包括 15 分钟窗口过后的 `REQUEST_EXPIRED`。原因解除后重发同一请求，会通过不变的 Paseo idempotency key 在同一个 workspace 上建卡，并清除 notice。没有任何东西自动归档这个 workspace。人在界面里建卡失败仍是原来的 “Card was not saved. Workspace X remains available; retry with the same operation or link it.”
 - 返回：`cardId`、`title`、`status`、`subCardOf?`、`queued`、`message`（已排队 / 已搁置 / 自动化未开启由人启动）。
@@ -35,7 +35,7 @@
 
 输入：`cardId`、`action`（start | accept | cancel）、`note?`、`expectedRevision`、`request`。
 
-- 只能操作本卡的直接子卡片（`NOT_PARENT`）。
+- 只能操作本卡的直接子卡片（`NOT_PARENT`）。独立卡（`subCard=false`）以 `start=later` 建好后，返回消息写 “A person starts it with Run with agent; this card's agent can start only its direct sub-cards.”，不再提示用 `flowly_update_card` 启动。
 - `start`：Backlog → Todo；自动化开着时排队。
   - 子卡片的自动化仍活着（`queued`、`starting`、`working`、`waiting`、`retry_wait`、`reviewing` 或 `needs_human`）时：带 `note`，或子卡片在 In review，则拒绝：job 在等人时为 `NEEDS_PERSON`（由那个人在子卡片自己的 session 里回答），否则为 `CHILD_BUSY`。消息说明什么都没改、note 没有送出。不记回执、事件或反馈，所以之后可以原样再发同一请求。不带 note、且子卡片不在 In review 时仍按 `replayed` 确认，消息为 “This sub-card is already queued or running; nothing changed.”（此前带 note 时也返回 `replayed:true` 并丢掉 note。）
   - **重启上限**：父卡 agent 对已有 job 的子卡片再次 `start`（例如对已交付的子卡要求返工）最多 2 次。第 3 次被拒，`NEEDS_PERSON`（“An agent already started this card again 2 times since a person last ran or moved it…”），什么都不改。人选择 Run again，或人在工作阶段之间移动卡片（最近一次状态变更由人做）时计数清零；移到 Done/Cancelled/Backlog/Todo/Blocked 与验收本来就会结束 job。首次启动搁置或从未运行的子卡片不计数。计数存在 job 的可选字段 `restarts`，只由 agent 的排队带进下一代 job。

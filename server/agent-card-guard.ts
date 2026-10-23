@@ -41,18 +41,23 @@ export function abandonedAncestor(board: Pick<Board, "tasks" | "links">, taskId:
   return null;
 }
 
+/** ANCESTOR_FINISHED when a card above `taskId` is cancelled, archived or gone: nobody will run work there. */
+export function refuseAbandonedTree(board: Pick<Board, "tasks" | "links">, taskId: string, what: string) {
+  const ancestor = abandonedAncestor(board, taskId);
+  if (ancestor)
+    throw new ToolError(
+      "ANCESTOR_FINISHED",
+      `${ancestor.task ? `"${ancestor.task.title}" (${ancestor.id}), a card above this one, is ${ancestor.task.archivedAt ? "archived" : "cancelled"}` : `A card above this one (${ancestor.id}) is gone`}, so this card cannot ${what}. Ask a person before continuing this work.`,
+    );
+}
+
 /**
  * Card creation (SUB-CARDS-SPEC §3): the actor's authority, a tree nobody abandoned (automation
  * would never run work under a cancelled or archived ancestor) and the creation budget.
  */
 export function authorizeCardCreation(board: Board, actor: AgentCardActor, options: { revision?: boolean } = {}) {
   const found = authorizeCardActor(board, actor, options);
-  const ancestor = abandonedAncestor(board, actor.taskId);
-  if (ancestor)
-    throw new ToolError(
-      "ANCESTOR_FINISHED",
-      `${ancestor.task ? `"${ancestor.task.title}" (${ancestor.id}), a card above this one, is ${ancestor.task.archivedAt ? "archived" : "cancelled"}` : `A card above this one (${ancestor.id}) is gone`}, so this card cannot create cards. Ask a person before continuing this work.`,
-    );
+  refuseAbandonedTree(board, actor.taskId, "create cards");
   checkAgentCardBudget(board, actor.taskId);
   return found;
 }

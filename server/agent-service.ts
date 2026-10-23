@@ -1,6 +1,6 @@
 import { linkExtras, type LinkHandoff } from "./automation-handoff";
 import { resumeStage } from "./progress-rules";
-import { authorizeCardActor, authorizeCardCreation, checkStartable, type AgentCardActor } from "./agent-card-guard";
+import { authorizeCardActor, authorizeCardCreation, checkStartable, refuseAbandonedTree, type AgentCardActor } from "./agent-card-guard";
 import { isSummarizer } from "../shared/summary";
 import { outputLanguage } from "../shared/ai-language";
 import type { LocaleCode } from "../shared/i18n";
@@ -226,7 +226,7 @@ export class AgentService {
       message: queued
         ? `Created and queued for agent automation.${supervised ? " End your turn after dispatching; Flowly wakes this supervised parent when its sub-cards settle." : " This session is not a supervised parent; check the card yourself or ask the user to run its automation."}${mode === "directory" ? " Directory workspaces share the project root and have no isolated branch; order conflicting work." : " Worktree starts at the project root branch by default; pass baseRef explicitly for parent-dependent work."}`
         : input.start === "later"
-          ? `Created in ${laneName(r.project, task.status)} (parked). Start it later with flowly_update_card action=start.${note}`
+          ? `Created in ${laneName(r.project, task.status)} (parked). ${input.subCard ? "Start it later with flowly_update_card action=start." : "A person starts it with Run with agent; this card's agent can start only its direct sub-cards."}${note}`
           : `Created in ${laneName(r.project, task.status)}.${note}`,
     };
   }
@@ -269,6 +269,8 @@ export class AgentService {
       const child = board.tasks.find((t) => t.id === input.cardId);
       if (!child || child.projectId !== project.id || parentOf(board.links, child.id) !== parent.id) throw new ToolError("NOT_PARENT", "Only direct sub-cards of this session's card can be managed.");
       if (child.archivedAt) throw new ToolError("ARCHIVED", "That sub-card is archived.");
+      // Automation never runs work under a cancelled or archived ancestor; cancelling stays possible.
+      if (input.action === "start") refuseAbandonedTree(board, parent.id, "start sub-cards");
       const job = jobOf(board, child.id);
       if (input.action === "start" && job?.state === "failed") throw new ToolError("NEEDS_PERSON", "This job failed. A person must choose Run again.");
       if (input.action === "start" && job?.state === "stopped") throw new ToolError("TAKEN_BY_PERSON", "This job was stopped or moved. A person must choose Run again.");

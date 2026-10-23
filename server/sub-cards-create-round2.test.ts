@@ -175,3 +175,12 @@ test("with automation on and no In review lane, start=now is refused before any 
   await expect(x.service.createCard(x.identity, { ...(await x.request()), title: "Parked", start: "later" })).resolves.toMatchObject({ status: "backlog", queued: false });
   expect(x.create).toHaveBeenCalledTimes(1);
 });
+
+test("a parked separate card is not offered to flowly_update_card, which only manages direct sub-cards", async () => {
+  const x = await setup();
+  const separate = await x.service.createCard(x.identity, { ...(await x.request()), title: "Separate later", subCard: false, start: "later" });
+  expect(separate.message).not.toMatch(/flowly_update_card/);
+  expect(separate.message).toMatch(/person/);
+  const sub = await x.service.createCard(x.identity, { ...(await x.request()), title: "Sub later", subCard: true, start: "later" });
+  expect(sub.message).toMatch(/flowly_update_card action=start/);
+});
