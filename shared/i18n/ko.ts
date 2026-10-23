@@ -1,6 +1,9 @@
 import type { Catalog } from "../i18n";
 
 const catalog: Catalog = {
+  "The card's workspace is no longer available": "카드의 작업 공간을 더 이상 사용할 수 없습니다",
+  "Another session took over the card": "다른 세션이 카드를 인계받았습니다",
+  "An ancestor card was cancelled, archived or removed": "상위 카드가 취소, 보관 또는 제거되었습니다",
   "Provider limit reached; retrying later": "제공자 한도에 도달하여 나중에 다시 시도합니다",
   "Waiting for blockers to be Done: {cards}": "차단 카드가 완료되기를 기다리는 중: {cards}",
   "Agent automation requires the In review lane.": "에이전트 자동화에는 검토 중 레인이 필요합니다.",

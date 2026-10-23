@@ -73,7 +73,7 @@ test.each([
   x.hooks.workspace = (id) => (id === "w-a" ? snapshot : undefined);
   await x.automation.queue("a");
   await x.automation.kick();
-  expect(await x.job("a")).toMatchObject({ state: "failed", code: "session_unavailable", detail: expect.stringMatching(/workspace is archived or no longer exists/) });
+  expect(await x.job("a")).toMatchObject({ state: "failed", code: "workspace_unavailable", detail: expect.stringMatching(/workspace is archived or no longer exists/) });
   expect(x.created).toHaveLength(0);
   const board = await x.store.read();
   expect(board.events.filter((e) => e.taskId === "a" && e.action === "automation_failed").map((e) => e.note)).toEqual([expect.stringMatching(/workspace is archived or no longer exists/)]);

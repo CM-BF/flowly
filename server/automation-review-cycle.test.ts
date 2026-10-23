@@ -107,13 +107,21 @@ test("the job's own reviewer talking during the rework does not stop supervising
   await vi.waitFor(() => expect(toReviewer(x, rev).at(-1)?.text).toMatch(/review round 2 of 3/));
 });
 
-test("another managed session taking over the card stops the job and says so", async () => {
+test.each(["working", "delivered"] as const)("another managed session taking over a %s card stops the job and says so", async (state) => {
   const x = await setup();
   await x.automation.queue("a");
   await x.automation.kick();
+  if (state === "delivered") {
+    const impl = x.created[0].agentId;
+    await x.deliver(impl, "a");
+    await x.turn(impl, "a");
+  }
   await x.automation.turnStarted("someone-else", "a");
-  expect(await x.job("a")).toMatchObject({ state: "stopped", code: "card_moved" });
-  expect((await x.store.read()).events.filter((e) => e.action === "automation_stopped")).toHaveLength(1);
+  expect(await x.job("a")).toMatchObject({ state: "stopped", code: "taken_over" });
+  expect((await x.store.read()).events.filter((e) => e.action === "automation_stopped")).toEqual([
+    expect.objectContaining({ actor: "system", agentId: "someone-else", note: "Another session took over the card" }),
+  ]);
+  expect((await x.task("a")).status).toBe(state === "delivered" ? "in_review" : "todo");
 });
 
 test("Run again reuses the earlier reviewer session, and talking to it does not stop the new run", async () => {

@@ -49,6 +49,12 @@ describe("drawer reason line (client-docs-12, client-docs-4)", () => {
     expect(automationReason(job({ state: "needs_human", code: "permission" }))).toBeNull();
     expect(automationReason(job({ state: "working" }))).toBeNull();
   });
+
+  test("settlement reasons name the workspace, takeover or ancestor that caused them", () => {
+    expect(automationReason(job({ state: "failed", code: "workspace_unavailable" }))).toBe("The card's workspace is no longer available");
+    expect(automationReason(job({ state: "stopped", code: "taken_over" }))).toBe("Another session took over the card");
+    expect(automationReason(job({ state: "stopped", code: "ancestor_finished" }))).toBe("An ancestor card was cancelled, archived or removed");
+  });
 });
 
 describe("board Run with agent for a card whose workspace is gone (fixcheck-b-2, client-docs-10)", () => {

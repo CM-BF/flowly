@@ -1,6 +1,9 @@
 import type { Catalog } from "../i18n";
 
 const catalog: Catalog = {
+  "The card's workspace is no longer available": "Рабочее пространство карточки больше недоступно",
+  "Another session took over the card": "Другой сеанс взял карточку на себя",
+  "An ancestor card was cancelled, archived or removed": "Карточка-предок была отменена, архивирована или удалена",
   "Provider limit reached; retrying later": "Достигнут лимит провайдера; повторим позже",
   "Waiting for blockers to be Done: {cards}": "Ожидание завершения блокирующих карточек: {cards}",
   "Agent automation requires the In review lane.": "Для автоматизации агентов нужна колонка «На проверке».",

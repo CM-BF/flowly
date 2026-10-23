@@ -267,7 +267,7 @@ export class AutomationService {
         const owner = jobOf(board, taskId);
         // Another managed session of the card took over. The job's own reviewer, outside its round, did not.
         if (owner && automationAllowed(board, owner) && (isLive(owner) || owner.state === "delivered") && agentId !== owner.implementerId && agentId !== owner.reviewerId && agentId !== activeAgent(owner)) {
-          this.close(owner, "stopped", "card_moved");
+          this.close(owner, "stopped", "taken_over");
           this.store.event(board, { taskId, actor: "system", agentId, action: "automation_stopped", note: "Another session took over the card" });
           return { value: null, changed: true };
         }
@@ -696,7 +696,7 @@ export class AutomationService {
     return this.store.transaction((board) => {
       const job = jobOf(board, seen.taskId);
       if (!job || job.generation !== seen.generation || job.state !== seen.state || !automationAllowed(board, job)) return { value: null, changed: false };
-      this.close(job, "failed", "session_unavailable");
+      this.close(job, "failed", "workspace_unavailable");
       job.detail = "The card's workspace is archived or no longer exists.";
       this.store.event(board, { taskId: job.taskId, actor: "system", action: "automation_failed", note: "The card's workspace is archived or no longer exists" });
       return { value: null, changed: true };
@@ -985,7 +985,13 @@ export class AutomationService {
       if (!automationOf(project)) continue;
       if (!laneEnabled(project, "in_review")) continue;
       if (!automationAllowed(currentBoard, job)) {
-        await this.store.transaction((b) => { const j = jobOf(b, job.taskId); if (!j || j.generation !== job.generation || !isLive(j)) return { value: null, changed: false }; this.close(j, "stopped", "card_moved"); return { value: null, changed: true }; });
+        await this.store.transaction((b) => {
+          const j = jobOf(b, job.taskId);
+          if (!j || j.generation !== job.generation || !isLive(j)) return { value: null, changed: false };
+          this.close(j, "stopped", "ancestor_finished");
+          this.store.event(b, { taskId: j.taskId, actor: "system", action: "automation_stopped", note: "An ancestor card was cancelled, archived or removed" });
+          return { value: null, changed: true };
+        });
         continue;
       }
       if (job.state === "queued" || job.state === "retry_wait") continue;

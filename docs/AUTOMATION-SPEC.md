@@ -48,7 +48,8 @@ AutomationJob {
   nudges, failures, reviewRounds,
   verdict?: approved | changes | incomplete,
   code?: question | blocked | permission | interrupted | stopped | card_moved | card_finished
-       | no_delivery | failed | start_failed | session_unavailable | review_rounds | review_incomplete | sub_cards | cooldown,
+       | no_delivery | failed | start_failed | session_unavailable | workspace_unavailable | taken_over | ancestor_finished
+       | review_rounds | review_incomplete | sub_cards | cooldown,
   detail?,                                // daemon 文本（错误、评审摘要），不翻译
   retryAt?, turnAt?, pendingOp?, pendingRole?, launchKey?, launchConsumed?,
   instruction?: { id, role, text, fresh },   // 唯一的待发指令（§10）
@@ -110,7 +111,7 @@ AutomationJob {
 
 - **Stop automation**（`automation.stop`）：job → `stopped`；不打断、不归档任何 session（要打断用 Paseo 自己的停止）。
 - 人把卡片移到 Done/Cancelled → `stopped`/`card_finished`；移到 Backlog，或在 agent 已开工后移到 Todo/Blocked → `stopped`/`card_moved`。只有这几种移动结束 job，`delivered` 的 job 也一样。工作阶段之间的移动不影响活着的 job；已交付的卡片在工作阶段之间移动（例如从 In review 拖回 Development）后 job 仍是 `delivered`，给实现者发反馈即重开，它的下一次交付会被评审。
-- 卡片的另一个 Flowly 管理的 session 开始回合、接管卡片 → job `stopped` / `card_moved`，并记一条 `automation_stopped` 活动，daemon note 为 “Another session took over the card”。job 自己的评审者在本轮之外开始回合（人问它结论、返工期间、Run again 保留它之后）不算接管，job 不变（§5）。
+- 卡片的另一个 Flowly 管理的 session 开始回合、接管卡片 → job `stopped` / `taken_over`，并记一条 `automation_stopped` 活动，daemon note 为 “Another session took over the card”。job 自己的评审者在本轮之外开始回合（人问它结论、返工期间、Run again 保留它之后）不算接管，job 不变（§5）。
 - 归档、取消归档卡片：归档停止该卡（及其后代）的 job，不改后代泳道；dispatcher 在后台跑一次，RPC 保存好就返回，由此引起的 job 变化在下一次看板读取时出现。
 - 删卡、移除项目：job 一并删除；session 照旧（删卡本身的归档选项不变）。
 
@@ -120,6 +121,7 @@ AutomationJob {
 - 只有 `starting`、`working`、`reviewing` 的 job 参与重启恢复。`starting` 或有 `pendingOp` 且超过 2 分钟没进展：用同一个 op 重新 `prepareSession`（得到同一 agentId），已存在就只补状态，不存在才创建（idempotencyKey 同侧栏）。
 - session 的创建或发送得到未知结果（`agent_request_outcome_unknown`），或在启动 session 时用完了 provider 限额预算：job 等人（`needs_human` / `interrupted` 或 `needs_human` / `cooldown`），不保留指令，也不保留 session preparation。在人回复该 session（在记录的 session 上恢复监督）或选择 Run again 之前，不重发、不重新准备、不重新创建任何东西。
 - 被监督的 session 已归档或不存在：实现者 → `failed`/`session_unavailable`；评审者 → 交付保留给人（`incomplete`）。refresh RPC 失败是未知状态，不当作 session 消失。
+- 卡片自己的 workspace 已归档或不存在：job `failed` / `workspace_unavailable`，记录 `automation_failed`，不要求它曾启动过 session。祖先卡片取消、归档或缺失：后代 job `stopped` / `ancestor_finished`，记录 `automation_stopped`（“An ancestor card was cancelled, archived or removed”），不移动后代卡片。
 - 看板上已有晚于 `turnAt` 的 `agent.turn_ended`（钩子在处理前插件被重载等）：补做 §4.2。`needs_human` 时已有更晚的 `agent.turn_started`：补做恢复。
 - 回合结束完全丢失：2 分钟宽限后，被监督 session 处于 idle、error 或 closed，没有 activeTurn、没有待处理权限，也没有记录到回合结束 → `needs_human` / `interrupted`，释放名额。detail 说明 session 是空闲、出错停止（附它的 lastError）还是已关闭；不伪造成功回合，不编造 lifecycle 事件。
 
@@ -145,6 +147,7 @@ AutomationJob {
    - `retry_wait` / `failed`：“The last turn failed; retrying”；`retry_wait` / `start_failed`：“The agent session could not be started; retrying”；`retry_wait` / `cooldown`：“Provider limit reached; retrying later”。
    - `needs_human` / `cooldown`（冷却预算用完）：“The provider limit kept recurring; reply in the session, or Stop and Run again”。
    - `failed` 状态保留 “Turns kept failing” 与 “The agent session could not be started”。
+   - `workspace_unavailable`：“The card's workspace is no longer available”；`taken_over`：“Another session took over the card”；`ancestor_finished`：“An ancestor card was cancelled, archived or removed”。它们不再复用 session 消失或卡片移动的原因。
 3. **菜单**：卡片右键/⋯、手机操作表、详情菜单都有 Run with agent（项目开启且卡片未结束）或 Stop automation（job 活着）。卡片的 workspace 不在已加载的 Paseo workspace 列表里时，看板右键菜单和手机操作表与详情一样把 Run with agent 显示为不可用；workspace 列表还在加载，或列表最后成功刷新早于卡片创建时，不因此禁用（agent 或其它设备创建的卡片可能先到达看板）。活着的 job 的 Stop automation 不受影响。
 4. **Needs attention 与侧栏角标**：只在项目的 Agent automation 开启时列出卡片的自动化条目；关闭自动化后，它冻结的 job（包括 `needs_human`、`failed` 和等待评审的交付）的条目都消失。失败的 job 在失败后卡片状态被改过（自动化自己移到 Blocked，即 `rule="AUTO"` 的那次除外，例如人把它从 Blocked 拖回 Development）后离开 Needs attention；job 本身仍是 `failed`，详情里仍有 Run again。条目的自动化部分跟随卡片的信号：失败为 “Automation stopped”，等权限为 “Agent needs permission”，评审者没能定论的交付为 “Review needs you”，其它等待仍为 “Agent waiting for you”。
 5. **编辑项目**：Agent automation 开关；开启后 Cards at once（1/2/3/5）、Implementer、Reviewer（模型选择沿用默认模型控件，“无”分别为项目默认模型 / 不评审）、Review rounds（有评审者时）、Full access。In review 关闭时显示 “Agent automation requires the In review lane.”。

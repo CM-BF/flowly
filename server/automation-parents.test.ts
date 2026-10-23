@@ -60,9 +60,9 @@ test("a sub-card whose workspace is gone settles as failed, so its waiting paren
   // The parent's silent turn end waits for b, which frees the slot; b's dispatch finds no workspace.
   await x.turn(parent, "a");
   expect((await x.store.read()).events.some((e) => e.taskId === "a" && e.action === "automation_waiting")).toBe(true);
-  expect(await x.job("b")).toMatchObject({ state: "failed", code: "session_unavailable" });
+  expect(await x.job("b")).toMatchObject({ state: "failed", code: "workspace_unavailable" });
   expect((await x.job("a")).state).toBe("working");
-  expect(x.sent.filter((s) => s.agentId === parent)).toEqual([expect.objectContaining({ text: expect.stringMatching(/Card b \(b\): Todo; automation failed \(session_unavailable\)/) })]);
+  expect(x.sent.filter((s) => s.agentId === parent)).toEqual([expect.objectContaining({ text: expect.stringMatching(/Card b \(b\): Todo; automation failed \(workspace_unavailable\)/) })]);
 });
 
 test("a parent whose sub-cards settled waits for a free slot before it wakes", async () => {
@@ -100,9 +100,13 @@ test.each([
   expect((await x.job("grand")).state).toBe("queued");
   await x.store.mutate((board) => end(board.tasks.find((t) => t.id === "b")!));
   await x.automation.kick();
-  expect(await x.job("grand")).toMatchObject({ state: "stopped", code: "card_moved" });
+  expect(await x.job("grand")).toMatchObject({ state: "stopped", code: "ancestor_finished" });
+  expect((await x.store.read()).events.filter((e) => e.taskId === "grand" && e.action === "automation_stopped")).toEqual([
+    expect.objectContaining({ actor: "system", note: "An ancestor card was cancelled, archived or removed" }),
+  ]);
   await x.store.mutate((board) => void (board.tasks.find((t) => t.id === "x")!.status = "done"));
   await x.automation.kick();
   expect(x.created).toHaveLength(0);
   expect((await x.task("grand")).status).toBe("todo");
+  expect((await x.store.read()).events.filter((e) => e.taskId === "grand" && e.action === "automation_stopped")).toHaveLength(1);
 });
