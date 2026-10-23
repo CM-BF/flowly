@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { automationFixture as setup, cleanupAutomationFixtures } from "./automation-fixture";
 import type { AutomationJob } from "../shared/automation";
+import { projectLanes } from "../shared/lanes";
 
 // AUTOMATION-SPEC §10: one worker per physical directory, and a card whose own workspace is gone.
 afterEach(cleanupAutomationFixtures);
@@ -90,6 +91,22 @@ test("a workspace refresh that fails is unknown, not a missing workspace: the ca
   expect((await x.job("a")).state).toBe("queued");
   expect(x.created).toHaveLength(0);
   x.hooks.workspace = undefined;
+  await x.automation.kick();
+  expect(x.created.map((c) => c.workspaceId)).toEqual(["w-a"]);
+});
+
+test("an old configuration with automation on and no In review lane is frozen: nothing starts until the lane is back", async () => {
+  const x = await setup({ enabled: true });
+  await x.store.mutate((board) => {
+    board.projects[0].lanes = projectLanes(null).map((lane) => ({ ...lane, enabled: lane.status !== "in_review" }));
+    board.automation.push({ taskId: "a", projectId: "p", state: "queued", role: "implementer", generation: 1, nudges: 0, failures: 0, reviewRounds: 0, queuedAt: x.at(), updatedAt: x.at() });
+  });
+  await x.automation.kick();
+  x.advance(121_000);
+  await x.automation.kick();
+  expect(x.created).toHaveLength(0);
+  expect((await x.job("a")).state).toBe("queued");
+  await x.store.mutate((board) => void (board.projects[0].lanes = projectLanes(null)));
   await x.automation.kick();
   expect(x.created.map((c) => c.workspaceId)).toEqual(["w-a"]);
 });

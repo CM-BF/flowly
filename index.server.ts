@@ -385,7 +385,8 @@ export default function contribute(server: PluginServerContext) {
     const previous = input.status ? await statusOf(input.id) : undefined;
     const task = await store.editTask(input);
     if (input.status) afterStatus(previous, task, paseo);
-    if (input.archived !== undefined) { attach(paseo); await automation.kick(); }
+    // The change is committed; every pass re-checks archive state before a side effect, so the reply does not wait for dispatch.
+    if (input.archived !== undefined) { attach(paseo); void automation.kick(); }
     return task;
   });
   server.handle(rpc.updateTaskTags, (input) => store.editTags(input));
@@ -400,7 +401,7 @@ export default function contribute(server: PluginServerContext) {
     const before = (await store.read()).projects.find((p) => p.id === input.id);
     const project = await store.updateProject(input);
     attach(paseo);
-    await automation.kick();
+    void automation.kick();
     // Included again: read its last week once, like turning the switch on (§3.3).
     if (before?.workflowInsights === false && project.workflowInsights !== false && (await workflowValues()).enabled)
       void workflow.backfill(project.id, paseo).catch(() => undefined);

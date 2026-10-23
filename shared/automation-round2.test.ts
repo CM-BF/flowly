@@ -166,7 +166,7 @@ test.each([
   expect(parentShouldWake(b, jobIn(b, "P"))).toBe(true);
 });
 
-test("a parent wakes only with a free slot, its automation on, and no archived or cancelled ancestor", () => {
+test("a parent wakes only with a free slot, its automation on, the In review lane on, and no archived or cancelled ancestor", () => {
   const settled = () =>
     board({
       tasks: [task("G", "development"), task("P", "development"), task("C", "in_review"), task("other", "development")],
@@ -183,6 +183,7 @@ test("a parent wakes only with a free slot, its automation on, and no archived o
     ["parent archived", (b) => void (taskIn(b, "P").archivedAt = at)],
     ["grandparent cancelled", (b) => void (taskIn(b, "G").status = "cancelled")],
     ["grandparent archived", (b) => void (taskIn(b, "G").archivedAt = at)],
+    ["In review lane off", (b) => void (b.projects[0].lanes = [{ status: "in_review", enabled: false }])],
   ];
   for (const [name, change] of cases) {
     const b = settled();
@@ -203,6 +204,18 @@ test.each([
   change(b);
   expect(automationAllowed(b, jobIn(b, "grand"))).toBe(false);
   expect(dispatchPlan(b, now).start).toEqual([]);
+});
+
+test("a project whose In review lane is off (an old configuration) is not dispatched: no starts, no retries", () => {
+  const b = board({
+    projects: [project("p", { automation: on({ maxRunning: 3 }), lanes: [{ status: "in_review", enabled: false }] })],
+    tasks: [task("a"), task("b"), task("c", "development")],
+    automation: [job("a"), job("b"), job("c", { state: "retry_wait", retryAt: at })],
+  });
+  expect(automationAllowed(b, jobIn(b, "a"))).toBe(false);
+  expect(dispatchPlan(b, now)).toEqual({ start: [], retry: [] });
+  b.projects[0].lanes = [{ status: "in_review", enabled: true }];
+  expect(dispatchPlan(b, now)).toMatchObject({ start: [{ taskId: "a" }, { taskId: "b" }], retry: [{ taskId: "c" }] });
 });
 
 test("a provider cooldown holds back that provider's cards only; an unknown provider never holds back other projects", () => {

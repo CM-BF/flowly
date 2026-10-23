@@ -1,5 +1,6 @@
 import type { Board, Project, Task } from "./model";
 import { childrenOf, linksOf, parentOf } from "./links";
+import { laneEnabled } from "./lanes";
 import {
   automationSettingsSchema,
   type AutomationCode,
@@ -24,11 +25,15 @@ export const liveStates: readonly AutomationState[] = ["queued", "starting", "wo
 export const slotStates: readonly AutomationState[] = ["starting", "working", "retry_wait", "reviewing"];
 export const isLive = (job: Pick<AutomationJob, "state"> | undefined) => !!job && liveStates.includes(job.state);
 
-/** Every dispatcher, recovery and side effect uses the same current ownership gate. */
+/**
+ * Every dispatcher, recovery and side effect uses the same current ownership gate. A project
+ * without the In review lane (a configuration saved before automation required it) is frozen:
+ * its jobs are neither dispatched nor closed until the lane is back (AUTOMATION-SPEC §10).
+ */
 export function automationAllowed(board: Pick<Board, "tasks" | "projects" | "links">, job: AutomationJob): boolean {
   const task = board.tasks.find((t) => t.id === job.taskId && t.projectId === job.projectId);
   const project = board.projects.find((p) => p.id === job.projectId);
-  if (!task || task.archivedAt || ["done", "cancelled"].includes(task.status) || !project || project.archivedAt || !automationOf(project)) return false;
+  if (!task || task.archivedAt || ["done", "cancelled"].includes(task.status) || !project || project.archivedAt || !automationOf(project) || !laneEnabled(project, "in_review")) return false;
   const seen = new Set<string>();
   for (let id = parentOf(board.links, task.id); id && !seen.has(id); id = parentOf(board.links, id)) {
     seen.add(id);
