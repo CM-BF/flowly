@@ -25,8 +25,10 @@ import {
   cooldownDelayMs,
   cooldownLimit,
   cooldownPrompt,
+  motionOf,
   parentShouldWake,
   subCardSignature,
+  type Motion,
   type SubCardLine,
   dispatchPlan,
   failureTakenBack,
@@ -144,7 +146,8 @@ export class AutomationService {
     await this.recordTakeBacks();
     await this.reconcile();
     const settled = await this.store.read();
-    for (const job of settled.automation) if (parentShouldWake(settled, job)) await this.wake(job);
+    let motion: Motion | undefined;
+    for (const job of settled.automation) if (job.state === "waiting" && parentShouldWake(settled, job, (motion ??= motionOf(settled)))) await this.wake(job);
     const board = await this.store.read();
     // Cooldown gating compares providers; a project that sets no model starts on the global default's.
     const fallback = board.automation.some((j) => j.state === "retry_wait" && j.code === "cooldown") ? (await this.deps.globalModel().catch(() => null))?.provider : undefined;
@@ -1054,18 +1057,22 @@ export class AutomationService {
   /** A waiting parent whose sub-cards settled gets their summary and works again (SUB-CARDS-SPEC §5). */
   private async wake(seen: AutomationJob) {
     const board = await this.store.read();
-    if (!parentShouldWake(board, seen)) return;
+    const motion = motionOf(board);
+    if (!parentShouldWake(board, seen, motion)) return;
     const place = await this.occupancy(seen);
     if (place === "unavailable") return void (await this.workspaceGone(seen));
     if (place !== "free") return;
     const project = board.projects.find((p) => p.id === seen.projectId);
     const lines = (await Promise.all(childrenOf(board.links, seen.taskId).map((id) => cardHandoff(board, id, this.api())))).filter((line): line is SubCardLine => !!line);
+    const signature = subCardSignature(board, seen.taskId, motion);
     const woken = await this.store.transaction((b) => {
       const job = jobOf(b, seen.taskId);
-      if (!job || job.generation !== seen.generation || !parentShouldWake(b, job) || subCardSignature(b, job.taskId) !== subCardSignature(board, job.taskId)) return { value: null, changed: false };
+      if (!job || job.generation !== seen.generation) return { value: null, changed: false };
+      const moving = motionOf(b);
+      if (!parentShouldWake(b, job, moving) || subCardSignature(b, job.taskId, moving) !== signature) return { value: null, changed: false };
       job.state = "working";
       job.role = "implementer";
-      job.subSeen = subCardSignature(b, job.taskId);
+      job.subSeen = signature;
       job.turnAt = this.now();
       job.updatedAt = job.turnAt;
       job.nudges = 0;

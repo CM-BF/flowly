@@ -283,62 +283,103 @@ export function turnDecision(
     }
     if (task.status === "blocked" && blockedThisTurn(board, task.id, agentId)) return { kind: "wait", code: "blocked" };
     if (askedThisTurn(board, task.id, agentId)) return { kind: "wait", code: "question" };
-    if (childrenOf(board.links, task.id).some((id) => subCardActive(board, id))) return { kind: "await_children", signature: subCardSignature(board, task.id) };
+    const children = childrenOf(board.links, task.id);
+    const motion = children.length ? motionOf(board) : undefined;
+    if (motion && children.some((id) => motion.has(id))) return { kind: "await_children", signature: subCardSignature(board, task.id, motion) };
   }
   if (job.nudges < settings.nudgeLimit) return { kind: "nudge", count: job.nudges + 1 };
   return reviewer ? { kind: "give_up", code: "review_incomplete", blockCard: false } : { kind: "give_up", code: "no_delivery", blockCard: true };
 }
 
+/** The cards that move (`subCardActive`) on one board snapshot. */
+export type Motion = ReadonlySet<string>;
+
 /**
- * Whether a sub-card is still moving without its parent (SUB-CARDS-SPEC §5): an agent
- * works on it, waits for a person (a question, a blocker, a permission: the person
- * answers it, not the parent), or is about to start. A queued card held by blockers
- * that are not Done moves only while one of them moves itself: a sibling delivered to
- * In review waits for this parent to accept it, and a blocker nobody runs (delivered,
- * failed, stopped, never run by automation) waits for a person. Either way the parent
- * is told. `seen` ends the walk on a dependency cycle.
+ * Every card still moving without its parent (SUB-CARDS-SPEC §5), on one board snapshot: an agent works on it,
+ * waits for a person (a question, a blocker, a permission: the person answers it, not the parent), or is about to
+ * start. A queued card held by blockers that are not Done moves only while one of them moves itself: a sibling
+ * delivered to In review waits for this parent to accept it, and a blocker nobody runs (delivered, failed, stopped,
+ * never run by automation) waits for a person. Either way the parent is told. Walked backwards from the cards that
+ * move by themselves through the cards their motion holds up, so each card and link is visited once and a
+ * dependency cycle never moves on its own.
  */
-export function subCardActive(board: Pick<Board, "tasks" | "links" | "automation">, id: string, seen = new Set<string>()): boolean {
-  if (seen.has(id)) return false;
-  seen.add(id);
-  const task = board.tasks.find((t) => t.id === id);
-  if (!task || task.archivedAt || task.status === "done" || task.status === "cancelled") return false;
-  const job = jobOf(board, id);
-  if (!job || !isLive(job)) return false;
-  if (job.state !== "queued") return true;
-  const ready = readiness(board, id);
-  if (ready.ready) return true;
-  if (ready.reason !== "blockers" || ready.cancelled.length) return false;
-  const parent = parentOf(board.links, id);
-  const siblingDelivered = (blocker: Task) => !!parent && parentOf(board.links, blocker.id) === parent && blocker.status === "in_review";
-  return ready.waiting.some((blocker) => !siblingDelivered(blocker) && subCardActive(board, blocker.id, new Set(seen)));
+export function motionOf(board: Pick<Board, "tasks" | "links" | "automation">): Motion {
+  const tasks = new Map<string, Task>();
+  for (const task of board.tasks) if (!tasks.has(task.id)) tasks.set(task.id, task);
+  const jobs = new Map<string, AutomationJob>();
+  for (const job of board.automation) if (!jobs.has(job.taskId)) jobs.set(job.taskId, job);
+  const parents = new Map<string, string>();
+  /** Each card's blockers that are not Done, and the cards each blocker holds. */
+  const blockers = new Map<string, Task[]>();
+  const holds = new Map<string, string[]>();
+  for (const link of board.links) {
+    if (link.kind === "subtask" && !parents.has(link.from)) parents.set(link.from, link.to);
+    const blocker = link.kind === "blocks" && link.from !== link.to ? tasks.get(link.from) : undefined;
+    if (!blocker || blocker.status === "done") continue;
+    blockers.set(link.to, [...(blockers.get(link.to) ?? []), blocker]);
+    holds.set(link.from, [...(holds.get(link.from) ?? []), link.to]);
+  }
+  /** "self": moves by itself; "held": queued, moves only through a blocker; null: does not move. */
+  const kinds = new Map<string, "self" | "held" | null>();
+  const kind = (id: string) => {
+    if (kinds.has(id)) return kinds.get(id)!;
+    const task = tasks.get(id);
+    const job = jobs.get(id);
+    const waiting = blockers.get(id) ?? [];
+    const value =
+      !task || task.archivedAt || task.status === "done" || task.status === "cancelled" || !job || !isLive(job) ? null
+      : job.state !== "queued" || !waiting.length ? "self"
+      : waiting.some((b) => b.status === "cancelled" || b.archivedAt) ? null
+      : "held";
+    kinds.set(id, value);
+    return value;
+  };
+  const moving = new Set<string>();
+  const next: string[] = [];
+  for (const id of tasks.keys()) if (kind(id) === "self") moving.add(id), next.push(id);
+  while (next.length) {
+    const blocker = tasks.get(next.pop()!)!;
+    for (const id of holds.get(blocker.id) ?? []) {
+      if (moving.has(id) || kind(id) !== "held") continue;
+      const parent = parents.get(id);
+      if (parent && parents.get(blocker.id) === parent && blocker.status === "in_review") continue;
+      moving.add(id);
+      next.push(id);
+    }
+  }
+  return moving;
 }
+
+/** Whether a sub-card is still moving without its parent (`motionOf`); pass `motion` when asking about several cards of one snapshot. */
+export const subCardActive = (board: Pick<Board, "tasks" | "links" | "automation">, id: string, motion: Motion = motionOf(board)) => motion.has(id);
 
 /**
  * The sub-cards' state as the parent last saw it; a different value wakes the parent. A queued
  * sub-card also records whether it moves, which its blockers decide (one outside the parent's
  * tree can be cancelled or archived while the sub-card itself does not change).
  */
-export function subCardSignature(board: Pick<Board, "tasks" | "links" | "automation">, parentId: string) {
+export function subCardSignature(board: Pick<Board, "tasks" | "links" | "automation">, parentId: string, motion?: Motion) {
+  let known = motion;
   return childrenOf(board.links, parentId)
     .map((id) => {
       const task = board.tasks.find((t) => t.id === id);
       const job = jobOf(board, id);
-      const held = job?.state === "queued" ? (subCardActive(board, id) ? ":moving" : ":held") : "";
+      const held = job?.state === "queued" ? ((known ??= motionOf(board)).has(id) ? ":moving" : ":held") : "";
       return `${id}:${task?.archivedAt ? "archived" : (task?.status ?? "gone")}:${job?.state ?? ""}:${job?.verdict ?? ""}${held}`;
     })
     .join("|");
 }
 
 /** A waiting parent wakes when none of its sub-cards is moving and they changed since it last looked. */
-export function parentShouldWake(board: Pick<Board, "tasks" | "links" | "automation" | "projects">, job: AutomationJob) {
+export function parentShouldWake(board: Pick<Board, "tasks" | "links" | "automation" | "projects">, job: AutomationJob, motion?: Motion) {
   if (job.state !== "waiting") return false;
   if (!automationAllowed(board, job)) return false;
   const project = board.projects.find((p) => p.id === job.projectId);
   const settings = automationOf(project)!;
   if (board.automation.filter((j) => j.projectId === job.projectId && slotStates.includes(j.state)).length >= settings.maxRunning) return false;
-  if (childrenOf(board.links, job.taskId).some((id) => subCardActive(board, id))) return false;
-  return subCardSignature(board, job.taskId) !== job.subSeen;
+  const moving = motion ?? motionOf(board);
+  if (childrenOf(board.links, job.taskId).some((id) => moving.has(id))) return false;
+  return subCardSignature(board, job.taskId, moving) !== job.subSeen;
 }
 
 /** Provider modes that never stop for approval; unattended sessions use them when full access is on. */
