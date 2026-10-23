@@ -149,3 +149,7 @@ Covered by unit tests: the pure logic (fresh user shows; existing user silently 
 ### Agent automation and sub-cards amendment (2026-10-22)
 
 Welcome → More features now includes Agent automation and Sub-cards. It explains per-project opt-in, Run with agent, separate workspaces, supervised parent wait/check/accept, and human Run again after failures or Stop. Existing one-time tips `agent-automation` (project with Backlog/Todo cards, after first-card) and `sub-cards` (project with parent/child links, before subagents) announce these capabilities to existing users. Their ids, copy and priority are implemented in onboarding-logic/board and translated in all catalogs. This review adds no new tip id: it clarifies the existing feature and failure boundary.
+
+### 2026-10-22 单一任务输入
+
+`task-intake`：项目看板可见时的一次性提示（first-card 后），说明单输入、默认启动、agent 整理元数据，以及项目中的速度与权限。欢迎引导添加 Describe once, start working。

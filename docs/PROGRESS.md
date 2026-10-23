@@ -1,5 +1,13 @@
 # Implementation progress
 
+## Single task input and execution defaults — 2026-10-22
+
+- [x] One task brief, start-agent default on every new card, agent metadata tool with revision/receipt checks, original input preserved.
+- [x] Project/implementer/reviewer permissions and provider speed controls; direct and supervised launches carry settings. Private queued first-message attachments, stable identities and lifecycle cleanup.
+- [x] Multica quick-create behavior researched; spec, skill, onboarding and nine catalogs updated. Typecheck and full suite: 988 passed, 65 pre-existing skipped. Full-access Luna review: [report](verification/task-intake-luna.md).
+- [ ] Install and desktop/compact Web UI + real agent verification: deferred while a nonfixture Flowly automation job runs; no reload during user work.
+
+
 ## Automation/sub-card review hardening — 2026-10-22
 
 - [x] Recovered completed Workflow review/verification/critic results; synthesized and deduplicated 118 kept entries into 20 coherent batches, preserving rejected/plausible distinctions.

@@ -264,3 +264,5 @@ R2、R3 均建立在 R1 的关联及持久化能力上；R4 按模块分别评�
 2026-10-21 GitHub CI/CD: PR/main CI, installed-package smoke and OIDC npm/GitHub
 releases from validated version tags. [Spec](CI-CD-SPEC.md),
 [operations](CI-CD.md). No product UI or task automation change.
+
+- [单一任务输入与执行默认值](TASK-INTAKE-SPEC.md)：默认 agent、原文保留、agent 整理元数据、速度与权限。

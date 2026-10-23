@@ -36,6 +36,8 @@ import {
   artifactRemovalSchema,
   tagsInputSchema,
   typeInputSchema,
+  metadataInputSchema,
+  type MetadataInput,
   nextMovesInputSchema,
   workpadInputSchema,
   progressInputSchema,
@@ -606,11 +608,11 @@ export class AgentService {
   }
   async write(
     identity: ToolIdentity,
-    action: "status" | "progress" | "idea" | "remember" | "artifact" | "artifact_remove" | "tags" | "type" | "next_moves" | "workpad",
+    action: "status" | "progress" | "idea" | "remember" | "artifact" | "artifact_remove" | "tags" | "type" | "metadata" | "next_moves" | "workpad",
     raw: unknown,
   ): Promise<ToolResult> {
-    const input: StatusInput | ProgressInput | IdeaInput | RememberInput | ArtifactToolInput | ArtifactRemovalInput | TagsToolInput | TypeToolInput | NextMovesInput | WorkpadInput =
-      action === "status"
+    const input: MetadataInput | StatusInput | ProgressInput | IdeaInput | RememberInput | ArtifactToolInput | ArtifactRemovalInput | TagsToolInput | TypeToolInput | NextMovesInput | WorkpadInput =
+      action === "metadata" ? metadataInputSchema.parse(raw) : action === "status"
         ? statusInputSchema.parse(raw)
         : action === "remember"
           ? rememberInputSchema.parse(raw)
@@ -897,6 +899,20 @@ export class AgentService {
               });
             })()
           : undefined;
+      const metadataEvent = action === "metadata" ? (() => {
+        if (board.automation.some((job) => job.taskId === task.id && job.reviewerId === identity.agentId))
+          throw new ToolError("REVIEWER_ONLY", "A reviewer reports findings; the implementer organizes this card.");
+        const fields = input as MetadataInput;
+        const changed = (["title", "description", "priority"] as const).filter((key) => fields[key] !== undefined && fields[key] !== task[key]);
+        const at = new Date(this.clock()).toISOString();
+        if (!changed.length) return { id: "", at };
+        if (fields.title !== undefined) task.title = fields.title;
+        if (fields.description !== undefined) task.description = fields.description;
+        if (fields.priority !== undefined) task.priority = fields.priority;
+        task.revision++;
+        task.updatedAt = at;
+        return this.store.event(board, { taskId: task.id, agentId: identity.agentId, actor: "agent", action: "edited", note: `Organized card: ${changed.join(", ")}` });
+      })() : undefined;
       let workpadRevision: number | undefined;
       // Full replacement guarded by the workpad's own revision (WORKPAD-SPEC §2.4, §3).
       const workpadEvent =
@@ -962,6 +978,7 @@ export class AgentService {
         artifactEvent ??
         tagsEvent ??
         typeEvent ??
+        metadataEvent ??
         movesEvent ??
         workpadEvent ??
         (action === "idea" || action === "remember"

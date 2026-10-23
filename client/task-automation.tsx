@@ -172,8 +172,10 @@ const defaults = { enabled: true, maxRunning: 2, maxReviewRounds: 3, fullAccess:
 export function AutomationSettingsGroup({
   value,
   onChange,
+  cwd,
 }: {
   value: AutomationSettings | null;
+  cwd?: string;
   onChange: Dispatch<SetStateAction<AutomationSettings | null>>;
 }) {
   const current = value ?? { ...defaults, enabled: false };
@@ -201,14 +203,14 @@ export function AutomationSettingsGroup({
             options={["1", "2", "3", "5"].map((n) => ({ value: n, label: n }))}
             onChange={(n) => set({ maxRunning: Number(n) })}
           />
-          <ModelDefaultGroup
+          <ModelDefaultGroup execution cwd={cwd}
             title={t("Implementer")}
             description={t("The model that works on queued cards.")}
             value={current.implementer ?? null}
             noneLabel={t("Project default model")}
             onChange={(next) => model("implementer", next)}
           />
-          <ModelDefaultGroup
+          <ModelDefaultGroup execution cwd={cwd}
             title={t("Reviewer")}
             description={t("A second agent reviews each delivery and can send it back with requested changes.")}
             value={current.reviewer ?? null}

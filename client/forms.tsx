@@ -1,6 +1,8 @@
 import { enabledStatuses, laneName, projectLanes } from "../shared/lanes";
 import { LaneEditor } from "./lane-editor";
-import { useBoardView } from "./board-view";
+import { Disclosure } from "./disclosure";
+import { taskDraft } from "../shared/task-draft";
+import { unattendedModes } from "../shared/automation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { View } from "react-native";
@@ -25,7 +27,7 @@ import { AgentPicker, useAgentChoice, type AgentDefaults } from "./agent-choice"
 import { ModelDefaultGroup } from "./model-default";
 import { AutomationSettingsGroup } from "./task-automation";
 import type { AutomationSettings } from "../shared/automation-schema";
-import { agentModelFromValues, type AgentModel } from "../shared/agent-defaults";
+import { agentModelFromValues, executionModel, startingAgent, type AgentModel } from "../shared/agent-defaults";
 import { modelSettings, modelSettingsValues } from "../shared/settings";
 import { launchKanbanSession } from "./session";
 import { ImageAttachments, useImageAttachments } from "./image-attach";
@@ -247,7 +249,7 @@ export function ProjectForm({
           )}
           {project && <LaneEditor lanes={lanes} counts={laneCounts} disabled={pending} onChange={setLanes} />}
           {project && (
-            <ModelDefaultGroup
+            <ModelDefaultGroup execution cwd={primaryPath}
               title={t("Default model")}
               description={t("New sessions in this project start with this model instead of the global default.")}
               value={agentModel}
@@ -269,7 +271,7 @@ export function ProjectForm({
               )}
             </View>
           )}
-          {project && <AutomationSettingsGroup value={automation} onChange={setAutomation} />}
+          {project && <AutomationSettingsGroup value={automation} onChange={setAutomation} cwd={primaryPath} />}
           {project && (
             <Toggle
               title={t("Auto-update status in this project")}
@@ -453,6 +455,8 @@ export function TaskForm({
     update = useRpc(rpc.updateTask);
   const resources = useResourcesQuery();
   const board = useBoardQuery();
+  const [brief, setBrief] = useState([seed?.title, seed?.description].filter(Boolean).join("\n\n"));
+  const [advanced, setAdvanced] = useState(false);
   const [title, setTitle] = useState(task?.title || seed?.title || ""),
     [description, setDescription] = useState(task?.description || seed?.description || ""),
     [status, setStatus] = useState<Status>(task?.status || startStatus(project, defaultStatus)),
@@ -480,8 +484,8 @@ export function TaskForm({
     const id = pickKey(familyOf(provider), item.key);
     setExternals((current) => (current.some((x) => pickKey(familyOf(x.provider), x.item.key) === id) ? current : [...current, { item, provider }]));
     setPicking(null);
-    if (!title.trim() || title === prefilled.current) {
-      setTitle(item.summary);
+    if (!brief.trim() || brief === prefilled.current) {
+      setBrief(item.summary);
       prefilled.current = item.summary;
     }
   });
@@ -497,23 +501,25 @@ export function TaskForm({
   const [operationId] = useState(
     () => `card-${Date.now()}-${Math.random().toString(36).slice(2)}`,
   );
-  // Optional first agent for a new task (remembered on/off choice).
-  const view = useBoardView();
-  const [startAgent, setStartAgentState] = useState<boolean | null>(null);
-  const startChosen = !task && (startAgent ?? view.values?.startAgentOnCreate ?? true);
-  const setStartAgent = (next: boolean) => {
-    setStartAgentState(next);
-    if (view.values && view.values.startAgentOnCreate !== next) void view.update({ startAgentOnCreate: next });
-  };
-  const choice = useAgentChoice({ enabled: startChosen, cwd: project.primaryPath, defaults: agentDefaults });
+  // Every new card starts an agent unless the person explicitly parks this one.
+  const [startAgent, setStartAgent] = useState(true);
+  const startChosen = !task && startAgent;
+  const automation = project.automation?.enabled ? project.automation : undefined;
+  const selected = automation?.implementer ?? project.agentModel ?? (agentDefaults ? {
+    provider: agentDefaults.provider, model: agentDefaults.model, thinking: agentDefaults.thinking,
+    ...(agentDefaults.featureValues ? { featureValues: agentDefaults.featureValues } : {}),
+  } : null);
+  const automationDefault = selected && automation ? executionModel(selected, project.agentModel, automation.fullAccess ? unattendedModes[selected.provider] : undefined) : null;
+  const choice = useAgentChoice({ enabled: startChosen, cwd: project.primaryPath,
+    defaults: automationDefault ? startingAgent(agentDefaults, automationDefault) : agentDefaults });
+  const queue = useRpc(rpc.queueAutomation);
   // The project's lanes. New tasks start in an active lane (finished ones only
   // when added from that lane); an edited card keeps showing its current lane.
   const lanes = enabledStatuses(project);
   const statusChoices = task
     ? lanes.includes(task.status) ? lanes : [...lanes, task.status]
     : lanes.filter((s) => (s !== "done" && s !== "cancelled") || s === defaultStatus);
-  // The agent's first message; required, never prefilled (title and description already reach it as context).
-  const [prompt, setPrompt] = useState("");
+  // The same brief is the card input and the first agent instruction.
   // Images with the agent's first message (web: paste, drop or Add images).
   const attachments = useImageAttachments();
   const [firstMessageId] = useState(newMessageId);
@@ -551,8 +557,7 @@ export function TaskForm({
         : await create({
             projectId: project.id,
             operationId,
-            title,
-            description,
+            ...taskDraft(brief),
             status,
             priority,
             type: type || undefined,
@@ -572,12 +577,24 @@ export function TaskForm({
       if (task) return onSaved(result.id, undefined, result.status);
       if (!startChosen) return onSaved(result.id);
       try {
+        if (automation) {
+          await queue({ taskId: result.id, launch: {
+            operationId: `first-session-${operationId}`,
+            model: { provider: choice.provider, model: choice.chosenModel, modeId: choice.chosenMode,
+              ...(choice.chosenThinking ? { thinking: choice.chosenThinking } : {}), featureValues: choice.chosenFeatureValues },
+            clientMessageId: firstMessageId,
+            ...(attachments.attachments.length ? { images: attachments.images() } : {}),
+          } });
+          if (attachments.attachments.length) rememberSentImages(firstMessageId, attachments.uris());
+          return onSaved(result.id);
+        }
         const session = await launchKanbanSession({ paseo, contextRead, prepare }, result, {
           provider: choice.provider,
           model: choice.chosenModel,
           mode: choice.chosenMode,
           thinking: choice.chosenThinking,
-          prompt: prompt.trim(),
+          prompt: brief,
+          featureValues: choice.chosenFeatureValues,
           ...(attachments.attachments.length ? { images: attachments.images(), clientMessageId: firstMessageId } : {}),
           operationId: `first-session-${operationId}`,
         });
@@ -595,9 +612,9 @@ export function TaskForm({
   }
   const canSave =
     !pending &&
-    !!title.trim() &&
+    !!(task ? title : brief).trim() &&
     !(!task && mode === "existing" && !workspaceId) &&
-    !(startChosen && (!choice.ready || !prompt.trim()));
+    !(startChosen && !choice.ready);
   // Enter submits, Shift+Enter is a new line.
   const submit = canSave ? () => void save() : undefined;
   return (
@@ -652,6 +669,7 @@ export function TaskForm({
               )}
             </View>
           )}
+          {task ? <>
           <Field title={t("Title")} value={title} onChange={setTitle} placeholder={t("What needs doing?")} onSubmit={submit} />
           <Field
             title={t("Description")}
@@ -660,6 +678,15 @@ export function TaskForm({
             multiline
             onSubmit={submit}
           />
+          </> : <ImageAttachments state={attachments} disabled={pending || !startChosen}>
+            <Field title={t("Task")} value={brief} onChange={setBrief} multiline onSubmit={submit}
+              placeholder={t("Describe what you want done…")}
+              hint={t("The agent will organize the title, description and tags, then start working. Your original instructions are kept.")} />
+          </ImageAttachments>}
+          {!task && <Label muted size={font.sm}>{startChosen
+            ? t("Starts an agent using {model}", { model: `${choice.provider}/${choice.chosenModel || "…"}` })
+            : t("Create the card without starting an agent")}</Label>}
+          <Disclosure title={t("More options")} open={!!task || advanced} onChange={setAdvanced} disabled={!!task} flush>
           <Choices
             title={t("Status")}
             value={status}
@@ -794,21 +821,14 @@ export function TaskForm({
               {startChosen && (
                 <>
                   <AgentPicker choice={choice} disabled={pending} />
-                  <ImageAttachments state={attachments} disabled={pending}>
-                    <Field
-                      title={t("Instruction")}
-                      value={prompt}
-                      onChange={setPrompt}
-                      multiline
-                      placeholder={t("What should the agent do first?")}
-                      onSubmit={submit}
-                      hint={t("The title and description are included automatically.")}
-                    />
-                  </ImageAttachments>
+
                 </>
               )}
             </View>
           )}
+          </Disclosure>
+          {startChosen && choice.permissionUnavailable && <Notice>{t("Selected permission mode is unavailable. Choose another mode.")}</Notice>}
+          {startChosen && (choice.features.error || choice.models.error || choice.modes.error) && <Notice>{message(choice.features.error || choice.models.error || choice.modes.error)}</Notice>}
           {resources.error && <Notice>{message(resources.error)}</Notice>}
           {error && <Notice>{error}</Notice>}
           <Actions>

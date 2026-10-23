@@ -28,10 +28,11 @@ export function welcomeDecision(input: {
   return input.blocked ? "wait" : "show";
 }
 
-export const tipIds = ["first-card", "needs-you", "first-idea", "first-done", "first-artifact", "first-tag", "agent-question", "older-finished", "next-move", "first-ticket", "jira-connect", "project-menu", "first-workpad", "subagents", "card-display", "first-workflow-insight", "attention-dismiss", "sidebar-order", "connectors", "session-history", "ai-language", "first-memory-candidate", "agent-automation", "sub-cards"] as const;
+export const tipIds = ["first-card", "needs-you", "first-idea", "first-done", "first-artifact", "first-tag", "agent-question", "older-finished", "next-move", "first-ticket", "jira-connect", "project-menu", "first-workpad", "subagents", "card-display", "first-workflow-insight", "attention-dismiss", "sidebar-order", "connectors", "session-history", "ai-language", "first-memory-candidate", "agent-automation", "sub-cards", "task-intake"] as const;
 export type TipId = (typeof tipIds)[number];
 
 export interface TipFacts {
+  taskIntake?: boolean;
   /** The current project has at least one card. */
   hasCard: boolean;
   /** Some card is waiting for the user (question, approval or error). */
@@ -107,13 +108,14 @@ const tipFact: Record<TipId, keyof TipFacts> = {
   "first-memory-candidate": "memoryCandidate",
   "agent-automation": "automationCandidate",
   "sub-cards": "hasSubCards",
+  "task-intake": "taskIntake",
 };
 
 /** The one tip to show now: first in priority order whose fact holds and that was not shown before. */
 export function nextTip(input: { tipsSeen: readonly string[]; facts: TipFacts; blocked: boolean }): TipId | null {
   if (input.blocked) return null;
   // Waiting for the user outranks introductions; the answer-in-session tip is the more specific one.
-  const order: TipId[] = ["agent-question", "needs-you", "attention-dismiss", "first-done", "older-finished", "next-move", "first-workpad", "sub-cards", "subagents", "first-idea", "first-memory-candidate", "first-workflow-insight", "ai-language", "first-artifact", "first-ticket", "first-tag", "first-card", "agent-automation", "card-display", "connectors", "session-history", "sidebar-order", "project-menu", "jira-connect"];
+  const order: TipId[] = ["agent-question", "needs-you", "attention-dismiss", "first-done", "older-finished", "next-move", "first-workpad", "sub-cards", "subagents", "first-idea", "first-memory-candidate", "first-workflow-insight", "ai-language", "first-artifact", "first-ticket", "first-tag", "first-card", "task-intake", "agent-automation", "card-display", "connectors", "session-history", "sidebar-order", "project-menu", "jira-connect"];
   return order.find((id) => input.facts[tipFact[id]] && !input.tipsSeen.includes(id)) ?? null;
 }
 

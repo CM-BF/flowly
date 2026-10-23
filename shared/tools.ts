@@ -191,6 +191,15 @@ export const tagsInputSchema = z.strictObject({
     .default([])
     .describe("Tags to remove. Only tags an agent added can be removed."),
 });
+/** Organize this session's card without replacing the original task brief. */
+export const metadataInputSchema = z.strictObject({
+  expectedRevision: revisionSchema,
+  request: requestSchema,
+  title: z.string().trim().min(1).max(200).optional(),
+  description: z.string().max(20000).optional(),
+  priority: prioritySchema.optional(),
+}).refine((input) => input.title !== undefined || input.description !== undefined || input.priority !== undefined, "Include at least one metadata field.");
+export type MetadataInput = z.infer<typeof metadataInputSchema>;
 /** flowly_set_type (CARD-TYPE-SPEC §2): classify a card that has no type yet. */
 export const typeInputSchema = z.strictObject({
   expectedRevision: revisionSchema,

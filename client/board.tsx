@@ -135,6 +135,7 @@ import { parentOf } from "../shared/subagents";
 
 /** One-time tip texts (ONBOARDING-SPEC §5). */
 const tipText: Record<TipId, () => string> = {
+  "task-intake": () => t("Describe your task once. New cards start an agent by default; it organizes the title, description and tags. Set speed and permissions in Edit project."),
   "first-card": () => t("Your card moves by itself as the agent works. Open it any time to see its sessions, output and summary."),
   "needs-you": () => t("A card is waiting for you. Reply goes straight to the session."),
   "first-idea": () => t("An agent suggested follow-up work. Good idea starts a card or continues here; Dismiss removes it."),
@@ -1092,6 +1093,7 @@ function BoardContent(
           hasSummary: !task && !!summaries.data?.latest.some((e) => projectTasks.some((x) => x.id === e.taskId)),
           workflowSuggestion: workflowTipDue && !!workflowView.data?.findings.some((f) => f.status === "open"),
           memoryCandidate: !task && !!memoryCandidates,
+          taskIntake: !task && !!project,
           automationCandidate: !task && projectTasks.some((x) => !x.archivedAt && (x.status === "todo" || x.status === "backlog")),
           hasSubCards: !task && projectTasks.some((x) => subCardIndex.has(x.id)),
         },

@@ -1,3 +1,7 @@
+import { AutomationLaunches } from "./automation-launch";
+import type { AutomationLaunch } from "../shared/automation-launch";
+import { executionModel } from "../shared/agent-defaults";
+import { supportedFeatures } from "../shared/agent-features";
 import { cardHandoff } from "./automation-handoff";
 import { realpath } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
@@ -73,10 +77,12 @@ export class AutomationService {
   private stopped = false;
   private readonly sending = new Map<string, Promise<void>>();
   private readonly clock: () => number;
+  private readonly launches: AutomationLaunches;
   constructor(
     readonly store: BoardStore,
     private readonly deps: AutomationDeps,
   ) {
+    this.launches = new AutomationLaunches(store.directory);
     this.clock = deps.clock ?? (() => Date.now());
   }
   attach(paseo: PaseoApi) {
@@ -125,6 +131,7 @@ export class AutomationService {
 
   private async tick() {
     if (!this.paseo || this.stopped) return;
+    await this.launches.collect(await this.store.read());
     await this.reconcile();
     const settled = await this.store.read();
     for (const job of settled.automation) if (parentShouldWake(settled, job)) await this.wake(job);
@@ -139,8 +146,18 @@ export class AutomationService {
    * "Run with agent": queue the card (Hermes `assign`). Keeps the implementer session of an earlier run.
    * `by`: the agent of a parent card starting its sub-card (SUB-CARDS-SPEC §4).
    */
-  queue(taskId: string, by?: { agentId: string }, feedback?: string) {
-    return this.store.transaction((board) => ({ value: this.queueIn(board, taskId, by, feedback), changed: true })).then((job) => { void this.kick(); return job; });
+  async queue(taskId: string, by?: { agentId: string }, feedback?: string, launch?: AutomationLaunch) {
+    const launchKey = launch ? await this.launches.save(taskId, launch) : undefined;
+    const job = await this.store.transaction((board) => {
+      const existing = jobOf(board, taskId);
+      if (launchKey && existing?.launchKey === launchKey) return { value: existing, changed: false };
+      if (launchKey && existing) throw new Error("This card already has an automation launch. Use Run again to continue it.");
+      const value = this.queueIn(board, taskId, by, feedback);
+      if (launchKey) value.launchKey = launchKey;
+      return { value, changed: true };
+    });
+    void this.kick();
+    return job;
   }
 
   /** Card creation/status and its queue claim commit together. */
@@ -161,6 +178,7 @@ export class AutomationService {
           role: "implementer",
           ...(existing?.implementerId ? { implementerId: existing.implementerId } : {}),
           ...(existing?.reviewerId && existing.reviewerId !== existing.implementerId ? { reviewerId: existing.reviewerId } : {}),
+          ...(existing?.launchKey && !existing.launchConsumed ? { launchKey: existing.launchKey } : {}),
           generation: (existing?.generation ?? 0) + 1,
           nudges: 0,
           failures: 0,
@@ -230,6 +248,8 @@ export class AutomationService {
       if (!job) return { value: null, changed: false };
       const project = board.projects.find((p) => p.id === job.projectId);
       if (!automationAllowed(board, job)) return { value: null, changed: false };
+      // A real implementer turn proves the initial message reached the daemon, even if create has not returned.
+      if (job.launchKey && job.implementerId === agentId) job.launchConsumed = true;
       // A prepared session's first real turn proves its creation reached the daemon.
       if (job.pendingOp && activeAgent(job) === agentId) { delete job.instruction; delete job.pendingOp; delete job.pendingRole; }
       if (job.state === "delivered" || (job.role === "reviewer" && job.implementerId === agentId)) {
@@ -308,6 +328,7 @@ export class AutomationService {
       const settings = automationOf(board.projects.find((p) => p.id === job.projectId))!;
       const decision = turnDecision(board, job, agentId, outcome, settings, this.clock());
       const task = board.tasks.find((t) => t.id === job.taskId)!;
+      if (job.launchKey && job.implementerId === agentId) job.launchConsumed = true;
       const pendingInstruction = job.instruction;
       delete job.pendingOp; delete job.pendingRole; delete job.instruction;
       const now = this.now();
@@ -602,7 +623,11 @@ export class AutomationService {
           if (!this.current(await this.store.read(), job, role)) return;
           await this.store.transaction((b) => { const j = this.current(b, job, role); if (!j) return { value: null, changed: false }; j.provider = agent.provider; return { value: null, changed: true }; });
           if (!this.current(await this.store.read(), job, role)) return;
-          await paseo.agents.ref(id).send(text, { messageId: instruction.id, activeTurnBehavior: "steer" });
+          const launch = role === "implementer" && current.launchKey && !current.launchConsumed ? await this.launches.read(task.id, current.launchKey) : undefined;
+          const latest = this.current(await this.store.read(), job, role);
+          if (!latest || (launch && (latest.launchConsumed || latest.launchKey !== current.launchKey))) return;
+          await paseo.agents.ref(id).send(text, { messageId: launch?.clientMessageId ?? instruction.id, activeTurnBehavior: "steer", ...(launch?.images ? { images: launch.images } : {}) });
+          await this.consumeLaunch(current, role);
           await this.started(current, id);
           return;
         }
@@ -634,11 +659,19 @@ export class AutomationService {
       return { value: true, changed: true };
     });
     if (!recorded) return;
-    const model = role === "reviewer" ? settings?.reviewer : await this.implementerModel(project, settings, paseo);
+    const launch = role === "implementer" && job.launchKey && !job.launchConsumed ? await this.launches.read(task.id, job.launchKey) : undefined;
+    const chosen = launch?.model ?? (role === "reviewer" ? settings?.reviewer : await this.implementerModel(project, settings, paseo));
+    const model = chosen && (launch ? chosen : executionModel(chosen, project.agentModel, settings?.fullAccess ? unattendedModes[chosen.provider] : undefined));
     if (!model) throw new Error(role === "reviewer" ? "No reviewer model is set." : "No available model to start an agent with.");
     if (coolingProvider(await this.store.read(), model.provider, this.clock(), job.taskId)) return;
     await this.store.transaction((board) => { const j = this.current(board, job, role); if (!j) return { value: null, changed: false }; j.provider = model.provider; return { value: null, changed: true }; });
-    const mode = settings?.fullAccess ? unattendedModes[model.provider] : undefined;
+    const mode = model.modeId;
+    let featureValues = model.featureValues;
+    if (featureValues && Object.keys(featureValues).length) {
+      const features = await paseo.providers.listFeatures({ provider: `${model.provider}/${model.model}`, cwd: task.sourcePath });
+      if (features.error) throw new Error(features.error);
+      featureValues = supportedFeatures(featureValues, features.features ?? []);
+    }
     const options = {
       config: {
         provider: `${model.provider}/${model.model}`,
@@ -646,6 +679,7 @@ export class AutomationService {
         mcpServers: { flowly: preparation.mcp },
         ...(mode ? { modeId: mode } : {}),
         ...(model.thinking ? { thinkingOptionId: model.thinking } : {}),
+        ...(featureValues ? { featureValues } : {}),
       },
       agentId: preparation.agentId,
       idempotencyKey: `ultra-kanban-session:${preparation.agentId}`,
@@ -653,6 +687,7 @@ export class AutomationService {
       title: (role === "reviewer" ? `Review: ${task.title}` : task.title).slice(0, 120),
       labels: { "flowly-task": task.id, "flowly-automation": role },
       prompt,
+      ...(launch ? { images: launch.images, clientMessageId: launch.clientMessageId } : {}),
     };
     // A failed response can hide a created session (client/session.ts createPreparedSession).
     const exists = async () => {
@@ -668,6 +703,7 @@ export class AutomationService {
       } catch (e) {
         if (!(await exists())) throw e;
       }
+    await this.consumeLaunch(job, role);
     await this.store.transaction((board) => {
       const j = jobOf(board, job.taskId);
       if (!this.current(board, job, role) || !j || j.pendingOp !== op) return { value: null, changed: false };
@@ -677,6 +713,16 @@ export class AutomationService {
       if (j.state === "starting") j.state = "working";
       j.updatedAt = this.now();
       return { value: null, changed: true };
+    });
+  }
+
+  private consumeLaunch(job: AutomationJob, role: Role) {
+    if (role !== "implementer" || !job.launchKey) return Promise.resolve();
+    return this.store.transaction((board) => {
+      const j = jobOf(board, job.taskId);
+      if (!j || j.generation !== job.generation || j.launchKey !== job.launchKey) return { value: undefined, changed: false };
+      j.launchConsumed = true;
+      return { value: undefined, changed: true };
     });
   }
 
@@ -790,6 +836,8 @@ export class AutomationService {
         continue;
       }
       if (job.state === "queued" || job.state === "retry_wait") continue;
+      const initialTurn = job.implementerId && latestLifecycle(currentBoard, job.taskId, job.implementerId);
+      if (job.launchKey && !job.launchConsumed && initialTurn && initialTurn.at >= job.queuedAt) await this.consumeLaunch(job, "implementer");
       if (job.instruction && ["starting", "working", "reviewing"].includes(job.state)) { await this.deliver(job); continue; }
       const stale = Date.parse(job.updatedAt) + (this.deps.staleStartMs ?? 120_000) <= this.clock();
       const agentId = activeAgent(job);

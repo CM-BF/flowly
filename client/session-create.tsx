@@ -106,6 +106,7 @@ export function SessionCreate({
         chosen,
         chosenMode,
         choice.chosenThinking,
+        choice.chosenFeatureValues,
         newTitle,
         newPrompt,
         ordinary,
@@ -161,6 +162,7 @@ export function SessionCreate({
             : {}),
           ...(chosenMode ? { modeId: chosenMode } : {}),
           ...(choice.chosenThinking ? { thinkingOptionId: choice.chosenThinking } : {}),
+          featureValues: choice.chosenFeatureValues,
         },
         ...(preparation
           ? {
@@ -255,9 +257,9 @@ export function SessionCreate({
             <Notice>
               {t("No selectable models are available for this provider.")}</Notice>
           )}
-        {(models.error || modes.error || providers.error) && (
+        {(models.error || modes.error || providers.error || choice.features.error) && (
           <Notice>
-            {message(models.error || modes.error || providers.error)}
+            {message(models.error || modes.error || providers.error || choice.features.error)}
           </Notice>
         )}
         {(!tools.data?.ready || tools.error) && (

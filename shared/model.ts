@@ -128,6 +128,8 @@ export const taskSchema = z.object({
   repoPaths: z.array(z.string()),
   title: z.string().trim().min(1).max(200),
   description: z.string().max(20000),
+  /** Original user input, preserved when the agent organizes metadata. */
+  brief: z.string().max(20000).optional(),
   status: statusSchema,
   priority: prioritySchema,
   /** Absent: no type (all cards created before task types). */
@@ -432,7 +434,7 @@ export const receiptSchema = z.object({
   agentId: z.string(),
   taskId: z.string(),
   payloadHash: z.string(),
-  action: z.enum(["status", "progress", "idea", "remember", "artifact", "artifact_remove", "tags", "type", "next_moves", "workpad", "create_card", "update_card"]),
+  action: z.enum(["status", "progress", "idea", "remember", "artifact", "artifact_remove", "tags", "type", "metadata", "next_moves", "workpad", "create_card", "update_card"]),
   cardId: z.string().optional(),
   queued: z.boolean().optional(),
   /** Empty when an artifact write changed nothing (same target already recorded). */
@@ -534,6 +536,7 @@ export const taskInput = z.strictObject({
   operationId: z.string().min(1).max(200),
   title: z.string().trim().min(1).max(200),
   description: z.string().max(20000).default(""),
+  brief: z.string().min(1).max(20000).optional(),
   status: statusSchema.default("todo"),
   priority: prioritySchema.default("normal"),
   type: taskTypeSchema.optional(),

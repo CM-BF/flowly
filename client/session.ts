@@ -109,6 +109,7 @@ export async function launchKanbanSession(
     model: string;
     mode: string;
     thinking?: string;
+    featureValues?: Record<string, boolean | string>;
     title?: string;
     prompt?: string;
     /** Images with the first message (web); `clientMessageId` lets the transcript show them. */
@@ -129,6 +130,7 @@ export async function launchKanbanSession(
       mcpServers: { flowly: preparation.mcp },
       ...(choice.mode ? { modeId: choice.mode } : {}),
       ...(choice.thinking ? { thinkingOptionId: choice.thinking } : {}),
+      ...(choice.featureValues ? { featureValues: choice.featureValues } : {}),
     },
     env: {
       FLOWLY_CONTEXT_FILE: preparation.contextFile,

@@ -235,6 +235,7 @@ function FeaturesPage() {
   const [moreOpen, setMoreOpen] = useState(false);
   // The headline features, shown as tiles; everything else folds under More features.
   const highlights = [
+    { icon: "Bot", color: colors.accent, title: t("Describe once, start working"), text: t("Describe your task once. New cards start an agent by default; it organizes the title, description and tags. Set speed and permissions in Edit project.") },
     { icon: "Activity", color: colors.accent, title: t("Automatic status"), text: t("Cards follow the agent's work through the lanes. Done stays yours.") },
     { icon: "Bell", color: colors.statusWarning, title: t("Needs-you reminders"), text: t("Questions, approvals and errors light up the card. Answer them right there.") },
     { icon: "Brain", color: colors.accent, title: t("Run summaries"), text: t("After every turn a cheap model keeps the card's state, recap and next step up to date.") },

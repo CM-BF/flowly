@@ -95,6 +95,8 @@ export const automationJobSchema = z.object({
   turnAt: z.string().optional(),
   /** The preparation of a session being created; after a restart the same id is created again, never a second one. */
   pendingOp: z.string().optional(),
+  launchKey: z.string().regex(/^[a-f0-9]{64}$/).optional(),
+  launchConsumed: z.boolean().optional(),
   /** Session preparations belong to one role; they can never be reused by its peer. */
   pendingRole: z.enum(["implementer", "reviewer"]).optional(),
   /** An instruction survives reloads and send failures with its original payload and identity. */

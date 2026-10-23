@@ -29,6 +29,7 @@ import {
   externalReadSchema,
   tagsInputSchema,
   typeInputSchema,
+  metadataInputSchema,
   nextMovesInputSchema,
   workpadInputSchema,
   progressInputSchema,
@@ -313,6 +314,16 @@ export class ToolServer {
           (input) => wrap(() => this.agents.write(identity, "tags", input)),
         );
         mcp.registerTool(
+          "flowly_update_metadata",
+          {
+            description: "Organize this session's card: a concise title, faithful description and priority. On a new card with brief, do this before implementation; preserve every requirement, path and acceptance criterion from the original brief, without inventing scope. Use set_type and set_tags for classification. Never overwrite human edits with stale revisions. Copy revisions/request from get_task. The original brief is immutable. Reviewers cannot use this tool.",
+            inputSchema: metadataInputSchema,
+            outputSchema: toolResultSchema,
+            annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+          },
+          (input) => wrap(() => this.agents.write(identity, "metadata", input)),
+        );
+        mcp.registerTool(
           "flowly_set_type",
           {
             description:
@@ -463,7 +474,7 @@ export class ToolServer {
     }
     const body = z
       .strictObject({
-        action: z.enum(["get", "status", "progress", "idea", "remember", "recall", "artifact", "artifact_remove", "tags", "type", "next_moves", "workpad", "external", "ticket", "review", "create_card", "update_card"]),
+        action: z.enum(["get", "status", "progress", "idea", "remember", "recall", "artifact", "artifact_remove", "tags", "type", "metadata", "next_moves", "workpad", "external", "ticket", "review", "create_card", "update_card"]),
         input: z.unknown(),
       })
       .parse(JSON.parse(Buffer.concat(chunks).toString("utf8")));

@@ -1,3 +1,4 @@
+import { automationLaunchSchema } from "./automation-launch";
 import { attentionDismissInput, attentionDismissalSchema, attentionRestoreInput } from "./attention-dismiss";
 import { defineRpc } from "@getpaseo/plugin";
 import { sessionInsightViewSchema } from "./session-insights";
@@ -763,7 +764,7 @@ export const reviewForMemory = defineRpc({
 /** "Run with agent": queue the card for the project's agent automation (AUTOMATION-SPEC §4). */
 export const queueAutomation = defineRpc({
   name: "automation.queue",
-  input: z.strictObject({ taskId: z.string().min(1) }),
+  input: z.strictObject({ taskId: z.string().min(1), launch: automationLaunchSchema.optional() }),
   output: automationJobSchema,
 });
 /** "Stop automation": no more dispatch, reminders or reviews; sessions are left alone (AUTOMATION-SPEC §4). */

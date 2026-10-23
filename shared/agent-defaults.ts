@@ -6,6 +6,9 @@ export const agentModelSchema = z.strictObject({
   model: z.string().min(1).max(200),
   /** Reasoning option id of the model; absent keeps the model's own default. */
   thinking: z.string().min(1).max(100).optional(),
+  /** Empty string explicitly selects provider default; missing inherits legacy settings. */
+  modeId: z.string().max(100).optional(),
+  featureValues: z.record(z.string().max(100), z.union([z.boolean(), z.string().max(200)])).optional(),
 });
 export type AgentModel = z.infer<typeof agentModelSchema>;
 
@@ -33,7 +36,8 @@ export function startingAgent(last: LastSession, chosen: AgentModel | null | und
   return {
     provider: chosen.provider,
     model: chosen.model,
-    mode: last && last.provider === chosen.provider ? last.mode : "",
+    mode: chosen.modeId ?? (last && last.provider === chosen.provider ? last.mode : ""),
+    ...(chosen.featureValues ? { featureValues: chosen.featureValues } : {}),
     thinking: chosen.thinking ?? "",
   };
 }
@@ -42,4 +46,12 @@ export function startingAgent(last: LastSession, chosen: AgentModel | null | und
 export function agentModelFromValues(values: { defaultProvider?: string; defaultModel?: string; defaultThinking?: string } | null | undefined): AgentModel | null {
   if (!values?.defaultProvider || !values.defaultModel) return null;
   return { provider: values.defaultProvider, model: values.defaultModel, ...(values.defaultThinking ? { thinking: values.defaultThinking } : {}) };
+}
+
+/** Role overrides inherit only execution settings from a project using the same provider. */
+export function executionModel(model: AgentModel, project: AgentModel | null | undefined, legacyMode?: string): AgentModel {
+  const inherited = project?.provider === model.provider ? project : undefined;
+  const modeId = model.modeId ?? inherited?.modeId ?? legacyMode;
+  const featureValues = { ...inherited?.featureValues, ...model.featureValues };
+  return { ...model, ...(modeId !== undefined ? { modeId } : {}), ...(Object.keys(featureValues).length ? { featureValues } : {}) };
 }

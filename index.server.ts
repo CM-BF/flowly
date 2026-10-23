@@ -243,7 +243,7 @@ export default function contribute(server: PluginServerContext) {
   };
   server.handle(rpc.queueAutomation, (input, { paseo }) => {
     attach(paseo);
-    return automation.queue(input.taskId);
+    return automation.queue(input.taskId, undefined, undefined, input.launch);
   });
   server.handle(rpc.stopAutomation, (input, { paseo }) => {
     attach(paseo);

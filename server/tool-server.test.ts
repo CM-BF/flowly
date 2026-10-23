@@ -85,6 +85,7 @@ test("MCP initialize/list can precede actor creation; live calls require SDK con
     "flowly_read_external",
     "flowly_read_ticket",
     "flowly_set_tags",
+    "flowly_update_metadata",
     "flowly_set_type",
     "flowly_suggest_next_moves",
     "flowly_update_workpad",

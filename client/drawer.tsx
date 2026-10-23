@@ -1006,6 +1006,7 @@ function TaskDrawerView({
             {!!task.description && (
               <SessionMarkdown text={task.description} />
             )}
+            {task.brief && task.brief !== task.description && <OriginalBrief text={task.brief} />}
             {order.map((id) => <Fragment key={id}>{section(id)}</Fragment>)}
             {settled && (
             // Below the sessions, so mounting them after the transition moves nothing above.
@@ -1343,4 +1344,9 @@ function SessionGroup<T>({ list, render }: { list: T[]; render(item: T, index: n
       {list.map(render)}
     </View>
   );
+}
+
+function OriginalBrief({ text }: { text: string }) {
+  const [open, setOpen] = useState(false);
+  return <Disclosure title={t("Original task")} open={open} onChange={setOpen}><SessionMarkdown text={text} /></Disclosure>;
 }

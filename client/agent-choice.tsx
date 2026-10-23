@@ -2,12 +2,14 @@ import { useEffect, useState } from "react";
 import { View } from "react-native";
 import { usePaseo } from "@getpaseo/plugin/client";
 import { useQuery } from "@tanstack/react-query";
-import { Label, font, space } from "./ui";
+import { Label, Notice, font, space } from "./ui";
 import { PickerGroup, PickerRow } from "./picker";
 import { modelOptions, providerOptions } from "./options";
+import { AgentSpeed, useAgentFeatures } from "./agent-speed";
+import { supportedFeatures, type FeatureValues } from "../shared/agent-features";
 import { t } from "../shared/i18n";
 
-export type AgentDefaults = { provider: string; model: string; mode: string; thinking?: string } | null | undefined;
+export type AgentDefaults = { provider: string; model: string; mode: string; thinking?: string; featureValues?: FeatureValues } | null | undefined;
 
 /**
  * Provider / model / permission choice shared by "New session" and "New task
@@ -20,6 +22,7 @@ export function useAgentChoice({ enabled, cwd, defaults }: { enabled: boolean; c
     [model, setModel] = useState(defaults?.model || ""),
     [mode, setMode] = useState(defaults?.mode || ""),
     [thinking, setThinking] = useState(defaults?.thinking || "");
+  const [featureValues, setFeatureValues] = useState<FeatureValues>(defaults?.featureValues ?? {});
   const providers = useQuery({
     queryKey: ["flowly", "providers"],
     queryFn: () => paseo.providers.listAvailable(),
@@ -57,6 +60,7 @@ export function useAgentChoice({ enabled, cwd, defaults }: { enabled: boolean; c
       setModel("");
       setMode("");
       setThinking("");
+      setFeatureValues({});
     }
   }, [providers.data, provider]);
   const selectable = (models.data?.models || []).filter((m) => m.isSelectable !== false);
@@ -69,8 +73,10 @@ export function useAgentChoice({ enabled, cwd, defaults }: { enabled: boolean; c
   const thinkingOptions = selectable.find((m) => m.id === chosenModel)?.thinkingOptions || [];
   const defaultThinking = selectable.find((m) => m.id === chosenModel)?.defaultThinkingOptionId || "";
   const chosenThinking = thinking && thinkingOptions.some((t) => t.id === thinking) ? thinking : "";
-  const chosenMode =
-    mode && (!modes.isSuccess || modes.data?.modes?.some((m) => m.id === mode)) ? mode : "";
+  const chosenMode = mode;
+  const permissionUnavailable = !!mode && modes.isSuccess && !modes.data?.modes?.some((m) => m.id === mode);
+  const features = useAgentFeatures(provider, chosenModel, cwd, enabled);
+  const chosenFeatureValues = supportedFeatures(featureValues, features.data ?? []);
   const providerAvailable = !!providers.data?.providers.some((p) => p.available && p.provider === provider);
   return {
     provider,
@@ -80,18 +86,24 @@ export function useAgentChoice({ enabled, cwd, defaults }: { enabled: boolean; c
       setModel("");
       setMode("");
       setThinking("");
+      setFeatureValues({});
     },
     setModel,
     setMode,
     setThinking,
+    features,
+    chosenFeatureValues,
+    setFeatureValues,
     reset(next: AgentDefaults) {
       setProviderState(next?.provider || "codex");
       setModel(next?.model || "");
       setMode(next?.mode || "");
       setThinking(next?.thinking || "");
+      setFeatureValues(next?.featureValues ?? {});
     },
     chosenModel,
     chosenMode,
+    permissionUnavailable,
     chosenThinking,
     thinkingOptions,
     defaultThinking,
@@ -102,9 +114,11 @@ export function useAgentChoice({ enabled, cwd, defaults }: { enabled: boolean; c
     /** A model and provider are selectable and modes did not fail. */
     ready:
       models.isSuccess &&
+      features.isSuccess &&
       !!chosenModel &&
       providerAvailable &&
-      (!chosenMode || !modes.isError),
+      modes.isSuccess &&
+      !permissionUnavailable,
     providerAvailable,
   };
 }
@@ -193,6 +207,9 @@ export function AgentPicker({ choice, disabled = false }: { choice: AgentChoice;
           }}
         />
       </PickerGroup>
+      {choice.permissionUnavailable && <Notice>{t("Selected permission mode is unavailable. Choose another mode.")}</Notice>}
+      <AgentSpeed features={choice.features.data ?? []} values={choice.chosenFeatureValues}
+        onChange={choice.setFeatureValues} disabled={disabled} />
     </View>
   );
 }

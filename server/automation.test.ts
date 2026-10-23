@@ -18,7 +18,7 @@ afterEach(async () => {
 });
 
 type Agent = { id: string; workspaceId: string; archivedAt: string | null; status: string; provider?: string };
-type Created = { workspaceId: string; agentId: string; provider: string; modeId?: string; prompt: string; title: string; labels: Record<string, string> };
+type Created = { images?: { data: string; mimeType: string }[]; clientMessageId?: string; featureValues?: Record<string, boolean | string>; workspaceId: string; agentId: string; provider: string; modeId?: string; prompt: string; title: string; labels: Record<string, string> };
 
 /** A board with cards a, b (todo) and a fake Paseo that records created sessions and sent messages. */
 async function setup(automation: Partial<AutomationSettings> | null = { enabled: true }) {
@@ -61,7 +61,7 @@ async function setup(automation: Partial<AutomationSettings> | null = { enabled:
   });
   const agents = new Map<string, Agent>();
   const created: Created[] = [];
-  const sent: { agentId: string; text: string }[] = [];
+  const sent: { agentId: string; text: string; messageId?: string; images?: unknown[] }[] = [];
   const prepared = new Map<string, string>();
   let failCreate = 0;
   const hooks: { prepare?: () => Promise<void>; refresh?: () => Promise<void>; send?: () => Promise<void>; created?: (id: string) => Promise<void> } = {};
@@ -69,12 +69,12 @@ async function setup(automation: Partial<AutomationSettings> | null = { enabled:
     agents: {
       ref: (id: string) => ({
         refresh: async () => { await hooks.refresh?.(); return agents.has(id) ? { agent: agents.get(id) } : null; },
-        send: async (text: string, options: { activeTurnBehavior?: string; messageId?: string } = {}) => {
+        send: async (text: string, options: { activeTurnBehavior?: string; messageId?: string; images?: unknown[] } = {}) => {
           await hooks.send?.();
           expect(options.activeTurnBehavior).toBe("steer");
           expect(options.messageId).toBeTruthy();
           if (!agents.has(id)) throw new Error("no such agent");
-          sent.push({ agentId: id, text });
+          sent.push({ agentId: id, text, messageId: options.messageId, images: options.images });
         },
       }),
     },
@@ -82,20 +82,21 @@ async function setup(automation: Partial<AutomationSettings> | null = { enabled:
       ref: (workspaceId: string) => ({
         refresh: async () => ({ workspaceDirectory: join(root, workspaceId) }),
         agents: {
-          create: async (o: { agentId: string; config: { provider: string; modeId?: string }; prompt: string; title: string; labels: Record<string, string> }) => {
+          create: async (o: { agentId: string; images?: { data: string; mimeType: string }[]; clientMessageId?: string; config: { provider: string; modeId?: string; featureValues?: Record<string, boolean | string> }; prompt: string; title: string; labels: Record<string, string> }) => {
             if (failCreate > 0) {
               failCreate--;
               throw new Error("provider down");
             }
             agents.set(o.agentId, { id: o.agentId, workspaceId, archivedAt: null, status: "running", provider: o.config.provider.split("/")[0] });
             await hooks.created?.(o.agentId);
-            created.push({ workspaceId, agentId: o.agentId, provider: o.config.provider, modeId: o.config.modeId, prompt: o.prompt, title: o.title, labels: o.labels });
+            created.push({ images: o.images, clientMessageId: o.clientMessageId, featureValues: o.config.featureValues, workspaceId, agentId: o.agentId, provider: o.config.provider, modeId: o.config.modeId, prompt: o.prompt, title: o.title, labels: o.labels });
             return { id: o.agentId };
           },
         },
       }),
     },
     providers: {
+      listFeatures: async () => ({ features: [{ type: "toggle", id: "fast_mode", value: true, label: "Fast" }] }),
       listAvailable: async () => ({ providers: [{ provider: "claude", available: true }] }),
       listModels: async () => ({ models: [{ id: "claude-haiku-4-5", isDefault: true }] }),
     },
@@ -388,7 +389,7 @@ test("busy sessions defer the exact instruction instead of interrupting a runnin
   expect(pending.text).toMatch(/queued this card again/);
   x.agents.get(impl)!.status = "idle";
   await x.automation.kick();
-  expect(x.sent).toEqual([{ agentId: impl, text: pending.text }]);
+  expect(x.sent).toEqual([{ agentId: impl, text: pending.text, messageId: pending.id, images: undefined }]);
   expect((await x.job("a")).instruction).toBeUndefined();
 });
 
@@ -446,7 +447,7 @@ test("transient refresh errors retry the same session and payload without creati
   x.advance(30_000);
   await x.automation.kick();
   expect(x.created).toHaveLength(1);
-  expect(x.sent.at(-1)).toEqual({ agentId: impl, text: pending.text });
+  expect(x.sent.at(-1)).toMatchObject({ agentId: impl, text: pending.text, messageId: pending.id });
 });
 
 test("successful turns reset the consecutive-failure counter", async () => {
@@ -532,4 +533,34 @@ test("unknown send outcome pauses rather than reusing or replacing a message bli
   x.advance(1_000_000); await x.automation.kick();
   expect((await x.job("a")).instruction!.id).toBe(id);
   expect(x.created).toHaveLength(1);
+});
+
+
+test("new-card launch snapshots permissions, explicit Fast off and images without putting images in the board", async () => {
+  const x = await setup({ enabled: true, fullAccess: true });
+  const launch = { operationId: "initial-a", model: { provider: "claude", model: "claude-haiku-4-5", modeId: "", featureValues: { fast_mode: false } }, images: [{ mimeType: "image/png" as const, data: "aW1hZ2U=" }], clientMessageId: "first-message-a" };
+  const first = await x.automation.queue("a", undefined, undefined, launch);
+  await x.automation.kick();
+  expect(x.created).toHaveLength(1);
+  expect(x.created[0]).toMatchObject({ modeId: undefined, featureValues: { fast_mode: false }, images: launch.images, clientMessageId: launch.clientMessageId });
+  expect(JSON.stringify(await x.store.read())).not.toContain("aW1hZ2U=");
+  const again = await x.automation.queue("a", undefined, undefined, launch);
+  expect(again.generation).toBe(first.generation);
+  await x.automation.kick();
+  expect(x.created).toHaveLength(1);
+});
+
+
+test("first turn consumes attachments before create returns; reminders use fresh identities", async () => {
+  const x = await setup();
+  x.hooks.created = async (id) => {
+    await x.automation.turnStarted(id);
+    expect((await x.job("a")).launchConsumed).toBe(true);
+  };
+  await x.automation.queue("a", undefined, undefined, { operationId: "early-hook", model: { provider: "claude", model: "claude-haiku-4-5" }, images: [{ mimeType: "image/png", data: "aW1hZ2U=" }], clientMessageId: "initial-image" });
+  await x.automation.kick();
+  await x.turn(x.created[0].agentId, "a");
+  expect(x.sent).toHaveLength(1);
+  expect(x.sent[0].images).toBeUndefined();
+  expect(x.sent[0].messageId).not.toBe("initial-image");
 });

@@ -75,6 +75,10 @@ agent 工作时发现的后续事项（顺带发现的 bug、现有方案的局�
 
 agent 理解任务后会自己补全卡片元数据：卡片没有**任务类型**时设置类型（feature、bugfix、research、refactor、docs、chore），不会覆盖你已选的类型；同时添加描述所涉模块和方向的**标签**（`drawer`、`performance`、`a11y`），与固定的任务类型分开。agent 会复用项目已有标签而不是另造同义词；你可在卡片或表单里添加、删除标签。可按标签筛选看板，或搜索 `#tag`（`#module/` 匹配前缀）。agent 不能删除你添加的标签。
 
+### 输入一次，agent 开始工作
+
+新建卡片只输入一份任务说明，默认启动 agent。agent 整理标题、描述、类型和标签，原始任务原文保留。“更多选项”里可以选择工作区、调整元数据，或暂不启动这一张卡。“编辑项目”提供默认模型、实现者和评审者的模型、推理、权限与受支持的速度设置。开启 Agent automation 后，“创建并启动”进入受监督队列，父卡可以等待子卡并在它们结束后被唤醒。
+
 ### 6. 智能体自动化（可选）
 
 在“编辑项目”里打开 **Agent automation**，然后在卡片上选择 **Run with agent**。Flowly 把卡片排进队列：阻塞它的卡片都 Done、项目还有空闲名额时（优先级高的先），在卡片自己的 workspace 里启动一个 agent，并像 Hermes Kanban 监督 worker 那样监督它：一轮结束却没有交付、提问或 blocker 时提醒，失败的回合退避重试，次数用完就把卡片移到 Blocked 并写明原因。设置了 **reviewer** 模型时，每次交付先由第二个 agent 在同一 workspace 里评审：通过则卡片留在 In review 等你，否则把具体修改意见发回实现者，最多进行你设定的轮数。卡片上会显示 agent 正在做什么（Agent working、Agent reviewing、Agent waiting for you、Agent review passed）；提问照样以 Needs you 找你。Done 仍由你决定，自动化不会打断或归档任何 session。

@@ -184,3 +184,9 @@ test("sub-cards are explained once a card of the project has them, before Paseo 
   expect(nextTip({ tipsSeen: [], facts: { ...none, hasSubCards: true, hasSubagent: true }, blocked: false })).toBe("sub-cards");
   expect(nextTip({ tipsSeen: ["sub-cards"], facts: { ...none, hasSubCards: true }, blocked: false })).toBeNull();
 });
+
+test("single-input guidance is shown once when the board is visible", () => {
+  const facts = { taskIntake: true } as TipFacts;
+  expect(nextTip({ tipsSeen: [], facts, blocked: false })).toBe("task-intake");
+  expect(nextTip({ tipsSeen: ["task-intake"], facts, blocked: false })).toBeNull();
+});

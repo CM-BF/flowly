@@ -4,6 +4,8 @@ import { useQuery } from "@tanstack/react-query";
 import type { AgentModel } from "../shared/agent-defaults";
 import { modelOptions, providerOptions } from "./options";
 import { SettingSelect, SettingsGroup } from "./settings-ui";
+import { AgentSpeed, useAgentFeatures } from "./agent-speed";
+import { supportedFeatures } from "../shared/agent-features";
 import { t } from "../shared/i18n";
 
 /**
@@ -18,6 +20,8 @@ export function ModelDefaultGroup({
   noneLabel,
   noneDetail,
   disabled = false,
+  execution = false,
+  cwd,
 }: {
   title?: string;
   description?: string;
@@ -26,6 +30,8 @@ export function ModelDefaultGroup({
   noneLabel: string;
   noneDetail?: string;
   disabled?: boolean;
+  execution?: boolean;
+  cwd?: string;
 }) {
   const paseo = usePaseo();
   // A provider can be picked before its model is: the model row follows it.
@@ -53,6 +59,22 @@ export function ModelDefaultGroup({
   }, [provider, model, models.isSuccess, selectable.length]);
   const thinkingOptions = selectable.find((m) => m.id === model)?.thinkingOptions || [];
   const thinking = sameProvider && value!.thinking && thinkingOptions.some((o) => o.id === value!.thinking) ? value!.thinking! : "";
+  const modes = useQuery({
+    queryKey: ["flowly", "modes", provider, cwd],
+    queryFn: async () => {
+      const result = await paseo.providers.listModes(provider, { cwd });
+      if (result.error) throw new Error(result.error);
+      return result;
+    },
+    enabled: execution && !!provider,
+  });
+  const features = useAgentFeatures(provider, model, cwd, execution);
+  // Model changes drop unsupported capabilities once discovery completes.
+  useEffect(() => {
+    if (!execution || !value?.featureValues || !features.isSuccess) return;
+    const clean = supportedFeatures(value.featureValues, features.data);
+    if (JSON.stringify(clean) !== JSON.stringify(value.featureValues)) onChange({ ...value, featureValues: clean });
+  }, [model, features.data, execution, value?.featureValues]);
   const defaultThinking = selectable.find((m) => m.id === model)?.defaultThinkingOptionId;
   const defaultThinkingLabel = thinkingOptions.find((o) => o.id === defaultThinking)?.label;
   const modelDefault = defaultThinkingLabel ? t("Model default ({defaultLabel})", { defaultLabel: defaultThinkingLabel }) : t("Model default");
@@ -78,7 +100,7 @@ export function ModelDefaultGroup({
           disabled={disabled}
           loading={models.isPending}
           options={modelOptions(models.data?.models || [])}
-          onChange={(next) => onChange({ provider, model: next })}
+          onChange={(next) => onChange({ ...(sameProvider ? value : {}), provider, model: next, thinking: undefined })}
         />
       )}
       {!!provider && !!model && thinkingOptions.length > 0 && (
@@ -91,9 +113,22 @@ export function ModelDefaultGroup({
             { value: "", label: modelDefault, detail: t("Use the model's default reasoning effort") },
             ...thinkingOptions.map((o) => ({ value: o.id, label: o.label, detail: o.description })),
           ]}
-          onChange={(next) => onChange({ provider, model, ...(next ? { thinking: next } : {}) })}
+          onChange={(next) => onChange({ ...value, provider, model, thinking: next || undefined })}
         />
       )}
+      {execution && !!value && !!model && <>
+        <SettingSelect title={t("Permissions")} value={value.modeId ?? "__inherit"}
+          placeholder={t("Follow existing defaults")}
+          disabled={disabled} loading={modes.isPending}
+          options={[
+            { value: "__inherit", label: t("Follow existing defaults") },
+            { value: "", label: t("Provider default"), detail: t("Use the provider's configured permission mode") },
+            ...(modes.data?.modes ?? []).map((m) => ({ value: m.id, label: m.label, detail: m.description })),
+          ]}
+          onChange={(modeId) => onChange({ ...value, modeId: modeId === "__inherit" ? undefined : modeId })} />
+        <AgentSpeed features={features.data ?? []} values={value.featureValues} disabled={disabled}
+          onChange={(featureValues) => onChange({ ...value, featureValues })} />
+      </>}
     </SettingsGroup>
   );
 }
