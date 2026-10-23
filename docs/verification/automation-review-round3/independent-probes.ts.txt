@@ -1,0 +1,83 @@
+import {afterEach,expect,test,vi} from "vitest";
+import {underReview,automationFixture,cleanupAutomationFixtures} from "./automation-fixture";
+afterEach(cleanupAutomationFixtures);
+const as=(agentId:string)=>({agentId,taskId:"a",workspaceId:"w-a"});
+test("new delivery must be reviewed even if later activity trims it before this turn ends",async()=>{
+ const {x,impl,rev}=await underReview({maxReviewRounds:1});
+ await x.automation.submitReview(as(rev),{verdict:"approve",summary:"checked old delivery"});
+ await x.endTurn(rev,"a");
+ const old=await x.job("a");
+ await x.startTurn(impl,"a");
+ await x.store.mutate(board=>{
+  board.tasks.find(t=>t.id==="a")!.status="in_review";
+  x.store.event(board,{taskId:"a",actor:"agent",agentId:impl,action:"status_changed",from:"development",to:"in_review"});
+ });
+ await x.store.mutate(board=>{
+  for(let i=0;i<105;i++) x.store.event(board,{taskId:"a",actor:"agent",agentId:impl,action:"progress_reported",note:`check ${i}`});
+ });
+ await x.endTurn(impl,"a");
+ await x.automation.kick();
+ console.log("LONG TURN",JSON.stringify({old:old.reviewedEvent,job:await x.job("a")}));
+ expect(await x.job("a")).toMatchObject({state:"reviewing",role:"reviewer"});
+ expect((await x.job("a")).verdict).toBeUndefined();
+});
+test("unknown reviewer creation stays unconfirmed while a casual implementer answer passes",async()=>{
+ const x=await automationFixture({enabled:true,reviewer:{provider:"codex",model:"gpt-6-luna"}});
+ await x.automation.queue("a");await x.automation.kick();
+ const impl=x.created[0].agentId;
+ x.hooks.create=async()=>{throw Object.assign(new Error("unknown outcome"),{code:"agent_request_outcome_unknown"});};
+ await x.startTurn(impl,"a");await x.deliver(impl,"a");await x.endTurn(impl,"a");await x.automation.kick();
+ expect(await x.job("a")).toMatchObject({state:"needs_human",role:"reviewer",unconfirmed:true});
+ await x.startTurn(impl,"a");await x.endTurn(impl,"a");await x.automation.kick();
+ console.log("UNKNOWN REVIEWER",JSON.stringify(await x.job("a")));
+ expect(await x.job("a")).toMatchObject({state:"needs_human",role:"reviewer",unconfirmed:true});
+});
+
+test("a failed new-review send must not let an unrelated reviewer turn approve that new delivery",async()=>{
+ const {x,impl,rev}=await underReview();
+ await x.automation.submitReview(as(rev),{verdict:"changes",summary:"add tests"});
+ await x.endTurn(rev,"a");await x.automation.kick();
+ await vi.waitFor(()=>expect(x.sent.at(-1)).toMatchObject({agentId:impl}));
+ await x.startTurn(impl,"a");await x.deliver(impl,"a");
+ x.hooks.send=async()=>{throw new Error("provider rejected this message");};
+ await x.endTurn(impl,"a");await x.automation.kick();
+ expect(await x.job("a")).toMatchObject({state:"retry_wait",role:"reviewer",instruction:{reviewDelivery:expect.any(String)}});
+ expect(x.sent.filter(s=>s.agentId===rev)).toHaveLength(0);
+ await x.startTurn(rev,"a");
+ console.log("FAILED SEND",JSON.stringify(await x.job("a")));
+ await expect(x.automation.submitReview(as(rev),{verdict:"approve",summary:"old turn response"})).rejects.toMatchObject({code:"REVIEW_CLOSED"});
+});
+
+test("an unknown review send during an implementer pause must not automatically resend",async()=>{
+ const {x,impl,rev}=await underReview();
+ await x.automation.submitReview(as(rev),{verdict:"changes",summary:"add tests"});
+ await x.endTurn(rev,"a");await x.automation.kick();
+ await vi.waitFor(()=>expect(x.sent.at(-1)).toMatchObject({agentId:impl}));
+ await x.startTurn(impl,"a");await x.deliver(impl,"a");
+ let entered!:()=>void,release!:()=>void;
+ const started=new Promise<void>(r=>entered=r),gate=new Promise<void>(r=>release=r);
+ let attempts=0;
+ x.hooks.send=async()=>{attempts++;entered();await gate;throw Object.assign(new Error("unknown send"),{code:"agent_request_outcome_unknown"});};
+ const ended=x.endTurn(impl,"a");await started;
+ await x.startTurn(impl,"a");release();await ended;
+ await x.endTurn(impl,"a");await x.automation.kick();
+ console.log("UNKNOWN PAUSED",attempts,JSON.stringify(await x.job("a")));
+ expect(attempts).toBe(1);
+ expect(await x.job("a")).toMatchObject({state:"needs_human",role:"reviewer",code:"interrupted",unconfirmed:true});
+});
+
+test("a rejected review send while paused cannot be confirmed by an unrelated reviewer turn",async()=>{
+ const {x,impl,rev}=await underReview();
+ await x.automation.submitReview(as(rev),{verdict:"changes",summary:"add tests"});
+ await x.endTurn(rev,"a");await x.automation.kick();
+ await vi.waitFor(()=>expect(x.sent.at(-1)).toMatchObject({agentId:impl}));
+ await x.startTurn(impl,"a");await x.deliver(impl,"a");
+ let entered!:()=>void,release!:()=>void;
+ const started=new Promise<void>(r=>entered=r),gate=new Promise<void>(r=>release=r);
+ x.hooks.send=async()=>{entered();await gate;throw new Error("rejected review send");};
+ const ended=x.endTurn(impl,"a");await started;
+ await x.startTurn(impl,"a");release();await ended;
+ expect(x.sent.filter(s=>s.agentId===rev)).toHaveLength(0);
+ await x.startTurn(rev,"a");
+ await expect(x.automation.submitReview(as(rev),{verdict:"approve",summary:"old turn"})).rejects.toMatchObject({code:"REVIEW_CLOSED"});
+});

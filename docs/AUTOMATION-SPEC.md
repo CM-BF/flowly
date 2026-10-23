@@ -52,11 +52,12 @@ AutomationJob {
        | review_rounds | review_incomplete | sub_cards | cooldown,
   detail?,                                // daemon 文本（错误、评审摘要），不翻译
   retryAt?, turnAt?, pendingOp?, pendingRole?, launchKey?, launchConsumed?,
-  instruction?: { id, role, text, fresh },   // 唯一的待发指令（§10）
+  instruction?: { id, role, text, fresh, reviewDelivery?, dispatched? }, // 唯一的待发指令（§10）
   deliveryEvent?,                         // 最近一轮评审看的那次交付
   reviewedEvent?,                         // 最近一次结论针对的那次交付
   latestDelivery?,                        // 最近一次交付身份，历史裁剪后仍保留
-  unconfirmed?, takenBack?,               // 未确认创建的session；人已接回失败的卡片
+  unconfirmed?, unconfirmedStart?,        // 未确认的create/send：绑定role、session、原因及交付
+  reviewPause?, takenBack?,               // 暂停评审的等待/重试状态；人已接回失败的卡片
   reopened?,                              // 交付后有反馈，新交付开始新的评审周期
   feedback?,                              // 父卡给子卡的修改要求（SUB-CARDS-SPEC §4）
   restarts?,                              // 父卡 agent 重新启动本卡的次数（SUB-CARDS-SPEC §4）
@@ -67,7 +68,7 @@ AutomationJob {
 ```
 
 - `turnAt`：早于或等于它的回合结束不归本 job 处理（已处理，或早于最后一条指令）。`pendingOp`：正在创建的 session 的 preparation，重启后用同一个 op 再建同一个 id，绝不建第二个；`pendingRole` 标明它属于哪个角色。
-- “交付”指实现者**自己**把卡片设为 In review 的那条状态事件。`deliveryEvent` 是最近一轮评审所看的交付，总是实现者自己的事件（A1r 把卡恢复到 In review 不算交付）。`reviewedEvent` 是最近一次结论（approved、changes 或 incomplete）所针对的交付：回合结束时卡片仍停在这次交付上，就是没有新交付（随口回答）；其它交付都是新工作。`reviewedEvent` 出现之前保存的 job，有结论时以 `deliveryEvent` 代替。`latestDelivery` 将最近一次交付身份存在 job 上，不依赖只保留最近 100 条的活动历史；没有 agent 交付事件时用该回合身份。历史裁剪或没有新交付的闲聊都不使已给出的结论失效。
+- “交付”指实现者**自己**把卡片设为 In review 的那条状态事件。`deliveryEvent` 是最近一轮评审所看的交付，总是实现者自己的事件（A1r 把卡恢复到 In review 不算交付）。`reviewedEvent` 是最近一次结论（approved、changes 或 incomplete）所针对的交付：回合结束时卡片仍停在这次交付上，就是没有新交付（随口回答）；其它交付都是新工作。`reviewedEvent` 出现之前保存的 job，有结论时以 `deliveryEvent` 代替。`latestDelivery` 将最近一次交付身份存在 job 上，不依赖只保留最近 100 条的活动历史；没有 agent 交付事件时用该回合身份。历史裁剪或没有新交付的闲聊都不使已给出的结论失效。交付身份与失败卡片被人接回的 `takenBack` 都在相应事件的事务中、裁剪历史之前保存，不等下一次派发。
 - `restarts` 只由 agent 的排队带进下一代 job；人的 Run again 从 0 开始。
 
 ## 4. 生命周期
@@ -121,6 +122,7 @@ AutomationJob {
 
 每次派发前对每个活着的 job：
 - 只有 `starting`、`working`、`reviewing` 的 job 参与重启恢复。`starting` 或有 `pendingOp` 且超过 2 分钟没进展：用同一个 op 重新 `prepareSession`（得到同一 agentId），已存在就只补状态，不存在才创建（idempotencyKey 同侧栏）。
+- `unconfirmedStart` 把未知结果绑定到原 role 和 session，区分 create 与 send，并保存原 code/detail 和评审交付。实现者的闲聊或新交付不能确认 reviewer 的请求。创建的 session 迟到并开始回合后恢复；未知 send 不能仅凭 session 已存在或 refresh 成功确认，只等那个 session 的真实新回合，不自动重发。
 - session 的创建或发送得到未知结果（`agent_request_outcome_unknown`），或在启动 session 时用完了 provider 限额预算：job 等人（`needs_human` / `interrupted` 或 `needs_human` / `cooldown`），不保留指令，也不保留 session preparation。在人回复该 session（在记录的 session 上恢复监督）或选择 Run again 之前，不重发、不重新准备、不重新创建任何东西。
 - 被监督的 session 已归档或不存在：实现者 → `failed`/`session_unavailable`；评审者 → 交付保留给人（`incomplete`）。refresh RPC 失败是未知状态，不当作 session 消失。启动结果未知或冷却预算用尽而尚未确认存在的 session（`unconfirmed`）一直保留等人状态；后续刷新仍为空不转成失败。session 迟到并开始回合后恢复监督。
 - 卡片自己的 workspace 已归档或不存在：job `failed` / `workspace_unavailable`，记录 `automation_failed`，不要求它曾启动过 session。祖先卡片取消、归档或缺失：后代 job `stopped` / `ancestor_finished`，记录 `automation_stopped`（“An ancestor card was cancelled, archived or removed”），不移动后代卡片。
@@ -132,12 +134,13 @@ AutomationJob {
 ## 5. 评审回路
 
 - 实现者交付后：`role=reviewer`、`reviewing`、`reviewRounds+1`，`deliveryEvent` 记这次交付，记 `automation_review_started`。首轮在同一 workspace 创建评审 session（`labels.flowly-automation=reviewer`，标题 `Review: <卡片>`）；之后各轮复用它，被归档则新建。
+- 实现者在同一交付的评审期间随口回答：保留原轮次、原指令与 preparation。`reviewPause` 保存评审原来的等人、重试、失败/冷却计数与 retryAt，闲聊结束后恢复；实现者的回合不会替评审者回答问题或消耗其重试预算。创建/发送的异步失败即使在这段暂停期间返回，也归属于原评审请求：明确拒绝撤销 `dispatched`，未知结果进入原等待，不丢失、不立即重发。
 - **评审周期**：从排队开始，或从交付后（或评审中）给实现者的反馈开始。反馈开始新周期：下一次新交付从第 1 轮评审，即使上一个周期已用完所有轮次（Review rounds = 1，或在最后一轮批准）也不再记为 “Review rounds used up”。`maxReviewRounds` 只限制一个周期内的轮数。
 - 评审说明（`reviewPrompt`）沿用 Hermes `sdlc-review` 的分轮视角：第 1 轮先冷读 diff 再对照交付说明；第 2 轮亲自运行构建、测试与所述行为；第 3 轮起逐条对照原卡验收标准和此前每轮的修改要求。只评审，不改文件、不提交、不改卡片状态。
 - **规则 A1 例外**：job 活着或 `delivered` 时，job 自己的评审 session 开始回合不把卡片从 In review 拉回工作阶段（它不是在做卡片的工作），不只是在它评审的时候。
 - 评审者在本轮之外开始回合（人问它结论、返工期间、Run again 保留它之后）：job 不变，不视为接管。
 - 新工具 `flowly_submit_review { verdict: approve | changes, summary, findings[] }`（MCP；CLI fallback 为 `submit-review --review <JSON>`，不需要 request file，同一 API 动作 `review` 与校验）：
-  - 只接受该卡当前 job 的 `reviewerId`，否则 `NOT_REVIEWER`；本轮已结束或卡片不在 In review → `REVIEW_CLOSED`；同一结论重复调用 → `replayed`。结论记在 `reviewedEvent`（本轮的交付）上。
+  - 只接受该卡当前 job 的 `reviewerId`，否则 `NOT_REVIEWER`；本轮已结束或卡片不在 In review → `REVIEW_CLOSED`；同一结论重复调用 → `replayed`。结论记在 `reviewedEvent`（本轮的交付）上。新轮的指令携带 `reviewDelivery`；它尚未到达评审者时，旧结论为 `REVIEW_CLOSED`。真实 reviewer turn 可以确认正在创建或已发出的同一条指令，即使 create/send 的响应还未返回；明确失败的旧调用不能被无关回合当作送达。
   - `approve`：job `delivered`、`verdict=approved`，卡片留在 In review，记 `automation_review_approved`（附摘要）。
   - `changes`：卡片回到 `resumeStage`（通常 Development，`rule="REVIEW"`），job 回到实现者 `working`，把摘要与发现以 `[Flowly automation] The reviewer requested changes …` 发给实现者，记 `automation_changes_requested`。评审者回合仍在进行时这条消息暂扣，回合一结束就送出（§4.2）。
 - 评审者回合结束没给结论：提醒（同 §4.2）；满了或失败到上限 → job `delivered`、`verdict=incomplete`，卡片留在 In review 给人。

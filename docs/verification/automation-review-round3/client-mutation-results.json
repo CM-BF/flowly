@@ -1,0 +1,37 @@
+[
+  {
+    "mutation": "cached-workspace-guard",
+    "exit": 1,
+    "summary": "Test Files  1 failed (1); Tests  1 failed | 12 skipped (13); \u23af\u23af\u23af\u23af\u23af\u23af\u23af Failed Tests 1 \u23af\u23af\u23af\u23af\u23af\u23af\u23af"
+  },
+  {
+    "mutation": "workspace-code",
+    "exit": 1,
+    "summary": "Test Files  1 failed (1); Tests  2 failed | 2 passed | 3 skipped (7); \u23af\u23af\u23af\u23af\u23af\u23af\u23af Failed Tests 2 \u23af\u23af\u23af\u23af\u23af\u23af\u23af"
+  },
+  {
+    "mutation": "takeover-code",
+    "exit": 1,
+    "summary": "Test Files  1 failed (1); Tests  2 failed | 10 skipped (12); \u23af\u23af\u23af\u23af\u23af\u23af\u23af Failed Tests 2 \u23af\u23af\u23af\u23af\u23af\u23af\u23af"
+  },
+  {
+    "mutation": "ancestor-code",
+    "exit": 1,
+    "summary": "Test Files  1 failed (1); Tests  2 failed | 3 skipped (5); \u23af\u23af\u23af\u23af\u23af\u23af\u23af Failed Tests 2 \u23af\u23af\u23af\u23af\u23af\u23af\u23af"
+  },
+  {
+    "mutation": "ancestor-activity",
+    "exit": 1,
+    "summary": "Test Files  1 failed (1); Tests  2 failed | 3 skipped (5); \u23af\u23af\u23af\u23af\u23af\u23af\u23af Failed Tests 2 \u23af\u23af\u23af\u23af\u23af\u23af\u23af"
+  },
+  {
+    "mutation": "reason-labels",
+    "exit": 1,
+    "summary": "Test Files  1 failed (1); Tests  1 failed | 12 skipped (13); \u23af\u23af\u23af\u23af\u23af\u23af\u23af Failed Tests 1 \u23af\u23af\u23af\u23af\u23af\u23af\u23af"
+  },
+  {
+    "mutation": "schema-code",
+    "exit": 1,
+    "summary": "Test Files  1 failed (1); Tests  2 failed | 2 passed | 3 skipped (7); \u23af\u23af\u23af\u23af\u23af\u23af\u23af Failed Tests 2 \u23af\u23af\u23af\u23af\u23af\u23af\u23af"
+  }
+]

@@ -1,0 +1,49 @@
+{
+  "commit": "b095a7aca6468603cac821b175af1037206a8d43",
+  "implementationCommit": "921f33686c1e03f6b6fff9b8a6ef4a5372d0fc82",
+  "export": "/var/folders/f1/2xjyyqkn5plc19fx4nt4tpt00000gn/T/flowly-r3-fixed-b095a7a-2tj8lc9s",
+  "session": {
+    "paseoAgentId": "91e6d4cd-e367-4244-ad36-51f224408d7c",
+    "providerSessionId": "01a16764-e497-7d23-a26a-6acb891f41f1",
+    "provider": "codex",
+    "model": "gpt-6-luna",
+    "mode": "full-access"
+  },
+  "typecheck": {"command": "npm run typecheck", "exitCode": 0, "log": "final-typecheck.log"},
+  "testRuns": [
+    {
+      "run": 1,
+      "command": "npm test",
+      "exitCode": 1,
+      "log": "final-test-1.log",
+      "testFiles": {"passed": 142, "skipped": 13, "failed": 2, "total": 157},
+      "tests": {"passed": 1158, "skipped": 65, "failed": 2, "total": 1225},
+      "duration": "19.90s",
+      "failures": [
+        {"test": "server/automation-attention-round3.test.ts > a failed job a person took back stays out of Needs attention after the move left the card's history", "reason": "Test timed out in 5000ms"},
+        {"test": "server/automation-verdicts-round3.test.ts > casual turns after an approval keep it after the delivery has left the card's history, and start no review", "reason": "Test timed out in 5000ms"}
+      ]
+    },
+    {
+      "run": 2,
+      "command": "npm test",
+      "exitCode": 0,
+      "log": "final-test-2.log",
+      "testFiles": {"passed": 144, "skipped": 13, "failed": 0, "total": 157},
+      "tests": {"passed": 1160, "skipped": 65, "failed": 0, "total": 1225},
+      "duration": "14.66s",
+      "failures": []
+    },
+    {
+      "run": 3,
+      "command": "npm test",
+      "exitCode": 0,
+      "log": "final-test-3.log",
+      "testFiles": {"passed": 144, "skipped": 13, "failed": 0, "total": 157},
+      "tests": {"passed": 1160, "skipped": 65, "failed": 0, "total": 1225},
+      "duration": "10.30s",
+      "failures": []
+    }
+  ],
+  "scope": "All npm commands ran in the fixed export directory. Shared checkout was used only for final evidence files. No source edits, daemon access, plugin install/reload, or new session creation. Exactly the requested three npm test invocations were run; no additional retries."
+}

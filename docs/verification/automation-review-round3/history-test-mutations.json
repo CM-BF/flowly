@@ -1,0 +1,17 @@
+[
+  {
+    "mutation": "forget-takeback",
+    "exitCode": 1,
+    "caught": true
+  },
+  {
+    "mutation": "forget-approved-delivery",
+    "exitCode": 1,
+    "caught": true
+  },
+  {
+    "mutation": "keep-verdict-for-new-work",
+    "exitCode": 1,
+    "caught": true
+  }
+]

@@ -1,0 +1,13 @@
+{
+  "commit": "921f33686c1e03f6b6fff9b8a6ef4a5372d0fc82",
+  "scope": [
+    "1b73ca1 delivery/take-back marker ownership",
+    "579dcf4 new-delivery review prompt gate",
+    "921f336 reviewer pause, role/session confirmation and error outcomes"
+  ],
+  "independent_probes": "/tmp/flowly-r3-independent-probes-921f336.test.ts",
+  "test_result": "4 files passed; 20 tests passed",
+  "findings": [],
+  "limitations": "Focused state-machine checks only; no daemon operations or UI validation.",
+  "cleanup": "All automation fixture services and directories drained by afterEach; independent 88MB checkout removed."
+}

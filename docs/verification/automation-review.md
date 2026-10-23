@@ -69,3 +69,7 @@ A second review of the round-1 fixes on `sw/flowly-automation` (6 reviewers: two
 - `npx vitest run` after this docs pass: **134 test files passed, 13 skipped; 1105 tests passed, 65 skipped** (the 65 skips predate this work).
 - The round-2 fix batches added behaviour tests, each required to fail before its fix (new files such as `server/automation-review-cycle.test.ts`, `server/automation-recovery.test.ts`, `server/automation-parents.test.ts`, `server/automation-occupancy.test.ts`, `server/sub-cards-round2.test.ts`, `server/sub-cards-create-round2.test.ts`, `server/get-task-handoffs.test.ts`, `shared/automation-round2.test.ts`, `client/automation-round2.test.ts`). Tests use the in-memory fakes and never reach the daemon.
 - Round 2 was not installed on the real daemon and not checked in the Web UI: **UNRUN**. This docs pass did not touch the daemon or its installed source.
+
+## Round 3
+
+The 15 confirmed findings and the integration gaps exposed while fixing them are covered through `921f336`. The final independent review found no new issues. Fixed-commit Luna verification at `43efb13` passed typecheck and three complete runs of 1,160 tests (65 skipped); installation and fresh live acceptance remain gated on the user pipeline becoming idle. [Finding mapping, regression evidence and current validation/install status](automation-review-round3.md). Earlier live results above remain evidence for their recorded versions only.

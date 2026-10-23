@@ -1,0 +1,11 @@
+{
+  "testedCommit": "43efb13c5ed28f483a91e018787599bedbb16233",
+  "exportRemoved": true,
+  "archivedTestAgents": [
+    "91e6d4cd-e367-4244-ad36-51f224408d7c",
+    "9294a850-8b3d-4c55-8602-62a8411fb61b",
+    "a0c74ff7-e334-4309-9aad-965ea5f93d01"
+  ],
+  "daemonUpdated": false,
+  "liveFixtureResourcesCreatedInRound3": false
+}
