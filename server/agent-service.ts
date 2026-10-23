@@ -169,7 +169,7 @@ export class AgentService {
     const reserved = before.agentReceipts.find((rc) => rc.key === actor.key);
     if (reserved && (reserved.payloadHash !== actor.payloadHash || reserved.action !== "create_card")) throw requestReused();
     if (reserved?.cardId) throw new ToolError("REQUEST_REUSED", "This request already created a card, which was deleted since. Call flowly_get_task again before creating another card.");
-    this.fresh(issuedAt);
+    if (!reserved) this.fresh(issuedAt);
     if (r.task.archivedAt || r.project.archivedAt) throw new ToolError("ARCHIVED", "Task or project is archived.");
     if (["done", "cancelled"].includes(r.task.status)) throw new ToolError("TASK_FINISHED", "A finished card cannot manage cards.");
     if (!r.context.available) throw new ToolError("WORKSPACE_INCOMPATIBLE", r.context.reason || "Workspace is unavailable.");

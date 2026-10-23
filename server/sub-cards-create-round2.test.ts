@@ -56,6 +56,21 @@ async function setup() {
 
 const automationOn = { enabled: true, maxRunning: 1, maxReviewRounds: 3, fullAccess: true, nudgeLimit: 2, failureLimit: 2 };
 
+test("a reserved creation can recover its workspace after the signed snapshot expires; a new stale request cannot", async () => {
+  const x = await setup();
+  const input = { ...(await x.request()), title: "Recover later" };
+  x.during((board) => { board.tasks[0].status = "done"; });
+  await expect(x.service.createCard(x.identity, input)).rejects.toMatchObject({ code: "TASK_FINISHED" });
+  await x.store.mutate((board) => { board.tasks[0].status = "development"; });
+  const unreserved = { ...(await x.request()), title: "Stale new decision" };
+  x.advance(16 * 60_000);
+  const recovered = await x.service.createCard(x.identity, input);
+  expect(await x.bound("ws-1")).toMatchObject([{ id: recovered.cardId }]);
+  expect(new Set(x.create.mock.calls.map(([options]) => options.idempotencyKey)).size).toBe(1);
+  await expect(x.service.createCard(x.identity, unreserved)).rejects.toMatchObject({ code: "REQUEST_EXPIRED" });
+  expect(x.create).toHaveBeenCalledTimes(2);
+});
+
 test.each(["task", "project"] as const)("a %s revision bump while the workspace is made does not orphan it: the card is saved on it", async (changed) => {
   const x = await setup();
   const signed = await x.request();
