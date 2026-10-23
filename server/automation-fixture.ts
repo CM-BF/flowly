@@ -86,12 +86,15 @@ export async function automationFixture(automation: Partial<AutomationSettings> 
     /** Runs before the fake creates the session; throw to fail the create. */
     create?: (agentId: string) => Promise<void>;
     created?: (id: string) => Promise<void>;
+    /** A session's newest timeline items (oldest first); none by default. */
+    timeline?: (agentId: string) => unknown[];
     /** Each card workspace's refresh; the default is its own directory under the fixture root. */
     workspace?: (workspaceId: string) => WorkspaceSnapshot | Promise<WorkspaceSnapshot>;
   } = {};
   const paseo = {
     agents: {
       ref: (id: string) => ({
+        timeline: { refetch: async () => ({ entries: (hooks.timeline?.(id) ?? []).map((item) => ({ item })) }) },
         refresh: async () => ((await hooks.refresh?.(id)) !== "missing" && agents.has(id) ? { agent: agents.get(id) } : null),
         send: async (text: string, options: { activeTurnBehavior?: string; messageId?: string; images?: unknown[] } = {}) => {
           await hooks.send?.();

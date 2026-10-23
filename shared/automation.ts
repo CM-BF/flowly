@@ -123,8 +123,56 @@ export function readiness(board: Pick<Board, "tasks" | "links">, taskId: string)
   return { ready: false, reason: "blockers", waiting: blockers.filter((b) => !cancelled.includes(b)), cancelled };
 }
 
+/** Claude Code's rejected-quota notices ("You've hit your session limit · resets 2pm (…)"), not its "close to" warnings. */
+const claudeLimitPrefix = /^(?:You've (?:hit|reached|exceeded) your (?:(?:session|weekly|(?:Opus|Sonnet|Haiku|Fable)(?: weekly| usage)?|fast|usage(?: credit)?) )?(?:limit|allowance)|You're out of (?:extra usage|usage credits))(?=\s*(?:[.·]|$))/i;
 /** Only explicit provider failure messages, never completed assistant prose. */
-export const providerLimited = (message: string) => /\b429\b|rate[ -]?limit|quota (?:exceeded|exhausted|reached)|usage limit|overloaded|insufficient_quota/i.test(message);
+export const providerLimited = (message: string) =>
+  /\b429\b|rate[ _-]?limit|quota (?:exceeded|exhausted|reached)|usage limit|overloaded|insufficient_quota|too many requests/i.test(message) || claudeLimitPrefix.test(message.trim());
+
+/**
+ * A provider limit inside a turn that ended "completed" (AUTOMATION-SPEC §4.5): Claude Code can finish a turn with its
+ * API error or its quota notice as the last assistant row. `items`: the session's newest timeline items, oldest first.
+ * Only rows after the latest user message count; prose that quotes a notice, tool calls and reasoning are no evidence.
+ */
+export function limitNotice(items: readonly unknown[]): string | null {
+  for (let i = items.length - 1; i >= 0; i--) {
+    const item = items[i] as { type?: unknown; text?: unknown; message?: unknown; isApiErrorMessage?: unknown } | null;
+    if (!item || typeof item !== "object") continue;
+    if (item.type === "user_message" || item.type === "turn_started") return null;
+    if (item.type === "error") {
+      const message = typeof item.message === "string" ? item.message : "";
+      return providerLimited(message) ? message : null;
+    }
+    if (item.type === "assistant_message") {
+      const text = typeof item.text === "string" ? item.text.trim() : "";
+      if (!text) continue;
+      const prefix = text.match(claudeLimitPrefix);
+      const standalone = !!prefix && /^(?:\.?|\s*·\s*resets\s+[^·\r\n()]+\([A-Za-z0-9_+\-/]+\)(?:\s*·\s*progress saved)?)$/i.test(text.slice(prefix[0].length));
+      const apiError = item.isApiErrorMessage === true || /^API Error\s*:/i.test(text);
+      return (standalone || apiError) && providerLimited(text) ? text : null;
+    }
+    if (item.type === "tool_call" || item.type === "reasoning") return null;
+  }
+  return null;
+}
+
+/** The model `role` switches to after a provider limit (§4.5), when the project set one. */
+export const fallbackModel = (settings: AutomationSettings, role: AutomationJob["role"]) => (role === "reviewer" ? settings.reviewerFallback : settings.implementerFallback);
+/** A role's own model as far as the board knows it; the implementer can also come from a card's launch or the global default. */
+export const primaryModel = (settings: AutomationSettings, project: Pick<Project, "agentModel"> | undefined, role: AutomationJob["role"]) =>
+  role === "reviewer" ? settings.reviewer : (settings.implementer ?? project?.agentModel ?? undefined);
+export const modelKey = (model: Pick<AgentModel, "provider" | "model">) => `${model.provider}/${model.model}`;
+/** How long a limited model is avoided: new sessions start on their role's fallback, then try it again. */
+export const fallbackHoldMs = 30 * 60_000;
+/** Whether a recent limit was recorded for `model` (or its provider, when the limited model was not known). */
+export function modelLimited(board: Pick<Board, "automation">, model: Pick<AgentModel, "provider" | "model">, now: number) {
+  return board.automation.some(
+    (job) =>
+      !!job.providerLimit &&
+      Date.parse(job.providerLimit.until) > now &&
+      (job.providerLimit.model ? job.providerLimit.model === modelKey(model) : job.providerLimit.provider === model.provider),
+  );
+}
 /** Provider-limit retries before the job waits for a person; they never use up `failureLimit`. */
 export const cooldownLimit = 5;
 /** Wait before provider-limit retry n (1-based): 1, 2, 4, 8, then 15 minutes. */
@@ -145,11 +193,17 @@ export function coolingProvider(board: Pick<Board, "automation">, provider: stri
       (provider && job.provider ? job.provider === provider : scope.projectId !== undefined && job.projectId === scope.projectId),
   );
 }
-/** Whether the project's next card would start on a cooling provider. `fallbackProvider`: the global default model's. */
+/**
+ * Whether the project's next card would start on a cooling provider. A role with a fallback model on another,
+ * uncooled provider is not held back (§4.5). `fallbackProvider`: the global default model's.
+ */
 export function providerCooling(board: Pick<Board, "automation" | "projects">, project: Project, now: number, fallbackProvider?: string) {
   const scope = { projectId: project.id };
-  const provider = project.automation?.implementer?.provider ?? project.agentModel?.provider ?? fallbackProvider;
-  return coolingProvider(board, provider, now, scope) || (!!project.automation?.reviewer && coolingProvider(board, project.automation.reviewer.provider, now, scope));
+  const settings = project.automation;
+  const cooling = (provider: string | undefined) => coolingProvider(board, provider, now, scope);
+  const held = (provider: string | undefined, fallback: AgentModel | undefined) => cooling(provider) && (!fallback || cooling(fallback.provider));
+  const implementer = settings?.implementer?.provider ?? project.agentModel?.provider ?? fallbackProvider;
+  return held(implementer, settings?.implementerFallback) || (!!settings?.reviewer && held(settings.reviewer.provider, settings.reviewerFallback));
 }
 
 const priorityRank = { urgent: 0, high: 1, normal: 2, low: 3 } as const;
@@ -210,7 +264,9 @@ export type TurnDecision =
   /** The implementer dispatched sub-cards that are still moving: wait for them (Multica's sub-issue wakeup). */
   | { kind: "await_children"; signature: string }
   /** A casual implementer turn during a review delivered nothing new: that review round goes on, it is not sent again. */
-  | { kind: "resume_review" };
+  | { kind: "resume_review" }
+  /** The role's model reported a provider limit and the project set a fallback: a new session continues on it (§4.5). */
+  | { kind: "fallback" };
 
 /** `agentId`'s events since its latest turn started. */
 function thisTurn(board: Pick<Board, "events">, taskId: string, agentId: string) {
@@ -259,6 +315,7 @@ export function turnDecision(
   const reviewer = job.role === "reviewer";
   if (outcome.kind === "failed") {
     if (providerLimited(outcome.message)) {
+      if (fallbackModel(settings, job.role) && !job.fallback?.[job.role]) return { kind: "fallback" };
       const count = (job.cooldowns ?? 0) + 1;
       return count > cooldownLimit ? { kind: "wait", code: "cooldown" } : { kind: "retry", count, cooldown: true, at: new Date(now + cooldownDelayMs(count)).toISOString() };
     }
@@ -428,6 +485,13 @@ export function retryPrompt(count: number, limit: number, error: string) {
 /** The retry after a provider limit (429, quota, overload): counted against the cooldown budget, not the failure limit. */
 export function cooldownPrompt(count: number, error: string) {
   return `${tag} The last turn stopped at a provider limit: ${error.slice(0, 300) || "unknown error"}. Continue from the current state of the workspace; do not repeat work that is already done (provider limit retry ${count} of ${cooldownLimit}).`;
+}
+
+/** The first message's preamble for a session that takes over a role after `limited` reported a provider limit (§4.5). */
+export function takeoverNote(role: AutomationJob["role"], limited: string) {
+  return role === "reviewer"
+    ? `${tag} The previous reviewer model (${limited}) stopped at a provider limit; you run this review round in its place.`
+    : `${tag} The previous agent on this card (${limited}) stopped at a provider limit; you take over its work in the same workspace. Read flowly_get_task (workpad, progress notes, comments and activity) and inspect the workspace (git status, git diff, git log) to see what is already done, then continue from there to a delivery. Do not redo finished work.`;
 }
 
 /** Hermes sdlc-review lenses: each round looks at the work differently. */

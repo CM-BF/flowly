@@ -19,6 +19,12 @@ export const automationSettingsSchema = z.strictObject({
   implementer: agentModelSchema.optional(),
   /** The reviewer's model; absent: no agent review, a delivery waits for the user. */
   reviewer: agentModelSchema.optional(),
+  /**
+   * Models a role switches to when its own model reports a rate or usage limit (AUTOMATION-SPEC §4.5);
+   * absent: the session waits for the limit to reset (provider cooldown).
+   */
+  implementerFallback: agentModelSchema.optional(),
+  reviewerFallback: agentModelSchema.optional(),
   /** Reviews per delivery cycle before the card is left to the user (Hermes review rounds). */
   maxReviewRounds: z.number().int().min(1).max(automationLimits.reviewRounds).default(3),
   /** Sessions start in the provider's no-approval mode (claude bypassPermissions, codex full-access). */
@@ -133,6 +139,13 @@ export const automationJobSchema = z.object({
   restarts: z.number().int().nonnegative().optional(),
   reopened: z.boolean().optional(),
   provider: z.string().optional(),
+  /** Roles that switched to their fallback model in this run; they stay on it until the run ends (§4.5). */
+  fallback: z.object({ implementer: z.boolean().optional(), reviewer: z.boolean().optional() }).optional(),
+  /**
+   * The primary model (`provider/model`, or a provider alone when the model was not known) whose limit made a role
+   * switch; until `until` a new session of any card starts on its role's fallback instead of trying it again.
+   */
+  providerLimit: z.object({ provider: z.string(), model: z.string().optional(), until: z.string() }).optional(),
   cooldowns: z.number().int().nonnegative().optional(),
   /** What the sub-cards looked like when the parent last saw them (SUB-CARDS-SPEC §5); a change wakes it. */
   subSeen: z.string().max(20000).optional(),

@@ -45,6 +45,13 @@ import {
   startPrompt,
   turnDecision,
   automationExecution,
+  fallbackHoldMs,
+  fallbackModel,
+  limitNotice,
+  modelKey,
+  modelLimited,
+  primaryModel,
+  takeoverNote,
   type AutomationCode,
   type AutomationJob,
   type AutomationSettings,
@@ -192,7 +199,11 @@ export class AutomationService {
           state: "queued",
           role: "implementer",
           ...(existing?.implementerId ? { implementerId: existing.implementerId } : {}),
-          ...(existing?.reviewerId && existing.reviewerId !== existing.implementerId ? { reviewerId: existing.reviewerId } : {}),
+          // A reviewer that ran on its fallback model is not carried: the next run reviews on the reviewer's own model (§4.5).
+          ...(existing?.reviewerId && existing.reviewerId !== existing.implementerId && !existing.fallback?.reviewer ? { reviewerId: existing.reviewerId } : {}),
+          // The implementer session is kept, so is its model: a limit on it is not another switch to the same fallback.
+          ...(existing?.implementerId && existing.fallback?.implementer ? { fallback: { implementer: true } } : {}),
+          ...(existing?.providerLimit && Date.parse(existing.providerLimit.until) > this.clock() ? { providerLimit: existing.providerLimit } : {}),
           ...(existing?.launchKey && !existing.launchConsumed ? { launchKey: existing.launchKey } : {}),
           generation: (existing?.generation ?? 0) + 1,
           nudges: 0,
@@ -376,9 +387,14 @@ export class AutomationService {
     const settings = automationOf(board.projects.find((p) => p.id === job.projectId));
     // Automation turned off: the session goes on unsupervised.
     if (!settings) return;
-    const outcome: TurnOutcome =
+    let outcome: TurnOutcome =
       ended.outcome === "failed" ? { kind: "failed", message: ended.note ?? "" } : ended.outcome === "canceled" ? { kind: "canceled" } : { kind: "completed" };
     const newDelivery = board.events.some((event) => event.taskId === job.taskId && event.agentId === agentId && event.actor === "agent" && event.to === "in_review" && (!job.turnAt || event.at > job.turnAt));
+    // Claude Code can end a turn "completed" with its quota notice as the last row: that is a provider limit (§4.5).
+    if (outcome.kind === "completed" && !newDelivery && !askedThisTurn(board, job.taskId, agentId)) {
+      const notice = await this.limitNotice(agentId);
+      if (notice) outcome = { kind: "failed", message: notice };
+    }
     if (job.instruction?.role === job.role && !job.pendingOp && outcome.kind === "completed" && !newDelivery && !askedThisTurn(board, job.taskId, agentId)) {
       const pending = await this.store.transaction((b) => { const j = this.current(b, job, job.role); if (!j || latestTurnEnd(b, j.taskId, agentId)?.id !== ended.id) return { value: null, changed: false }; j.turnAt = ended.at; return { value: { ...j }, changed: true }; });
       if (pending) await this.deliver(pending);
@@ -477,6 +493,9 @@ export class AutomationService {
           this.waitOnUnconfirmed(job);
           break;
         }
+        case "fallback":
+          this.switchToFallback(board, job, job.role, settings, pendingInstruction);
+          break;
         case "await_children":
           job.state = "waiting";
           job.code = "sub_cards";
@@ -531,6 +550,56 @@ export class AutomationService {
       }
       return { value: { ...job }, changed: true };
     });
+  }
+
+  /**
+   * `role`'s model reported a provider limit and the project set a fallback (§4.5): the limit is recorded so new
+   * sessions avoid that model for a while, the role is marked, and its session is replaced. The next send creates a
+   * Flowly-prepared session on the fallback model; the old session stays, unsupervised. `pending`: an instruction the
+   * limited session never received (requested changes, a wake summary), carried to the new one.
+   */
+  private switchToFallback(board: Board, job: AutomationJob, role: Role, settings: AutomationSettings, pending?: AutomationJob["instruction"], { keep = false } = {}) {
+    const project = board.projects.find((p) => p.id === job.projectId);
+    const primary = primaryModel(settings, project, role);
+    const limited = primary ? modelKey(primary) : (job.provider ?? "its model");
+    job.providerLimit = { provider: primary?.provider ?? job.provider ?? "", ...(primary ? { model: modelKey(primary) } : {}), until: new Date(this.clock() + fallbackHoldMs).toISOString() };
+    job.fallback = { ...job.fallback, [role]: true };
+    if (role === "reviewer") delete job.reviewerId;
+    else delete job.implementerId;
+    job.role = role;
+    job.state = role === "reviewer" ? "reviewing" : job.state === "starting" ? "starting" : "working";
+    job.failures = 0;
+    job.cooldowns = 0;
+    job.nudges = 0;
+    job.turnAt = this.now();
+    job.updatedAt = job.turnAt;
+    delete job.code;
+    delete job.detail;
+    delete job.retryAt;
+    delete job.pendingOp;
+    delete job.pendingRole;
+    const note = takeoverNote(role, limited);
+    // A session that was never created keeps its first instruction: the new one is simply started on the fallback.
+    if (keep && pending) job.instruction = pending;
+    else if (role === "reviewer") {
+      this.instruct(job, "reviewer", `${note}\n\n${reviewPrompt(job.reviewRounds, settings.maxReviewRounds)}`);
+      job.instruction!.reviewDelivery = job.deliveryEvent;
+    } else {
+      const changes = job.verdict === "changes" ? [...board.events].reverse().find((e) => e.taskId === job.taskId && e.action === "automation_changes_requested")?.note : undefined;
+      const carried = pending?.role === "implementer" ? pending.text : changes ? `The reviewer's requested changes, still to do:\n${changes}` : undefined;
+      this.instruct(job, "implementer", [note, startPrompt({ review: !!settings.reviewer, again: false }), job.feedback, carried].filter(Boolean).join("\n\n"));
+    }
+    this.store.event(board, { taskId: job.taskId, actor: "system", action: "automation_fallback", note: `${limited} reported a provider limit; the ${role} continues on its fallback model` });
+  }
+
+  /** A provider limit reported as the last row of a completed turn, or null; an unreadable timeline is no evidence. */
+  private async limitNotice(agentId: string) {
+    try {
+      const page = await this.api().agents.ref(agentId).timeline.refetch({ direction: "tail", limit: 30, projection: "projected" });
+      return limitNotice(((page?.entries ?? []) as { item?: unknown }[]).map((entry) => entry.item).filter(Boolean));
+    } catch {
+      return null;
+    }
   }
 
   private instruct(job: AutomationJob, role: Role, text: string, fresh = text) {
@@ -846,11 +915,27 @@ export class AutomationService {
     });
     if (!recorded) return;
     const launch = role === "implementer" && job.launchKey && !job.launchConsumed ? await this.launches.read(task.id, job.launchKey) : undefined;
-    const chosen = launch?.model ?? (role === "reviewer" ? settings?.reviewer : await this.implementerModel(project, settings, paseo));
-    const model = chosen && (launch ? chosen : automationExecution(chosen, project.agentModel, !!settings?.fullAccess));
+    const primary = launch?.model ?? (role === "reviewer" ? settings?.reviewer : await this.implementerModel(project, settings, paseo));
+    // The role's fallback (§4.5): once it switched, or while its own model has a recent limit or its provider cools down.
+    const fallback = settings ? fallbackModel(settings, role) : undefined;
+    const known = await this.store.read();
+    const switched = !!fallback && !job.fallback?.[role] && !!primary &&
+      (modelLimited(known, primary, this.clock()) || coolingProvider(known, primary.provider, this.clock(), { except: job.taskId }));
+    const onFallback = !!fallback && (!!job.fallback?.[role] || switched);
+    const chosen = onFallback ? fallback : primary;
+    const model = chosen && (launch && !onFallback ? chosen : automationExecution(chosen, project.agentModel, !!settings?.fullAccess));
     if (!model) throw new Error(role === "reviewer" ? "No reviewer model is set." : "No available model to start an agent with.");
-    if (coolingProvider(await this.store.read(), model.provider, this.clock(), { except: job.taskId })) return;
-    await this.store.transaction((board) => { const j = this.current(board, job, role); if (!j) return { value: null, changed: false }; j.provider = model.provider; return { value: null, changed: true }; });
+    if (coolingProvider(known, model.provider, this.clock(), { except: job.taskId })) return;
+    await this.store.transaction((board) => {
+      const j = this.current(board, job, role);
+      if (!j) return { value: null, changed: false };
+      j.provider = model.provider;
+      if (switched && !j.fallback?.[role]) {
+        j.fallback = { ...j.fallback, [role]: true };
+        this.store.event(board, { taskId: j.taskId, actor: "system", action: "automation_fallback", note: `${modelKey(primary!)} recently reported a provider limit; the ${role} starts on its fallback model` });
+      }
+      return { value: null, changed: true };
+    });
     const mode = model.modeId;
     let featureValues = model.featureValues;
     if (featureValues && Object.keys(featureValues).length) {
@@ -871,7 +956,8 @@ export class AutomationService {
       idempotencyKey: `ultra-kanban-session:${preparation.agentId}`,
       env: { FLOWLY_CONTEXT_FILE: preparation.contextFile, FLOWLY_CLI: preparation.cliPath, FLOWLY_SKILL: preparation.skillPath },
       title: (role === "reviewer" ? `Review: ${task.title}` : task.title).slice(0, 120),
-      labels: { "flowly-task": task.id, "flowly-automation": role },
+      // Flowly handles provider limits of its automation sessions itself (§4.5); the rate-fallback plugin leaves them alone.
+      labels: { "flowly-task": task.id, "flowly-automation": role, "paseo-rate-fallback": "off" },
       prompt,
       ...(launch ? { images: launch.images, clientMessageId: launch.clientMessageId } : {}),
     };
@@ -973,6 +1059,7 @@ export class AutomationService {
   private async sideEffectFailed(seen: AutomationJob, role: Role, error: unknown) {
     const message = clip(error instanceof Error ? error.message : String(error));
     console.error("Flowly automation could not reach the session:", message);
+    let switched = false;
     await this.store.transaction((board) => {
       const job = jobOf(board, seen.taskId);
       if (!job || !this.confirmation(board, seen, role)) return { value: null, changed: false };
@@ -1018,6 +1105,12 @@ export class AutomationService {
       // A known rejected send is not evidence that its review prompt was presented.
       if (job.instruction) delete job.instruction.dispatched;
       const gone = error instanceof SessionGone;
+      if (!gone && providerLimited(message) && settings && fallbackModel(settings, role) && !job.fallback?.[role] && !paused) {
+        // A limit while creating or messaging the session: the role continues on its fallback model (§4.5).
+        this.switchToFallback(board, job, role, settings, job.instruction?.role === role ? job.instruction : undefined, { keep: !!job.pendingOp });
+        switched = true;
+        return settle();
+      }
       if (!gone && providerLimited(message)) {
         job.cooldowns = (job.cooldowns ?? 0) + 1;
         if (job.cooldowns > cooldownLimit) return waitForPerson("cooldown", message);
@@ -1055,6 +1148,8 @@ export class AutomationService {
       }
       return settle();
     });
+    // The fallback session is created on the next pass.
+    if (switched) void this.kick();
   }
 
   /**
