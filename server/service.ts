@@ -1,4 +1,4 @@
-import { authorizeCardActor, checkAgentCardBudget, type AgentCardActor } from "./agent-card-guard";
+import { authorizeCardCreation, cardReservation, checkStartable, orphanNotice, type AgentCardActor } from "./agent-card-guard";
 import type { AutomationService } from "./automation";
 import { automationOf, isLive, jobOf } from "../shared/automation";
 import { ToolError } from "./tool-error";
@@ -482,10 +482,16 @@ export class BoardService {
         (t) => t.operationId === input.operationId,
       );
       if (previous) return previous;
-      if (agent) { authorizeCardActor(board, agent); checkAgentCardBudget(board, agent.taskId); }
+      // The signed revision was checked when the request was reserved (AgentService.newCard). From here on
+      // only what makes the card unsafe refuses it, and all of that is checked before a workspace exists.
+      if (agent) {
+        authorizeCardCreation(board, agent, { revision: false });
+        if (!cardReservation(board, agent)) throw new ToolError("REQUEST_REUSED", "Card request reservation is missing.");
+      }
       const project = board.projects.find((p) => p.id === input.projectId);
       if (!project || project.archivedAt)
         throw new Error("Project is unavailable or archived.");
+      if (agent) checkStartable(project, agent.start);
       const laneError = laneProblem(project, input.status);
       if (laneError) throw new Error(laneError);
       // Validated before any workspace exists (CARD-TAGS-SPEC §3).
@@ -584,7 +590,8 @@ export class BoardService {
           const p = current.projects.find((p) => p.id === project.id);
           if (!p || p.archivedAt || p.primaryPath !== sourcePath)
             throw new Error("Project changed during workspace creation.");
-          if (agent) { authorizeCardActor(current, agent); checkAgentCardBudget(current, agent.taskId); }
+          // Not the signed revision: a write that committed while the workspace was made must not orphan it.
+          if (agent) authorizeCardCreation(current, agent, { revision: false });
           const idea = input.ideaId ? openIdea(current, input.ideaId, project.id) : undefined;
           if (input.followUpOf) followUpSource(current, input.followUpOf, project.id);
           if (input.subCardOf) subCardParent(current, input.subCardOf, project.id);
@@ -655,8 +662,9 @@ export class BoardService {
           }
           if (agent) {
             if (agent.start === "now" && this.automation && automationOf(p)) this.automation.queueIn(current, task.id, { agentId: agent.agentId });
-            const receipt = current.agentReceipts.find((r) => r.key === agent.key && r.payloadHash === agent.payloadHash);
+            const receipt = cardReservation(current, agent);
             if (!receipt) throw new ToolError("REQUEST_REUSED", "Card request reservation is missing.");
+            delete receipt.notice;
             receipt.cardId = task.id;
             receipt.status = task.status;
             receipt.queued = isLive(jobOf(current, task.id));
@@ -664,11 +672,24 @@ export class BoardService {
           return task;
         });
       } catch (error) {
-        if (error instanceof ToolError) throw error;
-        throw new Error(
-          `Card was not saved. Workspace ${id} remains available; retry with the same operation or link it. ${error instanceof Error ? error.message : String(error)}`,
-        );
+        const reason = error instanceof Error ? error.message : String(error);
+        if (!agent) throw new Error(`Card was not saved. Workspace ${id} remains available; retry with the same operation or link it. ${reason}`);
+        // Any refusal after provisioning names the workspace and keeps it on the request's receipt, so a
+        // retry of the same request reports it, or reuses it through the same idempotency key.
+        const message = `Card was not saved: ${reason} ${orphanNotice(id)}`;
+        if (input.mode !== "existing") await this.keepOrphan(agent, id).catch((e) => console.error("Kanban orphan workspace not recorded:", e instanceof Error ? e.message : String(e)));
+        throw error instanceof ToolError ? new ToolError(error.code, message, error.retryable) : new Error(message);
       }
+    });
+  }
+  /** Records on the reservation that `workspaceId` exists without its card (subcards-2). */
+  private keepOrphan(agent: AgentCardActor, workspaceId: string) {
+    return this.store.transaction((board) => {
+      const receipt = cardReservation(board, agent);
+      const notice = orphanNotice(workspaceId);
+      if (!receipt || receipt.cardId || receipt.notice === notice) return { value: undefined, changed: false };
+      receipt.notice = notice;
+      return { value: undefined, changed: true };
     });
   }
   /** External inputs whose connection was removed (EXTERNAL-TRACKER-SPEC §2); unreadable stays empty on failure. */

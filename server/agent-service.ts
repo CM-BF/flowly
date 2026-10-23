@@ -1,6 +1,6 @@
 import { cardHandoff } from "./automation-handoff";
 import { resumeStage } from "./progress-rules";
-import { authorizeCardActor, checkAgentCardBudget, type AgentCardActor } from "./agent-card-guard";
+import { authorizeCardActor, authorizeCardCreation, checkStartable, type AgentCardActor } from "./agent-card-guard";
 import { isSummarizer } from "../shared/summary";
 import { outputLanguage } from "../shared/ai-language";
 import type { LocaleCode } from "../shared/i18n";
@@ -145,6 +145,18 @@ export class AgentService {
     }
   }
   private async newCard(identity: ToolIdentity, input: ReturnType<typeof createCardInputSchema.parse>, issuedAt: string, requestKey: string, operationId: string): Promise<CreateCardResult> {
+    const actor: AgentCardActor = { ...identity, expectedRevision: input.expectedRevision, key: `${identity.agentId}:${digest(input.request.id)}`, payloadHash: digest(JSON.stringify({ action: "create_card", input })), start: input.start };
+    try {
+      return await this.makeCard(identity, input, issuedAt, requestKey, operationId, actor);
+    } catch (e) {
+      // A workspace this request already made stays in every refusal until its card is saved (subcards-2).
+      if (!(e instanceof ToolError)) throw e;
+      const notice = (await this.store.read().catch(() => null))?.agentReceipts.find((rc) => rc.key === actor.key)?.notice;
+      if (!notice || e.message.includes(notice)) throw e;
+      throw new ToolError(e.code, `${e.message} ${notice}`, e.retryable);
+    }
+  }
+  private async makeCard(identity: ToolIdentity, input: ReturnType<typeof createCardInputSchema.parse>, issuedAt: string, requestKey: string, operationId: string, actor: AgentCardActor): Promise<CreateCardResult> {
     const r = await this.resources(identity);
     const before = await this.store.read();
     const replay = before.tasks.find((t) => t.operationId.startsWith(`${requestKey}:`));
@@ -152,15 +164,20 @@ export class AgentService {
       if (replay.operationId !== operationId) throw requestReused();
       return { cardId: replay.id, title: replay.title, status: replay.status, ...(input.subCard ? { subCardOf: r.task.id } : {}), queued: isLive(jobOf(before, replay.id)), replayed: true, message: "This card was already created by this request." };
     }
+    // A request an earlier call reserved passed its signed-revision check then. Retrying it is the same decision,
+    // so a change since (often this card's own parallel write) cannot strand the workspace it made (subcards-2).
+    const reserved = before.agentReceipts.find((rc) => rc.key === actor.key);
+    if (reserved && (reserved.payloadHash !== actor.payloadHash || reserved.action !== "create_card")) throw requestReused();
+    if (reserved?.cardId) throw new ToolError("REQUEST_REUSED", "This request already created a card, which was deleted since. Call flowly_get_task again before creating another card.");
     this.fresh(issuedAt);
     if (r.task.archivedAt || r.project.archivedAt) throw new ToolError("ARCHIVED", "Task or project is archived.");
     if (["done", "cancelled"].includes(r.task.status)) throw new ToolError("TASK_FINISHED", "A finished card cannot manage cards.");
     if (!r.context.available) throw new ToolError("WORKSPACE_INCOMPATIBLE", r.context.reason || "Workspace is unavailable.");
-    const actor: AgentCardActor = { ...identity, expectedRevision: input.expectedRevision, key: `${identity.agentId}:${digest(input.request.id)}`, payloadHash: digest(JSON.stringify({ action: "create_card", input })), start: input.start };
     if (!this.createTask) throw new ToolError("TOOLS_UNAVAILABLE", "Card creation is unavailable in this Flowly build.", true);
     const preferred: Status = input.start === "later" ? "backlog" : "todo";
     const status = [preferred, preferred === "backlog" ? "todo" : "backlog"].find((s) => laneEnabled(r.project, s as Status)) as Status | undefined;
     if (!status) throw new ToolError("STATUS_UNAVAILABLE", "This project has neither a Backlog nor a Todo lane for new cards.");
+    checkStartable(r.project, input.start);
     const mode = input.workspace ?? (existsSync(join(r.project.primaryPath, ".git")) ? "worktree" : "directory");
     let task: Task;
     try {
@@ -178,14 +195,14 @@ export class AgentService {
           ...(input.subCard ? { subCardOf: r.task.id } : {}),
           ...(input.blockedBy.length ? { blockedBy: input.blockedBy } : {}),
         });
-      authorizeCardActor(before, actor);
-      checkAgentCardBudget(before, actor.taskId);
+      authorizeCardCreation(before, actor, { revision: !reserved });
       preflightCardLinks(this.store, before, draft);
-    await this.store.transaction((board) => {
-      this.cardReceipt(board, actor, "create_card");
-      authorizeCardActor(board, actor);
-      return { value: null, changed: true };
-    });
+      await this.store.transaction((board) => {
+        // A new reservation checks the signed revision; an existing one did when it was made.
+        this.cardReceipt(board, actor, "create_card");
+        authorizeCardCreation(board, actor, { revision: false });
+        return { value: null, changed: true };
+      });
       task = await this.createTask(draft,
         r.paseo,
         actor,
