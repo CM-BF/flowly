@@ -142,6 +142,18 @@ export const automationJobSchema = z.object({
    * session (AUTOMATION-SPEC §4.4).
    */
   unconfirmed: z.boolean().optional(),
+  /** An uncertain start belongs to this session, even while its peer temporarily owns the job. */
+  unconfirmedStart: z.object({
+    role: z.enum(["implementer", "reviewer"]), agentId: z.string().optional(), creating: z.boolean(),
+    code: z.enum(automationCodes), detail: z.string().max(automationLimits.detail), reviewDelivery: z.string().optional(),
+  }).optional(),
+  /** The review's wait/failure state while a casual implementer turn temporarily owns the job. */
+  reviewPause: z.object({
+    state: z.enum(["needs_human", "retry_wait", "delivered"]), code: z.enum(automationCodes).optional(),
+    detail: z.string().max(automationLimits.detail).optional(), retryAt: z.string().optional(),
+    failures: z.number().int().nonnegative(), cooldowns: z.number().int().nonnegative().optional(),
+    verdict: z.enum(["approved", "changes", "incomplete"]).optional(), reviewedEvent: z.string().optional(),
+  }).optional(),
   /** Someone moved the card after this job failed (not automation's own move to Blocked): it no longer asks for attention (AUTOMATION-SPEC §6). */
   takenBack: z.boolean().optional(),
   queuedAt: z.string(),

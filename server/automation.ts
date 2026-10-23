@@ -279,24 +279,37 @@ export class AutomationService {
         !!j.instruction.reviewDelivery && (j.instruction.dispatched || (j.pendingOp && j.pendingRole === "reviewer")) &&
         (j.role === "reviewer" || j.reopened) && isLive(j) && automationAllowed(board, j),
       );
-      if (presented) { delete presented.instruction; delete presented.pendingOp; delete presented.pendingRole; delete presented.unconfirmed; }
+      if (presented) { delete presented.instruction; delete presented.pendingOp; delete presented.pendingRole; }
+      const arriving = board.automation.find((j) => {
+        const start = j.unconfirmedStart;
+        const uncertainId = start ? (start.agentId ?? (start.role === "reviewer" ? j.reviewerId : j.implementerId)) : activeAgent(j);
+        return j.unconfirmed && uncertainId === agentId && isLive(j) && automationAllowed(board, j);
+      });
+      if (arriving) { delete arriving.unconfirmed; delete arriving.unconfirmedStart; }
+      const answering = board.automation.find((j) => j.reviewerId === agentId && j.reviewPause && isLive(j) && automationAllowed(board, j));
+      if (answering) delete answering.reviewPause;
       const job = board.automation.find(
         (j) =>
           (activeAgent(j) === agentId && (j.state === "needs_human" || j.state === "starting" || j.state === "waiting" || j.state === "retry_wait")) ||
           // Feedback after a delivery: the implementer works again, and its next delivery is reviewed again (Hermes reopen-review).
           ((j.state === "delivered" || (j.role === "reviewer" && isLive(j))) && j.implementerId === agentId),
       );
-      if (!job) return { value: null, changed: !!presented };
+      if (!job) return { value: null, changed: !!presented || !!arriving || !!answering };
+      // Bind older boolean-only records before an implementer turn can temporarily take this review's role.
+      if (job.unconfirmed && !job.unconfirmedStart) job.unconfirmedStart = {
+        role: job.role, agentId: activeAgent(job), creating: true, code: job.code ?? "interrupted", detail: job.detail ?? "The session start was not confirmed.",
+        ...(job.role === "reviewer" && job.deliveryEvent ? { reviewDelivery: job.deliveryEvent } : {}),
+      };
       const project = board.projects.find((p) => p.id === job.projectId);
       if (!automationAllowed(board, job)) return { value: null, changed: false };
       // A real implementer turn proves the initial message reached the daemon, even if create has not returned.
       if (job.launchKey && job.implementerId === agentId) job.launchConsumed = true;
       // A prepared session's first real turn proves its creation reached the daemon.
       if (job.pendingOp && activeAgent(job) === agentId && (!job.pendingRole || job.pendingRole === job.role)) { delete job.instruction; delete job.pendingOp; delete job.pendingRole; }
-      if (activeAgent(job) === agentId) delete job.unconfirmed;
       if (job.state === "delivered" || (job.role === "reviewer" && job.implementerId === agentId)) {
         const task = board.tasks.find((t) => t.id === job.taskId);
         if (!task || task.archivedAt || task.status === "done" || task.status === "cancelled") return { value: null, changed: false };
+        if (job.role === "reviewer" && (job.state === "needs_human" || job.state === "retry_wait")) job.reviewPause = this.reviewPause(job);
         if (job.role === "reviewer") delete job.verdict;
         // A preparation is not proof that its prompt reached the reviewer. Pause the entire pending operation;
         // a casual answer resumes that same round, with the same preparation and instruction identities.
@@ -307,7 +320,7 @@ export class AutomationService {
         // Preserve the reviewed delivery until actual new work is delivered.
         this.store.event(board, { taskId: job.taskId, actor: "system", action: "automation_resumed", agentId });
       }
-      if (job.state === "needs_human" && job.code === "interrupted") delete job.instruction;
+      if (job.state === "needs_human" && job.code === "interrupted" && !job.instruction?.reviewDelivery) delete job.instruction;
       // The person's turn is judged when it ends; the failed turn's retry is not sent after it.
       if (job.state === "retry_wait") { delete job.retryAt; delete job.detail; }
       job.state = job.role === "reviewer" ? "reviewing" : "working";
@@ -393,6 +406,8 @@ export class AutomationService {
       if (job.launchKey && job.implementerId === agentId) job.launchConsumed = true;
       const pendingInstruction = job.instruction;
       const pendingReview = pendingInstruction?.role === "reviewer" && job.pendingRole === "reviewer" ? job.pendingOp : undefined;
+      const pausedReview = job.reviewPause;
+      delete job.reviewPause;
       delete job.pendingOp; delete job.pendingRole; delete job.instruction;
       const now = this.now();
       const handledAt = job.turnAt;
@@ -421,6 +436,7 @@ export class AutomationService {
           delete job.pendingRole;
           this.instruct(job, "reviewer", reviewPrompt(job.reviewRounds, settings.maxReviewRounds));
           job.instruction!.reviewDelivery = job.deliveryEvent;
+          this.waitOnUnconfirmed(job);
           note("automation_review_started", `Review round ${job.reviewRounds} of ${settings.maxReviewRounds}`);
           break;
         case "deliver":
@@ -455,6 +471,11 @@ export class AutomationService {
           if (!job.instruction && reviewer?.action === "agent.turn_ended" && (!handledAt || reviewer.at > handledAt)) job.turnAt = new Date(Date.parse(reviewer.at) - 1).toISOString();
           else if (handledAt) job.turnAt = handledAt;
           else delete job.turnAt;
+          if (pausedReview) {
+            Object.assign(job, pausedReview);
+            job.role = pausedReview.state === "delivered" ? "implementer" : "reviewer";
+          }
+          this.waitOnUnconfirmed(job);
           break;
         }
         case "await_children":
@@ -527,7 +548,8 @@ export class AutomationService {
       if (!job || job.reviewerId !== identity.agentId)
         throw new ToolError("NOT_REVIEWER", "Only the reviewer session that Flowly's agent automation started for this card can submit a review.");
       const verdict = input.verdict === "approve" ? "approved" : "changes";
-      if (job.instruction?.reviewDelivery && job.instruction.reviewDelivery === job.deliveryEvent)
+      if ((job.instruction?.reviewDelivery && job.instruction.reviewDelivery === job.deliveryEvent) ||
+          (job.unconfirmed && job.unconfirmedStart?.reviewDelivery && job.unconfirmedStart.reviewDelivery === job.deliveryEvent))
         throw new ToolError("REVIEW_CLOSED", "This delivery has not reached its reviewer yet. Finish the previous turn and wait for Flowly's new review instruction.");
       // A casual implementer turn reopened this review (§4.2): the verdict on the delivery under review still counts
       // while that turn has delivered nothing newer.
@@ -760,7 +782,7 @@ export class AutomationService {
       const current = this.current(board, job, role);
       const task = board.tasks.find((t) => t.id === job.taskId);
       const project = task && board.projects.find((p) => p.id === task.projectId);
-      if (!current || !task || !project) return;
+      if (!current || !task || !project || !["starting", "working", "reviewing"].includes(current.state) || this.unconfirmedFor(current, role)) return;
       const { text, fresh } = current.instruction!;
       const id = role === "reviewer" ? current.reviewerId : current.implementerId;
       const peerId = role === "reviewer" ? current.implementerId : current.reviewerId;
@@ -891,12 +913,34 @@ export class AutomationService {
     });
   }
 
+  private reviewPause(job: AutomationJob): NonNullable<AutomationJob["reviewPause"]> {
+    return {
+      state: job.state as NonNullable<AutomationJob["reviewPause"]>["state"], code: job.code, detail: job.detail,
+      retryAt: job.retryAt, failures: job.failures, cooldowns: job.cooldowns, verdict: job.verdict, reviewedEvent: job.reviewedEvent,
+    };
+  }
+
+  private unconfirmedFor(job: AutomationJob, role: Role = job.role) {
+    const start = job.unconfirmedStart;
+    const id = role === "reviewer" ? job.reviewerId : job.implementerId;
+    return !!job.unconfirmed && (!start || (start.role === role && (!start.agentId || start.agentId === id)));
+  }
+
+  /** A peer's casual turn or new delivery cannot resolve an uncertain start; keep its original wait reason. */
+  private waitOnUnconfirmed(job: AutomationJob) {
+    if (!this.unconfirmedFor(job)) return;
+    job.state = "needs_human";
+    job.code = job.unconfirmedStart?.code ?? "interrupted";
+    job.detail = job.unconfirmedStart?.detail ?? "The session start was not confirmed. Check it before resuming.";
+  }
+
   /** The session whose creation was unconfirmed exists: from now on its absence means it is gone. */
   private confirmed(seen: AutomationJob) {
     return this.store.transaction((board) => {
       const job = jobOf(board, seen.taskId);
-      if (!job?.unconfirmed || job.generation !== seen.generation || activeAgent(job) !== activeAgent(seen)) return { value: null, changed: false };
+      if (!job || !this.unconfirmedFor(job) || job.unconfirmedStart?.creating === false || job.generation !== seen.generation || activeAgent(job) !== activeAgent(seen)) return { value: null, changed: false };
       delete job.unconfirmed;
+      delete job.unconfirmedStart;
       return { value: null, changed: true };
     });
   }
@@ -932,26 +976,48 @@ export class AutomationService {
     console.error("Flowly automation could not reach the session:", message);
     await this.store.transaction((board) => {
       const job = jobOf(board, seen.taskId);
-      if (!job || !this.current(board, seen, role)) return { value: null, changed: false };
+      if (!job || !this.confirmation(board, seen, role)) return { value: null, changed: false };
+      const paused = job.role !== role ? {
+        role: job.role, state: job.state, code: job.code, detail: job.detail, verdict: job.verdict, reviewedEvent: job.reviewedEvent,
+        failures: job.failures, cooldowns: job.cooldowns, retryAt: job.retryAt,
+      } : undefined;
+      // The review's asynchronous result is saved without taking over its implementer's current turn.
+      const settle = () => {
+        if (paused) {
+          job.reviewPause = this.reviewPause(job);
+          Object.assign(job, paused);
+        }
+        return { value: null, changed: true };
+      };
+      if (paused) job.role = role;
       const settings = automationOf(board.projects.find((p) => p.id === job.projectId));
       const code = error && typeof error === "object" && "code" in error ? String(error.code) : "";
       // Waiting for a person drops the instruction and any preparation: nothing is sent or created until they act.
       // A session the daemon did create stays reachable through its recorded id (turnStarted resumes it).
-      const waitForPerson = (why: AutomationCode, detail: string) => {
+      const waitForPerson = (why: AutomationCode, detail: string, uncertain = !!job.pendingOp) => {
         job.state = "needs_human";
         job.code = why;
         job.detail = detail;
         job.updatedAt = this.now();
-        // A session being created may still appear, or never: either way it is not gone.
-        if (job.pendingOp) job.unconfirmed = true;
+        // A late response or a peer's turn cannot confirm this particular session or prompt.
+        if (uncertain) {
+          job.unconfirmed = true;
+          job.unconfirmedStart = {
+            role, agentId: role === "reviewer" ? job.reviewerId : job.implementerId,
+            creating: !!job.pendingOp, code: why, detail,
+            ...(job.instruction?.reviewDelivery ? { reviewDelivery: job.instruction.reviewDelivery } : {}),
+          };
+        }
         delete job.pendingOp;
         delete job.pendingRole;
         delete job.instruction;
         delete job.retryAt;
-        return { value: null, changed: true };
+        return settle();
       };
       if (code === "agent_request_outcome_unknown" || message.includes("agent_request_outcome_unknown"))
-        return waitForPerson("interrupted", "The daemon cannot confirm whether the instruction reached the provider. Check the session before resuming.");
+        return waitForPerson("interrupted", "The daemon cannot confirm whether the instruction reached the provider. Check the session before resuming.", true);
+      // A known rejected send is not evidence that its review prompt was presented.
+      if (job.instruction) delete job.instruction.dispatched;
       const gone = error instanceof SessionGone;
       if (!gone && providerLimited(message)) {
         job.cooldowns = (job.cooldowns ?? 0) + 1;
@@ -961,7 +1027,7 @@ export class AutomationService {
         job.detail = message;
         job.retryAt = new Date(this.clock() + cooldownDelayMs(job.cooldowns)).toISOString();
         job.updatedAt = this.now();
-        return { value: null, changed: true };
+        return settle();
       }
       const count = job.failures + 1;
       job.failures = count;
@@ -988,7 +1054,7 @@ export class AutomationService {
         this.close(job, "failed", gone ? "session_unavailable" : "start_failed");
         this.store.event(board, { taskId: job.taskId, actor: "system", action: "automation_failed", note: gone ? "The agent's session is no longer available" : `Could not start the agent: ${message}` });
       }
-      return { value: null, changed: true };
+      return settle();
     });
   }
 
@@ -1032,11 +1098,11 @@ export class AutomationService {
       if (job.state === "queued" || job.state === "retry_wait") continue;
       const initialTurn = job.implementerId && latestLifecycle(currentBoard, job.taskId, job.implementerId);
       if (job.launchKey && !job.launchConsumed && initialTurn && initialTurn.at >= job.queuedAt) await this.consumeLaunch(job, "implementer");
-      if (job.instruction?.role === job.role && ["starting", "working", "reviewing"].includes(job.state)) { await this.deliver(job); continue; }
+      if (!this.unconfirmedFor(job) && job.instruction?.role === job.role && ["starting", "working", "reviewing"].includes(job.state)) { await this.deliver(job); continue; }
       const stale = Date.parse(job.updatedAt) + (this.deps.staleStartMs ?? 120_000) <= this.clock();
       const agentId = activeAgent(job);
       // Only a job that drives a session is recovered here; one waiting for a person waits for them.
-      if (stale && ["starting", "working", "reviewing"].includes(job.state) && (job.state === "starting" || job.pendingOp || !agentId)) {
+      if (!this.unconfirmedFor(job) && stale && ["starting", "working", "reviewing"].includes(job.state) && (job.state === "starting" || job.pendingOp || !agentId)) {
         const recovered = await this.store.transaction((b) => {
           const j = jobOf(b, job.taskId);
           if (!j || !isLive(j) || j.generation !== job.generation || !automationAllowed(b, j)) return { value: null, changed: false };
@@ -1055,7 +1121,7 @@ export class AutomationService {
       if (agent === undefined) continue;
       // A session whose creation was never confirmed (a preparation left by an older version too) is not lost while
       // it does not exist: the job keeps waiting for a person (§4.4).
-      if (!agent && job.state === "needs_human" && (job.unconfirmed || job.pendingOp)) continue;
+      if (!agent && (this.unconfirmedFor(job) || (job.state === "needs_human" && job.pendingOp))) continue;
       if (!agent || agent.archivedAt || agent.workspaceId !== task.workspaceId) {
         await this.sideEffectFailed(job, job.role, new SessionGone());
         continue;
