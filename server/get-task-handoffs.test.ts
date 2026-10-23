@@ -98,6 +98,25 @@ test("the handoff evidence of all links together stays within one budget; the re
   expect(JSON.stringify(context.links).length).toBeLessThan(30_000);
 });
 
+test("a card that is both a child and a blocker contributes its evidence once without losing a fitting handoff", async () => {
+  const x = await setup([
+    { id: "first", status: "in_review", relation: "sub_card", delivered: "First delivery", pad: pad("first", {}, 8) },
+    { id: "both", status: "in_review", relation: "sub_card", delivered: "Both delivery", pad: pad("both", {}, 8) },
+  ]);
+  await x.store.mutate((board) => {
+    board.links.push({ id: "both-blocks", projectId: "p", kind: "blocks", from: "both", to: "t", createdBy: "human", createdAt: stamp });
+  });
+  const context = await x.service.get(x.identity);
+  const both = context.links.filter((l) => l.taskId === "both");
+  expect(both.map((l) => l.relation).sort()).toEqual(["blocked_by", "sub_card"]);
+  expect(both.filter((l) => l.handoff)).toHaveLength(1);
+  const evidence = context.links.flatMap((l) => l.handoff ? [l.handoff.evidence] : []);
+  expect(evidence).toHaveLength(2);
+  expect(evidence.every((e) => !e.startsWith("Omitted"))).toBe(true);
+  expect(evidence.join("").length).toBeLessThanOrEqual(16_000);
+  expect(x.refreshed.filter((id) => id === "both-ws")).toEqual(["both-ws"]);
+});
+
 test("a write's current context carries links without handoffs and reads no linked workspace", async () => {
   const x = await setup([{ id: "review", status: "in_review", relation: "sub_card", delivered: "Delivered." }]);
   const signed = await x.request();
@@ -148,7 +167,6 @@ test("a Done blocker carries the branch it was delivered on, without a handoff o
   expect(x.git).not.toHaveBeenCalled();
   expect(x.refreshed.filter((id) => id !== "w")).toEqual([]);
 });
-
 
 test("a card linked as both sub-card and blocker spends and emits its handoff evidence once", async () => {
   const cards: Card[] = Array.from({ length: 3 }, (_, i) => ({
