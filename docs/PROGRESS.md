@@ -6,7 +6,8 @@
 - [x] Project/implementer/reviewer permissions and provider speed controls; direct and supervised launches carry settings. Private queued first-message attachments, stable identities and lifecycle cleanup.
 - [x] Multica quick-create behavior researched; spec, skill, onboarding and nine catalogs updated. Typecheck and full suite after live metadata fix: 990 passed, 65 pre-existing skipped. Full-access Luna review: [report](verification/task-intake-luna.md).
 - [x] Installed 856c871; desktop/compact single input, start default, saved permissions/speed and a real direct session verified. [Live report](verification/task-intake.md).
-- [ ] Live agent skipped metadata organization: fixed in dc5a75c with setup checks; update/retest and automated image flow wait for a new nonfixture job to settle. Initial fixture cleaned up in both registries and on disk; remaining live checks will use a fresh fixture. No reload during user work.
+- [x] Live agent skipped metadata organization: fixed in dc5a75c. Retested on 43efb13 (2026-10-23, installed once the user's pipeline was idle): a fresh direct agent organized title/type/tags before working; an automated image card read the attached image correctly; implementer Normal over project Fast and reviewer inheriting Fast reached the real sessions. Fixture cleaned up in both registries and on disk. [Live report](verification/task-intake.md).
+- [ ] UNRUN: physical Android.
 
 
 ## Automation/sub-card review hardening — 2026-10-22
@@ -15,7 +16,9 @@
 - [x] Hardened session roles, pending instructions, ownership races, revision/receipt/lineage limits, dependency/workspace scheduling, handoffs, review lifecycle, provider cooldown, CLI parity, client signals and attribution. Specs/skills/onboarding/nine catalogs updated.
 - [x] Typecheck; 980 tests passed / 65 pre-existing skipped; 25 targeted regressions failed on d143a86. Native daemon project inventory unchanged by offline tests.
 - [x] Live acceptance on the actual daemon: settings persistence/error, parent creates/starts child, maxRunning=1 wait/wake, branch/check handoff, integration/accept, child and parent reviewer approvals, desktop/compact board. Full-access Luna session a0c74ff7-e334-4309-9aad-965ea5f93d01; fixture resources removed/archived and inventory reconciled. [Report](verification/automation-review-live.md).
-- [ ] Live UNRUN: Stop/Run again, project disable, held-blocker display, reviewer changes/rework, physical Android. Core safety/recovery paths have offline regression coverage.
+- [x] Rounds 2 and 3 (59 and 15 confirmed findings) fixed and verified; 43efb13 passed typecheck and three full-suite runs (1,160 passed / 65 pre-existing skipped). [Round 3](verification/automation-review-round3.md).
+- [x] Live on 43efb13 (2026-10-23): Stop without interrupting the session, Run again reusing it with the instruction held until the busy turn ended, blocker reasons including a cancelled blocker, project automation off (no dispatch) and on (dispatch), reviewer changes → rework → approval. [Report](verification/automation-review-round3.md#live-acceptance-on-43efb13).
+- [ ] UNRUN: physical Android; provider-limit, unknown-receipt and lost-turn-end recovery on a live provider (offline regression coverage).
 - Evidence and host limitations: [report](verification/automation-review.md).
 
 ## Agent-created cards and sub-cards (user: "agents should create cards and sub-cards themselves, like Multica") — 2026-10-22
