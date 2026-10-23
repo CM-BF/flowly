@@ -42,6 +42,15 @@ export function ModelDefaultGroup({
     },
     enabled: !!provider,
   });
+  const modes = useQuery({
+    queryKey: ["flowly", "default-modes", provider],
+    queryFn: async () => {
+      const result = await paseo.providers.listModes(provider);
+      if (result.error) throw new Error(result.error);
+      return result;
+    },
+    enabled: !!provider,
+  });
   const selectable = (models.data?.models || []).filter((m) => m.isSelectable !== false);
   const sameProvider = !!value && value.provider === provider;
   const model = sameProvider ? value!.model : "";
@@ -55,6 +64,10 @@ export function ModelDefaultGroup({
   const thinking = sameProvider && value!.thinking && thinkingOptions.some((o) => o.id === value!.thinking) ? value!.thinking! : "";
   const defaultThinking = selectable.find((m) => m.id === model)?.defaultThinkingOptionId;
   const defaultThinkingLabel = thinkingOptions.find((o) => o.id === defaultThinking)?.label;
+  const modeList = modes.data?.modes || [];
+  // Kept through model/reasoning edits even while the mode list is loading or failed; the list only filters what the Permissions row shows.
+  const storedMode = sameProvider && value!.mode ? value!.mode : "";
+  const mode = storedMode && modeList.some((m) => m.id === storedMode) ? storedMode : "";
   const modelDefault = defaultThinkingLabel ? t("Model default ({defaultLabel})", { defaultLabel: defaultThinkingLabel }) : t("Model default");
   return (
     <SettingsGroup title={title} description={description}>
@@ -78,7 +91,7 @@ export function ModelDefaultGroup({
           disabled={disabled}
           loading={models.isPending}
           options={modelOptions(models.data?.models || [])}
-          onChange={(next) => onChange({ provider, model: next })}
+          onChange={(next) => onChange({ provider, model: next, ...(storedMode ? { mode: storedMode } : {}) })}
         />
       )}
       {!!provider && !!model && thinkingOptions.length > 0 && (
@@ -91,7 +104,20 @@ export function ModelDefaultGroup({
             { value: "", label: modelDefault, detail: t("Use the model's default reasoning effort") },
             ...thinkingOptions.map((o) => ({ value: o.id, label: o.label, detail: o.description })),
           ]}
-          onChange={(next) => onChange({ provider, model, ...(next ? { thinking: next } : {}) })}
+          onChange={(next) => onChange({ provider, model, ...(next ? { thinking: next } : {}), ...(storedMode ? { mode: storedMode } : {}) })}
+        />
+      )}
+      {!!provider && !!model && modeList.length > 0 && (
+        <SettingSelect
+          title={t("Permissions")}
+          value={mode}
+          placeholder={t("Same as latest session")}
+          disabled={disabled}
+          options={[
+            { value: "", label: t("Same as latest session"), detail: t("Use the latest session's permission mode when it uses this provider, else the provider's own") },
+            ...modeList.map((m) => ({ value: m.id, label: m.label, detail: m.description })),
+          ]}
+          onChange={(next) => onChange({ provider, model, ...(thinking ? { thinking } : {}), ...(next ? { mode: next } : {}) })}
         />
       )}
     </SettingsGroup>
