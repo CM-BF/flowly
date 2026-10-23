@@ -16,6 +16,7 @@ import {
   automationAllowed,
   askedThisTurn,
   providerLimited,
+  hostTransient,
   providerCooling,
   coolingProvider,
   automationOf,
@@ -1120,6 +1121,21 @@ export class AutomationService {
         job.detail = message;
         job.retryAt = new Date(this.clock() + cooldownDelayMs(job.cooldowns)).toISOString();
         job.updatedAt = this.now();
+        return settle();
+      }
+      // A host hiccup is not the card's failure: retried with the cooldown backoff, without provider gating (§4.4).
+      if (!gone && hostTransient(message) && (job.cooldowns ?? 0) < cooldownLimit) {
+        job.cooldowns = (job.cooldowns ?? 0) + 1;
+        job.state = "retry_wait";
+        job.role = role;
+        job.code = "start_failed";
+        job.detail = message;
+        job.retryAt = new Date(this.clock() + cooldownDelayMs(job.cooldowns)).toISOString();
+        job.updatedAt = this.now();
+        this.store.event(board, {
+          taskId: job.taskId, actor: "system", action: "automation_retry",
+          note: `Could not reach the ${role} session (host, ${job.cooldowns} of ${cooldownLimit}); retrying in ${Math.round(cooldownDelayMs(job.cooldowns) / 60_000)} min: ${message}`,
+        });
         return settle();
       }
       const count = job.failures + 1;

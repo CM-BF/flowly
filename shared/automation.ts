@@ -191,6 +191,11 @@ export function modelLimited(board: Pick<Board, "automation">, model: Pick<Agent
       (job.providerLimit.model ? job.providerLimit.model === modelKey(model) : job.providerLimit.provider === model.provider),
   );
 }
+/**
+ * A failure of the host, not of the card's work (§4.4): another plugin's hook timed out while a session was created or
+ * messaged, or a connection dropped. Retried with the cooldown backoff; it never uses up `failureLimit`.
+ */
+export const hostTransient = (message: string) => /Plugin RPC timed out|\bplugin [\w.-]+ before agent\.[\w.]+ failed\b|\bETIMEDOUT\b|\bECONNRESET\b|socket hang up/i.test(message);
 /** Provider-limit retries before the job waits for a person; they never use up `failureLimit`. */
 export const cooldownLimit = 5;
 /** Wait before provider-limit retry n (1-based): 1, 2, 4, 8, then 15 minutes. */

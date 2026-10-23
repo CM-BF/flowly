@@ -8,6 +8,7 @@ The user's Next Workspace pipeline stalled on the daemon: C5b.2 failed on "Selec
 - [x] A sub-card whose managed session is mid-turn moves, whatever its job says (6-hour bound against missed hooks); its signature ends in `:turn`, so the parent waits and wakes when that turn ends ([SUB-CARDS-SPEC](SUB-CARDS-SPEC.md) §5).
 - [x] A turn end missed during a reload is recovered from the daemon's record of the session (error status, the attention raised after the last instruction) and judged as usual; only without it (or for a closed session) does the card wait for a person (§4.4).
 - [x] Tests: `server/automation-resilience.test.ts` (7, five of them fail on `6b0d367`), `shared/automation-resilience.test.ts` (4), the recovery test updated for the new error-status rule; typecheck and full suite: 1232 passed / 65 pre-existing skipped.
+- [x] Host hiccups are not the card's failure (live on 2026-10-23: the `next-workspace` plugin's `before agent.create` hook timed out on every other session, and the review gave up after two quick tries): "Plugin RPC timed out", "Plugin … before agent.… failed", `ETIMEDOUT`, `ECONNRESET` and "socket hang up" while creating or messaging a session are retried with the cooldown backoff without using up `failureLimit` (§4.4). `server/automation-host-transient.test.ts` (3, two fail on `8f7793a`).
 - Onboarding: no change (automation behaviour, nothing new to point out).
 
 ## Per-role fallback models — 2026-10-23
