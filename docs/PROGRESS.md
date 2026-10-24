@@ -1,5 +1,23 @@
 # Implementation progress
 
+## Card tree: dependencies and sub-card levels (user: "card dependencies are hard to see… add a way to hide sub-cards below level 1/2/3") — 2026-10-24
+
+Owner decisions recorded 2026-10-24 ([CARD-TREE-SPEC](CARD-TREE-SPEC.md) §1.2): "Level 1" is top-level cards only, so the choices are Levels 1/2/3/All; the sub-card depth cap stays 3; "Held" follows automation `readiness()` (a queued card whose blocker is Cancelled or archived is held, shown as "Held by {title}"); hidden sub-cards never hide work that needs the person (needs-you, error, unread and running roll up to the nearest visible ancestor, and a lane footer offers "Show {n} hidden sub-cards"). Deferred: the free-form 2-D map, hover trace, drag-to-link, raising the depth cap. Branch `sw/card-tree` from `2b00cf6`.
+
+- [x] Stage 1, spec: [CARD-TREE-SPEC](CARD-TREE-SPEC.md) written from the reviewed draft and checked against the code after the upstream sync (§1.4 lists the adjustments: `Flowly:` Command Center title, the 5 s intent window already in code, a height-reserving Dependencies section so nothing below it moves, `CornerLeftUp` for the parent breadcrumb, Levels depth counted over in-scope ancestors, choices 1..maxDepth + All, the tour's title + text rows, a functional `saveMerged` patch, `automationSignal` taking blocker state). Amended CARD-LINKS-SPEC (§1, §2.5, §5.1, §5.2, §9), SUB-CARDS-SPEC §6, CARD-DISPLAY-SPEC, DRAWER-SPEC (Dependencies section), AUTOMATION-SPEC §6 (queue chip split), SHORTCUTS-SPEC (T, 0–3, and the shortcuts and intents the code already had), FINISHED-CARDS-SPEC (pipeline and counts), ONBOARDING-SPEC (`card-tree` tip, Sub-cards line), PERFORMANCE-SPEC (card tree budget), SPEC-OUTLINE.
+- [ ] `shared/card-tree.ts` and `shared/card-levels.ts` with unit tests (tree, lifting, steps, cycles, `isHeld` vs `readiness()` property test, `blockerIndex` vs `waitingOn`, `foldByLevel`, `rollupBelow`, `outlineRows`/`sameRowList`, `chainOf`, `nextUp`).
+- [ ] Settings: `board-view.subCardLevels`, Card display field `parent`, drawer section `dependencies`, functional `saveMerged` patch; `shared/settings.test.ts` expectations.
+- [ ] Board Levels: OverviewBar chip and menu, the pipeline in `client/board.tsx` (search pause, keep, counts, empty-lane text, lane footer and `laneRows` row, `cancelKey`), card menu and accessibility actions Show/Hide its sub-cards, shortcuts `1` `2` `3` `0`.
+- [ ] Roll-up and card face: `client/card-flags.ts`, `below` signals, parent breadcrumb, Held, "Queued after blockers", `blockerIndex` replacing `waitingIndex`, Attention row "in {title}".
+- [ ] Card tree page (`client/card-tree-page.tsx`): outline, steps and arrows, waits-for chips, Now/Next/Needs you, groups, chain highlight, Show in tree, `T`, Command Center `tree` intent, project tab menu entry.
+- [ ] Drawer Dependencies section (`client/task-dependencies.tsx`, `neighbourhoodLayout()` in `client/geometry.ts`), `groupOf` Held.
+- [ ] Onboarding: `card-tree` tip, welcome-tour Sub-cards line, README.md and README.zh-CN.md highlights.
+- [ ] i18n: every new string in the nine `shared/i18n/` catalogs.
+- [x] Stage 1 checks: `npm run typecheck`; `npm test` 161 files / 1336 tests passed (docs only, no code changed).
+- [ ] `npm run typecheck` and `npm test` after each implementation stage.
+- [ ] UNRUN: install/reload on the daemon and Web UI verification (CARD-TREE-SPEC §9.2, fixture `plugin-test-2026-10-24-card-tree`), phone timings (`tree.build`, `tree.mount`, `drawer.deps.mount`, `board.render` at Level 1 and All).
+- [ ] Open, outside this feature: `client/lane-list.tsx` detects the host `FlatList` with `typeof FlatList !== "function"`, the check `client/session-transcript.tsx` says silently dropped phones onto the plain scroll view (a memo/forwardRef FlatList is an object). Check on a phone whether the lane list is virtualized at all.
+
 ## Upstream merge JasprW/flowly #32-#45 — 2026-10-23
 
 Merged upstream/main (`0e5caf4`) into the fork's main (`2bdb74e`); the owner's fork decisions win over upstream rules (AGENTS.md "Fork ownership"). 28 files conflicted; every fork feature and every upstream change was kept.

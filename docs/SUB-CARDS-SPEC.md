@@ -64,6 +64,12 @@
 - Links 区新增 “Sub-card of” 与 “Sub-cards” 两组；“Link to a card…” 可选 “Sub-card of”；Links 区的 + 菜单、卡片右键菜单和手机操作表都有 “New sub-card”（打开预填父卡的新建表单，标题 “Create sub-card”）。
 - 活动：`automation_waiting`（Waits for its sub-cards）、`automation_woken`（Woke the agent: its sub-cards settled）；agent 建卡、建链接、验收的事件都显示 agent。
 - 一次性提示 `sub-cards`（项目里有带子卡片的卡、未打开卡片时；排在 subagents 之前，[ONBOARDING-SPEC](ONBOARDING-SPEC.md) §5）；欢迎页 More features 有 Sub-cards。九种语言。
+- 2026-10-24 分层查看（用户要求，[CARD-TREE-SPEC](CARD-TREE-SPEC.md)）：
+  - **Card tree** 项目页：按父子大纲列出本项目卡片，blocks 给兄弟编步骤号（相同数字并行，箭头为后一步），每个顶层事项一行 “Now / Next / Needs you”，可高亮一张卡的上下游链路。入口为 OverviewBar 的 Tree、`T`、Command Center、项目标签菜单和卡片菜单的 Show in tree。
+  - 看板 **Levels**：Levels 1（只显示顶层卡片）/ 2 / 3 / All，按项目存在 host 级 `board-view.subCardLevels`，只是视图设置，不是筛选。深度上限仍为 3（用户决定 2026-10-24）。打开的卡、搜索结果、卡片菜单 Show its sub-cards 和泳道底部 Show {n} hidden sub-cards 都会显示被隐藏的卡。
+  - 汇总：被隐藏卡片的需要人、错误、Held、运行与未读汇总到最近的可见祖先卡面（“{n} below needs you” 等）。“Sub-cards 2/3” 仍只数直接子卡。Attention、角标与总览不受 Levels 影响；Attention 行对子卡片注明 “in {父卡}”。
+  - 子卡片卡面显示父卡面包屑（Card display 的 Parent card，默认开）；抽屉新增 Dependencies 区块（面包屑、Waits for / This card / Blocks 邻域图、子卡步骤条）。
+  - 一次性提示 `card-tree`，排在 `sub-cards` 之后；欢迎页 Sub-cards 行提到 Card tree 与 Levels。
 
 ## 7. 验收
 

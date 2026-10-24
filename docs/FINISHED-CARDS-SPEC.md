@@ -8,6 +8,8 @@ Status: implemented on the user's request (card `5b2c9cd2`, "UI/UX细节优化",
 
 This is presentation only. No board data, RPC, revision or native resource changes.
 
+Amended 2026-10-24 by [CARD-TREE-SPEC](CARD-TREE-SPEC.md) §2.3 (board Levels, specified, not implemented yet): the order in which the board narrows its cards and how lanes count them (§3).
+
 ## 1. Attention dropdown (desktop)
 
 - Desktop/tablet layout (not `compact`): the header **Attention** button, the `A` shortcut, the overview bar chips (needs you / unread / errors) and the attention deep link open a dropdown anchored under the header bell, right-aligned to it and kept inside the board surface (`client/popover.tsx`). The content is the same list as before: the read-state warning, rows with project · lane · counts and relative time, and the empty state. The header shows the card count.
@@ -29,7 +31,10 @@ This is presentation only. No board data, RPC, revision or native resource chang
 - Older cards are not archived or changed. They sit at the bottom of their lane under a **Show {n} older tasks** row. Pressing it reveals them below the row (sorted by the board sort among themselves). **Hide older tasks** folds them again. Revealing is per lane, kept for the visit and reset when switching projects (not persisted).
 - The lane header count still counts every card in the lane, folded ones included (desktop columns, collapsed strips and the phone lane picker row).
 - Filters apply first: folded cards that do not match the filters are not counted.
-- Keyboard grid navigation skips folded cards. Drag and drop slots follow the cards on screen. A card dropped into Done/Cancelled has just entered the lane, so it is recent.
+- Pipeline (2026-10-24): project cards (with Show archived) → filters (search, priority, type, tags) → board Levels hide deeper sub-cards (CARD-TREE-SPEC §2.3; paused while the search box is not empty; the open card and a dragged card always stay) → older finished cards fold → cards on screen. Lane header counts, the phone lane picker row, the status sheet counts and the phone's first lane use the cards after Levels: a sub-card hidden by Levels is not counted (like a filtered card), a folded older card still is, and a card that is both older and hidden by Levels counts as hidden.
+- A lane footer "Show {n} hidden sub-cards" (Levels) sits above the "Show {n} older tasks" row. Cards it reveals rejoin the lane in board order; the older finished ones among them still fold under Show older.
+- An empty lane whose cards are all hidden by Levels says "{n} sub-cards hidden at this level" with the reveal button under it (instead of "No tasks" / "No recent tasks").
+- Keyboard grid navigation skips folded cards (and, since 2026-10-24, cards hidden by Levels). Drag and drop slots follow the cards on screen. A card dropped into Done/Cancelled has just entered the lane, so it is recent.
 - Archived cards follow **Show archived** as before. Folding applies on top.
 - Onboarding: one-time tip `older-finished` (ONBOARDING-SPEC §5).
 

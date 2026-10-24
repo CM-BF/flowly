@@ -197,6 +197,7 @@ AutomationJob {
 ## 6. 界面
 
 1. **卡片信号行**：Queued for agent / Starting agent… / Agent working / Agent reviewing（脉冲点）/ Agent retrying / Agent waiting for you / Agent needs permission / Agent review passed / Review needs you / Automation stopped（失败时）。`stopped` 与不带评审的 `delivered` 不显示（泳道已说明）。
+   - 2026-10-24 排队芯片拆分（[CARD-TREE-SPEC](CARD-TREE-SPEC.md) §2.5，只改显示，dispatcher 不变）：`queued` 且 `readiness()` ready（只等名额、provider 冷却或目录）时仍为 “Queued for agent”；被未 Done 的 blocker 挡住时为 “Queued after blockers”（`Hourglass`）；有 Cancelled 或已归档的未 Done blocker（`readiness().cancelled` 非空，永不放行）时不显示自动化芯片，改为 warning 色的 “Held by {title}”（属需要人处理的信号，不可隐藏；不进 Attention 列表）。抽屉 Dependencies 区块的 Held 行可直接移除那条链接。
 2. **卡片详情**：标题与标签下一行 “Agent automation · 状态”，附原因、daemon 文本与计数（评审第 n/m 轮、提醒 n/m、失败 n/m），按钮 Run with agent / Run again / Stop。项目未开启且没有 job 时不显示。原因行按状态措辞：
    - `retry_wait` / `failed`：“The last turn failed; retrying”；`retry_wait` / `start_failed`：“The agent session could not be started; retrying”；`retry_wait` / `cooldown`：“Provider limit reached; retrying later”。
    - `needs_human` / `cooldown`（冷却预算用完）：“The provider limit kept recurring; reply in the session, or Stop and Run again”。

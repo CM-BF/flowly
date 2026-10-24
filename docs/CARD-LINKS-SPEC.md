@@ -2,6 +2,8 @@
 
 状态：2026-10-16 用户选择方案 A（Derived from + Related + Blocks，Blocks 只提示不拦截，不做父子），审阅通过并要求实现。卡片任务 `b80969de`。
 
+修订：2026-10-22 父子层级（`subtask`）由 [SUB-CARDS-SPEC](SUB-CARDS-SPEC.md) 加入，Blocks 在开启智能体自动化的项目里由 dispatcher 执行（[AUTOMATION-SPEC](AUTOMATION-SPEC.md) §4.1）。2026-10-24 用户要求看清依赖并按层级隐藏子卡片：卡片树页、看板 Levels、抽屉 Dependencies 区块与 Held 信号见 [CARD-TREE-SPEC](CARD-TREE-SPEC.md)，它推翻本文 §1 的“看板嵌套”排除、§5.1 的“其他关联不在卡面显示”和 §9 的“关联图视图”排除。
+
 ## 1. 目的
 
 卡片之间现在只有一种关系：从 idea 建出的新卡上的 `Task.origin`（[IDEAS-SPEC §2.2](IDEAS-SPEC.md)）。这个关系只能从新卡看到，来源卡看不到“我派生出了哪些卡”；手动建的后续卡、互相有关的卡、要等别的卡先完成的卡，都无法表达。
@@ -17,6 +19,8 @@
 关联只用来**展示和提供上下文**：不改任何卡的业务状态，不拦截拖动或状态修改，不自动给 session 发消息。
 
 调研结论（Vibe Kanban、Multica、Linear/Jira/Plane、agent-tasks MCP）：父子层级与横向关联是两套机制；父子层级一般也不联动状态。父子层级在“一卡一 workspace”下牵涉分支合并、状态汇总、级联删除/收尾/恢复、看板嵌套，本期不做（§9）。
+
+> 2026-10-24 修订（[CARD-TREE-SPEC](CARD-TREE-SPEC.md)）：子卡片（2026-10-22 起已有）现在可以分层查看。项目页 **Card tree** 按父子大纲列出卡片，并按 blocks 给兄弟编步骤号；看板 **Levels** 按层级隐藏子卡片，被隐藏卡片的需要人、错误、未读与运行状态汇总到最近的可见祖先。两者都只是显示，不改关联数据或状态。
 
 ## 2. 数据
 
@@ -72,6 +76,7 @@
   | `related` | `related` | `related` |
 
 - `isResolved(task)`：阻塞方状态为 Done/Cancelled，或已归档，视为已解除。
+- **Held**（2026-10-24，[CARD-TREE-SPEC](CARD-TREE-SPEC.md) §2.1）：只对有 `queued` 自动化 job 的卡，未 Done 的 blocker 为 Cancelled 或已归档时，dispatcher 永不放行（`readiness().cancelled`），界面显示为 Held，不按 `isResolved` 视为已解除。没有排队 job 的卡仍按 `isResolved`。
 - `waitingOn(board, taskId)`：未解除的 `blocked_by` 关联。
 - `wouldCycle(board, kind, from, to)`：返回环路路径或 `undefined`。
 
@@ -114,12 +119,14 @@
 
 有未解除的 `blocked_by` 时，在卡片底部信号行显示 `Hourglass` 图标加 “Waiting on N”（窄卡只显示数字）；全部解除后消失。无障碍文本 “Waiting on N cards: <标题…>”。其他关联不在卡面显示（避免噪音）。
 
+2026-10-24 修订（[CARD-TREE-SPEC](CARD-TREE-SPEC.md) §2.4、§2.5）：子卡片在元信息行显示父卡面包屑（Card display 的 Parent card 开关）；排队且被取消/归档的 blocker 卡住的卡显示 “Held by {title}”；看板 Levels 隐藏子卡片时，可见祖先显示 “{n} hidden below” 及其汇总。仍不加 “Blocks N” 或关系行。
+
 ### 5.2 侧栏 Links 区块
 
 位置：Ideas 之后、Details & workspace 之前。
 
 - 标题 `Links`，计数为关联总数；标题右侧 `+` 按钮打开菜单：**Link to a card…**（§5.4）、**New follow-up task**（§5.5）。没有关联时只显示标题行和 `+`，不渲染空状态文字。
-- 关联按 relation 分组，组顺序与标题：`Waiting on`（未解除的 blocked_by）、`Blocks`、`Follow-up of`、`Follow-ups`、`Related`、`Was waiting on`（已解除的 blocked_by）。空组不显示。
+- 关联按 relation 分组，组顺序与标题：`Waiting on`（未解除的 blocked_by）、`Blocks`、`Follow-up of`、`Follow-ups`、`Related`、`Was waiting on`（已解除的 blocked_by）。空组不显示。（2026-10-22 起最前面还有 `Sub-card of` 与 `Sub-cards`。2026-10-24：有排队 job 的卡，Held 的 blocker 归入 `Waiting on`，不归入 `Was waiting on`。Links 上方新增的 Dependencies 区块见 [CARD-TREE-SPEC](CARD-TREE-SPEC.md) §2.6。）
 - 每行：对方卡的类型图标、标题（单行截断）、泳道名（小号弱化）；已归档的对方卡标题弱化并带 “Archived”；由 idea 产生的 derived 行在泳道名后加 `Lightbulb` 小图标。点击行打开对方卡（同 `IdeaOrigin` 现有跳转）。行尾 `X` 图标按钮删除该关联，无确认；乐观移除（160 ms 收起），失败恢复并弹 error toast。无障碍名称 “Remove link: <relation> <标题>”。
 - 卡片或项目已归档时 `+` 与删除按钮禁用，列表照常显示。
 - 新增/删除动效使用 `client/motion.tsx` 原语，遵循 Reduce Motion，可打断；抽屉打开时已有行不播放进场。
@@ -168,8 +175,9 @@
 
 ## 9. 不做
 
-- 父子层级、子任务进度汇总、状态联动、级联删除/收尾。
-- 跨项目关联；`duplicate` 等其他关系类型；关联图视图。
+- ~~父子层级、子任务进度汇总~~（2026-10-22 由 SUB-CARDS-SPEC 加入）、状态联动、级联删除/收尾。
+- 跨项目关联；`duplicate` 等其他关系类型。
+- 整个项目的二维关联图（自由画布）：另行 spec。2026-10-24 的卡片树大纲与抽屉邻域图见 [CARD-TREE-SPEC](CARD-TREE-SPEC.md)。
 - Blocks 的强制拦截；阻塞方完成后自动通知被阻塞卡的 session。
 - agent 创建/删除关联的工具。
 
