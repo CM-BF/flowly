@@ -42,4 +42,18 @@ describe("neighbourhoodLayout", () => {
     expect(layout.rail).toEqual({ top: 20, bottom: 176 });
     expect(neighbourhoodLayout(0, 0, 40, 12, { vertical: true })).toMatchObject({ height: 40, rail: null });
   });
+
+  test("vertical: a caption row above each side says which cards it waits for and which it blocks", () => {
+    const layout = neighbourhoodLayout(1, 2, 40, 8, { vertical: true, caption: 18 });
+    if (!layout.vertical) throw new Error("expected vertical");
+    expect(layout.captions).toEqual({ left: 0, right: 114 });
+    expect(layout.left.map((s) => s.y)).toEqual([18]);
+    expect(layout.centre).toBe(66);
+    expect(layout.right.map((s) => s.y)).toEqual([132, 180]);
+    expect(layout.height).toBe(220);
+    expect(layout.height).toBe(bottom(layout, 40));
+    // Nothing reserved for a side with no cards.
+    const blocksOnly = neighbourhoodLayout(0, 1, 40, 8, { vertical: true, caption: 18 });
+    expect(blocksOnly).toMatchObject({ centre: 0, captions: { left: null, right: 48 }, height: 40 + 8 + 18 + 40 });
+  });
 });

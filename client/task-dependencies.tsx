@@ -19,6 +19,8 @@ import { Button, IconButton, Label, font, message, noFocusRing, radius, space, t
 const nodeH = touch ? 44 : 40;
 const gap = 8;
 const edgeW = 16;
+/** The stacked map's "Waits for" / "Blocks" caption row (CARD-TREE-SPEC §2.6). */
+const captionH = 18;
 const px = (n: number) => PixelRatio.roundToNearestPixel(n);
 
 /**
@@ -231,15 +233,24 @@ function NeighbourMap({
   onMore?(): void;
 }) {
   const { colors } = useTheme();
-  const layout = neighbourhoodLayout(left.length, right.length, nodeH, gap, { vertical });
+  const layout = neighbourhoodLayout(left.length, right.length, nodeH, gap, { vertical, caption: captionH });
+  const waitsFor = t("Waits for");
+  const blocksText = t("Blocks");
   const tone = (n: Neighbour | undefined) => (!n ? colors.foregroundMuted : n.state === "done" ? tint(colors.statusSuccess, 0.6) : n.state === "stuck" ? colors.statusWarning : colors.foregroundMuted);
-  const node = (slot: NeighbourSlot, n: Neighbour | undefined, key: string, style: object) =>
+  // Each node's label names its relation, so a screen reader knows which side it is on in either layout.
+  const node = (slot: NeighbourSlot, n: Neighbour | undefined, key: string, relation: string, style: object) =>
     slot.more ? (
-      <MoreNode key={key} count={slot.more} style={{ ...style, top: slot.y }} onPress={onMore} />
+      <MoreNode key={key} count={slot.more} relation={relation} style={{ ...style, top: slot.y }} onPress={onMore} />
     ) : n ? (
-      <MapNode key={key} id={n.id} title={titleOf(n.id)} lane={laneOf(n.id)} state={n.state} style={{ ...style, top: slot.y }} onOpen={onOpen} />
+      <MapNode key={key} id={n.id} title={titleOf(n.id)} lane={laneOf(n.id)} state={n.state} relation={relation} style={{ ...style, top: slot.y }} onOpen={onOpen} />
     ) : null;
-  const centre = (style: object) => <MapNode key="self" id={self.id} title={self.title} lane={laneOf(self.id)} state="self" style={{ ...style, top: layout.centre }} />;
+  const centre = (style: object) => <MapNode key="self" id={self.id} title={self.title} lane={laneOf(self.id)} state="self" relation={t("This card")} style={{ ...style, top: layout.centre }} />;
+  const caption = (key: string, text: string, top: number | null) =>
+    top === null ? null : (
+      <View key={key} accessibilityElementsHidden importantForAccessibility="no-hide-descendants" style={{ position: "absolute", left: 24, right: 0, top, height: captionH, justifyContent: "flex-start" }}>
+        <Label muted size={font.xs} bold lines={1} selectable={false}>{text}</Label>
+      </View>
+    );
   const lines: ReactNode[] = [];
   const arrow = (key: string, x: number, y: number, dir: "right" | "down", color: string) =>
     lines.push(
@@ -273,11 +284,11 @@ function NeighbourMap({
     <View style={{ gap: 4 }}>
       {!layout.vertical && (
         <View style={{ flexDirection: "row" }}>
-          <View style={{ flex: 1 }}><Label muted size={font.xs} bold selectable={false}>{t("Waits for")}</Label></View>
+          <View style={{ flex: 1 }}><Label muted size={font.xs} bold selectable={false}>{waitsFor}</Label></View>
           <View style={{ width: edgeW }} />
           <View style={{ flex: 1, alignItems: "center" }}><Label muted size={font.xs} bold selectable={false}>{t("This card")}</Label></View>
           <View style={{ width: edgeW }} />
-          <View style={{ flex: 1, alignItems: "flex-end" }}><Label muted size={font.xs} bold selectable={false}>{t("Blocks")}</Label></View>
+          <View style={{ flex: 1, alignItems: "flex-end" }}><Label muted size={font.xs} bold selectable={false}>{blocksText}</Label></View>
         </View>
       )}
       {/* The height is known from the counts, so it is reserved before anything inside mounts. */}
@@ -288,17 +299,19 @@ function NeighbourMap({
               <View pointerEvents="none" accessibilityElementsHidden importantForAccessibility="no-hide-descendants" style={{ position: "absolute", top: 0, bottom: 0, left: 0, width: 24 }}>
                 {lines}
               </View>
-              {layout.left.map((slot, i) => node(slot, left[i], `l${i}`, { position: "absolute", left: 24, right: 0 }))}
+              {caption("waits-caption", waitsFor, layout.captions.left)}
+              {layout.left.map((slot, i) => node(slot, left[i], `l${i}`, waitsFor, { position: "absolute", left: 24, right: 0 }))}
               {centre({ position: "absolute", left: 24, right: 0 })}
-              {layout.right.map((slot, i) => node(slot, right[i], `r${i}`, { position: "absolute", left: 24, right: 0 }))}
+              {caption("blocks-caption", blocksText, layout.captions.right)}
+              {layout.right.map((slot, i) => node(slot, right[i], `r${i}`, blocksText, { position: "absolute", left: 24, right: 0 }))}
             </>
           ) : (
             <View style={{ flexDirection: "row", height: layout.height }}>
-              <View style={{ flex: 1 }}>{layout.left.map((slot, i) => node(slot, left[i], `l${i}`, { position: "absolute", left: 0, right: 0 }))}</View>
+              <View style={{ flex: 1 }}>{layout.left.map((slot, i) => node(slot, left[i], `l${i}`, waitsFor, { position: "absolute", left: 0, right: 0 }))}</View>
               <Edges side="left" slots={layout.left} bus={layout.leftBus} mid={mid} tones={layout.left.map((_, i) => tone(left[i]))} />
               <View style={{ flex: 1 }}>{centre({ position: "absolute", left: 0, right: 0 })}</View>
               <Edges side="right" slots={layout.right} bus={layout.rightBus} mid={mid} tones={layout.right.map((_, i) => tone(right[i]))} />
-              <View style={{ flex: 1 }}>{layout.right.map((slot, i) => node(slot, right[i], `r${i}`, { position: "absolute", left: 0, right: 0 }))}</View>
+              <View style={{ flex: 1 }}>{layout.right.map((slot, i) => node(slot, right[i], `r${i}`, blocksText, { position: "absolute", left: 0, right: 0 }))}</View>
             </View>
           ))}
       </View>
@@ -327,7 +340,7 @@ function Edges({ side, slots, bus, mid, tones }: { side: "left" | "right"; slots
   );
 }
 
-function MapNode({ id, title, lane, state, style, onOpen }: { id: string; title: string; lane: string; state: Neighbour["state"] | "self"; style: object; onOpen?(id: string): void }) {
+function MapNode({ id, title, lane, state, relation, style, onOpen }: { id: string; title: string; lane: string; state: Neighbour["state"] | "self"; relation: string; style: object; onOpen?(id: string): void }) {
   const { colors } = useTheme();
   const press = useCallback(() => onOpen?.(id), [onOpen, id]);
   const dot = state === "done" ? colors.statusSuccess : state === "stuck" ? colors.statusWarning : state === "self" ? colors.accent : colors.foregroundMuted;
@@ -352,21 +365,21 @@ function MapNode({ id, title, lane, state, style, onOpen }: { id: string; title:
     borderColor: state === "self" ? colors.accent : state === "stuck" ? colors.statusWarning : colors.border,
     backgroundColor: colors.surface0,
   };
-  if (state === "self") return <View accessibilityLabel={title} style={frame}>{body}</View>;
+  if (state === "self") return <View accessible accessibilityLabel={`${relation}: ${title}`} style={frame}>{body}</View>;
   return (
-    <Pressable accessibilityRole="link" accessibilityLabel={`${t("Open task {title}", { title })}, ${lane}`} onPress={press} style={(s) => ({ ...noFocusRing, ...frame, backgroundColor: (s as { hovered?: boolean }).hovered || s.pressed ? colors.surface2 : colors.surface0 })}>
+    <Pressable accessibilityRole="link" accessibilityLabel={`${relation}: ${t("Open task {title}", { title })}, ${lane}`} onPress={press} style={(s) => ({ ...noFocusRing, ...frame, backgroundColor: (s as { hovered?: boolean }).hovered || s.pressed ? colors.surface2 : colors.surface0 })}>
       {body}
     </Pressable>
   );
 }
 
-function MoreNode({ count, style, onPress }: { count: number; style: object; onPress?(): void }) {
+function MoreNode({ count, relation, style, onPress }: { count: number; relation: string; style: object; onPress?(): void }) {
   const { colors } = useTheme();
   const text = tn(count, "+{n} more", "+{n} more");
   return (
     <Pressable
       accessibilityRole="button"
-      accessibilityLabel={text}
+      accessibilityLabel={`${relation}: ${text}`}
       disabled={!onPress}
       onPress={onPress}
       style={{ ...noFocusRing, ...style, height: nodeH, alignItems: "center", justifyContent: "center", borderRadius: radius.md, borderWidth: 1, borderStyle: "dashed", borderColor: colors.border }}

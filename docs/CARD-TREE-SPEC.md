@@ -288,7 +288,7 @@ running 和 unread 两项受 Card display 的 Session activity 开关（`session
 - 新的可移动区块 `dependencies`（`shared/drawer-sections.ts`）：默认展开，默认排在 Links 之前（Ideas 之后）。
 - `drawerSectionOrder` 对已存储的顺序也会插入它（缺失的 id 插在默认顺序里它前一个区块之后，现有逻辑）。用户存过的展开/收起选择仍然优先。
 - 只在卡有父卡、子卡片或 blocks 链接时渲染；否则同 Workpad/Ideas 关闭时一样原位跳过。
-- 区块头（`Section`，`client/disclosure.tsx`）立即渲染；收起时的摘要为 “Waits for {n} · Blocks {n}”（两项各自为 0 时省略）。
+- 区块头（`Section`，`client/disclosure.tsx`）立即渲染；收起时的摘要为 “Waits for {n} · Blocks {n}”（两项各自为 0 时省略）。Waits for 的 n 只数这张卡仍在等的 blocker：未完成的，加上卡被 Held 时 hold 住它的 Cancelled/归档 blocker；不 hold 卡的 Cancelled/归档 blocker 按 §1.2 第 3 条算已解决，与卡面和 Links 的 “Was waiting on” 一致。（review 修正：原来数所有非 Done 的 blocker。）
 - 内容，从上到下：
   1. **面包屑**：“Sub-card of Main › C5 › C5a”，各段可点。
   2. **邻域图**：三列 “Waits for | This card | Blocks”。
@@ -296,7 +296,8 @@ running 和 unread 两项受 Card display 的 Session activity 开关（`session
      - 每侧最多 4 个，多出的合成 “+{n} more” 节点，点它打开卡片树并高亮链路。
      - 位置由纯函数 `neighbourhoodLayout(left, right, nodeH, gap)`（`client/geometry.ts`）给出。
      - 边：列间 16 pt 宽的 View，每个节点一条水平短线连到竖直总线，总线一条短线连到中间节点，末端为边框三角。颜色：done 为 success 浅色，open 为 muted，stuck 为 warning。
-     - 区块宽度不足 420 pt 或 compact 时改为竖排：blocker 在上，本卡居中，被阻塞卡在下，一条竖轨加箭头。
+     - 区块宽度不足 420 pt 或 compact 时改为竖排：blocker 在上，本卡居中，被阻塞卡在下，一条竖轨加箭头。默认 440 pt 的侧栏也是竖排（内容宽约 408 pt）。竖排时 blocker 组上方和被阻塞组上方各有一行 18 pt 的小标题 “Waits for” / “Blocks”（三列时的列标题），该侧没有卡就不留这一行；`neighbourhoodLayout(…, { caption })` 把这两行算进预留高度，高度仍然精确。
+     - 每个节点的无障碍标签带上它的关系：“Waits for: Open task {title}, {lane}”、“Blocks: …”，本卡为 “This card: {title}”，“+{n} more” 节点同样带前缀。两种排法都一样，读屏用户不靠位置也能分清。
   3. **“{n} more upstream”**：传递的未完成 blocker 数，点它打开卡片树。
   4. **Sub-cards 条**：直接子卡片按步骤排成芯片，带步骤号，之间用小箭头相连。
   5. **Held 行**：文案 “Holds this card until the link is removed”，带 X，乐观地调用现有 `deleteLink`（同 LinkRow）。

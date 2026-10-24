@@ -176,8 +176,12 @@ function chainOfUp(tree: Pick<CardTree, "blockers">, id: string): string[] {
   return out;
 }
 
-/** The collapsed section's line: "Waits for 2 · Blocks 1", either part left out at 0. */
-export function dependencySummary(view: Pick<DependencyView, "left" | "right">): string {
-  const waits = view.left.filter((n) => n.state !== "done").length;
+/**
+ * The collapsed section's line: "Waits for 2 · Blocks 1", either part left out at 0. It counts the
+ * blockers the card still waits for: unfinished ones, and Cancelled or archived ones only while they
+ * hold a queued card (`holding`); otherwise those count as resolved (§1.2), as on the card face and in Links.
+ */
+export function dependencySummary(view: Pick<DependencyView, "left" | "right" | "holding">): string {
+  const waits = view.left.filter((n) => n.state === "open").length + view.holding.length;
   return [waits ? t("Waits for {n}", { n: waits }) : "", view.right.length ? t("Blocks {n}", { n: view.right.length }) : ""].filter(Boolean).join(" · ");
 }

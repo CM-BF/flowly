@@ -127,7 +127,18 @@ describe("drawer Dependencies (CARD-TREE-SPEC §2.6)", () => {
     expect(view.holding).toEqual(["X"]);
     expect(dependencyView(tree, "me", byId, false)!.holding).toEqual([]);
     expect(dependencySummary(view)).toBe("Waits for 2 · Blocks 1");
-    expect(dependencySummary({ left: [], right: [{ id: "a", state: "open" }] })).toBe("Blocks 1");
+    expect(dependencySummary({ left: [], right: [{ id: "a", state: "open" }], holding: [] })).toBe("Blocks 1");
+  });
+
+  test("a Cancelled or archived blocker that does not hold the card is not waited for", async () => {
+    const { dependencyView, dependencySummary } = await import("./card-tree-view");
+    setLocale("en");
+    clock = 0;
+    const tasks = [task("X", "cancelled"), task("Y", "todo", { archivedAt: now }), task("me"), task("after")];
+    const tree = buildCardTree(tasks, [blocks("X", "me"), blocks("Y", "me"), blocks("me", "after")]);
+    const byId = new Map(tasks.map((x) => [x.id, x] as const));
+    expect(dependencySummary(dependencyView(tree, "me", byId, false)!)).toBe("Blocks 1");
+    expect(dependencySummary(dependencyView(tree, "me", byId, true)!)).toBe("Waits for 2 · Blocks 1");
   });
 
   test("unfinished blockers further up are counted; a card with no relation has no section", async () => {
