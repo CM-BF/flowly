@@ -10,6 +10,8 @@ User decisions, from the Next Workspace run (C5b.2 went through four review roun
 - [x] The skill tells supervised parents not to poll their sub-cards with their own timers.
 - [x] Review fixes (three-lens review with adversarial verification, every finding reproduced): earlier reviewer sessions stay the card's reviewers (`reviewers`: no takeover, no A1, `REVIEWER_ONLY`); panel subagents get the delivery note, earlier changes and comments from the reviewer and run in the foreground of the same turn; earlier limits of a run stay on hold (`heldLimits`); a takeover implementer gets the full changes (`changes`), activity notes up to 10000 characters; Edit project ignores taps on the default and tells when a panel can never come.
 - [x] Tests: `server/automation-panel.test.ts` (10, the five review-fix tests fail on the first panel commit), `shared/automation-tree.test.ts` (6, three fail on `1884436`), three `REVIEW_RUNNING` cases in `server/sub-cards-round2.test.ts` (fail on `1884436`), the property test's reference walk extended; typecheck and full suite green.
+- [x] Live (`1e91268`, `c84b68e`): C5 waited on its sub-card tree instead of being reminded; a panel round on Claude Haiku 4.5 ran two foreground subagents in parallel and approved; settings saved and reopened; phone width. [Report](verification/panel-review.md)
+- [ ] UNRUN live: escalation after rounds with changes, panel-model swap back to serial, a Codex reviewer without subagents (unit tests only).
 - Onboarding: no new tip. Panel review is a reviewer setting next to Review rounds, and its rounds read "Panel review round n of max" on the card.
 
 ## Automation resilience after a live stall — 2026-10-23
