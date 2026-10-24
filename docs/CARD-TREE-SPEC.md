@@ -120,7 +120,7 @@
 - 4 pt 的整棵子树进度条，最多 5 段 View：done、active、needs you、waiting/held、其余。
 - 一行 “Now: … · Next: … · Needs you: …”，每部分最多 2 个标题加 “+{n}”：
   - **Now**：有 running/initializing session，或 job 处于 starting/working/reviewing/retry_wait 的卡。
-  - **Next**：按大纲顺序第一批未完成、未在推进、blocker 全为 Done、且没有未完成子卡片的卡。job 为 queued 时加 “(queued)”。
+  - **Next**：按大纲顺序，未完成、未在推进、不需要人、没有未完成子卡片，且它自己和各祖先的每个 blocker 都已 Done 或正在推进（在 Now 里）的卡。job 为 queued 时加 “(queued)”。Cancelled 或归档未完成的 blocker 永远不放行。（Stage 2 调整：原文要求 blocker 全为 Done，与下面示例 “Now: C3 · Next: C4” 矛盾；正在推进的 blocker 也放行，Next 才是“当前工作之后轮到谁”。没有未完成子卡片的条件使有子卡片的卡把位置让给它的第一张可做子卡片。）
   - **Needs you**：有未消除 attention 的卡。
 
 这一行就是“在一个项目里同时跑几个事项”时每个事项的状态行。
@@ -304,7 +304,9 @@ running 和 unread 两项受 Card display 的 Session activity 开关（`session
 - `blockerIndex(tree, tasksById, jobsById)`：每张卡 `{ open, stuck, titles }`，一次线性遍历，替代 `client/board.tsx` 里按卡调用 `waitingOn` 的 `waitingIndex`（O(n·e)）。服务端的 `waitingOn` 不变。
 - `levelHistogram(tree, inScope)`、`levelChoices(tree, inScope, cap)`。
 - `foldByLevel(tree, level, revealed, keep, inScope): Set<string>`。
-- `rollupBelow(tree, hidden, onScreen, flags): Map<id, Below>`。
+- `rollupBelow(tree, hidden, onScreen, flags): Map<id, Below>`。没有在屏幕上的祖先的隐藏卡不进 Map（只计入芯片总数）。
+- `cardFlag` 位与 `statusFlags(tree, tasksById, jobsById)`：看板数据得出的位（done、cancelled、archived、waiting = 有 open blocker、stuck = 有 stuck blocker、held）；NEEDS、ERROR、UNREAD、ACTIVE 由 `client/card-flags.ts` 加上。`subtreeTotals` 把每个后代（不含自身）归入唯一一类，顺序为 done（Done 或 Cancelled）、needs（needs you 或 error）、active、waiting（held、stuck 或 open blocker）、rest。
+- `scopeOf(tree, showArchived)`、`levelDepths(tree, inScope)`、`scopedChildren(tree, id, inScope)`：范围外的卡由它的子卡片顶替位置，大纲、Levels 与 Next 共用。
 - `subtreeTotals(tree, flags)`、`chainOf(tree, id): { up, inherited, down }`、`nextUp(tree, root, flags)`。
 - `outlineRows(tree, opts): Row[]`：字段全为基本类型，有 id、kind (card|group)、depth、step、nextStepHigher、hasKids、open、rails、last、inChain、dim。
 - `sameRowList(prev, next)`：保持行对象身份，同 `sameRows`。

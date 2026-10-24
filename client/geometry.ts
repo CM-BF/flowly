@@ -144,3 +144,53 @@ export function keyboardOverlap(viewBottom: number, keyboardTop: number | null):
   if (keyboardTop === null) return 0;
   return Math.max(0, Math.round(viewBottom - keyboardTop));
 }
+
+/** A node of the drawer's dependency map; `more` > 0 is the "+{more} more" node standing for the rest. */
+export type NeighbourSlot = { y: number; more: number };
+export type Span = { top: number; bottom: number };
+export type NeighbourhoodLayout =
+  | { vertical: false; height: number; centre: number; left: NeighbourSlot[]; right: NeighbourSlot[]; leftBus: Span | null; rightBus: Span | null }
+  | { vertical: true; height: number; centre: number; left: NeighbourSlot[]; right: NeighbourSlot[]; rail: Span | null };
+
+/** Up to `max` nodes per side: past that, `max - 1` cards and one "+n more" node. */
+function neighbourSlots(count: number, max: number): number[] {
+  if (count <= max) return Array.from({ length: count }, () => 0);
+  return [...Array.from({ length: max - 1 }, () => 0), count - max + 1];
+}
+
+/**
+ * Where the drawer's Dependencies map puts its nodes (CARD-TREE-SPEC §2.6), from counts alone, so
+ * the section reserves its exact height before the nodes mount. Horizontal: "Waits for | This card |
+ * Blocks", each column centred, one bus per side joining its nodes to the middle node. Vertical
+ * (narrow or compact): blockers above, the card, blocked cards below, on one rail.
+ */
+export function neighbourhoodLayout(left: number, right: number, nodeH: number, gap: number, options: { vertical?: boolean; max?: number } = {}): NeighbourhoodLayout {
+  const max = Math.max(2, options.max ?? 4);
+  const l = neighbourSlots(Math.max(0, left), max), r = neighbourSlots(Math.max(0, right), max);
+  if (options.vertical) {
+    let y = 0;
+    const place = (more: number) => {
+      const slot = { y, more };
+      y += nodeH + gap;
+      return slot;
+    };
+    const leftSlots = l.map(place);
+    const centre = place(0).y;
+    const rightSlots = r.map(place);
+    const height = y - gap;
+    const rail = l.length || r.length ? { top: (leftSlots[0]?.y ?? centre) + nodeH / 2, bottom: (rightSlots[rightSlots.length - 1]?.y ?? centre) + nodeH / 2 } : null;
+    return { vertical: true, height, centre, left: leftSlots, right: rightSlots, rail };
+  }
+  const column = (n: number) => (n ? n * nodeH + (n - 1) * gap : 0);
+  const height = Math.max(nodeH, column(l.length), column(r.length));
+  const centre = (height - nodeH) / 2;
+  const mid = centre + nodeH / 2;
+  const side = (slots: number[]) => {
+    const top = (height - column(slots.length)) / 2;
+    return slots.map((more, i) => ({ y: top + i * (nodeH + gap), more }));
+  };
+  const bus = (slots: NeighbourSlot[]): Span | null =>
+    slots.length ? { top: Math.min(mid, slots[0].y + nodeH / 2), bottom: Math.max(mid, slots[slots.length - 1].y + nodeH / 2) } : null;
+  const leftSlots = side(l), rightSlots = side(r);
+  return { vertical: false, height, centre, left: leftSlots, right: rightSlots, leftBus: bus(leftSlots), rightBus: bus(rightSlots) };
+}
