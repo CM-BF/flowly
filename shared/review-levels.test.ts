@@ -68,7 +68,7 @@ describe("Auto resolution", () => {
       [],
       [pad("c", ["Survives a crash-safe restart", "Shows the button"])],
     );
-    expect(level(b, "t")).toEqual({ level: "deep", reason: { kind: "keyword", keyword: "journal", field: "title" } });
+    expect(level(b, "t")).toEqual({ level: "deep", reason: { kind: "keyword", keyword: "persist", field: "title" } });
     expect(level(b, "d")).toEqual({ level: "deep", reason: { kind: "keyword", keyword: "database", field: "description" } });
     expect(level(b, "c")).toEqual({ level: "deep", reason: { kind: "keyword", keyword: "crash-safe", field: "acceptance" } });
     expect(level(b, "z")).toEqual({ level: "deep", reason: { kind: "keyword", keyword: "持久化", field: "description" } });
@@ -89,6 +89,15 @@ describe("Auto resolution", () => {
     "调整日志格式",
     "锁屏按钮的样式",
     "格式化日期",
+    // zh-TW: 儲存 is the Save button, 憑證 also a receipt, 協議 an agreement (protocol is 協定).
+    "設定頁新增儲存按鈕",
+    "點擊「儲存」按鈕後關閉視窗",
+    "上傳付款憑證頁面",
+    "使用者協議頁面",
+    // Broad English words stay out, like 安全 alone in Chinese.
+    "Security settings page layout",
+    "Show the transaction history page",
+    "Add a transaction around card moves",
   ])("no deep keyword in %j", (title) => {
     expect(deepKeyword(title)).toBeNull();
     expect(level(board([card("a", { title })]), "a")).toEqual({ level: "standard", reason: { kind: "default" } });
@@ -106,6 +115,59 @@ describe("Auto resolution", () => {
     ["数据丢失问题", "数据丢失"],
     ["新增資料庫索引", "資料庫"],
     ["權限檢查", "權限"],
+    ["重新設計儲存格式", "儲存格式"],
+    ["登入憑證過期處理", "登入憑證"],
+    ["通訊協定升級", "協定"],
+    ["Fix a security issue in token refresh", "security issue"],
+  ])("%j mentions %j", (text, keyword) => {
+    expect(deepKeyword(text)).toBe(keyword);
+  });
+
+  // English terms written right next to Chinese or Japanese, without spaces, as Chinese users write them.
+  test.each([
+    ["实现OAuth登录", "OAuth"],
+    ["修改schema定义", "schema"],
+    ["增加migration脚本", "migration"],
+    ["更新protocol版本", "protocol"],
+    ["给API contract加字段", "API contract"],
+    ["修改board的schema", "schema"],
+    ["修复race condition问题", "race condition"],
+    ["加入fsync调用", "fsync"],
+    ["新增schema校验", "schema"],
+    ["把状态写进database里", "database"],
+    ["重写journal格式，加入schema版本", "journal"],
+    ["データをSQLiteに保存する", "SQLite"],
+  ])("%j mentions %j next to CJK text", (text, keyword) => {
+    expect(deepKeyword(text)).toBe(keyword);
+  });
+
+  test("a mixed-script foundation card resolves to Deep", () => {
+    const b = board([card("a", { title: "重写journal格式", description: "加入schema版本号，进程崩溃时不丢数据" })]);
+    expect(level(b, "a")).toEqual({ level: "deep", reason: { kind: "keyword", keyword: "journal", field: "title" } });
+  });
+
+  // Foundation work as English cards name it: verbs, adjectives and storage names, not only the listed nouns.
+  test.each([
+    ["Persist workspace state across restarts", "persist"],
+    ["Make sessions persistent", "persistent"],
+    ["Keep drafts persistently", "persistent"],
+    ["Store the event history in SQLite", "SQLite"],
+    ["Move the boards to Postgres", "Postgres"],
+    ["Save the board to disk on every change", "to disk"],
+    ["Keep the cache on-disk", "on disk"],
+    ["Append-only event log for the board", "append-only"],
+    ["Migrate the board file to v6", "migrate"],
+    ["Migrating old boards", "migrate"],
+    ["Encrypt tokens at rest", "encrypt"],
+    ["Tokens are encrypted before upload", "encrypt"],
+    ["Authenticate webhook requests", "authenticate"],
+    ["Only authorized users may export", "authorize"],
+    ["Handle concurrent edits to the same card", "concurrent"],
+    ["Run the jobs concurrently", "concurrent"],
+    ["Write files atomically so a crash mid-write keeps the old file", "atomically"],
+    ["Define the JSON file format for exported boards", "file format"],
+    ["Make card moves transactional", "transactional"],
+    ["Journaling for the outbox", "journal"],
   ])("%j mentions %j", (text, keyword) => {
     expect(deepKeyword(text)).toBe(keyword);
   });
@@ -179,9 +241,13 @@ describe("levels in the project settings", () => {
     expect(JSON.parse(JSON.stringify({ ...saved, levels: { deep: { panelSize: 4 } }, ...patch }))).not.toHaveProperty("levels");
   });
 
-  test("the review-start note reads as today for a Standard round without a trigger, and names the level and why otherwise", () => {
-    expect(reviewStartNote(1, { level: "standard", reason: { kind: "default" }, max: 3, size: 1 })).toBe("Review round 1 of 3");
-    expect(reviewStartNote(3, { level: "standard", reason: { kind: "default" }, max: 3, size: 3 })).toBe("Review round 3 of 3 (panel of 3 reviewers)");
+  test("the review-start note always names the level and why, also for a Standard round without a trigger", () => {
+    expect(reviewStartNote(1, { level: "standard", reason: { kind: "default" }, max: 3, size: 1 })).toBe(
+      "Standard review round 1 of 3; level standard: no tag or keyword calls for a deep or light review",
+    );
+    expect(reviewStartNote(3, { level: "standard", reason: { kind: "default" }, max: 3, size: 3 })).toBe(
+      "Standard review round 3 of 3 (panel of 3 reviewers); level standard: no tag or keyword calls for a deep or light review",
+    );
     expect(reviewStartNote(1, { level: "deep", reason: { kind: "keyword", keyword: "database", field: "description" }, max: 3, size: 3 })).toBe(
       'Deep review round 1 of 3 (panel of 3 reviewers); level deep: its description mentions "database"',
     );

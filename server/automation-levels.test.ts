@@ -41,7 +41,7 @@ async function rework(x: Fixture, rev: string, impl: string) {
 }
 const notes = async (x: Fixture, action = "automation_review_started") => (await x.store.read()).events.filter((e) => e.action === action).map((e) => e.note);
 
-test("a Standard card is reviewed as before: same session, rounds, lens and notes, plus the request for risks; the job keeps the plan", async () => {
+test("a Standard card is reviewed as before: same session, rounds and lens, plus the request for risks; the job and the note keep the plan", async () => {
   const { x, rev } = await delivered();
   expect(rev).toMatchObject({ provider: "codex/gpt-6-luna", title: "Review: Card a" });
   expect(rev.prompt).toContain("(review round 1 of 3)");
@@ -51,7 +51,7 @@ test("a Standard card is reviewed as before: same session, rounds, lens and note
   expect(rev.prompt).toContain("Risks never block approval");
   expect(await x.job("a")).toMatchObject({ review: { level: "standard", reason: { kind: "default" }, max: 3, size: 1 } });
   expect((await x.job("a")).seat).toBeUndefined();
-  expect(await notes(x)).toEqual(["Review round 1 of 3"]);
+  expect(await notes(x)).toEqual(["Standard review round 1 of 3; level standard: no tag or keyword calls for a deep or light review"]);
 });
 
 test("Light never panels, runs on its own model and stops after its own cap", async () => {

@@ -21,39 +21,53 @@ export const levelTags = { deep: ["deep-review", "foundation"], light: "light-re
 
 /**
  * Specific technical terms that make a card Deep when its title, description or acceptance criteria mention them
- * (§5.2.2). English matches whole words (plural -s/-es/-ies, a space in a phrase also matches a hyphen); Chinese
- * matches as a substring. Broad words (log, format, lock, storage, state, 日志, 格式, 锁) stay out on purpose.
+ * (§5.2.2). English matches whole words, also right next to Chinese or Japanese text; a keyword's last word takes its
+ * usual forms (-s/-es, -ed, -ing, -ly; -e and -y words theirs) and a space in a phrase also matches a hyphen. Chinese
+ * matches as a substring. Broad words (log, format, lock, storage, state, transaction, security, 日志, 格式, 锁, 安全,
+ * zh-TW 儲存 and 憑證) stay out on purpose; list order decides which keyword a card's reason names.
  */
 export const deepKeywords = {
   en: [
-    "storage format", "storage layer", "storage engine", "on-disk format", "wire format", "serialization format",
-    "persistence", "persistent storage", "persistent state", "journal", "write-ahead log", "database", "schema", "migration",
+    "storage format", "storage layer", "storage engine", "on disk", "to disk", "wire format", "serialization format", "file format",
+    "persistence", "persistent", "persist", "journal", "write-ahead log", "append-only",
+    "database", "SQLite", "Postgres", "PostgreSQL", "MySQL", "IndexedDB", "schema", "migration", "migrate",
     "protocol", "API contract", "public API", "external interface", "backward compatibility", "backwards compatibility", "breaking change",
-    "authentication", "authorization", "access control", "permission", "OAuth", "encryption", "decryption", "credential",
-    "security", "vulnerability", "concurrency", "concurrent writes", "concurrent access", "race condition", "deadlock",
+    "authentication", "authenticate", "authorization", "authorisation", "authorize", "authorise", "access control", "permission", "OAuth", "OAuth2",
+    "encryption", "decryption", "encrypt", "decrypt", "credential",
+    "security boundary", "security model", "security fix", "security issue", "security hole", "security flaw", "security bug",
+    "security review", "security audit", "security hardening", "security-sensitive", "security-critical", "vulnerability",
+    "concurrency", "concurrent", "race condition", "deadlock", "transactional", "atomic write", "atomically",
     "crash recovery", "crash safety", "crash-safe", "data loss", "data corruption", "durability", "fsync",
   ],
   zh: [
-    "存储", "持久化", "数据库", "数据迁移", "表结构", "协议", "鉴权", "认证", "授权", "权限", "加密", "解密", "凭据",
-    "安全漏洞", "并发", "竞态", "死锁", "崩溃恢复", "数据丢失", "数据损坏", "向后兼容",
-    // Traditional Chinese (zh-TW) spellings and terms of the same.
-    "儲存", "資料庫", "數據庫", "資料遷移", "數據遷移", "表結構", "協定", "協議", "鑑權", "認證", "授權", "權限", "解密", "憑證",
-    "安全漏洞", "並發", "競態", "死鎖", "崩潰恢復", "崩潰復原", "資料遺失", "數據丟失", "資料損毀", "向後相容",
+    "存储", "持久化", "落盘", "数据库", "数据迁移", "表结构", "协议", "鉴权", "认证", "授权", "权限", "加密", "解密", "凭据",
+    "安全漏洞", "安全边界", "并发", "竞态", "死锁", "原子写入", "崩溃恢复", "数据丢失", "数据损坏", "向后兼容",
+    // Traditional Chinese (zh-TW) spellings and terms of the same. Not 儲存 alone (the Save button), 憑證 alone (also a
+    // receipt) or 協議 (an agreement; protocol is 協定).
+    "儲存格式", "儲存層", "儲存引擎", "資料儲存", "持久儲存", "資料庫", "數據庫", "資料遷移", "數據遷移", "表結構", "協定", "鑑權", "認證",
+    "授權", "權限", "登入憑證", "存取憑證", "憑據", "安全邊界", "並發", "競態", "死鎖", "原子寫入", "崩潰恢復", "崩潰復原", "資料遺失",
+    "數據丟失", "資料損毀", "向後相容",
   ],
 } as const;
 
-const edge = "[^\\p{L}\\p{N}_]";
+/**
+ * Not a Latin letter, a digit or an underscore: every English keyword is ASCII, so Chinese, Japanese or Korean text
+ * right next to one is a word boundary ("修改schema定义").
+ */
+const edge = "[^A-Za-z0-9_\\u00C0-\\u024F]";
 const escape = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-/** The keyword's last word takes its plural forms ("databases", "vulnerabilities"). */
-function plural(word: string) {
-  return word.endsWith("y") ? `${escape(word.slice(0, -1))}(?:y|ies)` : `${escape(word)}(?:e?s)?`;
+/** The keyword's last word with its usual forms ("databases", "migrated", "vulnerabilities", "concurrently"). */
+function forms(word: string) {
+  if (word.endsWith("e")) return `${escape(word.slice(0, -1))}(?:e|es|ed|ing)`;
+  if (word.endsWith("y")) return `${escape(word.slice(0, -1))}(?:y|ies|ied|ying)`;
+  return `${escape(word)}(?:s|es|ed|ing|ly)?`;
 }
 /** Compiled on first use: the client evaluates this module at every app start (AGENTS.md, cold start). */
 let englishPatterns: { keyword: string; pattern: RegExp }[] | undefined;
 const patterns = () =>
   (englishPatterns ??= deepKeywords.en.map((keyword) => {
     const words = keyword.split(/[\s-]+/);
-    const body = [...words.slice(0, -1).map(escape), plural(words[words.length - 1])].join("[\\s-]+");
+    const body = [...words.slice(0, -1).map(escape), forms(words[words.length - 1])].join("[\\s-]+");
     return { keyword, pattern: new RegExp(`(?:^|${edge})${body}(?=$|${edge})`, "iu") };
   }));
 
@@ -154,7 +168,7 @@ export function reasonText(reason: LevelReason): string {
     case "light_tag":
       return `the card has the tag ${levelTags.light}`;
     case "default":
-      return "no deep-review or light-review trigger";
+      return "no tag or keyword calls for a deep or light review";
   }
 }
 
@@ -162,12 +176,11 @@ const levelNames: Record<ReviewLevel, string> = { light: "Light", standard: "Sta
 /** The `review_level_set` note (daemon English): "Review level: Deep", or Auto when the card no longer has one. */
 export const reviewLevelNote = (level: ReviewLevel | undefined) => `Review level: ${level ? levelNames[level] : "Auto"}`;
 /**
- * The `automation_review_started` note. A Standard round with no trigger reads as it always did; any other names its
- * level and why ("Deep review round 1 of 3 (panel of 3 reviewers); level deep: …").
+ * The `automation_review_started` note: every round names its level and why (§5.2.5), "Deep review round 1 of 3
+ * (panel of 3 reviewers); level deep: …", also a Standard round Auto chose because nothing called for another.
  */
 export function reviewStartNote(round: number, plan: ReviewPlan) {
   const panel = plan.size > 1 ? ` (panel of ${plan.size} reviewers)` : "";
-  if (plan.level === "standard" && plan.reason.kind === "default") return `Review round ${round} of ${plan.max}${panel}`;
   return `${levelNames[plan.level]} review round ${round} of ${plan.max}${panel}; level ${plan.level}: ${reasonText(plan.reason)}`;
 }
 
