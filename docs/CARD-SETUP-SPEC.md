@@ -82,6 +82,7 @@ setup: {
 - 与交付提醒同时出现时，交付提醒（next moves、ideas）在前，设置提醒在后。
 - 文案（英文；`{items}` 按顺序只列缺的项，用“; ”连接）：
   `This card's setup is incomplete: {items}. Make these calls now, before more work; they take seconds. This write already succeeded.`
+  - metadata（有 `brief` 且未整理的卡）：`unorganized task brief (flowly_update_metadata: supply both a concise title and a faithful description from task.brief)`
   - type：`no type (flowly_set_type: feature, bugfix, research, refactor, docs or chore)`
   - tags：`no tags (flowly_set_tags: 1-4 module or direction tags, reuse projectTags)`
   - workpad：`no workpad (flowly_update_workpad: the acceptance criteria and the checks you will run, before you implement)`
@@ -113,7 +114,7 @@ CLI 已有 `--acknowledge-open`，不变。`flowly_update_status` 的 `acknowled
 agent 跟随 schema（R3），所以描述里写明：
 
 - `flowly_get_task`：末尾加 “Then check setup.missing and fix it (set_type, set_tags, update_workpad) before other work.”
-- `flowly_update_status`：加 “Delivering with missing setup (no type, no tags or no workpad) returns SETUP_INCOMPLETE …”；写结果“any write’s result may carry a setup reminder”。
+- `flowly_update_status`：加 “Delivering with missing setup (no type, no tags or no workpad) returns SETUP_INCOMPLETE …”；写结果“any write’s result may carry a setup reminder”。2026-10-23 起括号里先列 metadata（“unorganized metadata of a task.brief card, no type, no tags or no workpad”），skill 的写入提醒一句与 workpad 一节的交付软卡一句同样列出 metadata：它也是交付软卡的缺项（TASK-INTAKE-SPEC）。
 - `flowly_set_type`、`flowly_set_tags`、`flowly_update_workpad`：首句加时机 “Do this at the start of the work, before you change code.”
 
 ### 3.6 Skill（`server/skill-source.ts` 与 `skills/flowly/SKILL.md` 同步）

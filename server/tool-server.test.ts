@@ -135,6 +135,10 @@ test("MCP initialize/list can precede actor creation; live calls require SDK con
   expect(skillText).toContain("SETUP_INCOMPLETE");
   expect(described("flowly_update_status")).toContain("SETUP_INCOMPLETE");
   expect(described("flowly_get_task")).toContain("setup.missing");
+  // The gate refuses on every setup item, metadata of a task.brief card included (TASK-INTAKE-SPEC): every list agents read names them all.
+  expect(described("flowly_update_status")).toMatch(/missing card setup \([^)]*metadata[^)]*type[^)]*tags[^)]*workpad\) SETUP_INCOMPLETE/);
+  expect(skillText).toContain("while the card setup is missing (metadata, type, tags or workpad)");
+  expect(skillText).toMatch(/Delivering without organized metadata \(a card with task\.brief\), a workpad, type or tags returns SETUP_INCOMPLETE/);
   // Comments (CARD-COMMENTS-SPEC §3): only unread ones are new to act on, and they come after the read's own steps.
   expect(described("flowly_get_task")).toMatch(/comments[^.]*unread=true/);
   expect(described("flowly_get_task").indexOf("setup.missing")).toBeLessThan(described("flowly_get_task").indexOf("comments"));
