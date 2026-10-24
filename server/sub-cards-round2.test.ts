@@ -157,3 +157,23 @@ test.each(["cancelled", "archived"] as const)("under a %s ancestor, the parent's
   expect((await x.store.read()).tasks.find((t) => t.id === "child")!.status).toBe("backlog");
   await expect(x.service.updateCard(x.identity, { ...(await x.request()), cardId: "child", action: "cancel" })).resolves.toMatchObject({ status: "cancelled" });
 });
+
+test.each([
+  { state: "reviewing", code: undefined },
+  { state: "needs_human", code: "question" },
+  { state: "retry_wait", code: "failed" },
+] as const)("accepting a sub-card while its own review is still open ($state) is refused and changes nothing", async ({ state, code }) => {
+  const x = await setup("in_review", { state, role: "reviewer", reviewerId: "child-reviewer", reviewRounds: 1, ...(code ? { code } : {}) });
+  const before = await x.store.read();
+  await expect(x.service.updateCard(x.identity, { ...(await x.request()), cardId: "child", action: "accept" })).rejects.toMatchObject({ code: "REVIEW_RUNNING", message: expect.stringMatching(/woken/) });
+  expect(await x.store.read()).toEqual(before);
+  expect(x.onStatusChange).not.toHaveBeenCalled();
+  // The verdict is in: the delivery can be accepted, and cancelling was never blocked.
+  await x.store.mutate((board) => { Object.assign(board.automation.find((j) => j.taskId === "child")!, { state: "delivered", role: "implementer", verdict: "approved", code: undefined }); });
+  expect(await x.service.updateCard(x.identity, { ...(await x.request()), cardId: "child", action: "accept" })).toMatchObject({ status: "done" });
+});
+
+test("cancelling a sub-card under review stays possible", async () => {
+  const x = await setup("in_review", { state: "reviewing", role: "reviewer", reviewerId: "child-reviewer", reviewRounds: 1 });
+  expect(await x.service.updateCard(x.identity, { ...(await x.request()), cardId: "child", action: "cancel" })).toMatchObject({ status: "cancelled" });
+});

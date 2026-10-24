@@ -395,9 +395,10 @@ export function cardsInTurn(board: Pick<Board, "events">, now: number): Set<stri
  * waits for a person (a question, a blocker, a permission: the person answers it, not the parent), or is about to
  * start. A queued card held by blockers that are not Done moves only while one of them moves itself: a sibling
  * delivered to In review waits for this parent to accept it, and a blocker nobody runs (delivered, failed, stopped,
- * never run by automation) waits for a person. Either way the parent is told. Walked backwards from the cards that
- * move by themselves through the cards their motion holds up, so each card and link is visited once and a
- * dependency cycle never moves on its own.
+ * never run by automation) waits for a person. Either way the parent is told. An unfinished card also moves while
+ * any of its own sub-cards moves, whatever its own job says: their work is its work. Walked backwards from the
+ * cards that move by themselves through the cards their motion holds up and their parents, so each card and link
+ * is visited once and a dependency cycle never moves on its own.
  */
 export function motionOf(board: Pick<Board, "tasks" | "links" | "automation" | "events">, now = Date.now()): Motion {
   const inTurn = cardsInTurn(board, now);
@@ -416,6 +417,7 @@ export function motionOf(board: Pick<Board, "tasks" | "links" | "automation" | "
     blockers.set(link.to, [...(blockers.get(link.to) ?? []), blocker]);
     holds.set(link.from, [...(holds.get(link.from) ?? []), link.to]);
   }
+  const finished = (task: Task) => !!task.archivedAt || task.status === "done" || task.status === "cancelled";
   /** "self": moves by itself; "held": queued, moves only through a blocker; null: does not move. */
   const kinds = new Map<string, "self" | "held" | null>();
   const kind = (id: string) => {
@@ -424,7 +426,7 @@ export function motionOf(board: Pick<Board, "tasks" | "links" | "automation" | "
     const job = jobs.get(id);
     const waiting = blockers.get(id) ?? [];
     const value =
-      !task || task.archivedAt || task.status === "done" || task.status === "cancelled" ? null
+      !task || finished(task) ? null
       // A session working on the card moves it even when automation does not run it (a person took over a failed job).
       : !job || !isLive(job) ? (inTurn.has(id) ? "self" : null)
       : job.state !== "queued" || !waiting.length ? "self"
@@ -435,16 +437,18 @@ export function motionOf(board: Pick<Board, "tasks" | "links" | "automation" | "
   };
   const moving = new Set<string>();
   const next: string[] = [];
-  for (const id of tasks.keys()) if (kind(id) === "self") moving.add(id), next.push(id);
+  const move = (id: string) => (moving.add(id), next.push(id));
+  for (const id of tasks.keys()) if (kind(id) === "self") move(id);
   while (next.length) {
-    const blocker = tasks.get(next.pop()!)!;
-    for (const id of holds.get(blocker.id) ?? []) {
+    const card = tasks.get(next.pop()!)!;
+    for (const id of holds.get(card.id) ?? []) {
       if (moving.has(id) || kind(id) !== "held") continue;
       const parent = parents.get(id);
-      if (parent && parents.get(blocker.id) === parent && blocker.status === "in_review") continue;
-      moving.add(id);
-      next.push(id);
+      if (parent && parents.get(card.id) === parent && card.status === "in_review") continue;
+      move(id);
     }
+    const parent = tasks.get(parents.get(card.id) ?? "");
+    if (parent && !moving.has(parent.id) && !finished(parent)) move(parent.id);
   }
   return moving;
 }
@@ -464,9 +468,10 @@ export function subCardSignature(board: Pick<Board, "tasks" | "links" | "automat
       const task = board.tasks.find((t) => t.id === id);
       const job = jobOf(board, id);
       const held = job?.state === "queued" ? ((known ??= motionOf(board)).has(id) ? ":moving" : ":held") : "";
-      // A sub-card moved by a session outside automation: the end of that turn changes what the parent saw.
-      const turn = !isLive(job) && (known ??= motionOf(board)).has(id) ? ":turn" : "";
-      return `${id}:${task?.archivedAt ? "archived" : (task?.status ?? "gone")}:${job?.state ?? ""}:${job?.verdict ?? ""}${held}${turn}`;
+      // A sub-card moved by something other than its own job (a session outside automation, or its own sub-cards):
+      // the end of that motion changes what the parent saw.
+      const other = !isLive(job) && (known ??= motionOf(board)).has(id) ? ":moving" : "";
+      return `${id}:${task?.archivedAt ? "archived" : (task?.status ?? "gone")}:${job?.state ?? ""}:${job?.verdict ?? ""}${held}${other}`;
     })
     .join("|");
 }

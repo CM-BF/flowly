@@ -19,10 +19,10 @@ test("a card whose managed session is mid-turn moves, whatever its job says; a c
   const open = board([event("b", "agent.turn_started", "s", -60_000)]);
   expect(cardsInTurn(open, now)).toEqual(new Set(["b"]));
   expect(motionOf(open, now).has("b")).toBe(true);
-  expect(subCardSignature(open, "a", motionOf(open, now))).toMatch(/:turn$/);
+  expect(subCardSignature(open, "a", motionOf(open, now))).toMatch(/:moving$/);
   const closed = board([event("b", "agent.turn_started", "s", -60_000), event("b", "agent.turn_ended", "s", -1000)]);
   expect(motionOf(closed, now).has("b")).toBe(false);
-  expect(subCardSignature(closed, "a", motionOf(closed, now))).not.toMatch(/:turn/);
+  expect(subCardSignature(closed, "a", motionOf(closed, now))).not.toMatch(/:moving/);
   expect(motionOf(board([event("b", "agent.turn_started", "s", -7 * 3600_000)]), now).has("b")).toBe(false);
 });
 

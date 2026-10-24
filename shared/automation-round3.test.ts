@@ -1,6 +1,6 @@
 import { expect, test } from "vitest";
 import type { Board, Link, Project, Status, Task } from "./model";
-import { parentOf } from "./links";
+import { childrenOf, parentOf } from "./links";
 import { automationSettingsSchema, isLive, jobOf, liveStates, parentShouldWake, readiness, subCardActive, subCardSignature, type AutomationJob } from "./automation";
 
 // SUB-CARDS-SPEC §5: whether sub-cards move is decided once per board snapshot, in time linear in cards and links.
@@ -59,12 +59,13 @@ test("a dependency cycle ends the walk and never moves; motion still flows past 
   expect(["x", "y", "z", "w", "v"].map((id) => subCardActive(b, id))).toEqual([false, false, false, true, true]);
 });
 
-/** The walk as it was before memoizing: every blocker path, `seen` only against cycles. */
+/** The walk as it was before memoizing: every blocker and sub-card path, `seen` only against cycles. */
 function reference(b: Board, id: string, seen = new Set<string>()): boolean {
   if (seen.has(id)) return false;
   seen.add(id);
   const t = b.tasks.find((x) => x.id === id);
   if (!t || t.archivedAt || t.status === "done" || t.status === "cancelled") return false;
+  if (childrenOf(b.links, id).some((child) => reference(b, child, new Set(seen)))) return true;
   const j = jobOf(b, id);
   if (!j || !isLive(j)) return false;
   if (j.state !== "queued") return true;

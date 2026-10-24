@@ -39,13 +39,13 @@
 - `start`：Backlog → Todo；自动化开着时排队。
   - 子卡片的自动化仍活着（`queued`、`starting`、`working`、`waiting`、`retry_wait`、`reviewing` 或 `needs_human`）时：带 `note`，或子卡片在 In review，则拒绝：job 在等人时为 `NEEDS_PERSON`（由那个人在子卡片自己的 session 里回答），否则为 `CHILD_BUSY`。消息说明什么都没改、note 没有送出。不记回执、事件或反馈，所以之后可以原样再发同一请求。不带 note、且子卡片不在 In review 时仍按 `replayed` 确认，消息为 “This sub-card is already queued or running; nothing changed.”（此前带 note 时也返回 `replayed:true` 并丢掉 note。）
   - **重启上限**：父卡 agent 对已有 job 的子卡片再次 `start`（例如对已交付的子卡要求返工）最多 2 次。第 3 次被拒，`NEEDS_PERSON`（“An agent already started this card again 2 times since a person last ran or moved it…”），什么都不改。人选择 Run again，或人在工作阶段之间移动卡片（最近一次状态变更由人做）时计数清零；移到 Done/Cancelled/Backlog/Todo/Blocked 与验收本来就会结束 job。首次启动搁置或从未运行的子卡片不计数。计数存在 job 的可选字段 `restarts`，只由 agent 的排队带进下一代 job。
-- `accept`：只接受 In review 的子卡片（`NOT_DELIVERED`），移到 Done；已 Done 时 `replayed`。
+- `accept`：只接受 In review 的子卡片（`NOT_DELIVERED`），移到 Done；已 Done 时 `replayed`。子卡片自己的评审还没结束（job 活着且角色是 reviewer：`reviewing`、评审者在等人的 `needs_human`、评审回合失败后的 `retry_wait`）时拒绝（`REVIEW_RUNNING`），什么都不改：父卡等评审结论（受监督的父卡在评审结束时被唤醒），再验收或要求修改（用户决定，2026-10-23：实际运行中父卡在子卡评审期间就验收了 C5a.1、C5a 和 black-box inventory，评审白跑，且评审若要求修改已来不及）。人直接把卡拖到 Done 不受限制；`cancel` 也不受限制。
 - `cancel`：移到 Cancelled；已 Cancelled 返回 replayed，Done 则拒绝。
 - 状态变更以 agent 身份记事件，并触发与人移动卡片相同的后续：停止该卡的自动化 job、释放被它阻塞的卡、自动收尾（设置开启时）、完成卡的项目记忆复盘。
 
 ## 5. 自动化下父卡的等待与唤醒
 
-- “仍在推进”的子卡片（`subCardActive`）：未结束、未归档，且有活着的自动化 job；或者它的某个 Flowly 管理的 session 正在一轮中（回合钩子在卡片上记了 `agent.turn_started`、还没有对应的 `agent.turn_ended`，且开始不超过 6 小时），不论 job 状态如何。后者例如：子卡片的自动化失败后，人直接在它的 session 里接着做（2026-10-23 的实际事故：父卡因此被提醒到放弃并移到 Blocked）。这样的子卡片在签名里以 `:turn` 结尾，所以那一轮结束时父卡被唤醒一次。这包括等人的 job（`needs_human`：提问、blocked、权限、中断，或冷却预算用完）：由人回答子卡片，而不是父卡；它交付后父卡被唤醒一次。排队中的子卡片：
+- “仍在推进”的子卡片（`subCardActive`）：未结束、未归档，且有活着的自动化 job；或者它的某个 Flowly 管理的 session 正在一轮中（回合钩子在卡片上记了 `agent.turn_started`、还没有对应的 `agent.turn_ended`，且开始不超过 6 小时），不论 job 状态如何。后者例如：子卡片的自动化失败后，人直接在它的 session 里接着做（2026-10-23 的实际事故：父卡因此被提醒到放弃并移到 Blocked）。还有：它自己的子卡片（任意层）仍在推进，不论它自己的 job 状态如何（2026-10-23 的实际事故：C5 的子卡 C5b 的协调 job 已失败，C5b 的子卡 C5b.2 还在评审，C5 却被当作子卡都停下而唤醒，静默回合被提醒两次，差点被移到 Blocked）。已结束或归档的卡不因子卡推进而推进。这两种子卡片（job 不在活着的状态，但在推进）在签名里以 `:moving` 结尾（此前 session 一轮中的是 `:turn`；旧签名只会让父卡多醒一次，且只在子卡都停下后），所以推进停下时父卡被唤醒一次。这包括等人的 job（`needs_human`：提问、blocked、权限、中断，或冷却预算用完）：由人回答子卡片，而不是父卡；它交付后父卡被唤醒一次。排队中的子卡片：
   - blocker 都已满足 → 在推进。
   - 被未 Done 的 blocker 卡住 → 只在那个 blocker 自己推进时才算推进。只有交付到 In review 的**兄弟**（同一父卡）blocker 留给本父卡验收；其它 blocker 递归判断：已交付、失败、停止或从未由自动化运行（没有活着的 job）的 blocker 让子卡片算作停下，排在推进中的工作后面或正在评审的 blocker 算推进。依赖环终止这次递归。Cancelled/归档的未完成 blocker 让子卡片停下。
   - 因此父卡不再无限等待一张没有人的自动化在推进的外部卡：它被唤醒（或它的静默回合被提醒），应去问人。孙卡被其父卡的兄弟挡住（跨分支）不再让两个父卡互相等死：内层父卡醒来，看到被卡住的 blocker。
