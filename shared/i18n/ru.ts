@@ -7,7 +7,6 @@ const catalog: Catalog = {
   "Provider limit reached; retrying later": "Достигнут лимит провайдера; повторим позже",
   "Waiting for blockers to be Done: {cards}": "Ожидание завершения блокирующих карточек: {cards}",
   "Agent automation requires the In review lane.": "Для автоматизации агентов нужна колонка «На проверке».",
-  "Agents can split work into sub-cards with their own workspaces. A supervised parent waits, checks their deliveries and accepts them. Failed or stopped jobs need your Run again.": "Агенты могут разделять работу на подкарточки с собственными рабочими областями. Родительская карточка под наблюдением ждёт, проверяет и принимает результаты. Неудачные или остановленные задания требуют вашего действия «Запустить снова».",
   "Restore defaults": "Восстановить значения по умолчанию",
   "Progress models": "Модели прогресса",
   "Summary models": "Модели сводки",
@@ -1608,5 +1607,7 @@ const catalog: Catalog = {
   "Holds this card until the link is removed": "Удерживает эту карточку, пока связь не удалена",
   "Waits for": "Ждёт",
   "+{n} more": {"one": "ещё {n}", "few": "ещё {n}", "many": "ещё {n}", "other": "ещё {n}"},
+  "Card tree shows each item from the whole to its parts, with its steps in order. Use Levels to hide deeper sub-cards on the board.": "Дерево карточек показывает каждый элемент от целого к частям, с шагами по порядку. Уровни скрывают на доске более глубокие подкарточки.",
+  "Agents split work into sub-cards with their own workspaces; a supervised parent waits and accepts them. Card tree shows each item's steps in order, and Levels hides deeper sub-cards on the board.": "Агенты делят работу на подкарточки со своими рабочими пространствами; родительская карточка под надзором ждёт и принимает их. Дерево карточек показывает шаги каждого элемента по порядку, а Уровни скрывают на доске более глубокие подкарточки.",
 };
 export default catalog;

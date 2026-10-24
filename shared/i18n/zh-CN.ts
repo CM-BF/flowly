@@ -7,7 +7,6 @@ const catalog: Catalog = {
   "Provider limit reached; retrying later": "提供方额度受限，稍后重试",
   "Waiting for blockers to be Done: {cards}": "等待阻塞卡片完成：{cards}",
   "Agent automation requires the In review lane.": "智能体自动化需要启用“待评审”泳道。",
-  "Agents can split work into sub-cards with their own workspaces. A supervised parent waits, checks their deliveries and accepts them. Failed or stopped jobs need your Run again.": "智能体可将工作拆成各有工作区的子卡片。受自动化监督的父卡会等待、检查交付并验收。失败或已停止的任务需要你点击“再次运行”。",
   "Restore defaults": "恢复默认",
   "Progress models": "进度模型",
   "Summary models": "摘要模型",
@@ -1608,5 +1607,7 @@ const catalog: Catalog = {
   "Holds this card until the link is removed": "在移除链接之前一直挡住这张卡",
   "Waits for": "等待",
   "+{n} more": "还有 {n} 张",
+  "Card tree shows each item from the whole to its parts, with its steps in order. Use Levels to hide deeper sub-cards on the board.": "卡片树从整体到部分展示每个事项，并按顺序列出它的步骤。用“层级”在看板上隐藏更深层的子卡片。",
+  "Agents split work into sub-cards with their own workspaces; a supervised parent waits and accepts them. Card tree shows each item's steps in order, and Levels hides deeper sub-cards on the board.": "智能体把工作拆成各有工作区的子卡片；受监督的父卡会等待并验收它们。卡片树按顺序展示每个事项的步骤，“层级”在看板上隐藏更深层的子卡片。",
 };
 export default catalog;

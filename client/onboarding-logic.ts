@@ -29,7 +29,7 @@ export function welcomeDecision(input: {
   return input.blocked ? "wait" : "show";
 }
 
-export const tipIds = ["first-card", "needs-you", "first-idea", "first-done", "first-artifact", "first-tag", "agent-question", "older-finished", "next-move", "first-ticket", "jira-connect", "project-menu", "first-workpad", "subagents", "card-display", "first-workflow-insight", "attention-dismiss", "sidebar-order", "connectors", "session-history", "ai-language", "summary-models", "first-memory-candidate", "agent-automation", "sub-cards", "task-intake", "card-comments", "settings-entry"] as const;
+export const tipIds = ["first-card", "needs-you", "first-idea", "first-done", "first-artifact", "first-tag", "agent-question", "older-finished", "next-move", "first-ticket", "jira-connect", "project-menu", "first-workpad", "subagents", "card-display", "first-workflow-insight", "attention-dismiss", "sidebar-order", "connectors", "session-history", "ai-language", "summary-models", "first-memory-candidate", "agent-automation", "sub-cards", "card-tree", "task-intake", "card-comments", "settings-entry"] as const;
 export type TipId = (typeof tipIds)[number];
 
 export interface TipFacts {
@@ -80,6 +80,8 @@ export interface TipFacts {
   automationCandidate: boolean;
   /** A card of the current project has sub-cards and no card is open (SUB-CARDS-SPEC §7). */
   hasSubCards: boolean;
+  /** The current project has a sub-card's sub-card or 2+ blocks links, and no card is open (CARD-TREE-SPEC §6). */
+  hasCardTree?: boolean;
   /** The current project has a project-memory candidate waiting for review (PROJECT-MEMORY-SPEC §11). */
   memoryCandidate: boolean;
   /** A card's sidebar is open, the card has a session and takes comments (not archived), so its Comments composer is in view (CARD-COMMENTS-SPEC §5). */
@@ -113,6 +115,7 @@ const tipFact: Record<Exclude<TipId, "settings-entry">, keyof TipFacts> = {
   "first-memory-candidate": "memoryCandidate",
   "agent-automation": "automationCandidate",
   "sub-cards": "hasSubCards",
+  "card-tree": "hasCardTree",
   "task-intake": "taskIntake",
   "card-comments": "cardCommentable",
 };
@@ -121,7 +124,7 @@ const tipFact: Record<Exclude<TipId, "settings-entry">, keyof TipFacts> = {
 export function nextTip(input: { tipsSeen: readonly string[]; facts: TipFacts; blocked: boolean }): TipId | null {
   if (input.blocked) return null;
   // Waiting for the user outranks introductions; the answer-in-session tip is the more specific one.
-  const order: Exclude<TipId, "settings-entry">[] = ["agent-question", "needs-you", "attention-dismiss", "first-done", "older-finished", "next-move", "first-workpad", "sub-cards", "subagents", "first-idea", "first-memory-candidate", "first-workflow-insight", "ai-language", "summary-models", "first-artifact", "first-ticket", "first-tag", "first-card", "task-intake", "agent-automation", "card-display", "card-comments", "connectors", "session-history", "sidebar-order", "project-menu", "jira-connect"];
+  const order: Exclude<TipId, "settings-entry">[] = ["agent-question", "needs-you", "attention-dismiss", "first-done", "older-finished", "next-move", "first-workpad", "sub-cards", "card-tree", "subagents", "first-idea", "first-memory-candidate", "first-workflow-insight", "ai-language", "summary-models", "first-artifact", "first-ticket", "first-tag", "first-card", "task-intake", "agent-automation", "card-display", "card-comments", "connectors", "session-history", "sidebar-order", "project-menu", "jira-connect"];
   return order.find((id) => input.facts[tipFact[id]] && !input.tipsSeen.includes(id)) ?? null;
 }
 

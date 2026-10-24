@@ -7,7 +7,6 @@ const catalog: Catalog = {
   "Provider limit reached; retrying later": "제공자 한도에 도달하여 나중에 다시 시도합니다",
   "Waiting for blockers to be Done: {cards}": "차단 카드가 완료되기를 기다리는 중: {cards}",
   "Agent automation requires the In review lane.": "에이전트 자동화에는 검토 중 레인이 필요합니다.",
-  "Agents can split work into sub-cards with their own workspaces. A supervised parent waits, checks their deliveries and accepts them. Failed or stopped jobs need your Run again.": "에이전트는 작업을 각자의 작업 공간이 있는 하위 카드로 나눌 수 있습니다. 감독 중인 상위 카드는 기다린 뒤 결과를 확인하고 승인합니다. 실패하거나 중지된 작업은 다시 실행을 선택해야 합니다.",
   "Restore defaults": "기본값 복원",
   "Progress models": "진행 상황 모델",
   "Summary models": "요약 모델",
@@ -1608,5 +1607,7 @@ const catalog: Catalog = {
   "Holds this card until the link is removed": "링크를 지울 때까지 이 카드를 막습니다",
   "Waits for": "대기 대상",
   "+{n} more": "{n}개 더",
+  "Card tree shows each item from the whole to its parts, with its steps in order. Use Levels to hide deeper sub-cards on the board.": "카드 트리는 각 항목을 전체에서 부분까지 단계 순서대로 보여 줍니다. ‘단계’로 보드에서 더 깊은 하위 카드를 숨기세요.",
+  "Agents split work into sub-cards with their own workspaces; a supervised parent waits and accepts them. Card tree shows each item's steps in order, and Levels hides deeper sub-cards on the board.": "에이전트는 작업을 각자 워크스페이스가 있는 하위 카드로 나누고, 감독되는 상위 카드는 기다렸다가 이를 승인합니다. 카드 트리는 각 항목의 단계를 순서대로 보여 주고, ‘단계’는 보드에서 더 깊은 하위 카드를 숨깁니다.",
 };
 export default catalog;

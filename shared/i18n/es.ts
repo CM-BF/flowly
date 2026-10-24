@@ -7,7 +7,6 @@ const catalog: Catalog = {
   "Provider limit reached; retrying later": "Límite del proveedor alcanzado; se reintentará más tarde",
   "Waiting for blockers to be Done: {cards}": "Esperando a que terminen los bloqueos: {cards}",
   "Agent automation requires the In review lane.": "La automatización de agentes requiere la columna En revisión.",
-  "Agents can split work into sub-cards with their own workspaces. A supervised parent waits, checks their deliveries and accepts them. Failed or stopped jobs need your Run again.": "Los agentes pueden dividir el trabajo en subtarjetas con espacios propios. La tarjeta principal supervisada espera, comprueba y acepta las entregas. Los trabajos fallidos o detenidos requieren que elijas Ejecutar de nuevo.",
   "Restore defaults": "Restaurar valores predeterminados",
   "Progress models": "Modelos de progreso",
   "Summary models": "Modelos de resumen",
@@ -1608,5 +1607,7 @@ const catalog: Catalog = {
   "Holds this card until the link is removed": "Retiene esta tarjeta hasta que se quite el vínculo",
   "Waits for": "Espera a",
   "+{n} more": {"one": "+{n} más", "other": "+{n} más"},
+  "Card tree shows each item from the whole to its parts, with its steps in order. Use Levels to hide deeper sub-cards on the board.": "El árbol de tarjetas muestra cada elemento del todo a sus partes, con sus pasos en orden. Usa Niveles para ocultar subtarjetas más profundas en el tablero.",
+  "Agents split work into sub-cards with their own workspaces; a supervised parent waits and accepts them. Card tree shows each item's steps in order, and Levels hides deeper sub-cards on the board.": "Los agentes dividen el trabajo en subtarjetas con su propio espacio de trabajo; una tarjeta padre supervisada espera y las acepta. El árbol de tarjetas muestra los pasos de cada elemento en orden, y Niveles oculta las subtarjetas más profundas en el tablero.",
 };
 export default catalog;

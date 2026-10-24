@@ -7,7 +7,6 @@ const catalog: Catalog = {
   "Provider limit reached; retrying later": "プロバイダーの制限に達したため、後で再試行します",
   "Waiting for blockers to be Done: {cards}": "ブロッカーの完了を待機中：{cards}",
   "Agent automation requires the In review lane.": "エージェント自動化には「レビュー中」レーンが必要です。",
-  "Agents can split work into sub-cards with their own workspaces. A supervised parent waits, checks their deliveries and accepts them. Failed or stopped jobs need your Run again.": "エージェントは専用ワークスペースを持つサブカードに作業を分割できます。監督対象の親カードは待機し、成果を確認して承認します。失敗または停止したジョブは「再実行」で再開してください。",
   "Restore defaults": "既定値に戻す",
   "Progress models": "進捗モデル",
   "Summary models": "要約モデル",
@@ -1608,5 +1607,7 @@ const catalog: Catalog = {
   "Holds this card until the link is removed": "リンクを外すまでこのカードを保留します",
   "Waits for": "待機先",
   "+{n} more": "ほか {n} 件",
+  "Card tree shows each item from the whole to its parts, with its steps in order. Use Levels to hide deeper sub-cards on the board.": "カードツリーは各項目を全体から部分まで、ステップ順に表示します。「階層」 でボード上の深いサブカードを隠せます。",
+  "Agents split work into sub-cards with their own workspaces; a supervised parent waits and accepts them. Card tree shows each item's steps in order, and Levels hides deeper sub-cards on the board.": "エージェントは作業をそれぞれのワークスペースを持つサブカードに分け、監督下の親カードは待機して受け入れます。カードツリーは各項目のステップを順に表示し、「階層」 はボード上の深いサブカードを隠します。",
 };
 export default catalog;

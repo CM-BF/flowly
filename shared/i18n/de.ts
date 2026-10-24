@@ -7,7 +7,6 @@ const catalog: Catalog = {
   "Provider limit reached; retrying later": "Anbieterlimit erreicht; späterer Neuversuch",
   "Waiting for blockers to be Done: {cards}": "Wartet auf abgeschlossene Blocker: {cards}",
   "Agent automation requires the In review lane.": "Die Agentenautomatisierung benötigt die Spalte „In Prüfung“.",
-  "Agents can split work into sub-cards with their own workspaces. A supervised parent waits, checks their deliveries and accepts them. Failed or stopped jobs need your Run again.": "Agenten können Arbeit in Unterkarten mit eigenen Arbeitsbereichen aufteilen. Eine betreute Elternkarte wartet, prüft und akzeptiert die Ergebnisse. Fehlgeschlagene oder gestoppte Aufträge benötigen „Erneut ausführen“.",
   "Restore defaults": "Standardeinstellungen wiederherstellen",
   "Progress models": "Fortschrittsmodelle",
   "Summary models": "Zusammenfassungsmodelle",
@@ -1608,5 +1607,7 @@ const catalog: Catalog = {
   "Holds this card until the link is removed": "Hält diese Karte fest, bis die Verknüpfung entfernt ist",
   "Waits for": "Wartet auf",
   "+{n} more": {"one": "+{n} weitere", "other": "+{n} weitere"},
+  "Card tree shows each item from the whole to its parts, with its steps in order. Use Levels to hide deeper sub-cards on the board.": "Der Kartenbaum zeigt jedes Vorhaben vom Ganzen bis zu seinen Teilen, mit seinen Schritten in Reihenfolge. Mit Ebenen blendest du tiefere Unterkarten auf dem Board aus.",
+  "Agents split work into sub-cards with their own workspaces; a supervised parent waits and accepts them. Card tree shows each item's steps in order, and Levels hides deeper sub-cards on the board.": "Agenten teilen Arbeit in Unterkarten mit eigenem Workspace auf; eine überwachte übergeordnete Karte wartet und nimmt sie ab. Der Kartenbaum zeigt die Schritte jedes Vorhabens in Reihenfolge, und Ebenen blendet tiefere Unterkarten auf dem Board aus.",
 };
 export default catalog;

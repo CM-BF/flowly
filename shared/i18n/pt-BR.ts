@@ -7,7 +7,6 @@ const catalog: Catalog = {
   "Provider limit reached; retrying later": "Limite do provedor atingido; nova tentativa mais tarde",
   "Waiting for blockers to be Done: {cards}": "Aguardando a conclusão dos bloqueios: {cards}",
   "Agent automation requires the In review lane.": "A automação de agentes exige a coluna Em revisão.",
-  "Agents can split work into sub-cards with their own workspaces. A supervised parent waits, checks their deliveries and accepts them. Failed or stopped jobs need your Run again.": "Agentes podem dividir o trabalho em subcartões com espaços próprios. O cartão pai supervisionado espera, verifica e aceita as entregas. Tarefas com falha ou interrompidas exigem que você escolha Executar novamente.",
   "Restore defaults": "Restaurar padrões",
   "Progress models": "Modelos de progresso",
   "Summary models": "Modelos de resumo",
@@ -1608,5 +1607,7 @@ const catalog: Catalog = {
   "Holds this card until the link is removed": "Retém este card até o vínculo ser removido",
   "Waits for": "Aguarda",
   "+{n} more": {"one": "+{n} mais", "other": "+{n} mais"},
+  "Card tree shows each item from the whole to its parts, with its steps in order. Use Levels to hide deeper sub-cards on the board.": "A árvore de cards mostra cada item do todo às partes, com as etapas em ordem. Use Níveis para ocultar subcards mais profundos no quadro.",
+  "Agents split work into sub-cards with their own workspaces; a supervised parent waits and accepts them. Card tree shows each item's steps in order, and Levels hides deeper sub-cards on the board.": "Os agentes dividem o trabalho em subcards com workspace próprio; um card pai supervisionado aguarda e os aceita. A árvore de cards mostra as etapas de cada item em ordem, e Níveis oculta subcards mais profundos no quadro.",
 };
 export default catalog;
