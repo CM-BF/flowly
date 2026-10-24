@@ -89,3 +89,71 @@ test("Flowly does not read an oversized session's timeline at its turn end", asy
   await x.turn(impl, "a");
   expect(read).not.toContain(impl);
 });
+
+test("an implementer rotated after requested changes gets them, also when the reminder or retry is what triggers the rotation", async () => {
+  const { x, impl, rev } = await underReview();
+  await x.automation.submitReview({ agentId: rev, taskId: "a", workspaceId: "w-a" }, { verdict: "changes", summary: "Not yet", findings: ["a.ts: FINDING-XYZ"] });
+  await x.endTurn(rev, "a");
+  await x.automation.kick();
+  expect(x.sent.at(-1)).toMatchObject({ agentId: impl });
+  x.hooks.history = (id) => (id === impl ? big : null);
+  // The rework turn ends without a delivery: the reminder goes to a new session, with the findings.
+  await x.turn(impl, "a");
+  const next = x.created.at(-1)!;
+  expect(next.prompt).toContain("FINDING-XYZ");
+  expect(next.prompt).toContain("reminder 1 of 2");
+});
+
+test("a rotated retry continues the card instead of starting it over", async () => {
+  const x = await setup({ enabled: true });
+  await x.automation.queue("a");
+  await x.automation.kick();
+  const old = x.created[0].agentId;
+  await x.turn(old, "a", "failed");
+  expect(await x.job("a")).toMatchObject({ state: "retry_wait" });
+  x.hooks.history = (id) => (id === old ? big : null);
+  x.advance(3_600_000);
+  await x.automation.kick();
+  const next = x.created.at(-1)!;
+  expect(next.agentId).not.toBe(old);
+  expect(next.prompt).toContain("queued this card again");
+  expect(next.prompt).not.toContain("from start to finish");
+});
+
+test("a reviewer rotated on a reminder gets its full review instruction and its verdict counts", async () => {
+  const { x, rev } = await underReview({ panelAfter: 0, panelSize: 2 });
+  x.hooks.history = (id) => (id === rev ? big : null);
+  // The reviewer's turn ends without a verdict: the reminder would go to it.
+  await x.turn(rev, "a");
+  const next = x.created.at(-1)!;
+  expect(next.labels["flowly-automation"]).toBe("reviewer");
+  expect(next.prompt).toContain("You are the reviewer of this card");
+  expect(next.prompt).toContain("2 independent reviewers at once");
+  expect(next.prompt).toContain("reminder 1 of 2");
+  await x.automation.submitReview({ agentId: next.agentId, taskId: "a", workspaceId: "w-a" }, { verdict: "approve", summary: "Checked" });
+  expect(await x.job("a")).toMatchObject({ state: "delivered", verdict: "approved" });
+});
+
+test("a turn a person started on the old session in the meantime keeps it: no second session joins the workspace", async () => {
+  const x = await setup({ enabled: true });
+  await x.automation.queue("a");
+  await x.automation.kick();
+  const old = x.created[0].agentId;
+  // The turn ends while the snapshot still reads running: the reminder is held.
+  x.advance(1000);
+  await x.record("a", { actor: "system", action: "agent.turn_started", agentId: old });
+  x.advance(1000);
+  await x.record("a", { actor: "system", action: "agent.turn_ended", agentId: old, outcome: "completed" });
+  x.advance(1000);
+  await x.automation.turnEnded(old);
+  expect((await x.job("a")).instruction?.text).toContain("reminder 1 of 2");
+  expect(x.sent.filter((m) => m.agentId === old)).toHaveLength(0);
+  // A person's message starts a turn on it before the next pass, whose snapshot still reads idle.
+  x.advance(1000);
+  await x.record("a", { actor: "system", action: "agent.turn_started", agentId: old });
+  x.agents.get(old)!.status = "idle";
+  x.hooks.history = (id) => (id === old ? big : null);
+  await x.automation.kick();
+  expect(x.created).toHaveLength(1);
+  expect((await x.job("a")).implementerId).toBe(old);
+});

@@ -621,6 +621,8 @@ export class AutomationService {
     else delete job.heldLimits;
     job.providerLimit = limit;
     job.fallback = { ...job.fallback, [role]: true };
+    const replaced = role === "reviewer" ? job.reviewerId : job.implementerId;
+    if (job.historyWarning?.agentId === replaced) delete job.historyWarning;
     if (role === "reviewer") this.retireReviewer(job);
     else delete job.implementerId;
     job.role = role;
@@ -671,17 +673,28 @@ export class AutomationService {
    */
   private rotate(board: Board, job: AutomationJob, role: Role, bytes: number) {
     const settings = automationOf(board.projects.find((p) => p.id === job.projectId))!;
-    const fresh = job.instruction!.fresh;
-    const delivery = job.instruction!.reviewDelivery;
-    const start = role === "implementer" && !fresh.includes("Follow the Flowly skill:") ? [startPrompt({ review: !!settings.reviewer, again: true }), job.feedback] : [];
-    const text = [rotationNote(role, megabytes(bytes)), ...start, fresh].filter(Boolean).join("\n\n");
+    const review = !!settings.reviewer;
+    const old = role === "reviewer" ? job.reviewerId : job.implementerId;
+    // A retry's fresh text starts the card from scratch; the new session takes over instead.
+    const fresh = job.instruction!.fresh.replace(startPrompt({ review, again: false }), startPrompt({ review, again: true }));
+    const parts =
+      role === "reviewer"
+        ? // A reminder or retry alone would leave the new reviewer without its round, lens and panel instructions.
+          [fresh.includes("You are the reviewer of this card") ? "" : reviewPrompt(job.reviewRounds, settings.maxReviewRounds, reviewersFor(settings, job.reviewRounds))]
+        : [
+            fresh.includes("Follow the Flowly skill:") ? "" : startPrompt({ review, again: true }),
+            job.feedback && !fresh.includes(job.feedback) ? job.feedback : "",
+            // The reviewer's requested changes still to do (as a fallback takeover carries them, §4.5).
+            job.verdict === "changes" && job.changes && !fresh.includes(job.changes) ? job.changes : "",
+          ];
+    const text = [rotationNote(role, megabytes(bytes)), ...parts, fresh].filter(Boolean).join("\n\n");
     if (role === "reviewer") this.retireReviewer(job);
     else delete job.implementerId;
     delete job.pendingOp;
     delete job.pendingRole;
-    if (job.historyWarning) delete job.historyWarning;
+    if (job.historyWarning?.agentId === old) delete job.historyWarning;
     this.instruct(job, role, text);
-    if (delivery) job.instruction!.reviewDelivery = delivery;
+    if (role === "reviewer") job.instruction!.reviewDelivery = job.deliveryEvent;
     job.updatedAt = this.now();
     this.store.event(board, { taskId: job.taskId, actor: "system", action: "automation_rotated", note: `The ${role} session's provider history reached ${megabytes(bytes)} MB, too large for Paseo to load safely; a new session takes over` });
   }
@@ -978,6 +991,9 @@ export class AutomationService {
             const rotated = await this.store.transaction((b) => {
               const j = this.current(b, job, role);
               if (!j?.instruction || (role === "reviewer" ? j.reviewerId : j.implementerId) !== id) return { value: null, changed: false };
+              // A turn that started on the old session meanwhile (a person's message) keeps it: no second session in the workspace.
+              const latest = latestLifecycle(b, j.taskId, id);
+              if (latest?.action === "agent.turn_started" && (!j.turnAt || latest.at > j.turnAt)) return { value: null, changed: false };
               this.rotate(b, j, role, bytes);
               return { value: { ...j }, changed: true };
             });

@@ -2,12 +2,12 @@ import { afterEach, expect, test } from "vitest";
 import { mkdir, mkdtemp, rename, rm, truncate, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { historyBytes, oversized } from "./provider-history";
+import { forgetHistory, historyBytes, oversized } from "./provider-history";
 import { historyLimits } from "../shared/automation";
 
 // AUTOMATION-SPEC §4.6: Flowly measures a Codex session's rollout file, found from the thread id alone.
 const homes: string[] = [];
-afterEach(async () => { await Promise.all(homes.splice(0).map((h) => rm(h, { recursive: true, force: true }))); });
+afterEach(async () => { forgetHistory(); await Promise.all(homes.splice(0).map((h) => rm(h, { recursive: true, force: true }))); });
 
 const pad = (n: number) => String(n).padStart(2, "0");
 /** A UUIDv7 thread id created at `ms`, and the local day folder Codex files it under. */
@@ -63,4 +63,14 @@ test("an oversized session is reported from one snapshot a minute; smaller ones 
   expect(refreshes).toBe(2);
   await oversized(paseo, "big", 61_000, measure);
   expect(refreshes).toBe(3);
+});
+
+test("a provider built on Codex (persistence keeps metadata.provider codex) is measured, and the neighbouring day folder is searched", async () => {
+  const home = await codexHome();
+  const ms = Date.parse("2026-10-23T23:54:42Z");
+  const { id } = thread(ms);
+  const before = new Date(ms - 86_400_000);
+  await rollout(join(home, "sessions", String(before.getFullYear()), pad(before.getMonth() + 1), pad(before.getDate())), id, 4096);
+  const derived = { provider: "codex-azure", persistence: { provider: "codex-azure", sessionId: id, nativeHandle: id, metadata: { provider: "codex", threadId: id } } };
+  expect(await historyBytes(derived, home)).toBe(4096);
 });

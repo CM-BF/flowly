@@ -6,7 +6,7 @@ import { useRpc } from "@getpaseo/plugin/client";
 import { useQueryClient } from "@tanstack/react-query";
 import * as rpc from "../shared/rpc";
 import type { Project, Task } from "../shared/model";
-import { automationOf, isLive, panelChoice, panelDefaults, panelOutOfReach, readiness, reviewersFor, type AutomationJob, type AutomationSettings } from "../shared/automation";
+import { activeAgent, automationOf, isLive, panelChoice, panelDefaults, panelOutOfReach, readiness, reviewersFor, type AutomationJob, type AutomationSettings } from "../shared/automation";
 import { automationReason, type AutomationActions } from "./automation-view";
 import type { AgentModel } from "../shared/agent-defaults";
 import { boardKey, useBoardQuery } from "./queries";
@@ -109,7 +109,7 @@ export function TaskAutomation({ task, project, active, unavailable = false }: {
         : t("Review round {n} of {max}", { n: job.reviewRounds, max: settings.maxReviewRounds })
       : "",
     job?.nudges && settings ? t("Reminder {n} of {max}", { n: job.nudges, max: settings.nudgeLimit }) : "",
-    job?.historyWarning && live ? t("Session history {n} MB: too large for Paseo to load safely; the next instruction goes to a new session", { n: Math.round(job.historyWarning.bytes / 2 ** 20) }) : "",
+    job?.historyWarning && live && job.historyWarning.agentId === activeAgent(job) ? t("Session history {n} MB: too large for Paseo to load safely; the next instruction goes to a new session", { n: Math.round(job.historyWarning.bytes / 2 ** 20) }) : "",
     job?.failures && settings ? t("Failed turns: {n} of {max}", { n: job.failures, max: settings.failureLimit }) : "",
   ].filter(Boolean);
   return (

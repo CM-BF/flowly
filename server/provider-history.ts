@@ -5,7 +5,11 @@ import type { PaseoApi } from "@getpaseo/client";
 import { historyLimits } from "../shared/automation";
 
 /** What a session snapshot tells about its provider-native history (AgentSnapshotPayload.persistence). */
-export type HistoryAgent = { id?: string; provider?: string | null; persistence?: { provider?: string; sessionId?: string; nativeHandle?: string } | null };
+export type HistoryAgent = {
+  id?: string;
+  provider?: string | null;
+  persistence?: { provider?: string; sessionId?: string; nativeHandle?: string; metadata?: { provider?: string; threadId?: string } | null } | null;
+};
 
 const paths = new Map<string, string>();
 const day = 86_400_000;
@@ -29,9 +33,11 @@ function dayFolders(thread: string) {
  * message no longer fits in a string and the daemon's worker crashes.
  */
 export async function historyBytes(agent: HistoryAgent, home = process.env.CODEX_HOME || join(homedir(), ".codex")): Promise<number | null> {
-  const provider = agent.persistence?.provider ?? agent.provider;
-  const thread = agent.persistence?.nativeHandle ?? agent.persistence?.sessionId;
-  if (provider !== "codex" || !thread || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(thread)) return null;
+  // A provider that extends Codex (e.g. "codex-azure") renames provider and persistence.provider; metadata keeps "codex".
+  const persisted = agent.persistence;
+  const codex = [persisted?.metadata?.provider, persisted?.provider, agent.provider].includes("codex");
+  const thread = persisted?.metadata?.threadId ?? persisted?.nativeHandle ?? persisted?.sessionId;
+  if (!codex || !thread || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(thread)) return null;
   const known = paths.get(thread);
   if (known) {
     const size = (await stat(known).catch(() => null))?.size;
@@ -51,6 +57,11 @@ export async function historyBytes(agent: HistoryAgent, home = process.env.CODEX
 }
 
 const checked = new Map<string, { at: number; bytes: number | null }>();
+/** Forgets every measurement (tests). */
+export function forgetHistory() {
+  checked.clear();
+  paths.clear();
+}
 
 /**
  * The session's history size when it is too large to load safely (`historyLimits.rotate`), else null. Callers skip

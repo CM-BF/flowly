@@ -4,6 +4,7 @@ import { randomUUID } from "node:crypto";
 import type { PaseoApi } from "@getpaseo/client";
 import type { BoardStore } from "./store";
 import { composerStateSchema, type ComposerState, type OutgoingImage } from "../shared/composer";
+import { megabytes, oversized } from "./provider-history";
 
 type QueuedImage = { file: string; mimeType: OutgoingImage["mimeType"] };
 const extension: Record<OutgoingImage["mimeType"], string> = {
@@ -95,6 +96,8 @@ const defaultSend: Send = async (paseo, agentId, text, steer, images, messageId)
   });
 };
 
+const tooLarge = (bytes: number) => `This session's history is ${megabytes(bytes)} MB, too large for Paseo to load safely; the message stays queued. Send it to a new session instead.`;
+
 export class ComposerService {
   private draining = new Set<string>();
   private lastDrain = new Map<string, number>();
@@ -170,6 +173,8 @@ export class ComposerService {
   /** "Send now": steer the running turn with a queued message (Paseo parity). */
   async sendNow(input: { taskId: string; agentId: string; id: string }, paseo: PaseoApi) {
     const agent = await this.verify(input.taskId, input.agentId, paseo);
+    const bytes = await oversized(paseo, input.agentId);
+    if (bytes) throw new Error(tooLarge(bytes));
     const item = await this.store.mutate((state) => {
       const entry = state.sessions[input.agentId];
       const found = entry?.queue.find((m) => m.id === input.id);
@@ -207,6 +212,15 @@ export class ComposerService {
       const agent = (await paseo.agents.ref(agentId).refresh())?.agent;
       if (!agent || agent.status === "running" || agent.status === "initializing") return false;
       if (agent.pendingPermissions?.length) return false;
+      // Sending makes Paseo load the session; an oversized Codex history would crash it (AUTOMATION-SPEC §4.6).
+      const bytes = await oversized(paseo, agentId);
+      if (bytes) {
+        await this.store.mutate((s) => {
+          const e = s.sessions[agentId];
+          if (e) e.lastError = tooLarge(bytes);
+        });
+        return false;
+      }
       const board = await this.board.read();
       const task = board.tasks.find((t) => t.id === entry.taskId);
       if (!task || task.archivedAt || agent.workspaceId !== task.workspaceId) return false;

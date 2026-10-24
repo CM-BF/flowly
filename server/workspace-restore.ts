@@ -3,6 +3,8 @@ import type { BoardStore } from "./store";
 import type { BoardEvent } from "../shared/model";
 import { paseoHome } from "./service";
 import { isSummarizer } from "../shared/summary";
+import { historyBytes, megabytes, type HistoryAgent } from "./provider-history";
+import { historyLimits } from "../shared/automation";
 
 /** Paseo's answer to "can this archived workspace come back?". */
 export type RecoveryState =
@@ -19,7 +21,7 @@ export interface RecoveryConnection {
   reviveSession(agentId: string): Promise<void>;
   close(): Promise<void>;
 }
-export type ArchivedSession = { id: string; archivedAt: string; labels: Record<string, string> };
+export type ArchivedSession = { id: string; archivedAt: string; labels: Record<string, string>; provider?: string; persistence?: HistoryAgent["persistence"] };
 export interface WorkspaceRecovery {
   connect(): Promise<RecoveryConnection>;
 }
@@ -51,7 +53,7 @@ export function daemonWorkspaceRecovery(home = paseoHome()): WorkspaceRecovery {
             const page = await client.fetchAgents({ filter: { includeArchived: true }, page: { limit: 200, cursor } });
             for (const { agent } of page.entries)
               if (agent.workspaceId === workspaceId && agent.archivedAt)
-                found.push({ id: agent.id, archivedAt: agent.archivedAt, labels: agent.labels ?? {} });
+                found.push({ id: agent.id, archivedAt: agent.archivedAt, labels: agent.labels ?? {}, provider: agent.provider, persistence: (agent as HistoryAgent).persistence ?? null });
             cursor = page.pageInfo.nextCursor ?? undefined;
           } while (cursor);
           return found;
@@ -184,6 +186,12 @@ export class WorkspaceRestoreService {
       let revived = 0;
       const failed: string[] = [];
       for (const session of revive) {
+        // Reviving reloads the session; an oversized Codex history would crash Paseo (AUTOMATION-SPEC §4.6).
+        const bytes = await historyBytes(session).catch(() => null);
+        if (bytes !== null && bytes >= historyLimits.rotate) {
+          failed.push(`${session.id.slice(0, 8)}: history ${megabytes(bytes)} MB, too large for Paseo to load safely, left archived`);
+          continue;
+        }
         try {
           await daemon.reviveSession(session.id);
           revived++;
