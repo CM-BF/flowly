@@ -1454,5 +1454,8 @@ const catalog: Catalog = {
   "Reviewers in a panel": "パネルのレビュー担当数",
   "Panel review round {n} of {max}": "パネルレビュー {n}/{max} ラウンド",
   "With {n} review rounds a panel round never comes: allow more Review rounds or start the panel earlier.": "レビューが {n} ラウンドだとパネルのラウンドは来ません。レビューのラウンド数を増やすか、パネルを早めに始めてください。",
+  "Session history {n} MB: too large for Paseo to load safely; the next instruction goes to a new session": "セッション履歴 {n} MB：Paseo が安全に読み込めない大きさです。次の指示は新しいセッションに送られます",
+  "Continued in a new session: the history grew too large": "新しいセッションで続行：履歴が大きくなりすぎました",
+  "Session history is getting too large": "セッション履歴が大きくなりすぎています",
 };
 export default catalog;

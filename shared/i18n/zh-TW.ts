@@ -1454,5 +1454,8 @@ const catalog: Catalog = {
   "Reviewers in a panel": "小組審查者人數",
   "Panel review round {n} of {max}": "第 {n}/{max} 輪小組審查",
   "With {n} review rounds a panel round never comes: allow more Review rounds or start the panel earlier.": "只有 {n} 輪審查時永遠輪不到小組審查：請增加審查輪次，或讓小組審查更早開始。",
+  "Session history {n} MB: too large for Paseo to load safely; the next instruction goes to a new session": "工作階段歷史 {n} MB：太大，Paseo 無法安全載入；下一則指令會交給新的工作階段",
+  "Continued in a new session: the history grew too large": "在新工作階段中繼續：歷史太大",
+  "Session history is getting too large": "工作階段歷史即將過大",
 };
 export default catalog;

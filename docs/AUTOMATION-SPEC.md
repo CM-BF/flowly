@@ -152,6 +152,16 @@ AutomationJob {
 
 插件 SDK 只在 RPC/钩子上下文里提供 Paseo 连接；dispatcher 用最近一次拿到的连接。daemon 重启后在第一次 RPC 或钩子到来前不派发（看板打开即会到来）。
 
+### 4.6 过大的会话历史
+
+用户要求，2026-10-24（实际事故）：C5b.3 的 Codex 执行者在 2.5 小时里通过 Paseo 浏览器 MCP 工具做 UI 验证（1346 次 `browser_screenshot`，约 471 MB 内联图片；5820 次 `browser_evaluate`；1526 次 `browser_snapshot`），会话文件长到 1.18 GB。Paseo 加载 Codex 会话时（daemon 重启后恢复、刷新历史、给未加载的会话发消息）用 `thread/read includeTurns:true` 把整个线程作为一条 JSON 消息读回，`codex/app-server-transport.js` 把这一行拼成一个字符串：超过 V8 字符串上限（约 5 亿字符）或堆就崩。daemon 的 worker 先因堆耗尽崩溃，之后每次重启都去恢复这个会话、每约 30 秒崩一次，主机上所有会话都断开，直到会话文件被改名、会话被归档。Paseo 本身的修复不在 Flowly 范围内；Flowly 保证自己的自动化不把会话养到这个地步，也不去触发加载。
+
+- **测量**：Flowly 从会话快照的 `persistence`（Codex 线程 id）找到 `CODEX_HOME/sessions/YYYY/MM/DD/rollout-…-<线程>.jsonl`（按 UUIDv7 时间戳定位日期目录，前后各一天；归档的在 `archived_sessions`），取文件大小（`server/provider-history.ts`）。其它 provider 测不到，按“未知”处理，不做任何动作。
+- **轮换**（`historyLimits.rotate` = 200 MB）：自动化要给一个空闲的会话发下一条指令（提醒、重试、修改要求、新一轮评审、唤醒）时，若它的历史达到这个大小，不再发给它：执行者或评审者换一个新会话，收到同一条指令，前面加上接管说明（历史太大、从卡片和 workspace 的现状继续、工具输出写到文件）；执行者的指令若不含开工说明则补上。记 `automation_rotated`。旧会话留下、不再受监督（同备用模型接管），评审者记入 `reviewers`（§5.1）。这发生在回合之间，不打断任何会话。
+- **提醒**（`historyLimits.warn` = 300 MB）：正在跑的自动化会话超过它时，在卡片上记一次 `automation_history_large`，自动化区显示 “Session history N MB: too large for Paseo to load safely; the next instruction goes to a new session”。每分钟最多检查一次，每个会话只记一次。**不打断**会话（产品不变量 “never archives or interrupts sessions”）；是否在更大时自动停止，等用户决定。
+- **不读**：历史达到 200 MB 的会话，Flowly 不再读它的时间线（回合结束的限额检查、进度摘要、workflow insights 回填、会话图片、会话预览），因为读取本身可能让 Paseo 加载整个线程；会话预览改为提示 “This session's history is N MB, too large for Paseo to load safely, so Flowly does not show it.”。结果按分钟缓存。
+- **Skill**：工具输出要小，截图、DOM 和日志写到文件；不要通过自己的工具批量转发浏览器命令（UI 验证用直接运行 headless 浏览器的脚本）。
+
 ## 5. 评审回路
 
 - 实现者交付后：`role=reviewer`、`reviewing`、`reviewRounds+1`，`deliveryEvent` 记这次交付，记 `automation_review_started`。首轮在同一 workspace 创建评审 session（`labels.flowly-automation=reviewer`，标题 `Review: <卡片>`）；之后各轮复用它，被归档则新建。

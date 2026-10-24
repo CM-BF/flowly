@@ -3,6 +3,7 @@ import type { AutomationLaunch } from "../shared/automation-launch";
 import { supportedFeatures } from "../shared/agent-features";
 import { cardHandoff, cardLocation } from "./automation-handoff";
 import { realpath } from "node:fs/promises";
+import { historyBytes, megabytes, oversized, type HistoryAgent } from "./provider-history";
 import { randomUUID } from "node:crypto";
 import type { PaseoApi } from "@getpaseo/client";
 import type { AgentModel } from "../shared/agent-defaults";
@@ -45,6 +46,8 @@ import {
   slotStates,
   reviewPrompt,
   reviewersFor,
+  rotationNote,
+  historyLimits,
   reviewsFor,
   startPrompt,
   turnDecision,
@@ -78,6 +81,8 @@ export type AutomationDeps = {
   intervalMs?: number;
   /** A session still `starting` after this long is created again (idempotently). */
   staleStartMs?: number;
+  /** The size of a session's provider history (AUTOMATION-SPEC §4.6); tests replace it. */
+  historyBytes?: (agent: HistoryAgent) => Promise<number | null>;
 };
 
 /** Short tail for event notes and the job's detail. */
@@ -164,6 +169,37 @@ export class AutomationService {
     const plan = dispatchPlan(board, this.clock(), fallback);
     for (const job of plan.retry) await this.resume(job);
     for (const job of plan.start) await this.begin(job, fallback);
+    await this.watchHistory();
+  }
+
+  private measure(agent: HistoryAgent) {
+    return (this.deps.historyBytes ?? historyBytes)(agent).catch(() => null);
+  }
+
+  private historyCheckedAt = 0;
+  /**
+   * A running session whose provider history passes `historyLimits.warn` is flagged once on its card (§4.6): Paseo
+   * crashes when it loads such a history again. Nothing is interrupted; the next instruction goes to a new session.
+   */
+  private async watchHistory() {
+    if (this.clock() - this.historyCheckedAt < 60_000) return;
+    this.historyCheckedAt = this.clock();
+    const board = await this.store.read();
+    for (const job of board.automation) {
+      const agentId = isLive(job) ? activeAgent(job) : undefined;
+      if (!agentId || job.historyWarning?.agentId === agentId) continue;
+      const agent = (await this.api().agents.ref(agentId).refresh().catch(() => null))?.agent;
+      if (!agent || agent.archivedAt) continue;
+      const bytes = await this.measure(agent as HistoryAgent);
+      if (bytes === null || bytes < historyLimits.warn) continue;
+      await this.store.transaction((b) => {
+        const j = jobOf(b, job.taskId);
+        if (!j || j.generation !== job.generation || activeAgent(j) !== agentId || j.historyWarning?.agentId === agentId) return { value: null, changed: false };
+        j.historyWarning = { agentId, bytes, at: this.now() };
+        this.store.event(b, { taskId: j.taskId, actor: "system", agentId, action: "automation_history_large", note: `This session's provider history is ${megabytes(bytes)} MB. Paseo can crash when it loads a history this large again (after a restart or a history refresh); its next instruction goes to a new session. Stop it if it keeps growing.` });
+        return { value: null, changed: true };
+      });
+    }
   }
 
   // ---- People's actions -------------------------------------------------
@@ -617,6 +653,7 @@ export class AutomationService {
   /** A provider limit reported as the last row of a completed turn, or null; an unreadable timeline is no evidence. */
   private async limitNotice(agentId: string) {
     try {
+      if (await oversized(this.api(), agentId, this.clock(), (agent) => this.measure(agent))) return null;
       const page = await this.api().agents.ref(agentId).timeline.refetch({ direction: "tail", limit: 30, projection: "projected" });
       return limitNotice(((page?.entries ?? []) as { item?: unknown }[]).map((entry) => entry.item).filter(Boolean));
     } catch {
@@ -626,6 +663,27 @@ export class AutomationService {
 
   private instruct(job: AutomationJob, role: Role, text: string, fresh = text) {
     job.instruction = { id: randomUUID(), role, text, fresh };
+  }
+
+  /**
+   * The role's session grew a provider history too large to load safely (§4.6): a new session takes over with the
+   * same instruction. The old one stays, unsupervised, like a session replaced by its fallback.
+   */
+  private rotate(board: Board, job: AutomationJob, role: Role, bytes: number) {
+    const settings = automationOf(board.projects.find((p) => p.id === job.projectId))!;
+    const fresh = job.instruction!.fresh;
+    const delivery = job.instruction!.reviewDelivery;
+    const start = role === "implementer" && !fresh.includes("Follow the Flowly skill:") ? [startPrompt({ review: !!settings.reviewer, again: true }), job.feedback] : [];
+    const text = [rotationNote(role, megabytes(bytes)), ...start, fresh].filter(Boolean).join("\n\n");
+    if (role === "reviewer") this.retireReviewer(job);
+    else delete job.implementerId;
+    delete job.pendingOp;
+    delete job.pendingRole;
+    if (job.historyWarning) delete job.historyWarning;
+    this.instruct(job, role, text);
+    if (delivery) job.instruction!.reviewDelivery = delivery;
+    job.updatedAt = this.now();
+    this.store.event(board, { taskId: job.taskId, actor: "system", action: "automation_rotated", note: `The ${role} session's provider history reached ${megabytes(bytes)} MB, too large for Paseo to load safely; a new session takes over` });
   }
 
   /** The current reviewer session gives way to a new one; it stays one of the card's reviewers (`reviewers`). */
@@ -915,6 +973,17 @@ export class AutomationService {
         if (agent && !agent.archivedAt && agent.workspaceId === task.workspaceId) {
           if (coolingProvider(board, agent.provider, this.clock(), { except: job.taskId })) return;
           if (agent.status === "running" || agent.status === "initializing" || agent.activeTurn || agent.pendingPermissions?.length) return;
+          const bytes = await this.measure(agent as HistoryAgent);
+          if (bytes !== null && bytes >= historyLimits.rotate) {
+            const rotated = await this.store.transaction((b) => {
+              const j = this.current(b, job, role);
+              if (!j?.instruction || (role === "reviewer" ? j.reviewerId : j.implementerId) !== id) return { value: null, changed: false };
+              this.rotate(b, j, role, bytes);
+              return { value: { ...j }, changed: true };
+            });
+            if (rotated) await this.send(rotated);
+            return;
+          }
           if (!this.current(await this.store.read(), job, role)) return;
           await this.store.transaction((b) => { const j = this.current(b, job, role); if (!j) return { value: null, changed: false }; j.provider = agent.provider; return { value: null, changed: true }; });
           if (!this.current(await this.store.read(), job, role)) return;

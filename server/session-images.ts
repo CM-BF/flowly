@@ -3,6 +3,7 @@ import { readFile, stat, realpath } from "node:fs/promises";
 import { extname } from "node:path";
 import type { BoardStore } from "./store";
 import { displayableImage, localImagePath } from "../shared/images";
+import { oversized } from "./provider-history";
 
 const MAX_BYTES = 8 * 1024 * 1024;
 const mime: Record<string, string> = {
@@ -26,6 +27,8 @@ export class SessionImageService {
   private async transcript(agentId: string, paseo: PaseoApi) {
     const hit = this.cache.get(agentId);
     if (hit && Date.now() - hit.at < 15000) return hit.text;
+    // Reading an oversized Codex history can crash Paseo (AUTOMATION-SPEC §4.6): no images from it.
+    if (await oversized(paseo, agentId)) return "[]";
     const response = await paseo.agents.ref(agentId).timeline.refetch({ direction: "tail", limit: 500, projection: "projected" });
     const text = JSON.stringify(response.entries || []);
     this.cache.set(agentId, { at: Date.now(), text });

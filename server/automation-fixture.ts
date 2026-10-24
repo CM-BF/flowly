@@ -90,6 +90,8 @@ export async function automationFixture(automation: Partial<AutomationSettings> 
     timeline?: (agentId: string) => unknown[];
     /** Each card workspace's refresh; the default is its own directory under the fixture root. */
     workspace?: (workspaceId: string) => WorkspaceSnapshot | Promise<WorkspaceSnapshot>;
+    /** A session's provider history size in bytes (AUTOMATION-SPEC §4.6); unknown (null) by default. */
+    history?: (agentId: string) => number | null;
   } = {};
   const paseo = {
     agents: {
@@ -144,6 +146,7 @@ export async function automationFixture(automation: Partial<AutomationSettings> 
   let globalModel: AgentModel | null = null;
   const deps = {
     clock: () => now,
+    historyBytes: async (agent: { id?: string }) => (agent.id ? (hooks.history?.(agent.id) ?? null) : null),
     globalModel: async () => globalModel,
     prepare: async (taskId: string, op: string): Promise<ToolPreparation> => {
       await hooks.prepare?.(taskId, op);

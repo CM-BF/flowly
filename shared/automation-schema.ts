@@ -151,6 +151,8 @@ export const automationJobSchema = z.object({
   provider: z.string().optional(),
   /** Roles that switched to their fallback model in this run; they stay on it until the run ends (§4.5). */
   fallback: z.object({ implementer: z.boolean().optional(), reviewer: z.boolean().optional() }).optional(),
+  /** A running session of this job whose provider history passed `historyLimits.warn` (AUTOMATION-SPEC §4.6). */
+  historyWarning: z.object({ agentId: z.string(), bytes: z.number().int().nonnegative(), at: z.string() }).optional(),
   /** The reviewer session runs on the panel model (§5.1); a round that is not a panel round starts a regular one again. */
   panel: z.boolean().optional(),
   /**
