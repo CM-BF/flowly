@@ -1,5 +1,9 @@
 # Implementation progress
 
+## Hybrid handoff P1 implementation started — 2026-10-24
+
+Review levels PR #11 is merged at 2e471e6 and installed on the real daemon; all 18 original jobs retained their lifecycle fields. SESSION-HANDOFF-SPEC is the authorized target. P1 work is divided among records/persistence, bounded provider capture, existing automation rotation, and tool/UI integration; new automatic thresholds stay shadow-only until reliable P1 passes and is installed. The first Git observation helper detects further edits to already-dirty paths, reports unavailable status as unknown and exposes uninspected repositories; three focused behavior tests pass. No P1 code has been installed or described as complete. Full original questions/delivery notes will be retained rather than treating bounded previews as full evidence.
+
 ## Review levels real verification complete — 2026-10-24
 
 - [x] Orchestrator's independent runtime and UI fix reviews passed; typecheck and 175 files / 1707 tests passed at runtime cc6a9ec.
