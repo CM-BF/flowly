@@ -22,16 +22,24 @@ type ModelAgent = RemovableAgent & {
 export async function runSummaryModels<T>(
   paseo: PaseoApi,
   configured: SummaryModelChoice,
-  options: { create(model: string): Promise<ModelAgent>; parse(text: string | null | undefined): T; remove: RemoveAgent; timeoutMs: number },
+  options: { create(model: string): Promise<ModelAgent>; parse(text: string | null | undefined): T; remove: RemoveAgent; timeoutMs: number; signal?: AbortSignal },
 ): Promise<{ model: string; output: T }> {
-  const models = resolveModels(configured, await availableModels(paseo, configured));
+  const models = resolveModels(configured, await abortable(availableModels(paseo, configured), options.signal));
   const failures: string[] = [];
   for (const model of models) {
+    if (options.signal?.aborted) throw new Error("Cancelled");
     try {
-      const agent = await options.create(model);
+      const creating = options.create(model);
+      let agent: ModelAgent;
+      try { agent = await modelDeadline(abortable(creating, options.signal), options.timeoutMs); }
+      catch (error) {
+        // Creation can finish after cancellation or a timeout; remove only this run's eventual session.
+        void creating.then(options.remove).catch(() => undefined);
+        throw error;
+      }
       let output: T;
       try {
-        const result = await agent.waitForFinish(options.timeoutMs);
+        const result = await modelDeadline(abortable(agent.waitForFinish(options.timeoutMs), options.signal), options.timeoutMs);
         if (result.status !== "idle" || result.error) throw new Error(
           result.status === "timeout" ? "The summary model timed out."
             : result.status === "permission" ? "The summary model asked for a permission."
@@ -47,4 +55,20 @@ export async function runSummaryModels<T>(
     }
   }
   throw new Error(failures.join("; "));
+}
+
+/** Cancellation never leaves an event listener behind on a completed operation. */
+export function abortable<T>(work: Promise<T>, signal?: AbortSignal): Promise<T> {
+  if (!signal) return work;
+  return new Promise<T>((resolve, reject) => {
+    const abort = () => reject(new Error("Cancelled"));
+    if (signal.aborted) { void work.catch(() => undefined); abort(); return; }
+    signal.addEventListener("abort", abort, { once: true });
+    work.then(resolve, reject).finally(() => signal.removeEventListener("abort", abort));
+  });
+}
+
+function modelDeadline<T>(work: Promise<T>, ms: number): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  return Promise.race([work, new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error("The summary model timed out.")), ms); })]).finally(() => clearTimeout(timer));
 }

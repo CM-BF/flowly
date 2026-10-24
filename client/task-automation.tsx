@@ -6,8 +6,23 @@ import { useRpc } from "@getpaseo/plugin/client";
 import { useQueryClient } from "@tanstack/react-query";
 import * as rpc from "../shared/rpc";
 import type { Project, Task } from "../shared/model";
-import { activeAgent, automationOf, isLive, panelChoice, panelDefaults, panelOutOfReach, readiness, reviewersFor, type AutomationJob, type AutomationSettings } from "../shared/automation";
-import { automationReason, automationSignal, type AutomationActions, type AutomationSignal } from "./automation-view";
+import {
+  activeAgent,
+  automationOf,
+  deepPanelSize,
+  isLive,
+  levelChoice,
+  levelRounds,
+  panelChoice,
+  panelDefaults,
+  readiness,
+  resolveReviewLevel,
+  reviewersFor,
+  type AutomationJob,
+  type AutomationSettings,
+} from "../shared/automation";
+import { automationReason, automationSignal, deepPanelNone, levelLines, panelFields, reviewRoundText, risksHeading, type AutomationActions, type AutomationSignal } from "./automation-view";
+import { Disclosure } from "./disclosure";
 import type { AgentModel } from "../shared/agent-defaults";
 import { boardKey, useBoardQuery } from "./queries";
 import { PulseDot } from "./motion";
@@ -70,11 +85,17 @@ export function TaskAutomation({ task, project, active, unavailable = false }: {
   // A delivery someone accepted (or a parent's agent, for a sub-card) is no longer waiting for a review.
   const status =
     signal?.text ?? (job?.state === "stopped" || job?.state === "failed" ? t("Automation stopped") : job?.state === "delivered" ? (finished ? t("Finished") : task.status === "in_review" ? t("Delivered; your review") : t("Not running")) : t("Not running"));
+  const plan = job?.review;
+  // The level the card resolves to now, for the drawer's "Next review round" line; none once the card is finished.
+  const levels = job && board.data ? levelLines(job, finished ? null : resolveReviewLevel(board.data, task)) : [];
   const counters = [
+    // A round with a recorded plan says its level (AUTOMATION-SPEC §5.2.5); while it runs, the status line already does.
     job?.reviewRounds && settings?.reviewer
-      ? reviewersFor(settings, job.reviewRounds) > 1
-        ? t("Panel review round {n} of {max}", { n: job.reviewRounds, max: settings.maxReviewRounds })
-        : t("Review round {n} of {max}", { n: job.reviewRounds, max: settings.maxReviewRounds })
+      ? plan
+        ? job.state === "reviewing" ? "" : reviewRoundText(job.reviewRounds, plan)
+        : reviewersFor(settings, job.reviewRounds) > 1
+          ? t("Panel review round {n} of {max}", { n: job.reviewRounds, max: settings.maxReviewRounds })
+          : t("Review round {n} of {max}", { n: job.reviewRounds, max: settings.maxReviewRounds })
       : "",
     job?.nudges && settings ? t("Reminder {n} of {max}", { n: job.nudges, max: settings.nudgeLimit }) : "",
     job?.historyWarning && live && job.historyWarning.agentId === activeAgent(job) ? t("Session history {n} MB: too large for Paseo to load safely; the next instruction goes to a new session", { n: Math.round(job.historyWarning.bytes / 2 ** 20) }) : "",
@@ -100,6 +121,17 @@ export function TaskAutomation({ task, project, active, unavailable = false }: {
           </Label>
         )}
         {!!counters.length && <Label muted size={font.sm}>{counters.join(" · ")}</Label>}
+        {levels.map((line) => (
+          <Label key={line} muted size={font.sm}>{line}</Label>
+        ))}
+        {!!job?.risks?.length && (
+          <View testID="task-automation-risks" style={{ gap: 2, paddingTop: space[1] }}>
+            <Label medium size={font.sm} color={colors.statusWarning}>{risksHeading(job)}</Label>
+            {job.risks.map((risk, index) => (
+              <Label key={index} size={font.sm} selectable>{`• ${risk}`}</Label>
+            ))}
+          </View>
+        )}
         {!settings && <Label muted size={font.sm}>{t("Agent automation is off for this project.")}</Label>}
       </View>
       {live ? (
@@ -130,6 +162,7 @@ function PanelSettings({
   cwd?: string;
 }) {
   const after = current.panelAfter === undefined ? panelDefaults.after : current.panelAfter;
+  const fields = panelFields(current);
   return (
     <>
       <Choices
@@ -149,30 +182,78 @@ function PanelSettings({
       <Label muted size={font.sm}>
         {t("When serial reviews keep requesting changes, the next round is checked by several reviewers in parallel, each from its own focus, and every confirmed problem goes to the implementer at once.")}
       </Label>
-      {after !== null && panelOutOfReach(current) && (
-        <Label muted size={font.sm}>{t("With {n} review rounds a panel round never comes: allow more Review rounds or start the panel earlier.", { n: current.maxReviewRounds })}</Label>
+      {fields.outOfReach && (
+        <Label muted size={font.sm}>
+          {t("With {n} review rounds a Standard card never reaches a panel round: allow more Review rounds or start the panel earlier. Deep cards still get a panel every round.", { n: current.maxReviewRounds })}
+        </Label>
       )}
-      {after !== null && !panelOutOfReach(current) && (
-        <>
-          <ModelDefaultGroup execution cwd={cwd}
-            title={t("Panel reviewer")}
-            description={t("The model panel rounds run on, best one that can start subagents (such as Claude). None: the reviewer's model.")}
-            value={current.panelReviewer ?? null}
-            noneLabel={t("Same as reviewer")}
-            onChange={(next) => model("panelReviewer", next)}
-          />
-          <Choices
-            title={t("Reviewers in a panel")}
-            value={String(current.panelSize ?? panelDefaults.size)}
-            options={["2", "3", "4", "5"].map((n) => ({ value: n, label: n }))}
-            onChange={(n) => {
-              const patch = panelChoice(current, "panelSize", Number(n));
-              if (patch) set(patch);
-            }}
-          />
-        </>
+      {/* Shown even when Standard cards never panel: Deep cards run every round as a panel on this model (§5.2.3). */}
+      {fields.panelReviewer && (
+        <ModelDefaultGroup execution cwd={cwd}
+          title={t("Panel reviewer")}
+          description={t("The model panel rounds run on, Deep cards' panels too unless Review levels gives them their own; best one that can start subagents (such as Claude). None: the reviewer's model.")}
+          value={current.panelReviewer ?? null}
+          noneLabel={t("Same as reviewer")}
+          onChange={(next) => model("panelReviewer", next)}
+        />
+      )}
+      {fields.panelSize && (
+        <Choices
+          title={t("Reviewers in a panel")}
+          value={String(current.panelSize ?? panelDefaults.size)}
+          options={["2", "3", "4", "5"].map((n) => ({ value: n, label: n }))}
+          onChange={(n) => {
+            const patch = panelChoice(current, "panelSize", Number(n));
+            if (patch) set(patch);
+          }}
+        />
       )}
     </>
+  );
+}
+
+/**
+ * Review levels (AUTOMATION-SPEC §5.2.5): the models, panel size and rounds of Light and Deep cards, folded under one
+ * line. Every choice goes through `levelChoice`, so only what a person changed is stored.
+ */
+function LevelSettingsGroup({ current, set, cwd }: { current: AutomationSettings; set: (patch: Partial<AutomationSettings>) => void; cwd?: string }) {
+  const [open, setOpen] = useState(false);
+  const choose = (level: "light" | "deep", key: "reviewer" | "maxReviewRounds" | "panelReviewer" | "panelSize", value: number | AgentModel | null) => {
+    const patch = levelChoice(current, level, key, value);
+    if (patch) set(patch);
+  };
+  const rounds = ["1", "2", "3", "4", "5"].map((n) => ({ value: n, label: n }));
+  const summary = t("Rounds: Light {light} · Deep {deep}, panel of {size}", { light: levelRounds(current, "light"), size: deepPanelSize(current), deep: levelRounds(current, "deep") });
+  return (
+    <Disclosure title={t("Review levels")} summary={summary} open={open} onChange={setOpen}>
+      <View style={{ gap: space[3] }}>
+        <Label muted size={font.sm}>
+          {t("Each card is reviewed at its level. Auto follows explicit levels and review tags, then asks the Summary models what this card changes. The result is reused until the card changes; keywords are only a fallback. Set a card's level in Edit task.")}
+        </Label>
+        <ModelDefaultGroup execution cwd={cwd}
+          title={t("Light reviewer")}
+          description={t("Light cards get one reviewer, never a panel.")}
+          value={current.levels?.light?.reviewer ?? null}
+          noneLabel={t("Same as reviewer")}
+          onChange={(next) => choose("light", "reviewer", next)}
+        />
+        <Choices title={t("Light rounds")} value={String(levelRounds(current, "light"))} options={rounds} onChange={(n) => choose("light", "maxReviewRounds", Number(n))} />
+        <ModelDefaultGroup execution cwd={cwd}
+          title={t("Deep panel reviewer")}
+          description={t("Deep cards get a panel from the first round: contract and correctness, design and scale, failure, data safety and security, then execution and integration.")}
+          value={current.levels?.deep?.panelReviewer ?? null}
+          noneLabel={deepPanelNone(current)}
+          onChange={(next) => choose("deep", "panelReviewer", next)}
+        />
+        <Choices
+          title={t("Deep reviewers")}
+          value={String(deepPanelSize(current))}
+          options={["2", "3", "4", "5"].map((n) => ({ value: n, label: n }))}
+          onChange={(n) => choose("deep", "panelSize", Number(n))}
+        />
+        <Choices title={t("Deep rounds")} value={String(levelRounds(current, "deep"))} options={rounds} onChange={(n) => choose("deep", "maxReviewRounds", Number(n))} />
+      </View>
+    </Disclosure>
   );
 }
 
@@ -250,6 +331,7 @@ export function AutomationSettingsGroup({
             />
           )}
           {!!current.reviewer && <PanelSettings current={current} set={set} model={model} cwd={cwd} />}
+          {!!current.reviewer && <LevelSettingsGroup current={current} set={set} cwd={cwd} />}
           <Toggle
             title={t("Full access")}
             detail={t("Agents run without asking for permissions (Claude bypass, Codex full access), whatever Permissions the implementer, the reviewer or the project default model chose. Off: those Permissions apply, agents may stop to ask, and the card shows it.")}

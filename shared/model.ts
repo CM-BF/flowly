@@ -3,7 +3,7 @@ import { agentModelSchema } from "./agent-defaults";
 import { connectorLimits, externalRefSchema, itemTypeSchema } from "./connectors";
 import { z } from "zod";
 import { attentionDismissLimits, attentionDismissalSchema } from "./attention-dismiss";
-import { automationJobSchema, automationSettingsSchema } from "./automation-schema";
+import { automationJobSchema, automationSettingsSchema, reviewLevelSchema, reviewClassificationSchema } from "./automation-schema";
 
 export const statuses = [
   "backlog",
@@ -150,6 +150,9 @@ export const taskSchema = z.object({
   origin: z.object({ taskId: z.string(), ideaId: z.string() }).optional(),
   /** Created by an agent working on card `taskId` (SUB-CARDS-SPEC §3). */
   createdByAgent: z.object({ agentId: z.string(), taskId: z.string() }).optional(),
+  /** How hard agent automation reviews the card (AUTOMATION-SPEC §5.2); absent: Auto. */
+  reviewLevel: reviewLevelSchema.optional(),
+  reviewClassification: reviewClassificationSchema.optional(),
 });
 /** A follow-up an agent proposed on its card; the user may turn it into a card (IDEAS-SPEC). */
 export const ideaStatuses = ["open", "accepted", "dismissed"] as const;
@@ -568,6 +571,8 @@ export const taskInput = z.strictObject({
   blockedBy: z.array(z.string().min(1)).max(10).optional(),
   /** Create from this open workflow-insights suggestion (WORKFLOW-INSIGHTS-SPEC §5.2). */
   insightFindingId: z.string().min(1).max(100).optional(),
+  /** Review level of the new card (AUTOMATION-SPEC §5.2); absent: Auto. */
+  reviewLevel: reviewLevelSchema.optional(),
   /** External items added as inputs in the same write (EXTERNAL-TRACKER-SPEC §5.4, CONNECTORS-SPEC §8.2). */
   externals: z
     .array(z.strictObject({ connectionId: z.string().min(1), key: z.string().min(1).max(300), itemType: itemTypeSchema.optional() }))
@@ -586,6 +591,8 @@ export const taskEdit = z.strictObject({
   /** The form's final tags; applied relative to `tagsBase`, what the form opened with (CARD-TAGS-SPEC §2.5). */
   tags: tagInputList.optional(),
   tagsBase: tagInputList.optional(),
+  /** The card's review level (AUTOMATION-SPEC §5.2); null: Auto. */
+  reviewLevel: reviewLevelSchema.nullable().optional(),
   archived: z.boolean().optional(),
   note: z.string().max(10000).optional(),
   actor: z.enum(["human", "agent"]).default("human"),

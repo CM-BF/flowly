@@ -1,3 +1,4 @@
+import { resolveReviewLevel, reviewPlan, withFallback } from "./review-levels";
 import { AutomationLaunches } from "./automation-launch";
 import type { AutomationLaunch } from "../shared/automation-launch";
 import { supportedFeatures } from "../shared/agent-features";
@@ -59,6 +60,13 @@ import {
   modelLimited,
   primaryModel,
   takeoverNote,
+  levelRounds,
+  reasonText,
+  reviewStartNote,
+  roundSeat,
+  seatOf,
+  type ReviewPlan,
+  type ReviewSeat,
   type AutomationCode,
   type AutomationJob,
   type AutomationSettings,
@@ -79,6 +87,8 @@ export type AutomationDeps = {
   prepare(taskId: string, operationId: string, paseo: PaseoApi, options?: { reviewer?: boolean }): Promise<ToolPreparation>;
   /** The global default model (Settings → Models), or null. */
   globalModel(): Promise<AgentModel | null>;
+  /** Bounded preparation of Auto; no classifier dependency in offline automation fixtures. */
+  classifyReview?: (taskId: string, paseo: PaseoApi) => Promise<void>;
   clock?: () => number;
   /** Dispatcher period; the dispatcher also runs on every queue, stop, turn end and card move. */
   intervalMs?: number;
@@ -236,7 +246,9 @@ export class AutomationService {
         const existing = jobOf(board, taskId);
         if (isLive(existing)) throw new Error("This card is already queued or running.");
         const now = this.now();
-        const healthy = existing?.reviewerId && existing.reviewerId !== existing.implementerId && !existing.fallback?.reviewer && !existing.panel;
+        // A reviewer session reviews rounds of one level (§5.2.3): one from a Light or Deep round is not carried either.
+        const healthy =
+          existing?.reviewerId && existing.reviewerId !== existing.implementerId && !existing.fallback?.reviewer && !seatOf(existing) && (existing.review?.level ?? "standard") === "standard";
         const carried = healthy ? existing.reviewerId : undefined;
         // Reviewer sessions not carried stay the card's reviewers (no takeover when a person asks them later).
         const earlierReviewers = [...(existing?.reviewers ?? []), ...(existing?.reviewerId && !carried && existing.reviewerId !== existing.implementerId ? [existing.reviewerId] : [])].slice(-20);
@@ -247,8 +259,8 @@ export class AutomationService {
           state: "queued",
           role: "implementer",
           ...(existing?.implementerId ? { implementerId: existing.implementerId } : {}),
-          // A reviewer that ran on its fallback model (§4.5) or the panel model (§5.1) is not carried: the next run
-          // starts serial rounds on the reviewer's own model.
+          // A reviewer that ran on its fallback model (§4.5), the panel model (§5.1) or a review level's own model (§5.2)
+          // is not carried: the next run starts on the reviewer's own model.
           ...(carried ? { reviewerId: carried } : {}),
           ...(earlierReviewers.length ? { reviewers: earlierReviewers } : {}),
           // The implementer session is kept, so is its model: a limit on it is not another switch to the same fallback.
@@ -256,6 +268,8 @@ export class AutomationService {
           ...(existing?.providerLimit && Date.parse(existing.providerLimit.until) > this.clock() ? { providerLimit: existing.providerLimit } : {}),
           ...(held.length ? { heldLimits: held } : {}),
           ...(existing?.launchKey && !existing.launchConsumed ? { launchKey: existing.launchKey } : {}),
+          // The reviewer's risks stay with the card until a verdict replaces them; the next run's reviewer re-checks them (§5.2.4).
+          ...(existing?.risks?.length ? { risks: existing.risks, ...(existing.risksFrom ? { risksFrom: existing.risksFrom } : {}) } : {}),
           generation: (existing?.generation ?? 0) + 1,
           nudges: 0,
           failures: 0,
@@ -458,7 +472,16 @@ export class AutomationService {
   }
 
   /** Commits a turn decision; null when the job moved on meanwhile. */
-  private apply(seen: AutomationJob, agentId: string, endedAt: string, outcome: TurnOutcome) {
+  private async apply(seen: AutomationJob, agentId: string, endedAt: string, outcome: TurnOutcome) {
+    const snapshot = await this.store.read();
+    const candidate = snapshot.tasks.find((t) => t.id === seen.taskId);
+    const settings = automationOf(snapshot.projects.find((p) => p.id === seen.projectId));
+    if (candidate && settings?.reviewer && seen.role === "implementer" && outcome.kind === "completed" && candidate.status === "in_review") {
+      candidate.reviewClassification = withFallback(snapshot, candidate).reviewClassification;
+      const next = turnDecision(snapshot, seen, agentId, outcome, settings, this.clock());
+      if (next.kind === "review" || (next.kind === "deliver" && next.code === "review_rounds"))
+        await this.deps.classifyReview?.(seen.taskId, this.api());
+    }
     return this.store.transaction((board) => {
       const job = jobOf(board, seen.taskId);
       if (!job || !isLive(job) || !automationAllowed(board, job) || job.generation !== seen.generation || activeAgent(job) !== agentId || (job.turnAt && endedAt <= job.turnAt))
@@ -466,6 +489,9 @@ export class AutomationService {
       const latest = latestTurnEnd(board, seen.taskId, agentId);
       if (!latest || latest.at !== endedAt) return { value: null, changed: false };
       const settings = automationOf(board.projects.find((p) => p.id === job.projectId))!;
+      // Keyword fallback is prepared for shared turnDecision's round-cap calculation too.
+      const currentTask = board.tasks.find((t) => t.id === job.taskId)!;
+      currentTask.reviewClassification = withFallback(board, currentTask).reviewClassification;
       const decision = turnDecision(board, job, agentId, outcome, settings, this.clock());
       const task = board.tasks.find((t) => t.id === job.taskId)!;
       // Kept on the job: the card's history holds only its newest events, and later turns are compared with it (§3).
@@ -503,12 +529,15 @@ export class AutomationService {
           delete job.pendingOp;
           delete job.pendingRole;
           delete job.changes;
-          const reviewers = reviewersFor(settings, job.reviewRounds);
-          this.choosePanelSession(job, reviewers > 1 && !!settings.panelReviewer);
-          this.instruct(job, "reviewer", reviewPrompt(job.reviewRounds, settings.maxReviewRounds, reviewers));
+          // The round's level, cap and reviewers are resolved now and kept for the whole round (§5.2).
+          const before = job.review?.level ?? "standard";
+          const plan = reviewPlan(settings, board, task, job.reviewRounds);
+          job.review = plan;
+          this.choosePanelSession(job, roundSeat(settings, plan), plan.level !== before);
+          this.instruct(job, "reviewer", roundPrompt(job, settings));
           job.instruction!.reviewDelivery = job.deliveryEvent;
           this.waitOnUnconfirmed(job);
-          note("automation_review_started", `Review round ${job.reviewRounds} of ${settings.maxReviewRounds}${reviewers > 1 ? ` (panel of ${reviewers} reviewers)` : ""}`);
+          note("automation_review_started", reviewStartNote(job.reviewRounds, plan));
           break;
         case "deliver":
           delete job.reopened;
@@ -523,7 +552,7 @@ export class AutomationService {
           if (decision.code) job.code = decision.code;
           else delete job.code;
           if (decision.unreviewed) delete job.verdict;
-          note("automation_delivered", decision.code === "review_rounds" ? `Review rounds used up (${settings.maxReviewRounds}); the card waits for you` : undefined);
+          note("automation_delivered", decision.code === "review_rounds" ? `Review rounds used up (${levelRounds(settings, resolveReviewLevel(board, task).level)}); the card waits for you` : undefined);
           break;
         case "wait":
           if (decision.code === "question" || decision.code === "blocked") job.instruction = pendingInstruction;
@@ -648,7 +677,7 @@ export class AutomationService {
     // A session that was never created keeps its first instruction: the new one is simply started on the fallback.
     if (keep && pending) job.instruction = pending;
     else if (role === "reviewer") {
-      this.instruct(job, "reviewer", `${note}\n\n${reviewPrompt(job.reviewRounds, settings.maxReviewRounds, reviewersFor(settings, job.reviewRounds))}`);
+      this.instruct(job, "reviewer", `${note}\n\n${roundPrompt(job, settings)}`);
       job.instruction!.reviewDelivery = job.deliveryEvent;
     } else {
       // Jobs recorded before job.changes kept them only in the event; a delivery since that verdict answered them.
@@ -688,7 +717,7 @@ export class AutomationService {
     const parts =
       role === "reviewer"
         ? // A reminder or retry alone would leave the new reviewer without its round, lens and panel instructions.
-          [fresh.includes("You are the reviewer of this card") ? "" : reviewPrompt(job.reviewRounds, settings.maxReviewRounds, reviewersFor(settings, job.reviewRounds))]
+          [fresh.includes("You are the reviewer of this card") ? "" : roundPrompt(job, settings)]
         : [
             fresh.includes("Follow the Flowly skill:") ? "" : startPrompt({ review, again: true }),
             job.feedback && !fresh.includes(job.feedback) ? job.feedback : "",
@@ -714,18 +743,22 @@ export class AutomationService {
   }
 
   /**
-   * Panel rounds on their own model get a reviewer session of their own (§5.1), and the rounds after them a regular
-   * one again: a round whose model differs from the current reviewer session's starts a new session on its model.
+   * Panel rounds on their own model get a reviewer session of their own (§5.1), and so do rounds on a review level's
+   * own model (§5.2.3); the rounds after them a regular one again: a round whose model slot differs from the current
+   * reviewer session's starts a new session on its model. So does a round of another level than the last one, so a
+   * reviewer session reviews rounds of one level and its title ("Light review:", "Deep review:") stays true.
    */
-  private choosePanelSession(job: AutomationJob, onPanelModel: boolean) {
-    if (!!job.panel === onPanelModel) return;
+  private choosePanelSession(job: AutomationJob, seat: ReviewSeat, levelChanged: boolean) {
+    if (seatOf(job) === seat && !levelChanged) return;
     this.retireReviewer(job);
     if (job.fallback?.reviewer) {
       const { reviewer: _reviewer, ...rest } = job.fallback;
       job.fallback = rest;
     }
-    if (onPanelModel) job.panel = true;
-    else delete job.panel;
+    delete job.panel;
+    delete job.seat;
+    if (seat === "panel") job.panel = true;
+    else if (seat) job.seat = seat;
   }
 
   // ---- The reviewer's verdict (flowly_submit_review) --------------------
@@ -748,8 +781,12 @@ export class AutomationService {
         judgedDelivery(job) !== job.deliveryEvent && newestDelivery(board, job, job.implementerId) === job.deliveryEvent;
       if (!reopenedRound && (job.role !== "reviewer" || !["reviewing", "needs_human"].includes(job.state))) {
         // A repeated call after a lost response: the same verdict is acknowledged, a different one is refused.
+        // Nothing of the repeated call is recorded, not even risks it adds (§5.2.4); say so.
         if (job.verdict === verdict)
-          return { value: { answer: { accepted: true, verdict: input.verdict, replayed: true, message: "This verdict was already recorded." } }, changed: false };
+          return {
+            value: { answer: { accepted: true, verdict: input.verdict, replayed: true, message: "This verdict was already recorded; nothing from this call was recorded (its summary, findings and risks stay as first sent)." } },
+            changed: false,
+          };
         throw new ToolError("REVIEW_CLOSED", "This review round is already closed; nothing was changed.");
       }
       const task = board.tasks.find((t) => t.id === job.taskId);
@@ -762,6 +799,19 @@ export class AutomationService {
       const now = this.now();
       const text = [input.summary, ...input.findings.map((f) => `- ${f}`)].join("\n");
       delete job.changes;
+      // The latest verdict's risks replace earlier ones, with the round and delivery they were reported on (§5.2.4);
+      // they never block approval.
+      if (input.risks.length) {
+        job.risks = input.risks;
+        job.risksFrom = { round: job.reviewRounds, ...(job.deliveryEvent ? { delivery: job.deliveryEvent } : {}) };
+      } else {
+        delete job.risks;
+        delete job.risksFrom;
+      }
+      const risks = () => {
+        if (input.risks.length)
+          this.store.event(board, { taskId: job.taskId, actor: "agent", agentId: identity.agentId, action: "automation_review_risks", note: clip(`Risks beyond the acceptance criteria (${input.risks.length}):\n${input.risks.map((r) => `- ${r}`).join("\n")}`, 10000) });
+      };
       job.verdict = verdict;
       job.reviewedEvent = job.deliveryEvent;
       job.detail = clip(input.summary);
@@ -778,6 +828,7 @@ export class AutomationService {
         delete job.pendingOp;
         delete job.pendingRole;
         this.store.event(board, { taskId: task.id, actor: "agent", agentId: identity.agentId, action: "automation_review_approved", note: clip(text, 10000) });
+        risks();
         return { value: { answer: { accepted: true, verdict: input.verdict, message: "Approved. The card stays In review for the user to accept; end your turn." } }, changed: true };
       }
       // The rework continues this review cycle: its delivery is the next round.
@@ -785,10 +836,11 @@ export class AutomationService {
       job.state = "working";
       job.turnAt = now;
       const settings = automationOf(project)!;
-      const reviewers = reviewersFor(settings, job.reviewRounds);
-      job.changes = changesPrompt(job.reviewRounds, settings.maxReviewRounds, input.summary, input.findings, reviewers);
+      const plan = planOf(job, settings);
+      job.changes = changesPrompt(job.reviewRounds, plan.max, input.summary, input.findings, plan.size, plan.level, input.risks);
       this.instruct(job, "implementer", job.changes);
       this.store.event(board, { taskId: task.id, actor: "agent", agentId: identity.agentId, action: "automation_changes_requested", note: clip(text, 10000) });
+      risks();
       // Back to work: the same stage a person's review feedback leads to (rule A1).
       const stage = resumeStage(board, task, project);
       if (stage && stage !== task.status) {
@@ -798,11 +850,10 @@ export class AutomationService {
         task.updatedAt = now;
         this.store.event(board, { taskId: task.id, actor: "system", action: "status_changed", agentId: identity.agentId, rule: "REVIEW", from, to: stage, note: "The reviewer requested changes" });
       }
-      const max = automationOf(project)?.maxReviewRounds ?? job.reviewRounds;
       return {
         value: {
           answer: { accepted: true, verdict: input.verdict, message: "Changes requested. Flowly sends your findings to the implementer; end your turn." },
-          changes: { job: { ...job }, prompt: changesPrompt(job.reviewRounds, max, input.summary, input.findings, reviewers) },
+          changes: { job: { ...job }, prompt: job.changes! },
         },
         changed: true,
       };
@@ -864,7 +915,7 @@ export class AutomationService {
       delete job.retryAt;
       const settings = automationOf(board.projects.find((p) => p.id === job.projectId))!;
       const retry = job.code === "cooldown" ? cooldownPrompt(job.cooldowns ?? 1, job.detail ?? "") : retryPrompt(job.failures, settings.failureLimit, job.detail ?? "");
-      if (!job.instruction) this.instruct(job, job.role, retry, job.role === "reviewer" ? reviewPrompt(job.reviewRounds, settings.maxReviewRounds, reviewersFor(settings, job.reviewRounds)) : startPrompt({ review: !!settings.reviewer, again: false }));
+      if (!job.instruction) this.instruct(job, job.role, retry, job.role === "reviewer" ? roundPrompt(job, settings) : startPrompt({ review: !!settings.reviewer, again: false }));
       delete job.code;
       delete job.detail;
       return { value: { ...job }, changed: true };
@@ -1099,7 +1150,7 @@ export class AutomationService {
       agentId: preparation.agentId,
       idempotencyKey: `ultra-kanban-session:${preparation.agentId}`,
       env: { FLOWLY_CONTEXT_FILE: preparation.contextFile, FLOWLY_CLI: preparation.cliPath, FLOWLY_SKILL: preparation.skillPath },
-      title: (role === "reviewer" ? `${job.panel ? "Panel review" : "Review"}: ${task.title}` : task.title).slice(0, 120),
+      title: (role === "reviewer" ? `${reviewTitle(job)}: ${task.title}` : task.title).slice(0, 120),
       // Flowly handles provider limits of its automation sessions itself (§4.5); the rate-fallback plugin leaves them alone.
       labels: { "flowly-task": task.id, "flowly-automation": role, "paseo-rate-fallback": "off" },
       prompt,
@@ -1361,7 +1412,7 @@ export class AutomationService {
           if (!j || !isLive(j) || j.generation !== job.generation || !automationAllowed(b, j)) return { value: null, changed: false };
           const settings = automationOf(b.projects.find((p) => p.id === j.projectId))!;
           if (j.pendingRole && j.pendingRole !== j.role) { delete j.pendingOp; delete j.pendingRole; }
-          this.instruct(j, j.role, j.role === "reviewer" ? reviewPrompt(j.reviewRounds, settings.maxReviewRounds, reviewersFor(settings, j.reviewRounds)) : startPrompt({ review: !!settings.reviewer, again: !!j.implementerId }));
+          this.instruct(j, j.role, j.role === "reviewer" ? roundPrompt(j, settings) : startPrompt({ review: !!settings.reviewer, again: !!j.implementerId }));
           if (j.role === "reviewer") j.instruction!.reviewDelivery = j.deliveryEvent;
           j.updatedAt = this.now();
           return { value: { ...j }, changed: true };
@@ -1505,6 +1556,30 @@ function latestLifecycle(board: Pick<Board, "events">, taskId: string, agentId: 
 function latestTurnEnd(board: Pick<Board, "events">, taskId: string, agentId: string) {
   const last = latestLifecycle(board, taskId, agentId);
   return last?.action === "agent.turn_ended" ? last : undefined;
+}
+
+/** The plan of the job's current review round (§5.2); jobs recorded before review levels get today's Standard plan. */
+function planOf(job: AutomationJob, settings: AutomationSettings): ReviewPlan {
+  return job.review ?? { level: "standard", reason: { kind: "default" }, max: settings.maxReviewRounds, size: reviewersFor(settings, job.reviewRounds) };
+}
+
+/**
+ * The reviewer's instruction for the job's current round, from its recorded plan: a resend never re-resolves the
+ * level. It carries the risks earlier rounds reported (§5.2.4): the session taking this round may never have seen them.
+ */
+function roundPrompt(job: AutomationJob, settings: AutomationSettings) {
+  const plan = planOf(job, settings);
+  return reviewPrompt(job.reviewRounds, plan.max, plan.size, plan.level, {
+    ...(plan.level === "standard" ? {} : { why: reasonText(plan.reason) }),
+    ...(job.risks?.length ? { earlier: { round: job.risksFrom?.round, risks: job.risks } } : {}),
+  });
+}
+
+/** A reviewer session's title: the level of the round it was created for, else its model slot. */
+function reviewTitle(job: AutomationJob) {
+  if (job.review?.level === "deep") return "Deep review";
+  if (job.review?.level === "light") return "Light review";
+  return seatOf(job) === "panel" ? "Panel review" : "Review";
 }
 
 function giveUpNote(code: AutomationCode, settings: AutomationSettings) {

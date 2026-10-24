@@ -31,7 +31,7 @@ export function welcomeDecision(input: {
   return input.blocked ? "wait" : "show";
 }
 
-export const tipIds = ["first-card", "needs-you", "first-idea", "first-done", "first-artifact", "first-tag", "agent-question", "older-finished", "next-move", "first-ticket", "jira-connect", "project-menu", "first-workpad", "subagents", "card-display", "first-workflow-insight", "attention-dismiss", "sidebar-order", "connectors", "session-history", "ai-language", "summary-models", "first-memory-candidate", "agent-automation", "sub-cards", "card-tree", "task-intake", "card-comments", "settings-entry"] as const;
+export const tipIds = ["first-card", "needs-you", "first-idea", "first-done", "first-artifact", "first-tag", "agent-question", "older-finished", "next-move", "first-ticket", "jira-connect", "project-menu", "first-workpad", "subagents", "card-display", "first-workflow-insight", "attention-dismiss", "sidebar-order", "connectors", "session-history", "ai-language", "summary-models", "first-memory-candidate", "agent-automation", "sub-cards", "card-tree", "task-intake", "card-comments", "review-risks", "settings-entry"] as const;
 export type TipId = (typeof tipIds)[number];
 
 export interface TipFacts {
@@ -88,6 +88,8 @@ export interface TipFacts {
   memoryCandidate: boolean;
   /** A card's sidebar is open, the card has a session and takes comments (not archived), so its Comments composer is in view (CARD-COMMENTS-SPEC §5). */
   cardCommentable: boolean;
+  /** A card of the current project is In review with a delivered job whose reviewer noted risks, and no card is open (AUTOMATION-SPEC §5.2.4). */
+  reviewRisks?: boolean;
 }
 
 /** Banner tips; `settings-entry` is the callout by the settings button instead (settingsHintDue). */
@@ -120,14 +122,24 @@ const tipFact: Record<Exclude<TipId, "settings-entry">, keyof TipFacts> = {
   "card-tree": "hasCardTree",
   "task-intake": "taskIntake",
   "card-comments": "cardCommentable",
+  "review-risks": "reviewRisks",
 };
 
 /** The one tip to show now: first in priority order whose fact holds and that was not shown before. */
 export function nextTip(input: { tipsSeen: readonly string[]; facts: TipFacts; blocked: boolean }): TipId | null {
   if (input.blocked) return null;
   // Waiting for the user outranks introductions; the answer-in-session tip is the more specific one.
-  const order: Exclude<TipId, "settings-entry">[] = ["agent-question", "needs-you", "attention-dismiss", "first-done", "older-finished", "next-move", "first-workpad", "sub-cards", "card-tree", "subagents", "first-idea", "first-memory-candidate", "first-workflow-insight", "ai-language", "summary-models", "first-artifact", "first-ticket", "first-tag", "first-card", "task-intake", "agent-automation", "card-display", "card-comments", "connectors", "session-history", "sidebar-order", "project-menu", "jira-connect"];
+  const order: Exclude<TipId, "settings-entry">[] = ["agent-question", "needs-you", "attention-dismiss", "review-risks", "first-done", "older-finished", "next-move", "first-workpad", "sub-cards", "card-tree", "subagents", "first-idea", "first-memory-candidate", "first-workflow-insight", "ai-language", "summary-models", "first-artifact", "first-ticket", "first-tag", "first-card", "task-intake", "agent-automation", "card-display", "card-comments", "connectors", "session-history", "sidebar-order", "project-menu", "jira-connect"];
   return order.find((id) => input.facts[tipFact[id]] && !input.tipsSeen.includes(id)) ?? null;
+}
+
+/** Fact `reviewRisks` before the open-card check (AUTOMATION-SPEC §5.2.4): a delivered card In review whose reviewer noted risks. */
+export function reviewRisksTipDue(
+  tasks: readonly { id: string; status: string; archivedAt: string | null }[],
+  jobs: readonly { taskId: string; state: string; risks?: readonly string[] }[],
+): boolean {
+  const open = new Set(tasks.filter((task) => !task.archivedAt && task.status === "in_review").map((task) => task.id));
+  return jobs.some((job) => open.has(job.taskId) && job.state === "delivered" && !!job.risks?.length);
 }
 
 /** Fact `hasCardTree` before the open-card check (CARD-TREE-SPEC §6): a sub-card's sub-card, or two or more `blocks` links. */

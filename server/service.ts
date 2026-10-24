@@ -626,6 +626,7 @@ export class BoardService {
             ownsWorkspace: input.mode !== "existing",
             ...(idea ? { origin: { taskId: idea.taskId, ideaId: idea.id } } : {}),
             ...(agent ? { createdByAgent: { agentId: agent.agentId, taskId: agent.taskId } } : {}),
+            ...(input.reviewLevel ? { reviewLevel: input.reviewLevel } : {}),
           };
           current.tasks.push(task);
           this.store.event(current, {

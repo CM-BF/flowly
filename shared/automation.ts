@@ -8,9 +8,12 @@ import {
   type AutomationJob,
   type AutomationSettings,
   type AutomationState,
+  type ReviewLevel,
 } from "./automation-schema";
+import { levelRounds, panelDefaults, resolveReviewLevel, seatModel, seatOf } from "./review-levels";
 
 export * from "./automation-schema";
+export * from "./review-levels";
 
 /** The project's automation settings with defaults filled in, or null while it is off. */
 export function automationOf(project: Pick<Project, "automation"> | null | undefined): AutomationSettings | null {
@@ -183,10 +186,11 @@ export function recoveredOutcome(
 export const fallbackModel = (settings: AutomationSettings, role: AutomationJob["role"]) => (role === "reviewer" ? settings.reviewerFallback : settings.implementerFallback);
 /**
  * A role's own model as far as the board knows it; the implementer can also come from a card's launch or the global
- * default. A reviewer session started for panel rounds (`job.panel`) runs on the panel model.
+ * default. A reviewer session started for panel rounds (`job.panel`) runs on the panel model, one on a review level's
+ * own model (`job.seat`, §5.2.3) on that one.
  */
-export const primaryModel = (settings: AutomationSettings, project: Pick<Project, "agentModel"> | undefined, role: AutomationJob["role"], job?: Pick<AutomationJob, "panel">) =>
-  role === "reviewer" ? ((job?.panel && settings.panelReviewer) || settings.reviewer) : (settings.implementer ?? project?.agentModel ?? undefined);
+export const primaryModel = (settings: AutomationSettings, project: Pick<Project, "agentModel"> | undefined, role: AutomationJob["role"], job?: Pick<AutomationJob, "panel" | "seat">) =>
+  role === "reviewer" ? seatModel(settings, job ? seatOf(job) : undefined) : (settings.implementer ?? project?.agentModel ?? undefined);
 
 /**
  * Provider history sizes (AUTOMATION-SPEC §4.6). Paseo reads a Codex session's whole history as one message when it
@@ -200,13 +204,6 @@ export function rotationNote(role: AutomationJob["role"], megabytes: number) {
   return `${tag} The previous ${role} session of this card grew a ${megabytes} MB provider history, too large for Paseo to load safely, so Flowly started this new session to take over. Continue from the current state of the card and the workspace (flowly_get_task, git status, git log); do not redo finished work. Keep tool output small: write screenshots, DOM dumps and logs to files instead of returning them through tools.`;
 }
 
-/** Panel review (§5.1) when a project never chose: from the third round of a cycle, three reviewers. */
-export const panelDefaults = { after: 2, size: 3 } as const;
-/** How many reviewers check review round `round` of a cycle: 1 for a serial round, the panel size for a panel round. */
-export function reviewersFor(settings: AutomationSettings, round: number) {
-  const after = settings.panelAfter === undefined ? panelDefaults.after : settings.panelAfter;
-  return after !== null && round > after ? (settings.panelSize ?? panelDefaults.size) : 1;
-}
 /**
  * The settings change for a panel choice in Edit project, or null when it changes nothing. Picking the default leaves
  * the key unstored (removes it), so boards stay readable by builds without panels (§5.1).
@@ -366,7 +363,7 @@ export const blockedThisTurn = (board: Pick<Board, "events">, taskId: string, ag
  * sessions are ignored.
  */
 export function turnDecision(
-  board: Pick<Board, "tasks" | "events" | "links" | "automation">,
+  board: Pick<Board, "tasks" | "events" | "links" | "automation"> & { workpads?: Board["workpads"] },
   job: AutomationJob,
   agentId: string,
   outcome: TurnOutcome,
@@ -402,7 +399,9 @@ export function turnDecision(
       if (job.reopened && delivery && delivery === job.deliveryEvent && judgedDelivery(job) !== delivery) return { kind: "resume_review" };
       // Feedback after a delivery (or during its review) starts a new cycle: its rounds count from zero (§4.2).
       const rounds = job.reopened ? 0 : job.reviewRounds;
-      return rounds < settings.maxReviewRounds ? { kind: "review", ...(delivery && !isArrival(delivery) ? { delivery } : {}) } : { kind: "deliver", code: "review_rounds" };
+      // The cap of the level the next round would have (§5.2.3): a level changed mid-cycle applies from that round.
+      const cap = levelRounds(settings, resolveReviewLevel(board, task).level);
+      return rounds < cap ? { kind: "review", ...(delivery && !isArrival(delivery) ? { delivery } : {}) } : { kind: "deliver", code: "review_rounds" };
     }
     if (task.status === "blocked" && blockedThisTurn(board, task.id, agentId)) return { kind: "wait", code: "blocked" };
     if (askedThisTurn(board, task.id, agentId)) return { kind: "wait", code: "question" };
@@ -549,7 +548,7 @@ export const automationTag = "[Flowly automation]";
 export const isAutomationMessage = (text: string) => text.trimStart().startsWith(automationTag);
 const tag = automationTag;
 const lifecycle =
-  "Follow the Flowly skill: read flowly_get_task, fix setup.missing, set the stage that matches the work, keep the workpad current. End by delivering with flowly_update_status status=in_review and a note on what changed, how you verified it and what you did not run. If flowly_get_task's workspace.kind is worktree, commit your changes on that worktree's branch before delivering: parents and dependent cards merge branches, so uncommitted work never reaches them. Any other workspace (directory) is the project root's own checkout with no branch of its own: leave your changes uncommitted there unless the card or the repository's rules ask for a commit. If the delivery returns WORKPAD_OPEN or SETUP_INCOMPLETE, fix what you can, then retry in this same turn with acknowledgeOpen=true and a note explaining each remaining item; do not end the turn on the refusal. A progress result (kind=result) does not end an automated turn. If you cannot continue without a person (a decision, credentials, access), ask with flowly_report_progress kind=question or set status=blocked with the reason, then end your turn: nobody is watching this session live, so do not wait and do not guess. If the card is too big for one session or has parallel parts, split it into sub-cards with flowly_create_card and end your turn; you are woken when they settle.";
+  "Follow the Flowly skill: read flowly_get_task, fix setup.missing, set the stage that matches the work, keep the workpad current. End by delivering with flowly_update_status status=in_review and a note on what changed, how you verified it and what you did not run. If flowly_get_task's workspace.kind is worktree, commit your changes on that worktree's branch before delivering: parents and dependent cards merge branches, so uncommitted work never reaches them. Any other workspace (directory) is the project root's own checkout with no branch of its own: leave your changes uncommitted there unless the card or the repository's rules ask for a commit. If the delivery returns WORKPAD_OPEN or SETUP_INCOMPLETE, fix what you can, then retry in this same turn with acknowledgeOpen=true and a note explaining each remaining item; do not end the turn on the refusal. A progress result (kind=result) does not end an automated turn. If you cannot continue without a person (a decision, credentials, access), ask with flowly_report_progress kind=question or set status=blocked with the reason, then end your turn: nobody is watching this session live, so do not wait and do not guess. If the card is too big for one session or has parallel parts, split it into sub-cards with flowly_create_card (review_level=deep for foundation sub-cards: storage formats, schemas, protocols, external interfaces, security, data migrations, concurrency) and end your turn; you are woken when they settle.";
 
 export function startPrompt(input: { review: boolean; again: boolean }) {
   return [
@@ -600,46 +599,111 @@ const panelFocuses = [
   "failure paths and safety: errors, races, retries, authorization and data loss",
 ];
 
-/** The reviewer's instruction for one round; `reviewers` above 1 makes it a panel round (§5.1). */
-export function reviewPrompt(round: number, max: number, reviewers = 1) {
-  const panel = reviewers > 1;
+/** What the design-and-scale reviewer of a Deep panel answers every round (AUTOMATION-SPEC §5.2.3). */
+export const designQuestions = [
+  "What does the stored data look like after 10,000 operations or six months, and does anything grow without bound?",
+  "What does one operation cost, and does that cost grow with history?",
+  "How is old data cleaned up, and can cleanup remove something still needed?",
+  "How will the format or schema be upgraded?",
+  "What happens if the process dies mid-operation?",
+  "Which security or permission boundary does it touch?",
+];
+
+/**
+ * The angles of a Deep panel, in this order (§5.2.3): contract, design and scale, failure and safety, then execution
+ * and integration as one angle for a panel of four, split in two for a panel of five.
+ */
+const deepAngles = {
+  contract:
+    "contract and correctness: the card's acceptance criteria, every change requested in earlier rounds and every comment, and whether the code does what it claims on every input, not only the tested ones",
+  design: `design and scale: answer each of these questions with evidence from the code (file and line), every round: ${designQuestions.map((q, i) => `(${i + 1}) ${q}`).join(" ")} A question the code cannot answer is a finding when it must block the delivery, else a risk`,
+  failure:
+    "failure, data safety and security: errors, crashes and restarts mid-operation, retries, races, partial writes, data loss, and every permission, credential or trust boundary the change touches",
+  executionAndIntegration:
+    "execution and integration: run the build, the tests and the reported behavior and verify each claim of the delivery; then check callers and users of the changed code, other cards' work, and upgrades from the data and versions already in use",
+  execution: "execution: run the build, the tests and the reported behavior, and verify each claim of the delivery",
+  integration: "integration and regressions: callers and users of the changed code, other cards' work, and upgrades from the data and versions already in use",
+};
+const deepFocuses = (reviewers: number) =>
+  reviewers >= 5
+    ? [deepAngles.contract, deepAngles.design, deepAngles.failure, deepAngles.execution, deepAngles.integration]
+    : [deepAngles.contract, deepAngles.design, deepAngles.failure, deepAngles.executionAndIntegration].slice(0, reviewers);
+
+/** Every round of every level asks for risks the acceptance criteria do not cover (§5.2.4). */
+const risksRequest = [
+  "Look beyond the acceptance criteria too: they may not cover everything that matters. Report the risks they do not cover in risks: data or memory that grows over time, a cost per operation that grows with history, cleanup of old data, upgrades of formats or schemas, recovery after failures and crashes, security and permissions, and interactions with other cards' work. In this card's changes and their realistic interactions, confirmed serious correctness, data safety, security or unbounded-growth problems are findings requiring changes even when the acceptance criteria omit them. Keep unconfirmed risks and out-of-scope improvements in risks. Do not expand review into unrelated code.",
+  'Write each risk as one plain sentence saying what could go wrong, when, and how bad (for example: "The supported six-month workload has not been measured, so storage costs beyond the tested workload remain uncertain."). List every risk you still see: Flowly keeps only the latest list, shows it on the card and gives it to the parent card. Send at most 10 risks, each under 500 characters: merge related ones and keep the most serious. Risks never block approval; confirmed serious delivery blockers must be findings requiring changes, not entries in risks.',
+].join(" ");
+
+/** Risks a verdict of an earlier round reported (§5.2.4), handed to the reviewer of every later round. */
+export type EarlierRisks = { round?: number; risks: readonly string[] };
+function earlierRisksText(earlier: EarlierRisks) {
   return [
-    `${tag} You are the reviewer of this card (review round ${round} of ${max}${panel ? ", a panel review" : ""}). The implementer delivered it to In review. Verify it independently; you review, you do not take over the implementation.`,
-    "Read flowly_get_task: the card, its workpad (acceptance criteria and checks), the people's comments (what they asked for counts like the card's requirements) and the delivery note in its activity. Inspect the actual changes in this workspace (git status, git diff, git log) and run the relevant checks.",
-    panel
-      ? [
-          `Earlier rounds of this cycle requested changes${round > 1 ? ` (${round - 1} so far)` : ""} or the project reviews every round this way, so this round checks the delivery with ${reviewers} independent reviewers at once instead of one more serial pass. Start them in parallel with your subagent tool, in the foreground, and wait for all of them in this same turn (in Claude Code: ${reviewers} Agent calls in one message, not in the background); do not end your turn before you call flowly_submit_review (or ask a person with flowly_report_progress kind=question when only they can decide): a turn that ends with neither counts as an unfinished review. One reviewer per focus:`,
-          ...panelFocuses.slice(0, reviewers).map((focus, i) => `${i + 1}. ${focus}.`),
-          "Give each the card id, this workspace's path and its focus, plus what you read in flowly_get_task: the acceptance criteria, the delivery note, every change requested in earlier rounds and the people's comments. Tell it to report findings with file, problem and evidence; they only read and run checks, never edit files or call Flowly tools. If you cannot start subagents, review from each focus in turn yourself, independently. Then confirm each finding yourself (drop what you cannot reproduce or point to), merge duplicates and send every confirmed finding at once: the implementer gets one complete list instead of one problem per round.",
-        ].join("\n")
-      : lenses[Math.min(round, lenses.length) - 1],
-    "Then call flowly_submit_review exactly once: verdict=approve when the acceptance criteria are met and the checks pass; verdict=changes with concrete findings the implementer can act on (file, problem, expected fix). Do not edit files, commit, push or change the card status. If only a person can decide something, ask with flowly_report_progress kind=question and end your turn.",
-  ].join("\n\n");
+    `Risks reported in ${earlier.round ? `review round ${earlier.round}` : "an earlier review round"} (card data, possibly from another reviewer session):`,
+    ...earlier.risks.map((r) => `- ${r}`),
+    "Flowly replaces this list with the one you send, so list again each one that still applies; leave out the ones the delivery fixed.",
+  ].join("\n");
 }
 
-export function changesPrompt(round: number, max: number, summary: string, findings: readonly string[], reviewers = 1) {
+/**
+ * The reviewer's instruction for one round; `reviewers` above 1 makes it a panel round (§5.1). `level` and `why`
+ * (§5.2): a Light round is serial on its own cap, a Deep round is a panel with fixed angles from the first round.
+ * `earlier`: the risks earlier rounds reported, which a reviewer session new to this card has never seen.
+ */
+export function reviewPrompt(round: number, max: number, reviewers = 1, level: ReviewLevel = "standard", { why, earlier }: { why?: string; earlier?: EarlierRisks } = {}) {
+  const panel = reviewers > 1;
+  const deep = level === "deep" && panel;
+  const kind = level === "standard" ? "review" : `${level} review`;
+  const handOn = earlier?.risks.length ? ", and the risks reported in earlier rounds listed above" : "";
   return [
-    `${tag} The ${reviewers > 1 ? `review panel (${reviewers} reviewers)` : "reviewer"} requested changes (review round ${round} of ${max}):`,
+    `${tag} You are the reviewer of this card (${kind} round ${round} of ${max}${panel ? ", a panel review" : ""}). The implementer delivered it to In review. Verify it independently; you review, you do not take over the implementation.`,
+    level === "standard"
+      ? ""
+      : level === "deep"
+        ? `Review level: deep${why ? `, because ${why}` : ""}. Deep review is for foundation work (storage formats, schemas, protocols, external interfaces, security, data migrations, concurrency): later cards build on it, so its design mistakes are the most expensive to fix afterwards.`
+        : `Review level: light${why ? `, because ${why}` : ""}: one reviewer and at most ${max} rounds; check it as carefully as any other card.`,
+    "Read flowly_get_task: the card, its workpad (acceptance criteria and checks), the people's comments (what they asked for counts like the card's requirements) and the delivery note in its activity. Inspect the actual changes in this workspace (git status, git diff, git log) and run the relevant checks.",
+    earlier?.risks.length ? earlierRisksText(earlier) : "",
+    panel
+      ? [
+          `${deep ? `This card gets a deep review, so every round, this one included, checks the delivery with ${reviewers} independent reviewers at once.` : `Earlier rounds of this cycle requested changes${round > 1 ? ` (${round - 1} so far)` : ""} or the project reviews every round this way, so this round checks the delivery with ${reviewers} independent reviewers at once instead of one more serial pass.`} Start them in parallel with your subagent tool, in the foreground, and wait for all of them in this same turn (in Claude Code: ${reviewers} Agent calls in one message, not in the background); do not end your turn before you call flowly_submit_review (or ask a person with flowly_report_progress kind=question when only they can decide): a turn that ends with neither counts as an unfinished review. One reviewer per focus:`,
+          ...(deep ? deepFocuses(reviewers) : panelFocuses.slice(0, reviewers)).map((focus, i) => `${i + 1}. ${focus}.`),
+          `Give each the card id, this workspace's path and its focus, plus what you read in flowly_get_task: the acceptance criteria, the delivery note, every change requested in earlier rounds and the people's comments${handOn}. Tell it to report findings with file, problem and evidence, and risks the acceptance criteria do not cover as plain sentences; they only read and run checks, never edit files or call Flowly tools. If you cannot start subagents, review from each focus in turn yourself, independently. Then confirm each finding yourself (drop what you cannot reproduce or point to), merge duplicates and send every confirmed finding at once: the implementer gets one complete list instead of one problem per round. Merge the risks they report the same way: drop duplicates and keep the most serious, at most 10.`,
+        ].join("\n")
+      : lenses[Math.min(round, lenses.length) - 1],
+    risksRequest,
+    "Then call flowly_submit_review exactly once: verdict=changes with concrete findings the implementer can act on (file, problem, expected fix), including the confirmed serious problems above even if the acceptance criteria omit them; verdict=approve only when the acceptance criteria are met, the relevant checks pass, and no such confirmed findings remain unresolved. Do not edit files, commit, push or change the card status. If only a person can decide something, ask with flowly_report_progress kind=question and end your turn.",
+  ]
+    .filter(Boolean)
+    .join("\n\n");
+}
+
+export function changesPrompt(round: number, max: number, summary: string, findings: readonly string[], reviewers = 1, level: ReviewLevel = "standard", risks: readonly string[] = []) {
+  return [
+    `${tag} The ${reviewers > 1 ? `review panel (${reviewers} reviewers)` : "reviewer"} requested changes (${level === "standard" ? "" : `${level} `}review round ${round} of ${max}):`,
     summary,
     ...findings.map((f) => `- ${f}`),
     reviewers > 1
       ? "This is every problem the panel confirmed: fix all of them before you deliver, check each one against its finding, rerun the checks, update the workpad and deliver again with flowly_update_status status=in_review. If the delivery returns WORKPAD_OPEN or SETUP_INCOMPLETE, fix what you can, then retry in this same turn with acknowledgeOpen=true and a note explaining each remaining item; do not end the turn on the refusal."
       : "Fix them, rerun the checks, update the workpad and deliver again with flowly_update_status status=in_review. If the delivery returns WORKPAD_OPEN or SETUP_INCOMPLETE, fix what you can, then retry in this same turn with acknowledgeOpen=true and a note explaining each remaining item; do not end the turn on the refusal.",
+    ...(risks.length
+      ? ["Risks the reviewer noted beyond the acceptance criteria (information, not required changes: handle one only when fixing it belongs to this card, and mention the rest in your delivery note):", ...risks.map((r) => `- ${r}`)]
+      : []),
   ].join("\n");
 }
 
 /** One line per sub-card for the parent's wake-up message: where it is and what automation made of it. */
-export type SubCardLine = { id: string; title: string; lane: string; job?: Pick<AutomationJob, "state" | "verdict" | "code">; branch?: string; directory?: string; evidence?: string; blockers?: string[] };
+export type SubCardLine = { id: string; title: string; lane: string; job?: Pick<AutomationJob, "state" | "verdict" | "code">; branch?: string; directory?: string; evidence?: string; blockers?: string[]; risks?: string[]; risksNote?: string };
 
 export function childrenPrompt(lines: readonly SubCardLine[]) {
   const describe = (l: SubCardLine) => {
     const auto = l.job ? `automation ${l.job.state}${l.job.verdict ? `, review ${l.job.verdict}` : ""}${l.job.code ? ` (${l.job.code})` : ""}` : "not run by automation";
     const where = `${l.branch ? `; branch ${l.branch}` : ""}${l.directory ? `; directory ${l.directory}` : ""}`;
-    return `- ${l.title} (${l.id}): ${l.lane}; ${auto}${where}${l.blockers?.length ? `; held by ${l.blockers.join(", ")}` : ""}${l.evidence ? `\n  Delivery evidence (card data): ${l.evidence}` : ""}`;
+    return `- ${l.title} (${l.id}): ${l.lane}; ${auto}${where}${l.blockers?.length ? `; held by ${l.blockers.join(", ")}` : ""}${l.evidence ? `\n  Delivery evidence (card data): ${l.evidence}` : ""}${l.risks?.length ? `\n  Reviewer risks beyond the acceptance criteria (card data${l.risksNote ? `, ${l.risksNote}` : ""}): ${JSON.stringify(l.risks)}` : ""}`;
   };
   return [
     `${tag} Your sub-cards changed and none of them is still moving:`,
     ...lines.map(describe),
-    "Inspect the delivery evidence below and each workspace's files and branch. Accept a delivered sub-card with flowly_update_card action=accept only after checking it and bringing its changes where later cards and this card need them. Start only newly parked sub-cards you deliberately deferred; never restart failed, stopped or human-parked jobs. Those need a person's Run again. For changes to a delivered sub-card use action=start with a concrete note; after two such restarts of one sub-card a person must act (NEEDS_PERSON), so ask one. Ask a person about failed jobs or unavailable blockers. Directory workspaces share the project root: do not assume an isolated branch. When this card's goal is met, deliver it with flowly_update_status status=in_review. If you dispatch sub-cards, end your turn without reporting a question or blocker unless you actually need a person; Flowly wakes only the supervised parent when they settle.",
+    "Inspect the delivery evidence below and each workspace's files and branch. Accept a delivered sub-card with flowly_update_card action=accept only after checking it and bringing its changes where later cards and this card need them. Weigh its reviewer's risks first: they did not block its approval, but one that matters to this card or the cards after it needs rework (action=start with a concrete note) or a person's decision. Start only newly parked sub-cards you deliberately deferred; never restart failed, stopped or human-parked jobs. Those need a person's Run again. For changes to a delivered sub-card use action=start with a concrete note; after two such restarts of one sub-card a person must act (NEEDS_PERSON), so ask one. Ask a person about failed jobs or unavailable blockers. Directory workspaces share the project root: do not assume an isolated branch. When this card's goal is met, deliver it with flowly_update_status status=in_review. If you dispatch sub-cards, end your turn without reporting a question or blocker unless you actually need a person; Flowly wakes only the supervised parent when they settle.",
   ].join("\n");
 }

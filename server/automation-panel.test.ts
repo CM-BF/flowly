@@ -35,7 +35,8 @@ test("by default the third round of a cycle is a panel review by the same review
   expect(panel.text).toContain("3 independent reviewers at once");
   expect(panel.text).toMatch(/1\. the artifact[\s\S]*2\. execution[\s\S]*3\. the contract/);
   expect(panel.text).not.toContain("4. integration");
-  expect(await reviewNotes(x)).toEqual(["Review round 1 of 4", "Review round 2 of 4", "Review round 3 of 4 (panel of 3 reviewers)"]);
+  const why = "level standard: keyword fallback: no tag or keyword calls for a deep or light review";
+  expect(await reviewNotes(x)).toEqual([`Standard review round 1 of 4; ${why}`, `Standard review round 2 of 4; ${why}`, `Standard review round 3 of 4 (panel of 3 reviewers); ${why}`]);
   await x.automation.submitReview(as(rev), { verdict: "changes", summary: "Three problems", findings: ["a.ts: one", "b.ts: two", "c.ts: three"] });
   await x.endTurn(rev, "a");
   await x.automation.kick();
