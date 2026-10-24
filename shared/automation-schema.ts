@@ -6,7 +6,51 @@ import { agentModelSchema } from "./agent-defaults";
  * supervision and review loop, per project and off by default. Kept apart from
  * model.ts so the logic module can import the board types without a cycle.
  */
-export const automationLimits = { maxRunning: 10, reviewRounds: 5, nudges: 5, failures: 5, detail: 500, summary: 4000, finding: 1000, findings: 20, panel: 5 } as const;
+export const automationLimits = { maxRunning: 10, reviewRounds: 5, nudges: 5, failures: 5, detail: 500, summary: 4000, finding: 1000, findings: 20, panel: 5, risks: 10, risk: 500 } as const;
+
+/** How hard a card is reviewed (AUTOMATION-SPEC §5.2); a card without one is Auto. */
+export const reviewLevels = ["light", "standard", "deep"] as const;
+export type ReviewLevel = (typeof reviewLevels)[number];
+export const reviewLevelSchema = z.enum(reviewLevels);
+const roundsSchema = z.number().int().min(1).max(automationLimits.reviewRounds);
+/**
+ * Per-level reviewer settings (§5.2.1). Strict like the rest of the settings; stored only once a person changes a
+ * value, so boards stay readable by builds without levels.
+ */
+export const levelSettingsSchema = z.strictObject({
+  light: z.strictObject({ reviewer: agentModelSchema.optional(), maxReviewRounds: roundsSchema.optional() }).optional(),
+  deep: z
+    .strictObject({ panelReviewer: agentModelSchema.optional(), panelSize: z.number().int().min(2).max(automationLimits.panel).optional(), maxReviewRounds: roundsSchema.optional() })
+    .optional(),
+});
+export type LevelSettings = z.infer<typeof levelSettingsSchema>;
+/** Why a card's review has its level (§5.2.2). */
+export const levelReasonSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("classifier"), model: z.string().max(200), text: z.string().min(1).max(500) }),
+  z.object({ kind: z.literal("card") }),
+  z.object({ kind: z.literal("tag"), tag: z.string().max(64) }),
+  z.object({ kind: z.literal("ancestor_tag"), tag: z.string().max(64), cardId: z.string().max(200), title: z.string().max(200) }),
+  z.object({ kind: z.literal("keyword"), keyword: z.string().max(64), field: z.enum(["title", "description", "acceptance"]) }),
+  z.object({ kind: z.literal("light_tag") }),
+  z.object({ kind: z.literal("default") }),
+]);
+export type LevelReason = z.infer<typeof levelReasonSchema>;
+/** Derived cache; writes do not change the card's editing revision. */
+export const reviewClassificationSchema = z.object({
+  inputHash: z.string(),
+  status: z.enum(["pending", "ready", "failed"]),
+  at: z.string(),
+  fallback: z.object({ level: reviewLevelSchema, reason: levelReasonSchema }),
+  verdict: z.object({ level: reviewLevelSchema, reason: z.string().min(1).max(500), model: z.string().max(200) }).optional(),
+});
+/** A review round's plan, resolved when the round starts: level and why, the cycle's round cap and the round's reviewers. */
+export const reviewPlanSchema = z.object({
+  level: reviewLevelSchema,
+  reason: levelReasonSchema,
+  max: roundsSchema,
+  size: z.number().int().min(1).max(automationLimits.panel),
+});
+export type ReviewPlan = z.infer<typeof reviewPlanSchema>;
 /** Restarts of a sub-card's delivered work by its parent's agent before a person must act (SUB-CARDS-SPEC §8). */
 export const agentRestartLimit = 2;
 
@@ -37,6 +81,8 @@ export const automationSettingsSchema = z.strictObject({
   panelReviewer: agentModelSchema.optional(),
   /** Reviewers in a panel round; absent: `panelDefaults.size`. */
   panelSize: z.number().int().min(2).max(automationLimits.panel).optional(),
+  /** Review levels (§5.2): the light and deep levels' models, panel size and round caps; absent values use their defaults. */
+  levels: levelSettingsSchema.optional(),
   /** Sessions start in the provider's no-approval mode (claude bypassPermissions, codex full-access). */
   fullAccess: z.boolean().default(true),
   /** Reminders after a turn that ended without a delivery, a question or a blocker (Hermes stop nudges). */
@@ -168,6 +214,14 @@ export const automationJobSchema = z.object({
    * the card In review and cannot manage cards; only `reviewerId` may give the verdict.
    */
   reviewers: z.array(z.string()).max(20).optional(),
+  /** The plan of the latest review round (§5.2): resends within the round (fallback, rotation, retry, recovery) keep it. */
+  review: reviewPlanSchema.optional(),
+  /** The reviewer session runs on a level's own model (§5.2.3); `panel` marks the panel model. */
+  seat: z.enum(["light", "deep"]).optional(),
+  /** Risks beyond the acceptance criteria the latest verdict reported (§5.2.4); they never block approval. */
+  risks: z.array(z.string().max(automationLimits.risk)).max(automationLimits.risks).optional(),
+  /** The review round and the delivery (`deliveryEvent`) `risks` were reported on; kept until the next verdict. */
+  risksFrom: z.object({ round: z.number().int().nonnegative(), delivery: z.string().optional() }).optional(),
   /** The full requested changes of the latest verdict, as sent to the implementer; a takeover session gets them unclipped. */
   changes: z.string().max(40000).optional(),
   cooldowns: z.number().int().nonnegative().optional(),
@@ -204,6 +258,8 @@ export const reviewInputSchema = z.strictObject({
   verdict: z.enum(["approve", "changes"]),
   summary: z.string().trim().min(1).max(automationLimits.summary),
   findings: z.array(z.string().trim().min(1).max(automationLimits.finding)).max(automationLimits.findings).default([]),
+  /** Risks the acceptance criteria do not cover, one plain sentence each (§5.2.4); recorded with the verdict, never blocking. */
+  risks: z.array(z.string().trim().min(1).max(automationLimits.risk)).max(automationLimits.risks).default([]),
 });
 export type ReviewInput = z.input<typeof reviewInputSchema>;
 export const reviewResultSchema = z.object({

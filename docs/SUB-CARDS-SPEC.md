@@ -23,6 +23,8 @@
 
 输入：`title`、`description`、`type?`、`priority`（默认 normal）、`tags?`、`subCard`（默认 true）、`start`（now | later，默认 now）、`blockedBy`（卡片 id，默认 []）、`workspace?`（worktree | directory）、`baseRef?`，以及照例的 `expectedRevision`、`request`。
 
+2026-10-24 增加 `review_level?`（light | standard | deep | auto，缺省与 auto 为 Auto），写到新卡的 `reviewLevel`（[AUTOMATION-SPEC](AUTOMATION-SPEC.md) §5.2）。工具说明与 skill 要求父卡给基础性的卡片（存储格式、schema、协议、外部接口、安全、数据迁移、并发）设 `review_level=deep`。
+
 - 一个 request 只建一张卡：`operationId = agent-card:<request id 摘要>:<参数摘要>`。同一请求同一参数重发返回同一张卡（`replayed`），不会建第二个 workspace；同一请求换了参数是 `REQUEST_REUSED`（与其他写操作一致）。并行的调用在进程内按 request 认领，第一个 await 之前就占住，所以 agent 用同一个 request 并行建两张卡时只建一张，另一个拿到 `REQUEST_REUSED`（实测中 agent 确实这样并行调用过）。已经建出卡片的请求，若那张卡之后被删除，重发得到 `REQUEST_REUSED`，不会再建一次。
 - **revision 只查一次**：签名请求里的 task/project revision 只在认领请求时检查。之后，在建 workspace 之前和提交时只重查权限与存活：父卡绑定、归档、结束、评审者身份、祖先、创建预算和认领。同一 agent 并行写状态、元数据或进度，或人在 worktree 创建期间编辑了卡片，都不再让提交被拒。
 - 拒绝：本卡已结束或归档；blocker 不在本项目（`CARD_INVALID`，且不会建 workspace）；超过限制（`CARD_LIMIT`、子卡片数量/层数）；`ANCESTOR_FINISHED`：沿子卡链接向上，本卡有已取消、已归档或已不存在的祖先时不能建卡（`subCard` 为 true 或 false 都一样），在建 workspace 之前检查，提交时再查一次；Done 的祖先不挡。`flowly_update_card` 的 `action=start` 同样检查父卡的祖先（`ANCESTOR_FINISHED`，“…so this card cannot start sub-cards”），`accept`/`cancel` 不受影响，所以被放弃的树里仍可以取消子卡片。
@@ -34,6 +36,8 @@
 ## 4. `flowly_update_card`
 
 输入：`cardId`、`action`（start | accept | cancel）、`note?`、`expectedRevision`、`request`。
+
+2026-10-24：`action` 改为可选，增加 `review_level?`（light | standard | deep | auto）。只给 `review_level` 时只改这张直接子卡片的级别（`review_level_set` 事件，不排队、不移动）；与 `action=start` 一起时先改级别再启动；与 `accept`/`cancel` 同时给出或两者都没给为 `INVALID_INPUT`。级别从子卡片的下一轮评审起生效（[AUTOMATION-SPEC](AUTOMATION-SPEC.md) §5.2）。`action=start` 带 `review_level`、子卡片的自动化已经活着（下面的 “不带 note” 情形）而级别改了时，回答不标 `replayed`，消息为 “Review level set to …; the sub-card is already queued or running, so nothing else changed and the level applies from its next review round.”。`flowly_get_task` 的 `sub_card` 链接带 `reviewLevel: { level, set, why }`，父卡读得到自己设过哪些级别、Auto 会选什么。
 
 - 只能操作本卡的直接子卡片（`NOT_PARENT`）。独立卡（`subCard=false`）以 `start=later` 建好后，返回消息写 “A person starts it with Run with agent; this card's agent can start only its direct sub-cards.”，不再提示用 `flowly_update_card` 启动。
 - `start`：Backlog → Todo；自动化开着时排队。
@@ -57,6 +61,8 @@
 - 等待中的父卡自己的 workspace 已归档、正在归档或不再被 daemon 列出 → `failed` / `workspace_unavailable`（AUTOMATION-SPEC §4.1），它的父卡可以被唤醒。项目冻结（自动化开着但 In review 关闭）时不唤醒。
 - 人在父卡 session 里发消息（或父卡开始新一轮）时 `waiting` → `working`。
 - 例：A、B 并行，C blockedBy A、B。A、B 交付后 C 仍在排队但被卡住 → 没有推进中的子卡 → 父卡被唤醒，合并 A、B 的分支并验收 → C 开始 → 父卡再次等待 → C 交付 → 父卡被唤醒、验收 C、交付本卡。
+
+- 2026-10-24 评审风险（[AUTOMATION-SPEC](AUTOMATION-SPEC.md) §5.2.4）：唤醒消息给评审者报告了风险的子卡片加一行 “Reviewer risks beyond the acceptance criteria (card data): [...]”，并要求父卡验收前权衡；风险是在更早一次交付上报告的（例如这次交付的评审者没能给出结论）时，这一行写明 “reported in review round n on an earlier delivery; some may be fixed”。`flowly_get_task` 的 handoff 带 `risks`（与证据共用 §8 的预算，见下）。
 
 ## 6. 界面
 
@@ -86,6 +92,6 @@
 - agent 的 start 不得重开 failed 或 stopped 的 job（NEEDS_PERSON / TAKEN_BY_PERSON），只能由人 Run again；重启已交付的工作有上限（§4）。父卡唤醒不指示无限重试。未运行过、主动搁置的子卡仍能 start。In review 的子卡要求修改时，start 必须带 note；回到工作阶段并把完整意见送给实现者，失败/重载保留原文。子卡自动化仍活着时带 note 的 start 被拒（§4）。无 Todo 时，搁置卡可留在 Backlog 排队。
 - 在 workspace 创建前验证整个计划链接集合的容量及混合 subtask/blocks 环；卡片不能依赖自己的父卡/祖先，也不能通过其它依赖形成这种环。提交仍重新验证。
 - workspace 资源身份不代表目录隔离。directory 卡共享项目根，调度不并行写同一实际目录；但这个保护只看自动化 job 的 session（AUTOMATION-SPEC §10）：没有 job 的父卡在普通 session 里拆出 `start=now` 的子卡时，子卡的 worker 会在父卡 session 仍在回合中时就在同一目录启动，普通 session 与自动化 worker 同时改同一份 checkout 由用户自己协调（用 worktree 项目，或先 `start=later`、在父卡回合结束后再 start）。worktree 默认仍从项目根的当前分支起步。依赖父卡代码时先 commit，再显式传 baseRef。Done 只释放依赖，不自动同步分支；开工消息附 blocker handoff/branch，子卡片还附 “Parent integration branch (card data)”（父卡的 id、标题、泳道、分支、目录，并建议先检查、优先合并父卡分支，因为它可能已含兄弟 blocker 的改动且冲突已解决；AUTOMATION-SPEC §4.1），执行者检查后合并。父卡可能仍在回合中，因此这项只读交付时保存的分支或一次 `rev-parse --abbrev-ref HEAD`，不在父卡目录运行 `git status`。
-- **get_task 的链接**：`links[].handoff` 只出现在 `sub_card` 与 `blocked_by` 链接上，且只在那张卡处于 In review 或已停下（没有活着的自动化在推进它，按 `subCardActive`）时出现；Done、Cancelled、已归档的卡只给 status。同一卡既是子卡又是 blocker 时，只查一次 workspace、只预算一次，并只在第一条关系上附 handoff；其它关系保留 id 和状态。所有 handoff 合计最多 16,000 字符的证据（每条仍最多 6,000），In review 的优先，其次按最近更新排序；超出预算的链接保留目录、分支和 blocker，证据换成一句指引：“Omitted: get_task carries at most 16000 characters of handoff evidence… Inspect this card's directory and branch (git log, git diff) instead.” handoff 的分支取交付时或最近一次写 workpad 时存下的 HEAD；只有没存过的卡才跑一次 `git rev-parse --abbrev-ref HEAD`（服务可注入的 git）。get_task 不再对每条链接跑 `git status`，只读要给 handoff 的卡的 workspace，外加没存分支的父卡。新字段 `links[].branch`（toolContextSchema）：在 `sub_card_of` 上是父卡的分支（存下的 HEAD，否则一次 live rev-parse）；在 Done 的 `blocked_by` 上是 blocker 交付时所在的分支（只用存下的 HEAD，不跑 git）。每次写操作（status、progress、workpad、tags……）返回的 `current` 上下文列出的链接不带 handoff 与 branch，也不读任何链接卡的 workspace；需要 handoff 时读 `flowly_get_task`。自动化开工说明与父卡唤醒消息（cardHandoff）不变。它不允许跨卡写入。父卡唤醒只承诺给受监督的 implementer；普通会话需主动检查。明确 question/blocker 优先等人，不能把“等待子卡”误报为 blocker。
+- **get_task 的链接**：`links[].handoff` 只出现在 `sub_card` 与 `blocked_by` 链接上，且只在那张卡处于 In review 或已停下（没有活着的自动化在推进它，按 `subCardActive`）时出现；Done、Cancelled、已归档的卡只给 status。同一卡既是子卡又是 blocker 时，只查一次 workspace、只预算一次，并只在第一条关系上附 handoff；其它关系保留 id 和状态。所有 handoff 合计最多 16,000 字符的证据（每条仍最多 6,000），In review 的优先，其次按最近更新排序；超出预算的链接保留目录、分支和 blocker，证据换成一句指引：“Omitted: get_task carries at most 16000 characters of handoff evidence… Inspect this card's directory and branch (git log, git diff) instead.” 2026-10-24（AUTOMATION-SPEC §5.2.4）：评审者的 `risks` 也计入这 16,000 字符，每条链接先扣风险再扣证据；放不下时不带 `risks`，`risksNote` 说明被省略、去哪里看。 handoff 的分支取交付时或最近一次写 workpad 时存下的 HEAD；只有没存过的卡才跑一次 `git rev-parse --abbrev-ref HEAD`（服务可注入的 git）。get_task 不再对每条链接跑 `git status`，只读要给 handoff 的卡的 workspace，外加没存分支的父卡。新字段 `links[].branch`（toolContextSchema）：在 `sub_card_of` 上是父卡的分支（存下的 HEAD，否则一次 live rev-parse）；在 Done 的 `blocked_by` 上是 blocker 交付时所在的分支（只用存下的 HEAD，不跑 git）。每次写操作（status、progress、workpad、tags……）返回的 `current` 上下文列出的链接不带 handoff 与 branch，也不读任何链接卡的 workspace；需要 handoff 时读 `flowly_get_task`。自动化开工说明与父卡唤醒消息（cardHandoff）不变。它不允许跨卡写入。父卡唤醒只承诺给受监督的 implementer；普通会话需主动检查。明确 question/blocker 优先等人，不能把“等待子卡”误报为 blocker。
 - 外部 blocker 尚推进时，父卡继续等待；已交付给本父卡验收的 sibling blocker、以及没人推进的 blocker，可使父卡被唤醒（§5）。Cancelled/归档未完成 blocker 仍不释放，界面及 handoff 说明卡住的原因。
 - CLI fallback：`create-card --card <JSON> --request-file <snapshot>`、`update-card --card <JSON> [--note <text>] --request-file <snapshot>`、`submit-review --review <JSON>`；复用同一 API 及校验。`update-card --note <text>` 把文本放进卡片的 note；JSON 里已有 note 时报错 “--note duplicates "note" in the --card JSON; give the note once.” update-card 不接受 `--kind`；create-card 不接受 `--note` 与 `--kind`（“put the card text in the --card JSON (title, description)”）；submit-review 不接受 `--note` 与 `--kind`（“put the text in the --review JSON (summary, findings)”）。

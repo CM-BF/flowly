@@ -1,3 +1,4 @@
+import { ReviewClassifier } from "./server/review-classifier";
 import type { PluginServerContext } from "@getpaseo/plugin/server";
 import type { PaseoApi } from "@getpaseo/client";
 import { BoardStore, columnOrder } from "./server/store";
@@ -242,7 +243,11 @@ export default function contribute(server: PluginServerContext) {
   server.handle(rpc.wrapup, (input, { paseo }) => wrapups.run(input, paseo));
   const tools = new ToolServer(store);
   // Agent automation (AUTOMATION-SPEC): Hermes Kanban's dispatcher, supervision and review loop, per project.
+  const classifier = new ReviewClassifier(store, summaries.settings);
+  const folderCommit = store.onCommit;
+  store.onCommit = () => { folderCommit?.(); classifier.schedule(); };
   const automation = new AutomationService(store, {
+    classifyReview: (taskId, paseo) => classifier.forReview(taskId, paseo),
     prepare: (taskId, operationId, paseo, options) => tools.prepareSession(taskId, operationId, paseo, options),
     globalModel: async () => {
       const state = await modelPrefs.read().catch(() => null);
@@ -257,6 +262,7 @@ export default function contribute(server: PluginServerContext) {
   // Every handler and hook hands its Paseo connection on: the tools use it, and the dispatcher runs on the latest.
   const attach = (paseo: PaseoApi) => {
     tools.attach(paseo);
+    classifier.attach(paseo);
     automation.attach(paseo);
   };
   server.handle(rpc.queueAutomation, (input, { paseo }) => {
@@ -677,11 +683,13 @@ export default function contribute(server: PluginServerContext) {
     }
   });
   return () => {
+    const stoppedClassifier = classifier.stop();
     automation.stop();
     workflow.stop();
     stopWorkflowPrefs();
     stopFeaturePrefs();
     folders.stop();
     tools.stop();
+    return stoppedClassifier;
   };
 }
