@@ -32,7 +32,8 @@ export async function cardHandoff(board: Board, taskId: string, paseo: PaseoApi)
     ...(directory ? { directory } : {}), ...(head?.branch ? { branch: head.branch } : {}),
     evidence: handoffEvidence(board, taskId),
     blockers: unmetBlockers(board, taskId),
-    ...(job?.risks?.length ? { risks: job.risks } : {}),
+    // The reviewer's risks (AUTOMATION-SPEC §5.2.4) for the parent to weigh before it accepts; a finished card's were weighed.
+    ...(job?.risks?.length && task.status !== "done" && task.status !== "cancelled" ? { risks: job.risks } : {}),
   };
 }
 
