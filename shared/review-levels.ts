@@ -22,31 +22,41 @@ export const levelTags = { deep: ["deep-review", "foundation"], light: "light-re
 /**
  * Specific technical terms that make a card Deep when its title, description or acceptance criteria mention them
  * (§5.2.2). English matches whole words, also right next to Chinese or Japanese text; a keyword's last word takes its
- * usual forms (-s/-es, -ed, -ing, -ly; -e and -y words theirs) and a space in a phrase also matches a hyphen. Chinese
- * matches as a substring. Broad words (log, format, lock, storage, state, transaction, security, 日志, 格式, 锁, 安全,
- * zh-TW 儲存 and 憑證) stay out on purpose; list order decides which keyword a card's reason names.
+ * usual forms (-s/-es, -ed, -ing, -ly; -e and -y words theirs), so does the verb a phrase starts with (`leadingVerbs`),
+ * and a space in a phrase also matches a hyphen. Chinese matches as a substring. Broad words (log, format, lock, storage,
+ * state, transaction, security, and alone persist, persistent, migrate, transactional, file format, on/to disk; 日志,
+ * 格式, 锁, 安全, 迁移, 文件格式, 事务性, zh-CN 凭证 and 原子, zh-TW 儲存 and 憑證) stay out on purpose: they describe UI
+ * work too, so a verb or adjective counts only with a storage medium or data object. List order decides which keyword
+ * a card's reason names.
  */
 export const deepKeywords = {
   en: [
-    "storage format", "storage layer", "storage engine", "on disk", "to disk", "wire format", "serialization format", "file format",
-    "persistence", "persistent", "persist", "journal", "write-ahead log", "append-only",
-    "database", "SQLite", "Postgres", "PostgreSQL", "MySQL", "IndexedDB", "schema", "migration", "migrate",
+    "storage format", "storage layer", "storage engine", "on-disk format", "on-disk layout", "on-disk state", "on-disk data",
+    "write to disk", "written to disk", "flush to disk", "persist to disk", "wire format", "serialization format", "file format version",
+    "persistence", "persistent storage", "persistent state", "persistent queue", "journal", "write-ahead log", "write-ahead logging", "append-only",
+    "database", "SQLite", "Postgres", "PostgreSQL", "MySQL", "IndexedDB", "schema", "migration",
+    "migrate data", "migrate the data", "migrate existing data", "migrate old data",
     "protocol", "API contract", "public API", "external interface", "backward compatibility", "backwards compatibility", "breaking change",
     "authentication", "authenticate", "authorization", "authorisation", "authorize", "authorise", "access control", "permission", "OAuth", "OAuth2",
     "encryption", "decryption", "encrypt", "decrypt", "credential",
     "security boundary", "security model", "security fix", "security issue", "security hole", "security flaw", "security bug",
     "security review", "security audit", "security hardening", "security-sensitive", "security-critical", "vulnerability",
-    "concurrency", "concurrent", "race condition", "deadlock", "transactional", "atomic write", "atomically",
-    "crash recovery", "crash safety", "crash-safe", "data loss", "data corruption", "durability", "fsync",
+    "concurrency", "concurrent", "race condition", "deadlock", "transactional write", "transactional update", "atomic write", "atomically", "atomicity",
+    "crash recovery", "crash safety", "crash-safe", "data loss", "lose data", "lose any data", "lose the data", "lost data", "data corruption",
+    "durability", "fsync",
   ],
   zh: [
-    "存储", "持久化", "落盘", "数据库", "数据迁移", "表结构", "协议", "鉴权", "认证", "授权", "权限", "加密", "解密", "凭据",
-    "安全漏洞", "安全边界", "并发", "竞态", "死锁", "原子写入", "崩溃恢复", "数据丢失", "数据损坏", "向后兼容",
-    // Traditional Chinese (zh-TW) spellings and terms of the same. Not 儲存 alone (the Save button), 憑證 alone (also a
-    // receipt) or 協議 (an agreement; protocol is 協定).
-    "儲存格式", "儲存層", "儲存引擎", "資料儲存", "持久儲存", "資料庫", "數據庫", "資料遷移", "數據遷移", "表結構", "協定", "鑑權", "認證",
-    "授權", "權限", "登入憑證", "存取憑證", "憑據", "安全邊界", "並發", "競態", "死鎖", "原子寫入", "崩潰恢復", "崩潰復原", "資料遺失",
-    "數據丟失", "資料損毀", "向後相容",
+    "存储", "持久化", "落盘", "刷盘", "写入磁盘", "写到磁盘", "写进磁盘", "序列化格式", "文件格式版本", "只追加", "仅追加", "追加写入",
+    "预写日志", "预写式日志", "数据库", "数据迁移", "迁移数据", "迁移旧数据", "迁移现有数据", "迁移已有数据", "迁移脚本", "表结构", "协议",
+    "鉴权", "认证", "授权", "权限", "访问控制", "加密", "解密", "凭据", "登录凭证", "访问凭证", "安全漏洞", "安全边界", "破坏性变更", "并发",
+    "竞态", "竞争条件", "死锁", "事务性写入", "事务性更新", "事务写入", "原子写", "原子地", "原子性", "崩溃恢复", "数据丢失", "丢失数据",
+    "丢数据", "数据不丢", "数据会丢", "数据不会丢", "数据损坏", "向后兼容",
+    // Traditional Chinese (zh-TW) spellings and terms of the same, where they differ. Not 儲存 alone (the Save button),
+    // 憑證 alone (also a receipt) or 協議 (an agreement; protocol is 協定).
+    "儲存格式", "儲存層", "儲存引擎", "資料儲存", "持久儲存", "落盤", "寫入磁碟", "寫到磁碟", "檔案格式版本", "僅追加", "追加寫入", "預寫日誌",
+    "預寫式日誌", "資料庫", "數據庫", "資料遷移", "數據遷移", "遷移資料", "遷移舊資料", "遷移現有資料", "遷移腳本", "表結構", "協定", "鑑權",
+    "認證", "授權", "權限", "存取控制", "登入憑證", "存取憑證", "憑據", "安全邊界", "破壞性變更", "並發", "競態", "競爭條件", "死鎖", "原子寫",
+    "崩潰恢復", "崩潰復原", "資料遺失", "遺失資料", "丟失資料", "丟資料", "資料丟失", "數據丟失", "資料損毀", "向後相容",
   ],
 } as const;
 
@@ -56,20 +66,28 @@ export const deepKeywords = {
  */
 const edge = "[^A-Za-z0-9_\\u00C0-\\u024F]";
 const escape = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-/** The keyword's last word with its usual forms ("databases", "migrated", "vulnerabilities", "concurrently"). */
+/** A word with its usual forms ("databases", "migrated", "vulnerabilities", "concurrently"). */
 function forms(word: string) {
   if (word.endsWith("e")) return `${escape(word.slice(0, -1))}(?:e|es|ed|ing)`;
   if (word.endsWith("y")) return `${escape(word.slice(0, -1))}(?:y|ies|ied|ying)`;
   return `${escape(word)}(?:s|es|ed|ing|ly)?`;
 }
+/**
+ * Verbs that start a keyword phrase and take their forms too ("losing data", "writes to disk", "migrated data"). Only
+ * these: the first word of a noun phrase stays as listed, or "racing conditions" would be a race condition.
+ */
+const leadingVerbs: ReadonlySet<string> = new Set(["write", "flush", "persist", "migrate", "lose"]);
+/** The keyword's last word, and a leading verb, with their forms; a space or a hyphen in it matches either. */
+function keywordPattern(keyword: string) {
+  const words = keyword.split(/\s+/);
+  const verb = words.length > 1 && leadingVerbs.has(words[0]);
+  const parts = words.join("-").split("-");
+  return parts.map((part, i) => (i === parts.length - 1 || (i === 0 && verb) ? forms(part) : escape(part))).join("[\\s-]+");
+}
 /** Compiled on first use: the client evaluates this module at every app start (AGENTS.md, cold start). */
 let englishPatterns: { keyword: string; pattern: RegExp }[] | undefined;
 const patterns = () =>
-  (englishPatterns ??= deepKeywords.en.map((keyword) => {
-    const words = keyword.split(/[\s-]+/);
-    const body = [...words.slice(0, -1).map(escape), forms(words[words.length - 1])].join("[\\s-]+");
-    return { keyword, pattern: new RegExp(`(?:^|${edge})${body}(?=$|${edge})`, "iu") };
-  }));
+  (englishPatterns ??= deepKeywords.en.map((keyword) => ({ keyword, pattern: new RegExp(`(?:^|${edge})${keywordPattern(keyword)}(?=$|${edge})`, "iu") })));
 
 /** The first deep keyword `text` mentions (in list order), or null. */
 export function deepKeyword(text: string): string | null {

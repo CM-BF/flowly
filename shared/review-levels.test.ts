@@ -68,7 +68,7 @@ describe("Auto resolution", () => {
       [],
       [pad("c", ["Survives a crash-safe restart", "Shows the button"])],
     );
-    expect(level(b, "t")).toEqual({ level: "deep", reason: { kind: "keyword", keyword: "persist", field: "title" } });
+    expect(level(b, "t")).toEqual({ level: "deep", reason: { kind: "keyword", keyword: "journal", field: "title" } });
     expect(level(b, "d")).toEqual({ level: "deep", reason: { kind: "keyword", keyword: "database", field: "description" } });
     expect(level(b, "c")).toEqual({ level: "deep", reason: { kind: "keyword", keyword: "crash-safe", field: "acceptance" } });
     expect(level(b, "z")).toEqual({ level: "deep", reason: { kind: "keyword", keyword: "持久化", field: "description" } });
@@ -98,6 +98,38 @@ describe("Auto resolution", () => {
     "Security settings page layout",
     "Show the transaction history page",
     "Add a transaction around card moves",
+    // Persist, persistent, migrate, transactional, file format and on/to disk alone describe UI work too (§5.2.2).
+    "Make the toolbar persistent while scrolling",
+    "Show a persistent banner when offline",
+    "Persistent notifications for failed uploads",
+    "Persist the selected tab across reloads",
+    "Persist the sidebar width in localStorage",
+    "Persist the state of the filters",
+    "Clear persisted data on logout",
+    "Migrate the settings page to the new design system",
+    "Migrate buttons to the new Button component",
+    "Design transactional email templates",
+    "Show the file format icon in the attachment list",
+    "Add a Save to disk button to the export dialog",
+    "Show size on disk in the file details panel",
+    "Close data panels on Escape",
+    // Only a leading verb takes its forms, not the first word of a noun phrase (security issue, wire format).
+    "Show the securities issued this year",
+    "Wiring format of the cable diagram",
+    // The Chinese twins of the same, and words that are UI in Chinese.
+    "迁移到新的设计系统",
+    "把按钮迁移到新的 Button 组件",
+    "显示文件格式图标",
+    "不支持的文件格式提示",
+    "设计事务性邮件模板",
+    "导出对话框里加一个保存到磁盘按钮",
+    "在文件详情里显示磁盘占用",
+    "上传付款凭证页面",
+    "记账凭证列表",
+    "原子设计的按钮组件",
+    "原子化 CSS 工具类",
+    "手写盘压感设置",
+    "数据丢包率图表",
   ])("no deep keyword in %j", (title) => {
     expect(deepKeyword(title)).toBeNull();
     expect(level(board([card("a", { title })]), "a")).toEqual({ level: "standard", reason: { kind: "default" } });
@@ -146,18 +178,25 @@ describe("Auto resolution", () => {
     expect(level(b, "a")).toEqual({ level: "deep", reason: { kind: "keyword", keyword: "journal", field: "title" } });
   });
 
-  // Foundation work as English cards name it: verbs, adjectives and storage names, not only the listed nouns.
+  // Foundation work as English cards name it: verbs, adjectives and storage names, not only the listed nouns. A verb
+  // or adjective that also describes UI work counts only with a storage medium or data object (§5.2.2).
   test.each([
-    ["Persist workspace state across restarts", "persist"],
-    ["Make sessions persistent", "persistent"],
-    ["Keep drafts persistently", "persistent"],
+    ["Persist to disk before acknowledging the write", "persist to disk"],
+    ["Keep sessions in persistent storage", "persistent storage"],
+    ["Add a persistent queue for outgoing webhooks", "persistent queue"],
     ["Store the event history in SQLite", "SQLite"],
     ["Move the boards to Postgres", "Postgres"],
-    ["Save the board to disk on every change", "to disk"],
-    ["Keep the cache on-disk", "on disk"],
+    ["Write to disk on every change", "write to disk"],
+    ["Writing to disk after each card move", "write to disk"],
+    ["Board changes are written to disk at once", "written to disk"],
+    ["Flush to disk before replying", "flush to disk"],
+    ["Change the on-disk layout of the cache", "on-disk layout"],
+    ["Version the on disk format", "on-disk format"],
     ["Append-only event log for the board", "append-only"],
-    ["Migrate the board file to v6", "migrate"],
-    ["Migrating old boards", "migrate"],
+    ["Turn on write-ahead logging", "write-ahead logging"],
+    ["Migrate the data to the v6 layout", "migrate the data"],
+    ["Migrating old data from v5 boards", "migrate old data"],
+    ["Migrated data keeps its card ids", "migrate data"],
     ["Encrypt tokens at rest", "encrypt"],
     ["Tokens are encrypted before upload", "encrypt"],
     ["Authenticate webhook requests", "authenticate"],
@@ -165,11 +204,57 @@ describe("Auto resolution", () => {
     ["Handle concurrent edits to the same card", "concurrent"],
     ["Run the jobs concurrently", "concurrent"],
     ["Write files atomically so a crash mid-write keeps the old file", "atomically"],
-    ["Define the JSON file format for exported boards", "file format"],
-    ["Make card moves transactional", "transactional"],
+    ["Atomicity of card moves", "atomicity"],
+    ["Bump the file format version of exported boards", "file format version"],
+    ["Use transactional writes for card moves", "transactional write"],
     ["Journaling for the outbox", "journal"],
+    // Data loss as people write it: a verb more often than the noun.
+    ["Never lose data if the process crashes mid-write", "lose data"],
+    ["Losing data on a crash is not acceptable", "lose data"],
+    ["Restarts must not lose any data", "lose any data"],
+    ["Close the window without losing the data", "lose the data"],
+    ["Recover lost data after a crash", "lost data"],
   ])("%j mentions %j", (text, keyword) => {
     expect(deepKeyword(text)).toBe(keyword);
+  });
+
+  // The same foundation cards written in Chinese (Simplified, then Traditional) resolve the same way (§5.2.2).
+  test.each([
+    ["每次修改都把看板写入磁盘", "写入磁盘"],
+    ["卡片移动后立即刷盘", "刷盘"],
+    ["定义导出看板的序列化格式", "序列化格式"],
+    ["提升导出看板的文件格式版本", "文件格式版本"],
+    ["看板的只追加事件日志", "只追加"],
+    ["加一个预写日志", "预写日志"],
+    ["把 v5 看板的数据迁移到 v6", "数据迁移"],
+    ["迁移旧数据", "迁移旧数据"],
+    ["编写 v6 的迁移脚本", "迁移脚本"],
+    ["卡片移动改为事务性写入", "事务性写入"],
+    ["原子地写文件，写到一半崩溃时保留旧文件", "原子地"],
+    ["原子写看板文件", "原子写"],
+    ["保证卡片移动的原子性", "原子性"],
+    ["轮换访问凭证", "访问凭证"],
+    ["登录凭证过期处理", "登录凭证"],
+    ["导出接口的访问控制", "访问控制"],
+    ["修复发送时的竞争条件", "竞争条件"],
+    ["这次是破坏性变更", "破坏性变更"],
+    ["进程崩溃后不能丢失数据", "丢失数据"],
+    ["重启时不丢数据", "丢数据"],
+    ["写到一半崩溃，数据不会丢", "数据不会丢"],
+    ["每次修改都把看板寫入磁碟", "寫入磁碟"],
+    ["提升匯出看板的檔案格式版本", "檔案格式版本"],
+    ["撰寫 v6 的遷移腳本", "遷移腳本"],
+    ["遷移舊資料", "遷移舊資料"],
+    ["程序崩潰後不能遺失資料", "遺失資料"],
+    ["加一個預寫式日誌", "預寫式日誌"],
+    ["匯出介面的存取控制", "存取控制"],
+  ])("%j mentions %j", (text, keyword) => {
+    expect(deepKeyword(text)).toBe(keyword);
+  });
+
+  test("a C1-style card written in Chinese resolves to Deep", () => {
+    const b = board([card("a", { title: "把看板文件迁移到 v6 格式，进程崩溃时不能丢失数据" })]);
+    expect(level(b, "a")).toEqual({ level: "deep", reason: { kind: "keyword", keyword: "丢失数据", field: "title" } });
   });
 
   test("light-review counts only on the card itself, and only after every deep trigger", () => {
