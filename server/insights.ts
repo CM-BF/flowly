@@ -2,17 +2,19 @@ import { mkdir, readFile, writeFile, rename, copyFile, unlink } from "node:fs/pr
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import type { PaseoApi } from "@getpaseo/client";
+import { backgroundWorkspaces, type BackgroundWorkspaces } from "./background-workspace";
+import { daemonRemoveAgent, type RemoveAgent } from "./summarizer-remove";
 import type { LocaleCode } from "../shared/i18n";
 import type { BoardStore } from "./store";
 import type { FlowLog } from "./flow-log";
 import type { GitStats } from "./git-stats";
 import type { SummaryStore } from "./summaries";
-import { availableModels } from "./summaries";
+import { runSummaryModels } from "./summary-models";
 import type { AgentLike, UsageService } from "./usage";
 import { modelId } from "./agent-model";
 import { laneName } from "../shared/lanes";
 import { historyStatusLabel, type Board, type HistoryStatus, type Project } from "../shared/model";
-import { SUMMARIZER_LABELS, isSummarizer, resolveModel, type SummaryEntry, type SummarySettings } from "../shared/summary";
+import { SUMMARIZER_LABELS, isSummarizer, summaryModelsOf, type SummaryEntry, type SummarySettings } from "../shared/summary";
 import {
   TREND_DAYS,
   addDays,
@@ -146,6 +148,10 @@ export class InsightsService {
     readonly language: () => Promise<LocaleCode>,
     private timeoutMs = DIGEST_TIMEOUT_MS,
     private now = () => Date.now(),
+    /** Where the digest runs: the project's background workspace, never a card's (§7). */
+    private background: BackgroundWorkspaces = backgroundWorkspaces(board.directory),
+    /** Hard-deletes the digest's session when done; archives it if that fails (AGENTS.md exception, §7). */
+    private removeAgent: RemoveAgent = daemonRemoveAgent(),
   ) {}
 
   /** Appends board events the flow log lacks (startup backfill and missed appends). */
@@ -295,39 +301,23 @@ export class InsightsService {
 
   private async run(input: DayInput & { day: string }, paseo: PaseoApi) {
     const tz = validZone(input.tz);
-    const { text, taskIds, project, board } = await this.material(input);
+    const { text, taskIds, project } = await this.material(input);
     if (!text) throw new Error("No activity on this day.");
     const settings = await this.settings();
-    const model = resolveModel(settings.summaryModel, await availableModels(paseo, settings.summaryModel));
-    const workspaceId = await this.workspaceFor(project, board, paseo);
     const prompt = digestPrompt({ project: project.title, day: input.day, today: input.day === dayKey(this.now(), tz), material: text, language: await this.language() });
-    const agent = await paseo.workspaces.ref(workspaceId).agents.create({
-      config: { provider: model },
-      title: `Kanban digest · ${project.title} · ${input.day}`.slice(0, 120),
-      labels: { ...SUMMARIZER_LABELS, "flowly-project": project.id },
-      prompt,
-      outputSchema: digestJsonSchema as unknown as Record<string, unknown>,
-    });
-    let output;
-    try {
-      const result = await agent.waitForFinish(this.timeoutMs);
-      if (result.status !== "idle")
-        throw new Error(
-          result.status === "timeout"
-            ? "The digest model timed out."
-            : result.status === "permission"
-              ? "The digest model asked for a permission."
-              : result.error || "The digest model failed.",
-        );
-      output = parseDigest(result.lastMessage, taskIds);
-    } finally {
-      await agent.archive().catch(() => undefined);
-    }
+    const { model, output } = await this.background.use(project, paseo, (workspaceId) => runSummaryModels(paseo, summaryModelsOf(settings), {
+      create: (model) => paseo.workspaces.ref(workspaceId).agents.create({
+        config: { provider: model },
+        title: `Kanban digest · ${project.title} · ${input.day}`.slice(0, 120),
+        labels: { ...SUMMARIZER_LABELS, "flowly-project": project.id },
+        prompt,
+        outputSchema: digestJsonSchema as unknown as Record<string, unknown>,
+      }),
+      parse: (text) => parseDigest(text, taskIds),
+      remove: this.removeAgent,
+      timeoutMs: this.timeoutMs,
+    }));
     await this.digests.put({ ...output, projectId: project.id, day: input.day, tz: tz || "", at: new Date(this.now()).toISOString(), model });
-  }
-
-  private workspaceFor(project: Project, board: Board, paseo: PaseoApi) {
-    return projectWorkspace(project, board, paseo, "the digest");
   }
 
   /** The day's activity as plain text for the digest model; "" when nothing happened. */
@@ -377,25 +367,6 @@ export class InsightsService {
       .join("\n\n");
     return { text: material ? clipMaterial(material) : "", taskIds: new Set(active.map((t) => t.id)), project, board };
   }
-}
-
-/**
- * Where a project-level temporary session runs (PROJECT-INSIGHTS-SPEC §7): the
- * project root's own workspace, else the most recently updated live card workspace.
- */
-export async function projectWorkspace(project: Project, board: Board, paseo: PaseoApi, purpose: string) {
-  let cursor: string | undefined;
-  do {
-    const page = await paseo.workspaces.list({ page: { limit: 200, cursor } });
-    const root = page.entries.find((w) => w.projectId === project.paseoProjectId && w.workspaceDirectory === project.primaryPath);
-    if (root) return root.id;
-    cursor = page.pageInfo.nextCursor ?? undefined;
-  } while (cursor);
-  const card = board.tasks
-    .filter((t) => t.projectId === project.id && !t.archivedAt)
-    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0];
-  if (!card) throw new Error(`No workspace to run ${purpose} in: open a card in this project first.`);
-  return card.workspaceId;
 }
 
 const label = (status: string | undefined) => (status ? historyStatusLabel(status as HistoryStatus) : "?");

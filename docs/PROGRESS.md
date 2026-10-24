@@ -1,5 +1,21 @@
 # Implementation progress
 
+## Upstream merge JasprW/flowly #32-#45 — 2026-10-23
+
+Merged upstream/main (`0e5caf4`) into the fork's main (`2bdb74e`); the owner's fork decisions win over upstream rules (AGENTS.md "Fork ownership"). 28 files conflicted; every fork feature and every upstream change was kept.
+
+- [x] Turn checklist (#35/#39) under automation: item 1 keeps "Handle unread inputs and unread comments first" and metadata; item 5 says a result never ends an automated turn (in_review, a question or blocked; a worktree card commits on its own branch first). Reviewer sessions read `reviewerChecklist` from `flowly_get_task`, and `REVIEWER_ONLY` refuses their status, workpad, type, tags, artifact, idea and `kind=result` writes ([AUTOMATION-SPEC](AUTOMATION-SPEC.md) §4.2, §5, §7; [TURN-CHECKLIST-SPEC](TURN-CHECKLIST-SPEC.md) §2.2).
+- [x] Refusal-first delivery gate (#35): start, reminder and changes messages tell the implementer to retry in the same turn with `acknowledgeOpen=true`; start messages also ask a worktree card to commit on its own branch before delivering, and a directory card to leave its changes uncommitted (`flowly_get_task` now returns `workspace.kind`). The merge first asked every card to commit, which in a directory workspace commits unattended onto the branch the project root has checked out.
+- [x] Summary model list (#37) and background workspace (#43): Flowly's temporary sessions carry `paseo-rate-fallback=off`; the card picker never offers the background workspace. AGENTS.md records the background-workspace and extended hard-delete exceptions as upstream decisions adopted pending the owner's confirmation.
+- [x] Default permission mode (#40) unified on the fork's `modeId`: `defaultMode` maps to it; Settings → Models shows a permissions-only row ([MODEL-DEFAULTS-SPEC](MODEL-DEFAULTS-SPEC.md)).
+- [x] Welcome tour (#34): upstream's five pages; the fork's tile and More features entries are Ready-page lines; tips keep the fork's ids plus `summary-models`; one "Review rounds" entry per catalog (the fork's wording).
+- [x] Idea tools (#36), outputs (#35), CLI: unions of actions, receipts and flags. Send behaviour (#44) now only in Settings → General; CARD-COMMENTS-SPEC and READMEs say so. Desktop overview chips now scroll to their lane (upstream had declared `reveal` but never set it), once per press: the board clears the request after the scroll, so a board mounted later (Back from Ideas, Insights or Memory, a compact window widened) no longer scrolls back to the old lane.
+- [x] #42 not adopted as written (CM-BF/flowly has no auto merge, branch protection, CI runs or CodeRabbit); kept the fork's merge command with `--repo CM-BF/flowly` and the follow-the-PR habit.
+- [x] Reviewer sessions are no longer told to fix card setup they may not write: no setup reminder on their writes, no "Card setup missing" line in their first context (`prepare` passes `reviewer: true`; Send work instructions checks `reviewerOfCard`), and the reviewer checklist, `flowly_get_task` description and skill leave setup to the implementer ([AUTOMATION-SPEC](AUTOMATION-SPEC.md) §5, [CARD-SETUP-SPEC](CARD-SETUP-SPEC.md) §3.2/§3.3).
+- [x] Every setup-item list agents read names metadata too (the skill's reminders and workpad bullets, the `flowly_update_status` description), matching checklist item 1 and the gate ([CARD-SETUP-SPEC](CARD-SETUP-SPEC.md) §3.3, §3.5).
+- [x] `npm run typecheck`; `npm test` full suite (docs/verification now excluded, so the 65 renderer-gated fixture skips and their 31 passes leave the count).
+- [ ] UNRUN: install on the daemon and Web UI checks (tour, Settings → Models permissions row, lane chips, comments), live automation with the new gate and reviewer guard, the constraint benchmark, Android.
+- Onboarding: no new tip from the fork side; #36 and #40 add no tip (agent-facing tools and a settings row).
 ## Oversized session histories — 2026-10-24
 
 Incident on the owner's daemon: a Codex automation session (C5b.3) grew a 1.18 GB history through UI verification relayed via Paseo browser tools; Paseo's worker crashed whenever it loaded that thread (heap out of memory, then `RangeError: Invalid string length` in its Codex transport, every ~30 s), disconnecting every session until the rollout was renamed and the session archived.
@@ -106,6 +122,66 @@ Spec: [AUTOMATION-SPEC](AUTOMATION-SPEC.md). Builds on the user's earlier decisi
 - [ ] UNRUN: real provider failure and retry, permission waiting, daemon restart mid-turn, slot contention live, Android device.
 - [ ] Not built (spec §9): Hermes orchestrator cards, goal mode, scheduled starts, per-card assignee or model. Decomposition came later through agent-created sub-cards (above).
 - [x] Review round 2 (61 findings, 59 confirmed): review cycles and verdicts per delivery, retry/turn-end fixes, parent wake and blocker walk, frozen projects without In review, cooldown gating, sub-card restart bound and refused notes, bounded get_task handoffs, client reasons and Attention; specs, onboarding spec and READMEs updated; tsc and `npx vitest run` pass (1105 passed, 65 skipped). Live daemon/Web UI UNRUN; client-docs-3 (Full access vs project default permissions) left for the owner ([review](verification/automation-review.md#round-2)).
+## Configurable summary models — 2026-10-23
+
+- User-requested ordered model list in Settings → Models and the welcome tour: add, move up/down, remove, reset to Haiku→Luna; preserve legacy Auto/single-model choices. Additive v1 `summaryModels`, no write-on-read migration.
+- Shared runtime fallback now covers Progress, outside-session insights, digest and finished-card memory review; unavailable candidates skipped, valid output stops, cleanup precedes retry, persistence stays outside retry. Existing workspace ownership preserved.
+- PASS independent full-access Luna: focused 167, typecheck, full 111 files / 958 tests. Reloaded. Real UI add/remove/reorder/duplicate/final-item/persistence and 820px compact desktop passed; real custom order skipped an unavailable candidate and ran Luna first. Original settings/onboarding restored exactly; test child and independent session deleted.
+- UNRUN full phone/native layout: at 580px the host navigated back to Community. Dark theme not separately exercised. Existing theme primitives reused.
+- Onboarding, READMEs, one-time tip and all catalogs updated. The optional What's new announcement remains with its separate uncommitted feature. [Spec](SUMMARY-MODELS-SPEC.md), [verification](verification/summary-models-2026-10-23.md).
+
+## Summary runtime fallback — 2026-10-22
+
+- Fixed card Progress Auto summaries: available candidates are tried once in order (Haiku → Luna), including quota/runtime/create/wait/timeout/permission/schema failures. Explicit model selections stay fixed. Successful output or valid `update=false` stops; only a successful model is saved, all failures keep the previous summary, and storage errors never trigger another model call.
+- Spec: [TASK-SUMMARY-SPEC §4/§8](TASK-SUMMARY-SPEC.md). Focused 41 tests PASS; independent Luna full-access typecheck PASS. Live reload + this card's Refresh observed Haiku then Luna, saved a Luna summary, and confirmed both created children were deleted. No settings changed or fixture projects created. Independent full suite PASS (110 files / 948 tests), plus a separate persistence-failure boundary PASS; details are in the verification report.
+- Onboarding: bug fix to existing Auto behavior, no new UI, setting, entry point, tour, tip or What's new item.
+- Evidence: [summary fallback](verification/summary-fallback-2026-10-22.md). Uncommitted; no commit/push requested. Adjacent digest, outside-session insights and memory review fallback is recorded as a follow-up idea.
+
+## Agent idea management (card "扩展idea工具") — 2026-10-22
+
+Spec: [IDEAS-SPEC §3.1](IDEAS-SPEC.md). User request: agents manage their card's ideas themselves (dismiss, edit, delete), e.g. close an idea the user rejected.
+
+- [x] `flowly_update_idea` (edit fields of an open idea and/or `status: "dismissed"`) and `flowly_remove_idea`; receipt actions `idea_update` / `idea_remove`; agent events `idea_edited` / `idea_dismissed` / `idea_removed`. Card-scoped, accepted is final, only the user restores, duplicate-title check on rename, Ideas off → `IDEAS_DISABLED`.
+- [x] CLI `idea-update` / `idea-remove`, HTTP `/api` actions, skill text (`server/skill-source.ts`, `skills/flowly/SKILL.md`).
+- [x] Tests: `server/agent-service.test.ts` (edit, dismiss, replay, refusals, remove), `server/tool-server.test.ts` (MCP list/call, CLI).
+- [x] Onboarding not changed: agent-facing tools only, no new UI, setting or user action.
+- [x] Continuation verification: installed MCP propose → multi-field edit → dismiss → remove; exact dismiss/remove replay, `REQUEST_REUSED` and `IDEA_CLOSED` refusals, Activity and unchanged card status/revision. Temporary idea removed. [Evidence](verification/idea-tools-2026-10-22.md).
+- [x] Independent `codex/gpt-6-luna`, explicitly full-access at creation (`d34eee81-94d1-4d32-a918-bd07392ee19b`): `npm run typecheck`; `npm test` (110 files / 936 tests passed), on `fab80456ead8` + dirty changes. [Luna report](verification/idea-tools-2026-10-22-luna.md). First live CLI attempt had no session context; the parent then used the existing `tools.prepare-existing` RPC to bind that session for the remaining checks.
+- [x] Luna live CLI supplement: propose → multi-field edit → dismiss → refused dismissed edit → remove, exact replay / `REQUEST_REUSED`, and unchanged status/revision all passed. Temporary ideas/snapshots and the owned test session were removed; fresh native lookup and card session list confirm cleanup. Visual desktop/compact checks unrun (no client change); no commit/push requested.
+- [x] Astra review (user-requested replacement after Fable quota/balance failures) found P2 proposal replay losing `ideaId` after removal and P3 Activity localization omissions. Both fixed: persist optional receipt `ideaId` with legacy fallback; map `idea_edited` / `idea_removed` through `msg()` and all nine catalogs. Pre-fix regression failed as expected; post-fix focused 97 PASS, independent Luna typecheck/full suite 110 files / 938 PASS and 18 runtime translations PASS. Reloaded plugin's real MCP propose → remove → replay returns the original ID/receipt without resurrecting the idea or changing task state/revision. Test idea/session cleaned up. [Original review](verification/idea-tools-2026-10-22-astra.md), [fix evidence](verification/idea-tools-2026-10-22-fixes.md). Desktop/compact rendering unrun; no new tour/tip/What's new (bug fixes only).
+
+## Constraint benchmark — design checkpoint, 2026-10-22
+
+- [x] [CONSTRAINT-BENCHMARK-SPEC](CONSTRAINT-BENCHMARK-SPEC.md), draft revision 2: after [Fable review and primary-agent verification](verification/constraint-benchmark-design-2026-10-22/fable-review.md), current scope is an independent grader + B01 quick (three file/verification/PR turns, Sonnet and GPT). B02–B04, compare and automatic resume are deferred.
+- [x] Separate proactive and final verdicts; define expected refusal, equivalent-input SHA staleness, state-based turn prerequisites and exit-code precedence. Preserve test-stage requirements and all known failures; earlier scoring failures do not automatically suppress T3.
+- [x] Define server receipt/artifact facts, nextMoves offered=0 versus omission and uncertain call correlation, actual execution evidence, shared Git common-dir ownership, cleanup permission preflight and independent cleanup retry. Audit v2 alone cannot score all six obligations.
+- [x] Historical design checkpoint: implementation and model runs had not started at this revision. Fable r2 rereview and the later implementation/live results are recorded below and in the linked verification reports; this checkpoint alone is not execution evidence. No product UI/onboarding change.
+
+
+## Turn checklist and audit calibration — 2026-10-22
+
+Spec first: [TURN-CHECKLIST-SPEC](TURN-CHECKLIST-SPEC.md). User authorized the minimal combined recommendations 1+3 after calibrating the audit; no hooks.
+
+- [x] Shared six-action checklist in `shared/turn-checklist.ts`, rendered at the start of the generated skill and returned by live `get_task` / CLI current; additive optional schema for old-server compatibility, no new write gate.
+- [x] Both audit entrypoints share turn-time filtering, full-URL matching against successful receipt artifact IDs, failure/unknown evidence and explicit real/test/unclassified + old/new groups. Codex source is inspected with TypeScript AST, never executed.
+- [x] Focused checklist checks: 3 files / 57 tests; audit fixtures finally 25 tests. Luna found 4 boundaries, fixed and rechecked; user-designated Fable `058cab0b` found 5 issues plus dynamic-command R1, all fixed and independently rechecked PASS.
+- [x] Typecheck, full suite (110 files / 933 tests after Fable fixes), reload and live old-session CLI read (six rules exactly match source, runtime skill matches generated file, board hash unchanged). Final R1 only changed offline audit, checked with 25 Node regressions. [Report](verification/turn-checklist-2026-10-22.md).
+- [x] Onboarding not changed: no new UI, setting or user action; these are agent instruction/API and offline audit changes.
+
+
+## Welcome tour redesign: explain and set the basics (card "重设计onboarding流程") — 2026-10-22
+
+Spec: [ONBOARDING-SETUP-SPEC](ONBOARDING-SETUP-SPEC.md) (design confirmed by the user before implementation). The tour now also sets the interface and AI output language, the progress model, outside-session progress / next steps / ideas, and Project memory / Insights.
+
+- [x] Five pages: How Flowly works (+ interface language), Built in (Always on; progress model; *Also in sessions outside Flowly* ×3; cost note), Project memory and Insights (drawn sketches, switches and sub-switches), Ready (+ More features).
+- [x] First run: the outside-session switches are a draft stored only when the tour closes (any way), all on by default; installed users who never finished it keep their stored values (off). Manual opens show and store the real values.
+- [x] New host setting `features` (`memory`, `insights`): memory off everywhere (`memoryOn`), Insights hidden with no digest or Workflow insights; Settings → AI features gained both groups. Existing switches kept (user decision).
+- [x] Settings-button callout `settings-entry` after the tour closes.
+- [x] Old users are not shown the tour (unchanged); "What's new after an update" proposed as an idea instead.
+- [x] `npm run typecheck`, `npm test`; desktop light/dark screenshots in `docs/verification/onboarding-setup-2026-10-22/`.
+- [ ] UNRUN: first-run path on a real empty board (needs a fixture host), phone, Luna session.
+- [x] Onboarding: this is the tour; new tip `settings-entry`; README (both) quick start; ONBOARDING-SPEC §2/§5.
+
 
 ## Registry listing art (card "发布v1.5.0") — 2026-10-21
 
@@ -121,7 +197,7 @@ Spec: [PROJECT-MEMORY-SPEC](PROJECT-MEMORY-SPEC.md). Every card started from zer
 - [x] Agent tools `flowly_remember` (candidate; receipt + `memory_proposed` event, idempotent by event) and `flowly_recall` (read-only); `flowly_get_task` `memory`; CLI `remember` / `recall`; skill rule.
 - [x] First instructions carry the project memory block (`sessionContext`, all entries while they fit 8 / 2400 characters, else pinned + relevant); injected entries count as used by the card.
 - [x] Clues: the user's own messages of each managed turn (answer / feedback / message), filtered (short, picked suggestion, secret). Native question-tool answers (Claude `AskUserQuestion`, Codex `request_user_input` and the async variant's `Answers to your questions:` follow-up) become `answer` clues, one per question; formats checked on real timelines and Paseo's source on 2026-10-22 (spec §4.0). Live: a Claude session's AskUserQuestion answered like the drawer left two `answer` clues with `ask` ([report](verification/project-memory.md), last section).
-- [x] Finished-card review on entering Done (default on, Summary model, project-root workspace, labels `flowly=summarizer`, `flowly-memory=retro`, hard-deleted in `finally` via `server/summarizer-remove.ts`, archive fallback); manual **Find memories**; skip without new material.
+- [x] Finished-card review on entering Done (default on, Summary model, project background workspace (BACKGROUND-WORKSPACE-SPEC, 2026-10-23), labels `flowly=summarizer`, `flowly-memory=retro`, hard-deleted in `finally` via `server/summarizer-remove.ts`, archive fallback); manual **Find memories**; skip without new material.
 - [x] Review tightened after user feedback (too many card-specific candidates; 1 of 7 kept): at most one candidate per card, a required `reuse` (a later card on a different feature) or it is dropped, waiting and dismissed suggestions passed as counter-examples; the same generality rule added for `flowly_remember`.
 - [x] UI: Memory page (`M`, overview chip, project tab menu), candidate review with edit/confirm/dismiss, edit/pin/archive/delete/restore, Copy as AGENTS.md rule, Clean up / Archive all stale, Make room; drawer Memory section; project switch *Project memory*; Settings → AI features *Find memories in finished cards*; nine catalogs.
 - [x] Onboarding: tour line *Project memory* (More features), tip `first-memory-candidate`, README highlights in both languages, ONBOARDING-SPEC tip table.
@@ -882,3 +958,33 @@ Phase 2 spec: [PHASE-02-SPEC.md](PHASE-02-SPEC.md). Three current-card tools; au
 - Follow-up (same day, user feedback): the exit looked like a stall before sliding away because `useExitList` dropped the row for one commit and re-added it as leaving (list jumped, card remounted). The leaving rows are now added in the same render and every row keeps one wrapper (`RowOut`), so nothing remounts. The user preferred Memory's fade-and-collapse, so Ideas (page and drawer) and Memory share it: no desktop swipe-out, no slide-in on restore. Dismissing a memory candidate also leaves at once, before the save returns.
 - Scan (same day): Links and Artifacts lists already shared `IdeaRow`, so they follow the new exit automatically. The Needs attention sheet (dismiss / restore a card) had no motion; its rows now use the same fade-and-collapse (`AttentionRows` in `client/board.tsx`). The Dismissed chevron in that sheet now turns like the other disclosures (`Chevron`), and the drawer's Closed ideas rows collapse out on Restore (and rise in when an idea is closed).
 - Second scan (same day): disclosures that still opened and closed instantly now use `Collapse` and a turning chevron (`TurnChevron` in `client/ui.tsx`): the Progress card's earlier versions, the workpad check "Show output", the idea detail in the native chip popover, the agent activity block in the session transcript, and the chevron in `SectionHeader`. Not changed on purpose: the subagents chip (its tray already has its own presence) and the Show more / Show less toggle on content cards (its height already animates).
+
+## 2026-10-22 Delivery constraints (card “流程约束不足”)
+
+- Implemented [DELIVERY-CONSTRAINTS-SPEC](DELIVERY-CONSTRAINTS-SPEC.md): `outputs` on In review/result atomically registers artifacts with the delivery, moves and receipt; omitted outputs remind, `[]` explicitly declares none. Persisted receipt IDs survive exact replay without revalidating missing files or private metadata. MCP, CLI and both skill copies agree.
+- `acknowledgeOpen` now requires a prior refusal for the same session/card/workpad/HEAD. The first pre-acknowledged attempt still refuses; new turns clear the bounded ephemeral record through the lifecycle hook, independently of truncated board history.
+- A real Sonnet run exposed private GitHub metadata lookup blocking an otherwise valid output URL. Fixed: ExternalError on an explicit valid http(s) output saves a plain URL with a notice; bare keys and programmer errors still refuse. No connection credentials or settings changed.
+- PASS: focused checks (3 files / 59 tests), `npm run typecheck`, `npm test` (109 files / 932 tests), plugin reload. Verification directories are excluded from product TS/Vitest discovery so third-party research fixtures are preserved without entering product checks.
+- Live PASS after the fix: fresh Sonnet and GPT sessions received only “创建 PR 并合入”, merged PR #3/#4, atomically registered the PR via outputs and delivered again. First-round private-metadata failures are retained. Evidence: [verification/delivery-constraints-2026-10-22.md](verification/delivery-constraints-2026-10-22.md). Four cards/worktrees and five test sessions are cleaned; remote fixture branches removed. UNRUN: deleting four local Tinylink test refs requires filesystem access outside the task root; sandbox refused and escalation did not complete. The user asked to retain the private GitHub repository and PR history for reuse.
+- Onboarding: no new UI, setting or entry point; existing Inputs and outputs and Workpad guidance covers the behavior. No tour, tip or What's new change.
+
+## 2026-10-22 Constraint benchmark（卡片“流程约束不足”）
+
+- 实现 `benchmarks/constraints/` 的独立 grader 与 B01 quick `run / grade / cleanup`；补清只读 receipt 来源、nextMoves 主动/最终归属，保留 test 阶段与事实前置条件，不加 hooks。来源缺失/冲突不猜；独立 FAIL 不被 UNKNOWN 覆盖。
+- 最终聚焦检查 PASS：54 主项 + 3 Luna 风险项 = 57。独立 Luna 验证了前一版本 56/56；GPT Astra 按用户指定完成实现审查并关闭阻塞。类型检查 PASS。工具/文档变更，无产品 reload/UI/onboarding 变更。
+- 真实 quick：GPT 三回合、fixture PR #5 合入与 output 登记已观测；Sonnet weekly quota INVALID，双模型最终 UNKNOWN/exit 2，不能称全部通过。原始失败、补采及版本化重评保留；不重跑模型改成绩。
+- 两次 quick 的专属资源与一次无模型 dirty-worktree 清理 smoke 均收尾通过，原有 Tinylink/旧 refs/私有仓库历史保留；审查/验证会话已归档。详见 [实现与验证报告](verification/constraint-benchmark-2026-10-22/implementation-report.md)。
+
+## 2026-10-23 Benchmark scope 历史同步修正
+
+- grader 1.0.1：每case启动会话前冻结fixture main，评分和清理共用scope图/路径/tree审计。已批准历史的原样导入可通过，额外新提交、dirty、模式变化、改后还原和merge resolution仍拒绝；缺证据UNKNOWN，不按任意最终父提交放行。
+- 保存证据离线回归：77/77 PASS。独立重评只将GPT T3的scope误FAIL改为PASS，其他五回合成绩不变，整体仍FAIL/exit1。旧run 56个文件hash保持，未跑模型、未创建原生fixture、未改旧成绩；临时Git测试目录已清理。
+- 未重跑新Luna/模型会话，遵循本次“不重跑模型”；复用保存的Luna风险用例。无产品API/UI改动，无需reload或onboarding更新。证据见 [scope修正报告](verification/constraint-benchmark-scope-2026-10-23/report.md)。
+
+
+## 2026-10-23 Shared checklist wording — Fable整体复核后
+
+- Spec先行：TURN-CHECKLIST-SPEC §2/§2.1明确现行阶段和整体交付/阶段汇报边界；只收紧shared/turn-checklist.ts第2/5项，并由既有skill-source生成仓库SKILL.md。另四项与详细规则逐字不变，6项/1583字符。
+- PASS：离线3 files / 62 tests（skill-source、agent-service、tool-server）；规范/生成一致性与旧证据hash核对。保留旧benchmark原始/独立重评，不改评分。
+- 未运行：B01、被测模型/审查会话、fixture/grader、全量测试、安装/reload、Git发布；未加hooks/改服务端行为/API/UI。仓库skill已生成，不宣称运行中的服务已加载新规则或模型遵守改善。无onboarding/tip/What's new改动。
+- [本轮归属、检查与保留证据](verification/turn-checklist-wording-2026-10-23/report.md)。

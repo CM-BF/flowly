@@ -28,6 +28,7 @@ import { normalizeTags } from "../shared/tags";
 import { tagLimits } from "../shared/model";
 import { repoMatcher } from "./repos";
 import { memoryContext } from "./memory";
+import { backgroundWorkspaces } from "./background-workspace";
 import type { z } from "zod";
 import type { removeProject as removeProjectRpc, restoreProjectCheck as restoreProjectCheckRpc } from "../shared/rpc";
 
@@ -180,6 +181,9 @@ export class BoardService {
       workspaces.push(...page.entries);
       cursor = page.pageInfo.nextCursor ?? undefined;
     } while (cursor);
+    // Flowly's own background workspaces are archived after each run, so they are never offered for a card.
+    const background = await backgroundWorkspaces(this.store.directory).ids().catch(() => new Set<string>());
+    const offered = workspaces.filter((w) => !background.has(w.id));
     return {
       projects: projects.map((p) => ({
         id: p.projectId,
@@ -187,7 +191,7 @@ export class BoardService {
         path: p.projectRootPath,
       })),
       workspaces: await Promise.all(
-        workspaces.map(async (w) => ({
+        offered.map(async (w) => ({
           id: w.id,
           projectId: w.projectId,
           name: w.name || w.id,
@@ -693,7 +697,8 @@ export class BoardService {
     const located = await this.connectors.locate(list).catch(() => new Map<string, null>());
     return new Set(list.filter((a) => located.has(a.id) && !located.get(a.id)).map((a) => a.id));
   }
-  async context(id: string, paseo: PaseoApi, snapshot?: Board) {
+  /** `reviewer`: the context of a card's reviewer session, without the implementer's setup line (AUTOMATION-SPEC §5). */
+  async context(id: string, paseo: PaseoApi, snapshot?: Board, options: { reviewer?: boolean } = {}) {
     const board = snapshot || (await this.store.read());
     const task = board.tasks.find((t) => t.id === id);
     const project = board.projects.find((p) => p.id === task?.projectId);
@@ -733,7 +738,7 @@ export class BoardService {
         workspace?.workspaceDirectory || task.sourcePath,
         linkContextLines(linksOf(board, task.id), (t) => laneName(project, t.status)),
         artifactContextLines(artifactsOf(board.artifacts, task.id), 10, await this.unreadableExternals(board, task.id)),
-        setupContextLine(setupMissing(task, workpadOf(board.workpads, task.id), workpadEnabled(project))),
+        options.reviewer ? "" : setupContextLine(setupMissing(task, workpadOf(board.workpads, task.id), workpadEnabled(project))),
         memory.lines,
       ),
       memoryIds: memory.ids,

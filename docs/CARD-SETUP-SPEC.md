@@ -1,5 +1,7 @@
 # 卡片开工设置：type / tags / workpad 的提醒与软卡（CARD-SETUP-SPEC）
 
+2026-10-22：Start of every turn 改为共享六项动作清单，实时 get_task 返回相同的 `turnChecklist`；仍先补 setup.missing，小卡不例外。现有缺项校验、提醒和权限不变。见 [TURN-CHECKLIST-SPEC](TURN-CHECKLIST-SPEC.md)。
+
 状态：2026-10-21 用户审阅通过并要求实现；已实现，Luna 6 验证通过（[报告](verification/card-setup-2026-10-21.md)：Sonnet 5.5 medium 与 Luna 都在首次改文件前补齐了三项；真实 session 的 `SETUP_INCOMPLETE` 拒绝未触发，仅单测覆盖）。卡片 `ee717828`（“Flowly 流程约束强化”，“发布v1.5.0”的跟进）。
 用户决定（2026-10-21）：
 - 没有 workpad 的卡交付也要软卡（`acknowledgeOpen` 加说明放行）。这**推翻** [WORKPAD-SPEC](WORKPAD-SPEC.md) §5.3 第 2 步“没有 workpad 照常提交”的旧决定，理由见 §2 R4。
@@ -62,7 +64,7 @@ setup: {
 
 `Card setup missing: type, tags, workpad. Before you change anything, set them (flowly_set_type, flowly_set_tags, flowly_update_workpad with acceptance criteria and the checks you will run); see "Start of every turn" in the Flowly skill.`
 
-只列真正缺的项；项目关闭 workpad 时不列 workpad。三项齐全时不出现。它反映建卡/开 session/显式“工作说明”那一刻的状态；之后以 get_task 为准。普通跟进消息仍只发用户原文（AGENTS.md），不加此行。
+只列真正缺的项；项目关闭 workpad 时不列 workpad。三项齐全时不出现。它反映建卡/开 session/显式“工作说明”那一刻的状态；之后以 get_task 为准。普通跟进消息仍只发用户原文（AGENTS.md），不加此行。卡片的自动化评审 session（自动化建的评审 session，以及对 `reviewerOfCard` 成立的已有 session 发“工作说明”时）不加此行：它的设置写入返回 `REVIEWER_ONLY`（[AUTOMATION-SPEC](AUTOMATION-SPEC.md) §5）。
 
 ### 3.3 写入结果里的设置提醒
 
@@ -76,10 +78,11 @@ setup: {
 | `flowly_get_task`、`flowly_read_external`、`flowly_read_ticket`（只读） | 否（get_task 有 `setup`） |
 
 - 计算在写入之后：`flowly_set_type` 自己的结果不再提 type，`flowly_update_workpad` 写入非空内容后不再提 workpad。
-- 卡片已 Done/Cancelled 或已归档时不带（同 §9.5 现有规则）。写入失败不带。
+- 卡片已 Done/Cancelled 或已归档时不带（同 §9.5 现有规则）。写入失败不带。卡片的评审 session 的写入（`kind=question` 等它能做的）不带：设置由实现者补，评审者需要时把缺项写进 findings（2026-10-23，合并上游后）。
 - 与交付提醒同时出现时，交付提醒（next moves、ideas）在前，设置提醒在后。
 - 文案（英文；`{items}` 按顺序只列缺的项，用“; ”连接）：
   `This card's setup is incomplete: {items}. Make these calls now, before more work; they take seconds. This write already succeeded.`
+  - metadata（有 `brief` 且未整理的卡）：`unorganized task brief (flowly_update_metadata: supply both a concise title and a faithful description from task.brief)`
   - type：`no type (flowly_set_type: feature, bugfix, research, refactor, docs or chore)`
   - tags：`no tags (flowly_set_tags: 1-4 module or direction tags, reuse projectTags)`
   - workpad：`no workpad (flowly_update_workpad: the acceptance criteria and the checks you will run, before you implement)`
@@ -92,13 +95,15 @@ agent 调 `flowly_update_status(status=in_review)` 且状态确实变化时（�
 - `missing`（§3 定义，含“没有 workpad”）；
 - 有 workpad 时的 `openItems`（WORKPAD-SPEC §5.3）。
 
-任一非空且没有 `acknowledgeOpen: true`：返回错误，不提交、不写回执（同一 request 可带确认后重试）。一个错误列出全部问题，避免 agent 连撞两次：
+任一非空且未在本 session 对当前状态拒绝过，或没有 `acknowledgeOpen: true`：返回错误，不提交、不写回执（同一 request 可带确认后重试）。一个错误列出全部问题，避免 agent 连撞两次：
 
 - 有未完成的 workpad 项：错误码仍为 `WORKPAD_OPEN`（兼容现有 agent 与测试），消息在原清单前加设置缺项一行（若有）。
 - 只有设置缺项：新错误码 `SETUP_INCOMPLETE`，消息：
   `Card setup is incomplete: {items}. Set them now and deliver again. Deliver anyway only with acknowledgeOpen=true and a note that explains why each one is missing.`
 
-带 `acknowledgeOpen: true`：照常提交；`status_changed` 事件新增可选 `setup: { missing }` 快照（与现有 `workpad` 快照并列），供以后的 Insights 统计。卡面“Delivered with {n} open items”的计数**不**含设置缺项（本卡不改 UI）。
+本 session 已收到当前状态的拒绝后，再带 `acknowledgeOpen: true`：照常提交；`status_changed` 事件新增可选 `setup: { missing }` 快照（与现有 `workpad` 快照并列），供以后的 Insights 统计。卡面“Delivered with {n} open items”的计数**不**含设置缺项（本卡不改 UI）。
+
+2026-10-22 修订：预带 `acknowledgeOpen=true` 不再绕过首次拒绝。状态指纹、过期、回合切换和重载规则见 [DELIVERY-CONSTRAINTS-SPEC](DELIVERY-CONSTRAINTS-SPEC.md) §2。
 
 CLI 已有 `--acknowledge-open`，不变。`flowly_update_status` 的 `acknowledgeOpen` 描述改为“…still open workpad items or missing card setup (WORKPAD_OPEN, SETUP_INCOMPLETE)…”。
 
@@ -109,7 +114,7 @@ CLI 已有 `--acknowledge-open`，不变。`flowly_update_status` 的 `acknowled
 agent 跟随 schema（R3），所以描述里写明：
 
 - `flowly_get_task`：末尾加 “Then check setup.missing and fix it (set_type, set_tags, update_workpad) before other work.”
-- `flowly_update_status`：加 “Delivering with missing setup (no type, no tags or no workpad) returns SETUP_INCOMPLETE …”；写结果“any write’s result may carry a setup reminder”。
+- `flowly_update_status`：加 “Delivering with missing setup (no type, no tags or no workpad) returns SETUP_INCOMPLETE …”；写结果“any write’s result may carry a setup reminder”。2026-10-23 起括号里先列 metadata（“unorganized metadata of a task.brief card, no type, no tags or no workpad”），skill 的写入提醒一句与 workpad 一节的交付软卡一句同样列出 metadata：它也是交付软卡的缺项（TASK-INTAKE-SPEC）。
 - `flowly_set_type`、`flowly_set_tags`、`flowly_update_workpad`：首句加时机 “Do this at the start of the work, before you change code.”
 
 ### 3.6 Skill（`server/skill-source.ts` 与 `skills/flowly/SKILL.md` 同步）

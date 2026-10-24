@@ -72,8 +72,11 @@ import { ToolError } from "./tool-error";
 
 type Role = AutomationJob["role"];
 export type AutomationDeps = {
-  /** Prepares a Flowly-managed session of the card (ToolServer.prepareSession): its id, tools and instructions. */
-  prepare(taskId: string, operationId: string, paseo: PaseoApi): Promise<ToolPreparation>;
+  /**
+   * Prepares a Flowly-managed session of the card (ToolServer.prepareSession): its id, tools and instructions.
+   * `reviewer`: the session reviews the card, so its context leaves out the implementer's setup line.
+   */
+  prepare(taskId: string, operationId: string, paseo: PaseoApi, options?: { reviewer?: boolean }): Promise<ToolPreparation>;
   /** The global default model (Settings → Models), or null. */
   globalModel(): Promise<AgentModel | null>;
   clock?: () => number;
@@ -1042,7 +1045,7 @@ export class AutomationService {
 
   private async create(job: AutomationJob, role: Role, op: string, prompt: string, task: Task, project: Project, paseo: PaseoApi) {
     const settings = automationOf(project);
-    const preparation = await this.deps.prepare(task.id, op, paseo);
+    const preparation = await this.deps.prepare(task.id, op, paseo, { reviewer: role === "reviewer" });
     const recorded = await this.store.transaction((board) => {
       const j = this.current(board, job, role);
       if (!j || j.pendingOp !== op) return { value: false, changed: false };

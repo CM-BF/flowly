@@ -36,7 +36,7 @@ async function setup(options: { settings?: Partial<InsightSettings>; agentStatus
   const paseo = {
     providers: {
       listAvailable: async () => ({ providers: [{ provider: "claude", available: true }] }),
-      listModels: async () => ({ models: [{ id: "claude-haiku-5-5" }], error: null }),
+      listModels: async () => ({ models: [{ id: "claude-haiku-5-5" }, { id: "claude-sonnet-5-5" }], error: null }),
     },
     workspaces: {
       ref: (workspaceId: string) => ({
@@ -94,7 +94,7 @@ test("a completed turn of an outside session runs one archived child insight ses
   expect((await x.service.view())[0]).toMatchObject({ agentId: "a1", suggestion: { id: s.suggestion!.id }, ideas: [{ title: "Add rate limit" }] });
 });
 
-test("off by default switch, no parts, subagents, sessions without a workspace and empty turns do nothing", async () => {
+test("off by default switch, no parts, subagents, sessions without a workspace, Flowly's own sessions and empty turns do nothing", async () => {
   const x = await setup({ settings: { enabled: false } });
   await x.service.enqueue(x.agent, turn("x"), x.paseo);
   x.set({ enabled: true, parts: { progress: false, nextMoves: false, ideas: false } });
@@ -103,7 +103,10 @@ test("off by default switch, no parts, subagents, sessions without a workspace a
   await x.service.enqueue({ ...x.agent, parentAgentId: "p" }, turn("x"), x.paseo);
   await x.service.enqueue({ ...x.agent, workspaceId: null }, turn("x"), x.paseo);
   await x.service.enqueue(x.agent, [{ type: "reasoning" }], x.paseo);
+  // Flowly's own temporary sessions (memory review, digest, workflow insights): no insight, no stored entry.
+  await x.service.enqueue({ ...x.agent, labels: { flowly: "summarizer", "flowly-memory": "retro" } }, turn("x"), x.paseo);
   expect(x.created).toEqual([]);
+  expect((await x.service.view()).length).toBe(0);
 });
 
 test("each switch only asks for and stores its own part", async () => {
@@ -194,4 +197,13 @@ test("idea actions refuse a busy session (here) and a folder that is not a Git r
   await x.service.dismissIdea({ agentId: "a1", ideaId: id });
   expect((await x.store.read()).sessions[0].ideas[0].status).toBe("dismissed");
   expect(await x.service.view()).toEqual([]);
+});
+
+test("outside-session insights follows the ordered summary list and retries invalid output", async () => {
+  const x = await setup({ settings: { model: ["claude/claude-sonnet-5-5", "claude/claude-haiku-5-5"] } });
+  x.replies.push({ text: "limit reached" }, { text: x.json({}) });
+  await x.service.enqueue(x.agent, turn("x"), x.paseo);
+  expect(x.created.map((a) => a.config.provider)).toEqual(["claude/claude-sonnet-5-5", "claude/claude-haiku-5-5"]);
+  expect(x.archived()).toBe(2);
+  expect((await x.store.read()).sessions[0].summary?.model).toBe("claude/claude-haiku-5-5");
 });

@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { isSummarizer, lastTurn, targetText, parseModelOutput, resolveModel, summaryPrompt, summarySettingsValues, truncateTranscript, turnText } from "./summary";
+import { SUMMARIZER_LABELS, isSummarizer, modelLabel, lastTurn, targetText, parseModelOutput, resolveModel, resolveModels, summaryModelsOf, summaryModelsSchema, summarySettings, summaryPrompt, summarySettingsValues, truncateTranscript, turnText } from "./summary";
 
 test("turn text keeps dialogue, reduces tools to names and drops reasoning", () => {
   const text = turnText([
@@ -54,6 +54,8 @@ const providers = (claude: boolean, codex = true) => [
 ];
 
 test("Auto model prefers Haiku 5.5 and falls back to GPT-6-Luna", () => {
+  expect(resolveModels("", providers(true))).toEqual(["claude/claude-haiku-5-5", "codex/gpt-6-luna"]);
+  expect(resolveModels("codex/gpt-6-luna", providers(true))).toEqual(["codex/gpt-6-luna"]);
   expect(resolveModel("", providers(true))).toBe("claude/claude-haiku-5-5");
   expect(resolveModel("", providers(false))).toBe("codex/gpt-6-luna");
   expect(() => resolveModel("", providers(false, false))).toThrow(/No summary model/);
@@ -108,4 +110,33 @@ test("turnText ignores plugin rows, so a summary row is never summarized again (
 
 test("summaries preserve automation findings with truthful attribution", () => {
   expect(turnText([{ type: "user_message", text: "[Flowly automation] Reviewer findings" }])).toBe("Flowly automation: [Flowly automation] Reviewer findings");
+});
+test("model labels name Claude models by family and version", () => {
+  expect(modelLabel("claude/claude-haiku-5-5")).toBe("Haiku 5.5");
+  expect(modelLabel("claude/claude-sonnet-5")).toBe("Sonnet 5");
+  expect(modelLabel("codex/gpt-6-luna")).toBe("GPT-6-Luna");
+  expect(modelLabel("claude/claude-haiku-4-5-20251001")).toBe("claude-haiku-4-5-20251001");
+});
+
+ test("ordered settings preserve legacy choices and prefer the explicit list", () => {
+  expect(summaryModelsOf(summarySettingsValues({}))).toEqual(["claude/claude-haiku-5-5", "codex/gpt-6-luna"]);
+  expect(summaryModelsOf(summarySettingsValues({ summaryModel: "codex/gpt-6-luna" }))).toEqual(["codex/gpt-6-luna"]);
+  const settings = summarySettingsValues({ summaryModel: "claude/claude-haiku-5-5", summaryModels: ["codex/gpt-6-luna", "claude/claude-haiku-5-5"], summaryEnabled: false });
+  expect(summaryModelsOf(settings)).toEqual(["codex/gpt-6-luna", "claude/claude-haiku-5-5"]);
+  expect(settings.summaryEnabled).toBe(false);
+  expect(resolveModels(settings.summaryModels!, providers(true))).toEqual(settings.summaryModels);
+  expect(resolveModels(["missing/none", "codex/gpt-6-luna", "claude/claude-haiku-5-5"], providers(false))).toEqual(["codex/gpt-6-luna"]);
+  expect(() => resolveModels(["missing/none"], providers(true))).toThrow(/No configured summary model/);
+ });
+ test("model lists reject empty, duplicate and malformed choices", () => {
+  for (const summaryModels of [[], [""], ["bad"], ["a/b", "a/b"], ["a/b", " a/b "], ["/model"], ["a/"]]) {
+    expect(summaryModelsSchema.safeParse(summaryModels).success).toBe(false);
+    expect(summarySettings.schema.safeParse({ summaryModels }).success).toBe(false);
+  }
+  expect(summaryModelsSchema.parse([" a/b ", "c/d"])).toEqual(["a/b", "c/d"]);
+ });
+
+test("Flowly's temporary sessions opt out of the rate-fallback plugin: they run their own model fallback", () => {
+  expect(SUMMARIZER_LABELS).toEqual({ flowly: "summarizer", "paseo-rate-fallback": "off" });
+  expect(isSummarizer({ labels: { ...SUMMARIZER_LABELS } })).toBe(true);
 });

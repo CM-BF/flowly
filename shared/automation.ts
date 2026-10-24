@@ -63,6 +63,9 @@ export const activeAgent = (job: Pick<AutomationJob, "role" | "implementerId" | 
  */
 /** Whether `agentId` is one of the job's reviewer sessions, the current one or an earlier one (`reviewers`). */
 export const reviewsFor = (job: Pick<AutomationJob, "reviewerId" | "reviewers">, agentId: string) => job.reviewerId === agentId || !!job.reviewers?.includes(agentId);
+/** Whether `agentId` reviews (or reviewed) automation of card `taskId` and is not its implementer: it reports findings, it does not work the card. */
+export const reviewerOfCard = (board: Pick<Board, "automation">, taskId: string, agentId: string) =>
+  board.automation.some((j) => j.taskId === taskId && reviewsFor(j, agentId) && agentId !== j.implementerId);
 export const reviewerJob = (board: Pick<Board, "automation">, agentId: string) =>
   // Older jobs could carry one session in both roles; that session is the implementer.
   board.automation.find((j) => reviewsFor(j, agentId) && agentId !== j.implementerId && (isLive(j) || j.state === "delivered"));
@@ -546,7 +549,7 @@ export const automationTag = "[Flowly automation]";
 export const isAutomationMessage = (text: string) => text.trimStart().startsWith(automationTag);
 const tag = automationTag;
 const lifecycle =
-  "Follow the Flowly skill: read flowly_get_task, fix setup.missing, set the stage that matches the work, keep the workpad current. End by delivering with flowly_update_status status=in_review and a note on what changed, how you verified it and what you did not run. If you cannot continue without a person (a decision, credentials, access), ask with flowly_report_progress kind=question or set status=blocked with the reason, then end your turn: nobody is watching this session live, so do not wait and do not guess. If the card is too big for one session or has parallel parts, split it into sub-cards with flowly_create_card and end your turn; you are woken when they settle.";
+  "Follow the Flowly skill: read flowly_get_task, fix setup.missing, set the stage that matches the work, keep the workpad current. End by delivering with flowly_update_status status=in_review and a note on what changed, how you verified it and what you did not run. If flowly_get_task's workspace.kind is worktree, commit your changes on that worktree's branch before delivering: parents and dependent cards merge branches, so uncommitted work never reaches them. Any other workspace (directory) is the project root's own checkout with no branch of its own: leave your changes uncommitted there unless the card or the repository's rules ask for a commit. If the delivery returns WORKPAD_OPEN or SETUP_INCOMPLETE, fix what you can, then retry in this same turn with acknowledgeOpen=true and a note explaining each remaining item; do not end the turn on the refusal. A progress result (kind=result) does not end an automated turn. If you cannot continue without a person (a decision, credentials, access), ask with flowly_report_progress kind=question or set status=blocked with the reason, then end your turn: nobody is watching this session live, so do not wait and do not guess. If the card is too big for one session or has parallel parts, split it into sub-cards with flowly_create_card and end your turn; you are woken when they settle.";
 
 export function startPrompt(input: { review: boolean; again: boolean }) {
   return [
@@ -562,7 +565,7 @@ export function startPrompt(input: { review: boolean; again: boolean }) {
 
 export function nudgePrompt(count: number, limit: number, role: AutomationJob["role"] = "implementer") {
   if (role === "reviewer") return `${tag} Your review ended without a verdict (reminder ${count} of ${limit}). Continue checking the delivery, then call flowly_submit_review verdict=approve or verdict=changes with concrete findings. You only review: do not edit files or change card status. If a person must decide, use flowly_report_progress kind=question and end your turn.`;
-  return `${tag} Your turn ended without a delivery, a question or a blocker (reminder ${count} of ${limit}). If the card is finished, deliver it now with flowly_update_status status=in_review. If work remains, continue it. If you need a person, ask with flowly_report_progress kind=question or set status=blocked with the reason. If you are the reviewer, submit your verdict with flowly_submit_review. Without one of these after the last reminder, automation stops.`;
+  return `${tag} Your turn ended without a delivery, a question or a blocker (reminder ${count} of ${limit}). If the card is finished, deliver it now with flowly_update_status status=in_review. If the delivery returns WORKPAD_OPEN or SETUP_INCOMPLETE, fix what you can, then retry in this same turn with acknowledgeOpen=true and a note explaining each remaining item; do not end the turn on the refusal. If work remains, continue it. If you need a person, ask with flowly_report_progress kind=question or set status=blocked with the reason. If you are the reviewer, submit your verdict with flowly_submit_review. Without one of these after the last reminder, automation stops.`;
 }
 
 export function retryPrompt(count: number, limit: number, error: string) {
@@ -620,8 +623,8 @@ export function changesPrompt(round: number, max: number, summary: string, findi
     summary,
     ...findings.map((f) => `- ${f}`),
     reviewers > 1
-      ? "This is every problem the panel confirmed: fix all of them before you deliver, check each one against its finding, rerun the checks, update the workpad and deliver again with flowly_update_status status=in_review."
-      : "Fix them, rerun the checks, update the workpad and deliver again with flowly_update_status status=in_review.",
+      ? "This is every problem the panel confirmed: fix all of them before you deliver, check each one against its finding, rerun the checks, update the workpad and deliver again with flowly_update_status status=in_review. If the delivery returns WORKPAD_OPEN or SETUP_INCOMPLETE, fix what you can, then retry in this same turn with acknowledgeOpen=true and a note explaining each remaining item; do not end the turn on the refusal."
+      : "Fix them, rerun the checks, update the workpad and deliver again with flowly_update_status status=in_review. If the delivery returns WORKPAD_OPEN or SETUP_INCOMPLETE, fix what you can, then retry in this same turn with acknowledgeOpen=true and a note explaining each remaining item; do not end the turn on the refusal.",
   ].join("\n");
 }
 

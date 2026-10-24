@@ -30,7 +30,8 @@ export function OverviewBar({
   nameOf(status: Status): string;
   onAttention(): void;
   /** Open project Insights (PROJECT-INSIGHTS-SPEC §9). */
-  onInsights(): void;
+  /** Absent when Insights is off (ONBOARDING-SETUP-SPEC §6). */
+  onInsights?(): void;
   insightsShortcut: string;
   /** Open ideas across the project's cards, finished and archived ones included (IDEAS-INBOX-SPEC §3.1); null when Ideas are off. */
   openIdeas: number | null;
@@ -118,8 +119,10 @@ export function OverviewBar({
             {memoryCandidates ? t("Memory {n}", { n: memoryCandidates }) : t("Memory")}
           </Chip>
         )}
+        {onInsights && (
         <Chip label={`${t("Project insights")}${insightsShortcut ? ` (${insightsShortcut})` : ""}`} icon={<Icon name="Activity" size={13} color={colors.foregroundMuted} />} onPress={onInsights}>
           {t("Insights")}</Chip>
+        )}
       </ScrollView>
     </View>
   );
@@ -171,7 +174,7 @@ function Chip({
           onPress={onPress}
           style={(state) => {
             const { hovered, pressed, focused } = state as typeof state & { hovered?: boolean; focused?: boolean };
-            return { ...noFocusRing, ...base, backgroundColor: hovered || pressed || focused ? colors.surface2 : "transparent" };
+            return { ...noFocusRing, ...base, backgroundColor: hovered || pressed ? colors.surface2 : "transparent" };
           }}
         >
           {content}

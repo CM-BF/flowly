@@ -42,10 +42,16 @@ export function startingAgent(last: LastSession, chosen: AgentModel | null | und
   };
 }
 
-/** Flat host-setting values (`defaultProvider`/`defaultModel`/`defaultThinking`) as a model, or null while incomplete. */
-export function agentModelFromValues(values: { defaultProvider?: string; defaultModel?: string; defaultThinking?: string } | null | undefined): AgentModel | null {
+/** Flat host-setting values (`defaultProvider`/`defaultModel`/`defaultThinking`/`defaultMode`) as a model, or null while incomplete. */
+export function agentModelFromValues(values: { defaultProvider?: string; defaultModel?: string; defaultThinking?: string; defaultMode?: string } | null | undefined): AgentModel | null {
   if (!values?.defaultProvider || !values.defaultModel) return null;
-  return { provider: values.defaultProvider, model: values.defaultModel, ...(values.defaultThinking ? { thinking: values.defaultThinking } : {}) };
+  return {
+    provider: values.defaultProvider,
+    model: values.defaultModel,
+    ...(values.defaultThinking ? { thinking: values.defaultThinking } : {}),
+    // The flat setting cannot store "explicit provider default": "" means inherit (MODEL-DEFAULTS-SPEC §3).
+    ...(values.defaultMode ? { modeId: values.defaultMode } : {}),
+  };
 }
 
 /** Role overrides inherit only execution settings from a project using the same provider. */

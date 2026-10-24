@@ -321,7 +321,7 @@ agent 提候选前、复盘提炼时、人审阅时，都用同一组规则，�
 - **跳过**：
   - 卡片既没有 summary，也没有 workpad 困惑点或进展记录 → 没有素材，跳过；
   - 上次复盘之后既没有新 summary（`retros[].summaryId`），也没有新线索（`retros[].clueAt`）→ 跳过，避免卡片在 Done 和其他列之间来回移动时重复跑。
-- **运行位置**：项目根目录对应的原生 workspace，规则同 PROJECT-INSIGHTS-SPEC §7。不用卡片自己的 workspace，因为自动收尾可能紧接着就把它归档掉（MULTITASK-SPEC）。标签：`flowly=summarizer`、`flowly-project=<id>`、`flowly-task=<taskId>`；模型用 Summary model（Auto 同解析）；`waitForFinish(120000)`，`finally` 中**硬删除**（`server/summarizer-remove.ts` 的 `daemonRemoveAgent`，本地 `DaemonClient.deleteAgent`，与 card summarizer 同一条 AGENTS.md 例外，用户 2026-10-22 批准；只删本次刚创建的 id），删除失败则回退归档并记日志。运行的几十秒内它在项目根 workspace 里短暂可见，结束后列表与归档都不留痕。每个项目同时最多跑一个，其余排队。
+- **运行位置**：项目的「Flowly background」workspace（[BACKGROUND-WORKSPACE-SPEC](BACKGROUND-WORKSPACE-SPEC.md)：用前恢复已归档的那个复用，没有才新建，最后一个后台 run 结束后归档）。不用卡片自己的 workspace，因为自动收尾可能紧接着就把它归档掉（MULTITASK-SPEC），也不能按目录找“项目根 workspace”：single-root 下每张卡的 workspace 目录都是项目根，旧规则曾让所有 review 落进同一张卡（2026-10-23 修复）。标签：`flowly=summarizer`、`flowly-project=<id>`、`flowly-task=<taskId>`；模型用 Summary model（Auto 同解析）；`waitForFinish(120000)`，`finally` 中**硬删除**（`server/summarizer-remove.ts` 的 `daemonRemoveAgent`，本地 `DaemonClient.deleteAgent`，与 card summarizer 同一条 AGENTS.md 例外，用户 2026-10-22 批准；只删本次刚创建的 id），删除失败则回退归档并记日志。运行的几十秒内它在后台 workspace 里短暂可见，结束后 session 与 workspace 都不留在侧栏。每个项目同时最多跑一个，其余排队。
 - **输入**（≤10000 字）：
   - 项目名；卡片标题、类型、标签、描述（≤2000）；
   - 本卡的线索（§4.0），按时间排列，总长不超过 5000 字，超出时优先保留 `answer`；
@@ -513,7 +513,7 @@ memory: {
   - 达到 180 条时显示容量提示；达到 200 条时，确认或新建会先弹出 Make room（§6.5）；
   - 条目菜单：Edit、Pin / Unpin、Copy as AGENTS.md rule（§5.4）、Archive、Delete…（确认对话框：“Delete this memory? New sessions will no longer see it.”）；
   - 顶部 **Add memory**。
-- **Archived & dismissed · N**：默认折叠，提供 Restore 和 Delete。
+- 页面顶部一组分段（与 Ideas 页一致，2026-10-23 用户要求）：**Memory N**（上面的 To review 与 Memory 区）、**Archived N**、**Dismissed N**。后两段列出对应条目，提供 Restore 和 Delete；Dismissed 的 Restore 回到待审阅（candidate），Archived 的回到 active。取代原来默认折叠的 “Archived & dismissed · N”。
 - 空状态：“Nothing remembered yet. Agents suggest decisions and pitfalls as they work, and finished cards are reviewed for them. You confirm what stays.”
 - 动效、文本输入、无障碍遵守 AGENTS.md 的通用规则：确认、忽略、归档、恢复、删除的收起动效与 Ideas 一致（Memory 页与卡片侧栏的卡片行都复用 `useExitList` + `IdeaRow`，新到达的行上浮淡入；搜索框输入时整个列表重建，不逐行收起）；Archived & dismissed 区和 Add memory 编辑器用 `Collapse` 展开收起，箭头随之旋转；编辑卡片时编辑器与卡片互换带淡入（`client/motion.tsx`），输入框用 `TextBox` / `Field`，所有字符串走 `t()`。成功的瞬时操作用原生 toast。
 
@@ -529,6 +529,8 @@ memory: {
 收到 `MEMORY_CONFLICT` 时弹 error toast，立即重读该项目的记忆，编辑表单保留用户输入的文字，让用户重新提交。
 
 ## 9. 设置
+
+- 2026-10-22（ONBOARDING-SETUP-SPEC §6）：新增 host 设置 `features.memory`（默认开），在 Settings → AI features → **Project memory** 和欢迎导览第 3 页。关闭时所有项目都按 `Project.memory === false` 处理（`server/memory.ts` 的 `memoryOn` 由插件的设置订阅保持最新）；项目菜单、概览栏的 Memory 入口和卡片侧栏的 Memory 区隐藏。开启时仍由每个项目自己的开关决定。
 
 - 项目设置新增 `Project.memory?: boolean`，缺省视为开（同 `Project.workpad`）。开关文案 **Project memory**，说明 “Share confirmed decisions and pitfalls with new sessions on this project.”。关闭后：
   - 不再注入；

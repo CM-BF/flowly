@@ -27,7 +27,6 @@ import type { PaseoAgent } from "@getpaseo/client";
 import {
   Theme,
   Label,
-  CountPill,
   Button,
   Field,
   Choices,
@@ -47,8 +46,8 @@ import {
   verticalScroll,
   verticalContent, noFocusRing } from "./ui";
 import { StatusIcon, priorityLabels } from "./status";
+import { AttentionButton } from "./attention-button";
 import {
-  attentionBadgeText,
   allAttentionFromSources,
   attentionOpenToken,
   lastSessionSettings,
@@ -82,7 +81,7 @@ import { SettingsFab, SettingsModal, type SettingsSection } from "./summary-sett
 import { SettingsOpenerContext } from "./settings-opener";
 import { findingDescription, workflowInsightsSettings, workflowSettingsValues, type Finding } from "../shared/workflow-insights";
 import { WrapupModal } from "./wrapup";
-import { performanceLogOn, performanceSettings, ideasSettings, ideasSettingsValues, modelSettings, modelSettingsValues, wrapupSettings, wrapupSettingsValues } from "../shared/settings";
+import { performanceLogOn, performanceSettings, featureSettings, featureSettingsValues, ideasSettings, ideasSettingsValues, modelSettings, modelSettingsValues, wrapupSettings, wrapupSettingsValues } from "../shared/settings";
 import { pickOutputSession } from "./card-output";
 import { cardQuestions } from "../shared/progress";
 import { hasOpenNextMoves } from "../shared/next-moves";
@@ -105,7 +104,7 @@ import { MemoryPage } from "./memory";
 import { lastViewedProject, pickProject, rememberViewedProject } from "./project-memory";
 import { ProjectTabs } from "./project-tabs";
 import { RemoveProjectDialog } from "./project-remove";
-import { boardOverview } from "./overview";
+import { boardOverview, noReveal, requestReveal, revealDone, type LaneReveal } from "./overview";
 import { enabledStatuses, laneName } from "../shared/lanes";
 import { boardSortText, boardSorts, latestTurnEnds, sortTasks, turnEndActivity, type BoardSort } from "../shared/sort";
 import { projectTagStats, tagPrefixes, taskMatchesSearch, taskMatchesTagFilter } from "../shared/tags";
@@ -128,7 +127,7 @@ import {
   type BoardIntent,
 } from "./shortcuts";
 import { ConceptStrip, GuideBanner, WelcomeTour, useOnboarding } from "./onboarding";
-import { nextTip, welcomeDecision, type TipId } from "./onboarding-logic";
+import { nextTip, settingsHintDue, welcomeDecision, type TipId } from "./onboarding-logic";
 import { t, tn } from "../shared/i18n";
 import { workpadEnabled, workpadSignal } from "../shared/workpad";
 import { cardDisplay } from "../shared/card-display";
@@ -151,6 +150,7 @@ const tipText: Record<TipId, () => string> = {
   connectors: () => t("The Artifacts + now adds Confluence pages and GitHub or GitLab issues and pull requests too, besides files, links and Jira tickets. Connect services in Settings → Connections."),
   "project-menu": () => t("Drag a project tab to reorder it. Right-click it for its settings, a new task, Insights, Ideas or Remove."),
   subagents: () => t("When a session starts subagents, a Subagents chip appears above its message box. Click it to see their status and open one in Paseo."),
+  "summary-models": () => t("Choose summary models and their fallback order in Settings → Models. The default is Haiku, then Luna."),
   "ai-language": () => t("AI-written text follows Settings → AI features → AI output language. It starts as your interface language."),
   "sub-cards": () => t("Agents can split a card into sub-cards, each with its own workspace. The parent card shows Sub-cards 2/3, waits while they run and is woken to accept them and finish. New sub-card is in every card's menu."),
   "agent-automation": () => t("Agents can now pick up cards on their own: turn on Agent automation in Edit project, then choose Run with agent on a card. The agent works it to In review, gets reminded or retried when it stalls, and an optional reviewer agent checks the delivery first."),
@@ -161,6 +161,7 @@ const tipText: Record<TipId, () => string> = {
   "sidebar-order": () => t("Arrange an open card your way: reorder its sections and choose which start open in Settings → Cards → Card sidebar."),
   "session-history": () => t("A session's output now starts at the beginning of its current turn. Press Load earlier at the top to read further back."),
   "card-comments": () => t("Ask about progress or request changes right on the card: comments are saved here and sent to the card's agent."),
+  "settings-entry": () => t("Turn features on or off and change settings here."),
   "first-workpad": () => t("This card has a workpad: the agent's acceptance criteria and checks. The card shows how many checks passed; open it to see which ran on which commit, and tick items yourself."),
 };
 
@@ -277,6 +278,9 @@ function BoardContent(
   // The Ideas switch (IDEAS-INBOX-SPEC §10); on until the setting has loaded.
   const ideasPrefs = useSettings(ideasSettings);
   const ideasOn = ideasPrefs.status !== "ready" || ideasSettingsValues(ideasPrefs.values).ideas;
+  // Project memory and Insights as a whole (Settings → AI features; ONBOARDING-SETUP-SPEC §6).
+  const featurePrefs = useSettings(featureSettings);
+  const features = featureSettingsValues(featurePrefs.status === "ready" ? featurePrefs.values : {});
   // Developer timing log (off unless the host setting is on; PERFORMANCE-SPEC §3).
   const perfPrefs = useSettings(performanceSettings);
   const sendPerf = useRpc(rpc.perfReport);
@@ -303,6 +307,10 @@ function BoardContent(
     [menu, setMenu] = useState<"projects" | "filters" | "status" | "attention" | "shortcuts" | "settings" | null>(null),
     // First-run welcome tour (ONBOARDING-SPEC): opened once automatically, or by hand.
     [welcomeOpen, setWelcomeOpen] = useState(false),
+    // The tour opened by itself for a new user (ONBOARDING-SETUP-SPEC §4); manual opens are not first runs.
+    [welcomeFirstRun, setWelcomeFirstRun] = useState(false),
+    // The tour closed during this visit, so the settings callout may show (ONBOARDING-SETUP-SPEC §5).
+    [tourClosed, setTourClosed] = useState(false),
     // The user just moved a card into Done/Cancelled (drives the wrap-up tip).
     [movedToFinished, setMovedToFinished] = useState(false),
     [escapeRequest, setEscapeRequest] = useState<{ taskId: string; key: string } | null>(null),
@@ -313,6 +321,7 @@ function BoardContent(
     // `idea`: Start session prefilled from an idea on the Ideas page (IDEAS-SPEC §6.3).
     [startRequest, setStartRequest] = useState<{ taskId: string; key: string; idea?: Idea } | null>(null),
     [mobileStatus, setMobileStatus] = useState<Status>("todo"),
+    [reveal, setReveal] = useState<LaneReveal>(noReveal),
     [actionTask, setActionTask] = useState<Task | null>(null),
     [projectForm, setProjectForm] = useState<"new" | "edit" | null>(null),
     [removing, setRemoving] = useState<Project | null>(null),
@@ -479,6 +488,8 @@ function BoardContent(
       : [...collapsedColumns, status];
     void view.update({ collapsedColumns: next });
   };
+  // A lane chip's scroll runs once: a DesktopColumns mounted later (Back from a page, a widened window) must not repeat it.
+  const revealed = useStableCallback((n: number) => setReveal((r) => revealDone(r, n)));
   const chooseSort = (next: BoardSort) => {
     if (!view.values || next === boardSort) return;
     void view.update({ boardSort: next });
@@ -1004,6 +1015,10 @@ function BoardContent(
   useEffect(() => {
     if (!ideasOn) setPage((current) => (current === "ideas" ? null : current));
   }, [ideasOn]);
+  // So does turning Insights off.
+  useEffect(() => {
+    if (!features.insights) setPage((current) => (current === "insights" ? null : current));
+  }, [features.insights]);
   const showCardIdeas = useStableCallback((id: string) => {
     setIdeaCard(id);
     setPage("ideas");
@@ -1022,8 +1037,8 @@ function BoardContent(
   const projectIdeaList = useMemo(() => (board?.ideas || []).filter((i) => i.projectId === project?.id), [board?.ideas, project?.id]);
   const projectOpenIdeas = useMemo(() => projectIdeaList.filter((i) => i.status === "open").length, [projectIdeaList]);
   // Project memory candidates waiting for review (PROJECT-MEMORY-SPEC §8.1); the chip hides when the project turned memory off.
-  const memoryCounts = useMemoryCountsQuery(!!project);
-  const memoryOn = !!project && project.memory !== false;
+  const memoryCounts = useMemoryCountsQuery(!!project && features.memory);
+  const memoryOn = features.memory && !!project && project.memory !== false;
   const memoryCandidates = memoryOn ? (memoryCounts.data?.[project!.id] ?? 0) : null;
   const projectTasks = useMemo(() => (board?.tasks || []).filter((t) => t.projectId === project?.id), [board?.tasks, project?.id]);
   // A session of this project has a live Paseo child agent (SUBAGENTS-SPEC §7).
@@ -1059,6 +1074,7 @@ function BoardContent(
     if (inPanel || welcomeHandled.current === welcome) return;
     if (welcome === "show") {
       welcomeHandled.current = welcome;
+      setWelcomeFirstRun(true);
       setWelcomeOpen(true);
     } else if (welcome === "mark-seen") {
       // Someone who already uses the board is never interrupted, and gets no first-time tips either.
@@ -1066,9 +1082,23 @@ function BoardContent(
       void onboarding.markExistingUserSeen();
     }
   }, [welcome, inPanel]);
-  const closeWelcome = () => {
+  const afterTour = useAfterModalClose();
+  const closeWelcome = (pointAtSettings = true) => {
     setWelcomeOpen(false);
+    setWelcomeFirstRun(false);
     if (!onboarding.values?.welcomeSeen) void onboarding.markWelcomeSeen();
+    // Point at Settings once the tour's modal has gone (two modals never switch in one frame).
+    if (pointAtSettings) afterTour(() => setTourClosed(true));
+  };
+  const settingsHint =
+    !inPanel &&
+    settingsHintDue({
+      tipsSeen: onboarding.values?.tipsSeen ?? [],
+      tourClosed,
+      blocked: !onboarding.values || welcomeOpen || dialogOpen || menu === "settings" || (compact && !!task),
+    });
+  const seeSettingsHint = () => {
+    if (settingsHint) void onboarding.markTipSeen("settings-entry");
   };
   const tip = inPanel || !board || !project || !!project.archivedAt || page
     ? null
@@ -1096,13 +1126,13 @@ function BoardContent(
           cardCommentable: !!task && !task.archivedAt && !!cardIndex.agentsByWorkspace.get(task.workspaceId)?.length,
           fullSidebar: !!task && (board.artifacts.some((a) => a.taskId === task.id) || board.ideas.some((i) => i.taskId === task.id)),
           hasSummary: !task && !!summaries.data?.latest.some((e) => projectTasks.some((x) => x.id === e.taskId)),
-          workflowSuggestion: workflowTipDue && !!workflowView.data?.findings.some((f) => f.status === "open"),
+          workflowSuggestion: features.insights && workflowTipDue && !!workflowView.data?.findings.some((f) => f.status === "open"),
           memoryCandidate: !task && !!memoryCandidates,
           taskIntake: !task && !!project,
           automationCandidate: !task && projectTasks.some((x) => !x.archivedAt && (x.status === "todo" || x.status === "backlog")),
           hasSubCards: !task && projectTasks.some((x) => subCardIndex.has(x.id)),
         },
-        blocked: !onboarding.values || welcomeOpen || welcome === "show" || dialogOpen,
+        blocked: !onboarding.values || welcomeOpen || welcome === "show" || dialogOpen || settingsHint,
       });
   const dismissTip = (id: TipId) => {
     if (id === "first-done") setMovedToFinished(false);
@@ -1220,11 +1250,11 @@ function BoardContent(
       { id: "settings", label: t("Project settings"), icon: "SlidersHorizontal", onPress: () => openIn(() => setProjectForm("edit")) },
       { id: "new-task", label: t("New task"), icon: "Plus", disabled: !!p.archivedAt, onPress: () => openIn(() => setTaskForm({ status: "todo" })) },
       { kind: "separator", id: "pages" },
-      { id: "insights", label: t("Insights"), icon: "Activity", onPress: () => openIn(() => setPage("insights")) },
+      ...(features.insights ? [{ id: "insights", label: t("Insights"), icon: "Activity", onPress: () => openIn(() => setPage("insights")) }] : []),
       ...(ideasOn
         ? [{ id: "ideas", label: t("Ideas"), icon: "Lightbulb", onPress: () => openIn(() => { setIdeaCard(""); setPage("ideas"); }) }]
         : []),
-      ...(p.memory !== false ? [{ id: "memory", label: t("Memory"), icon: "BookMarked", onPress: () => openIn(() => setPage("memory")) }] : []),
+      ...(features.memory && p.memory !== false ? [{ id: "memory", label: t("Memory"), icon: "BookMarked", onPress: () => openIn(() => setPage("memory")) }] : []),
       { kind: "separator", id: "order" },
       { id: "left", label: t("Move left"), icon: "ChevronLeft", disabled: index === 0 || pending, onPress: () => reorderProject(p.id, { direction: "up" }) },
       { id: "right", label: t("Move right"), icon: "ChevronRight", disabled: index === projects.length - 1 || pending, onPress: () => reorderProject(p.id, { direction: "down" }) },
@@ -1264,7 +1294,7 @@ function BoardContent(
         setWelcomeOpen(true);
         return true;
       case "insights":
-        if (!project) return false;
+        if (!project || !features.insights) return false;
         togglePage("insights");
         return true;
       case "ideas":
@@ -1273,7 +1303,7 @@ function BoardContent(
         togglePage("ideas");
         return true;
       case "memory":
-        if (!project) return false;
+        if (!project || !features.memory) return false;
         togglePage("memory");
         return true;
       case "escape":
@@ -1317,6 +1347,15 @@ function BoardContent(
     }
   };
   const keyboardProps = shortcutsOn ? { focusable: true, onKeyDown } : {};
+  // Opening the board from the sidebar leaves keyboard focus on the host's sidebar row, which draws a
+  // focus ring while the board scrolls. Hand focus to the board root (it draws no ring of its own).
+  // Once per mount: a later compact -> wide resize must not pull focus out of an active control.
+  const focusedRoot = useRef(false);
+  useEffect(() => {
+    if (!shortcutsOn || focusedRoot.current) return;
+    focusedRoot.current = true;
+    (rootRef.current as unknown as { focus?: () => void } | null)?.focus?.();
+  }, [shortcutsOn]);
 
   useEffect(() => {
     if (data.isPending) return;
@@ -1480,7 +1519,7 @@ function BoardContent(
         }
         startIdea={startRequest?.taskId === drawer.item.task.id ? startRequest.idea : undefined}
         onAllIdeas={showCardIdeas}
-        onMemoryPage={openMemoryPage}
+        onMemoryPage={features.memory ? openMemoryPage : undefined}
         sessionEntry={
           sessionEntry?.taskId === drawer.item.task.id && drawer.active ? sessionEntry : undefined
         }
@@ -1623,7 +1662,7 @@ function BoardContent(
             overview={boardOverview(project, board.tasks, agents.data || [], attention)}
             nameOf={nameOf}
             onAttention={openAttentionMenu}
-            onInsights={() => togglePage("insights")}
+            onInsights={features.insights ? () => togglePage("insights") : undefined}
             insightsShortcut={shortcutsOn ? "I" : ""}
             openIdeas={ideasOn ? projectOpenIdeas : null}
             onIdeas={() => {
@@ -1637,7 +1676,11 @@ function BoardContent(
             onLane={(status) => {
               setPage(null);
               if (compact) setMobileStatus(status);
-              else if (collapsedColumns.includes(status)) toggleCollapse(status);
+              else {
+                if (collapsedColumns.includes(status)) toggleCollapse(status);
+                // Scroll the desktop board to that lane (upstream #44 declared `reveal` but never set it).
+                setReveal((r) => requestReveal(r, status));
+              }
             }}
           />
           </View>
@@ -1817,6 +1860,8 @@ function BoardContent(
                     older={older}
                     olderShown={olderShown}
                     onToggleOlder={toggleOlder}
+                    reveal={reveal}
+                    onRevealed={revealed}
                     nameOf={nameOf}
                     onToggleCollapse={toggleCollapse}
                     onReorderBlocked={() =>
@@ -2299,7 +2344,10 @@ function BoardContent(
         {!(compact && task) && (
           <SettingsFab
             open={menu === "settings"}
+            hint={settingsHint ? tipText["settings-entry"]() : undefined}
+            onHintDismiss={seeSettingsHint}
             onPress={() => {
+              seeSettingsHint();
               setSettingsSection(undefined);
               setMenu("settings");
             }}
@@ -2321,10 +2369,16 @@ function BoardContent(
           open={welcomeOpen}
           theme={props.theme}
           canCreate={(board?.projects.length ?? 0) === 0}
-          onClose={closeWelcome}
+          firstRun={welcomeFirstRun}
+          onClose={() => closeWelcome()}
           onCreate={() => {
-            closeWelcome();
-            setProjectForm("new");
+            closeWelcome(false);
+            // The project form is a Modal too: open it once the tour's has closed (two modals never switch in one frame).
+            // The settings callout waits behind the form, so it is set in the same update and never flashes first.
+            afterModalClose(() => {
+              setProjectForm("new");
+              setTourClosed(true);
+            });
           }}
         />
         {wrapPromptTask && (
@@ -2396,7 +2450,7 @@ function ProjectSwitcher({
       onPress={onPress}
       style={(state) => {
         const { pressed, hovered: hover, focused } = state as typeof state & { hovered?: boolean; focused?: boolean };
-        const hovered = hover || focused;
+        const hovered = hover;
         return {
           ...noFocusRing,
           flexDirection: "row",
@@ -2419,54 +2473,6 @@ function ProjectSwitcher({
         </Label>
       </View>
       <Icon name="ChevronsUpDown" size={14} color={colors.foregroundMuted} />
-    </Pressable>
-  );
-}
-
-function AttentionButton({
-  count,
-  compact,
-  open,
-  shortcut,
-  onPress,
-}: {
-  count: number;
-  compact: boolean;
-  /** Its dropdown is showing. */
-  open: boolean;
-  shortcut: string;
-  onPress(): void;
-}) {
-  const { colors } = useTheme();
-  return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityLabel={`${count ? tn(count, "Needs attention, {n} card", "Needs attention, {n} cards") : t("Needs attention")}${shortcut ? ` (${shortcut})` : ""}`}
-      accessibilityState={{ expanded: open }}
-      onPress={onPress}
-      style={(state) => {
-        const { pressed, hovered: hover, focused } = state as typeof state & { hovered?: boolean; focused?: boolean };
-        const hovered = hover || focused;
-        return {
-          ...noFocusRing,
-          flexDirection: "row",
-          alignItems: "center",
-          gap: space[1.5],
-          height: touch ? 44 : 32,
-          minWidth: touch ? 44 : 32,
-          justifyContent: "center",
-          paddingHorizontal: compact ? 0 : space[2] + 2,
-          borderRadius: radius.md,
-          backgroundColor: open || hovered || pressed ? colors.surface2 : "transparent",
-        };
-      }}
-    >
-      <Icon name="Bell" size={15} color={count ? colors.foreground : colors.foregroundMuted} />
-      {!compact && (
-        <Label size={font.md} medium muted={!count} selectable={false}>
-          {t("Attention")}</Label>
-      )}
-      {!!count && <CountPill text={attentionBadgeText(count) || ""} />}
     </Pressable>
   );
 }
@@ -2499,7 +2505,7 @@ function SortButton({ mode, compact, onPress }: { mode: BoardSort; compact: bool
           justifyContent: "center",
           paddingHorizontal: compact ? 0 : space[2] + 2,
           borderRadius: radius.md,
-          backgroundColor: hover || focused || pressed ? colors.surface2 : "transparent",
+          backgroundColor: hover || pressed ? colors.surface2 : "transparent",
         };
       }}
     >
@@ -2532,7 +2538,7 @@ function FilterButton({
       onPress={onPress}
       style={(state) => {
         const { pressed, hovered: hover, focused } = state as typeof state & { hovered?: boolean; focused?: boolean };
-        const hovered = hover || focused;
+        const hovered = hover;
         return {
           ...noFocusRing,
           flexDirection: "row",

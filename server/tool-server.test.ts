@@ -6,7 +6,8 @@ import { createServer, request } from "node:http";
 import { ToolServer } from "./tool-server";
 import { agentFixture } from "./agent-fixture";
 import { skillText } from "./skill-source";
-import { ideasReminder, movesReminder } from "./reminders";
+import { turnChecklist } from "../shared/turn-checklist";
+import { ideasReminder, movesReminder, outputsReminder } from "./reminders";
 
 const run = promisify(execFile),
   cleanups: (() => Promise<unknown>)[] = [];
@@ -78,6 +79,8 @@ test("MCP initialize/list can precede actor creation; live calls require SDK con
     "flowly_update_status",
     "flowly_report_progress",
     "flowly_propose_idea",
+    "flowly_update_idea",
+    "flowly_remove_idea",
     "flowly_remember",
     "flowly_recall",
     "flowly_add_artifact",
@@ -112,6 +115,10 @@ test("MCP initialize/list can precede actor creation; live calls require SDK con
   expect(skillText).toMatch(/pass nextMoves/);
   expect(skillText).toContain("nextMoves: []");
   expect(skillText).toContain("--no-moves");
+  expect(skillText).toContain("--no-outputs");
+  for (const name of ["flowly_update_status", "flowly_report_progress"]) {
+    expect(listed.find((t) => t.name === name)!.inputSchema.properties).toHaveProperty("outputs");
+  }
   // Delivery-time reminders (NEXT-MOVES-SPEC §9): the instructions, the tool texts and the result schema all know them.
   expect(skillText).toContain("Every turn that delivers (in_review), asks (kind=question) or reports a result (kind=result) ends with next moves");
   expect(skillText).toContain("ask through your own question tool when you have one");
@@ -123,10 +130,15 @@ test("MCP initialize/list can precede actor creation; live calls require SDK con
   expect(skillText).toContain("flowly_suggest_next_moves");
   // Card setup (CARD-SETUP-SPEC §3.5-3.6): the checklist leads the skill, the tool texts name the gate and the timing.
   expect(skillText.split("\n## Start of every turn\n")[0]).not.toContain("\n- ");
-  expect(skillText).toContain("Fix setup.missing before anything else, small cards included");
+  expect(skillText).toContain("fix setup.missing before work");
+  expect(skillText).toContain("Small cards also need a type");
   expect(skillText).toContain("SETUP_INCOMPLETE");
   expect(described("flowly_update_status")).toContain("SETUP_INCOMPLETE");
   expect(described("flowly_get_task")).toContain("setup.missing");
+  // The gate refuses on every setup item, metadata of a task.brief card included (TASK-INTAKE-SPEC): every list agents read names them all.
+  expect(described("flowly_update_status")).toMatch(/missing card setup \([^)]*metadata[^)]*type[^)]*tags[^)]*workpad\) SETUP_INCOMPLETE/);
+  expect(skillText).toContain("while the card setup is missing (metadata, type, tags or workpad)");
+  expect(skillText).toMatch(/Delivering without organized metadata \(a card with task\.brief\), a workpad, type or tags returns SETUP_INCOMPLETE/);
   // Comments (CARD-COMMENTS-SPEC §3): only unread ones are new to act on, and they come after the read's own steps.
   expect(described("flowly_get_task")).toMatch(/comments[^.]*unread=true/);
   expect(described("flowly_get_task").indexOf("setup.missing")).toBeLessThan(described("flowly_get_task").indexOf("comments"));
@@ -149,6 +161,7 @@ test("MCP initialize/list can precede actor creation; live calls require SDK con
     arguments: {},
   });
   expect(read.result.structuredContent.identity).toEqual(x.identity);
+  expect(read.result.structuredContent.turnChecklist).toEqual(turnChecklist);
   const ctx = read.result.structuredContent;
   const updated = await mcp("tools/call", {
     name: "flowly_update_status",
@@ -172,7 +185,7 @@ test("MCP initialize/list can precede actor creation; live calls require SDK con
     },
   });
   expect(reminded.result.isError).toBeUndefined();
-  expect(reminded.result.structuredContent.reminders).toEqual([movesReminder]);
+  expect(reminded.result.structuredContent.reminders).toEqual([movesReminder, outputsReminder]);
   expect(Object.keys(JSON.parse(reminded.result.content[0].text)).slice(0, 3)).toEqual(["receipt", "replayed", "reminders"]);
   const proposed = await mcp("tools/call", {
     name: "flowly_propose_idea",
@@ -188,13 +201,27 @@ test("MCP initialize/list can precede actor creation; live calls require SDK con
   expect(proposed.result.structuredContent.current.ideas).toEqual([
     { id: proposed.result.structuredContent.ideaId, title: "Follow-up", status: "open", scope: "new" },
   ]);
+  // The agent closes an idea the user rejected (IDEAS-SPEC §3.1).
+  const dismissedIdea = await mcp("tools/call", {
+    name: "flowly_update_idea",
+    arguments: {
+      expectedRevision: proposed.result.structuredContent.current.revision,
+      request: proposed.result.structuredContent.current.request,
+      id: proposed.result.structuredContent.ideaId,
+      status: "dismissed",
+    },
+  });
+  expect(dismissedIdea.result.structuredContent.receipt.action).toBe("idea_update");
+  expect(dismissedIdea.result.structuredContent.current.ideas).toEqual([
+    { id: proposed.result.structuredContent.ideaId, title: "Follow-up", status: "dismissed", scope: "new" },
+  ]);
   // Over MCP the delivery call carries the next moves, and so does an explicit none (NEXT-MOVES-SPEC §8).
   const moves = [{ label: "Commit", prompt: "Commit and push." }, { label: "Move to Done", moveTo: "done" }];
   const delivered = await mcp("tools/call", {
     name: "flowly_update_status",
     arguments: {
-      expectedRevision: proposed.result.structuredContent.current.revision,
-      request: proposed.result.structuredContent.current.request,
+      expectedRevision: dismissedIdea.result.structuredContent.current.revision,
+      request: dismissedIdea.result.structuredContent.current.request,
       status: "in_review",
       note: "MCP delivery",
       nextMoves: moves,
@@ -367,7 +394,7 @@ test("CLI runs a complete scoped flow; replay, wrong env, snapshots and flags", 
   expect(finished.receipt.status).toBe("in_review");
   // The CLI prints the whole result, so the reminders follow the receipt (NEXT-MOVES-SPEC §9.5).
   expect(Object.keys(finished).slice(0, 3)).toEqual(["receipt", "replayed", "reminders"]);
-  expect(finished.reminders).toEqual([movesReminder, ideasReminder]);
+  expect(finished.reminders).toEqual([movesReminder, ideasReminder, outputsReminder]);
   await cli("current", "--save-request", snapshot);
   const tagged = await cli("tags", "--request-file", snapshot, "--add", "Drawer, perf");
   expect(tagged.current.task.tags.map((t: { tag: string }) => t.tag)).toEqual(["fixture", "drawer", "perf"]);
@@ -410,8 +437,26 @@ test("CLI runs a complete scoped flow; replay, wrong env, snapshots and flags", 
     "here",
   );
   expect(proposed.current.ideas).toEqual([{ id: proposed.ideaId, title: "CLI idea", status: "open", scope: "here" }]);
+  await cli("current", "--save-request", snapshot);
+  const updated = await cli("idea-update", "--request-file", snapshot, "--id", proposed.ideaId, "--title", "CLI idea, sharper", "--scope", "new", "--dismiss");
+  expect(updated.receipt.action).toBe("idea_update");
+  expect(updated.current.ideas).toEqual([{ id: proposed.ideaId, title: "CLI idea, sharper", status: "dismissed", scope: "new" }]);
+  await cli("current", "--save-request", snapshot);
+  const removed = await cli("idea-remove", "--request-file", snapshot, "--id", proposed.ideaId);
+  expect(removed).toMatchObject({ ideaId: proposed.ideaId, current: { ideas: [] } });
+  await cli("current", "--save-request", snapshot);
   for (const args of [
+    ["status", "in_review", "--request-file", snapshot, "--note", "n", "--outputs", "not json"],
+    ["note", "--kind", "result", "--request-file", snapshot, "--note", "n", "--outputs", "{}"],
+    ["note", "--kind", "result", "--request-file", snapshot, "--note", "n", "--outputs", "[]", "--no-outputs"],
+    ["status", "development", "--request-file", snapshot, "--note", "n", "--no-outputs"],
+    ["note", "--kind", "progress", "--request-file", snapshot, "--note", "n", "--no-outputs"],
+    ["current", "--no-outputs"],
     ["idea", "--request-file", snapshot, "--title", "No detail", "--rationale", "r"],
+    ["idea-update", "--request-file", snapshot, "--id", "x"],
+    ["idea-remove", "--request-file", snapshot],
+    ["idea-remove", "--request-file", snapshot, "--id", "x", "--title", "t"],
+    ["idea", "--request-file", snapshot, "--title", "t", "--detail", "d", "--rationale", "r", "--dismiss"],
     ["note", "--request-file", snapshot, "--note", "n", "--title", "misplaced"],
     ["next-moves", "--request-file", snapshot, "--moves", "not json"],
     ["note", "--request-file", snapshot, "--note", "n", "--moves", "{}"],
@@ -483,6 +528,29 @@ test("same port and credentials survive cleanup/reload; cold error recovers with
   expect(JSON.parse(legacy.stdout).identity).toEqual(x.identity);
   const replay = (await x.api("progress", input)).result;
   expect(replay).toMatchObject({ receipt: first.receipt, replayed: true });
+});
+
+test("CLI outputs and first refusal: real transport, persisted IDs and exact replay", async () => {
+  const x = await setup();
+  const prepared = await x.server.prepareExisting("t", "actor", x.paseo);
+  const snapshot = `${x.root}/outputs-request.json`;
+  const cli = async (...args: string[]) => JSON.parse((await run(process.execPath, [prepared.cliPath, "--context-file", prepared.contextFile, ...args], { env: { ...process.env, PASEO_AGENT_ID: "actor" } })).stdout);
+  await cli("current", "--save-request", snapshot);
+  const args = ["status", "in_review", "--request-file", snapshot, "--note", "Output registered", "--outputs", JSON.stringify([{ target: "https://github.com/fixture/repo/pull/1" }]), "--no-moves"];
+  const delivered = await cli(...args);
+  expect(delivered.receipt.artifactIds).toEqual([delivered.current.artifacts[0].id]);
+  expect(delivered.current.artifacts[0].role).toBe("output");
+  expect(delivered.reminders).not.toContain(outputsReminder);
+  expect(await cli(...args)).toMatchObject({ replayed: true, receipt: delivered.receipt });
+  await cli("current", "--save-request", snapshot);
+  expect((await cli("note", "--kind", "result", "--request-file", snapshot, "--note", "No outputs", "--no-outputs", "--no-moves")).receipt.artifactIds).toEqual([]);
+  await x.store.mutate((board) => { board.tasks[0].status = "development"; board.tasks[0].revision++; delete board.tasks[0].tags; });
+  await cli("current", "--save-request", snapshot);
+  const ack = ["status", "in_review", "--request-file", snapshot, "--note", "No tags: deliberately omitted for this gate fixture", "--acknowledge-open", "--no-outputs", "--no-moves"];
+  const before = await readFile(x.store.path, "utf8");
+  await expect(cli(...ack)).rejects.toMatchObject({ code: 1, stderr: expect.stringContaining("SETUP_INCOMPLETE") });
+  expect(await readFile(x.store.path, "utf8")).toBe(before);
+  expect((await cli(...ack)).receipt.status).toBe("in_review");
 });
 test("port collision preserves discovery/key/board; after conflict removal listener recovers", async () => {
   const x = await setup(),

@@ -79,7 +79,7 @@ export async function automationFixture(automation: Partial<AutomationSettings> 
   const prepared = new Map<string, string>();
   let failCreate = 0;
   const hooks: {
-    prepare?: (taskId: string, op: string) => Promise<void>;
+    prepare?: (taskId: string, op: string, options?: { reviewer?: boolean }) => Promise<void>;
     /** Runs before each session refresh; return "missing" to report the session as not (yet) known. */
     refresh?: (id: string) => Promise<void | "missing">;
     send?: () => Promise<void>;
@@ -148,8 +148,8 @@ export async function automationFixture(automation: Partial<AutomationSettings> 
     clock: () => now,
     historyBytes: async (agent: { id?: string }) => (agent.id ? (hooks.history?.(agent.id) ?? null) : null),
     globalModel: async () => globalModel,
-    prepare: async (taskId: string, op: string): Promise<ToolPreparation> => {
-      await hooks.prepare?.(taskId, op);
+    prepare: async (taskId: string, op: string, _paseo?: PaseoApi, options?: { reviewer?: boolean }): Promise<ToolPreparation> => {
+      await hooks.prepare?.(taskId, op, options);
       if (!prepared.has(op)) prepared.set(op, `${taskId}-agent-${prepared.size + 1}`);
       return { agentId: prepared.get(op)!, contextFile: "/ctx", cliPath: "/cli", skillPath: "/skill", instructions: `card ${taskId}`, mcp: { type: "http", url: "http://x/mcp", headers: {} } };
     },

@@ -11,6 +11,8 @@ import { t } from "../shared/i18n";
 /**
  * Provider, model and reasoning effort of a default model, as one card of rows.
  * "None" (first provider choice) clears it: `noneLabel` says what then applies.
+ * `execution` adds Permissions (inherit / provider default / a mode) and Speed;
+ * `permissions` adds only Permissions (inherit / a mode).
  */
 export function ModelDefaultGroup({
   title,
@@ -21,6 +23,7 @@ export function ModelDefaultGroup({
   noneDetail,
   disabled = false,
   execution = false,
+  permissions = false,
   cwd,
 }: {
   title?: string;
@@ -31,6 +34,8 @@ export function ModelDefaultGroup({
   noneDetail?: string;
   disabled?: boolean;
   execution?: boolean;
+  /** Permissions row only, for a flat setting that cannot store "explicit provider default" or speed (Settings → Models). */
+  permissions?: boolean;
   cwd?: string;
 }) {
   const paseo = usePaseo();
@@ -66,7 +71,7 @@ export function ModelDefaultGroup({
       if (result.error) throw new Error(result.error);
       return result;
     },
-    enabled: execution && !!provider,
+    enabled: (execution || permissions) && !!provider,
   });
   const features = useAgentFeatures(provider, model, cwd, execution);
   // Model changes drop unsupported capabilities once discovery completes.
@@ -115,6 +120,19 @@ export function ModelDefaultGroup({
           ]}
           onChange={(next) => onChange({ ...value, provider, model, thinking: next || undefined })}
         />
+      )}
+      {permissions && !execution && !!value && !!model && (modes.data?.modes ?? []).length > 0 && (
+        <SettingSelect title={t("Permissions")} value={value.modeId ?? ""}
+          placeholder={t("Same as latest session")}
+          disabled={disabled} loading={modes.isPending}
+          options={[
+            { value: "", label: t("Same as latest session"), detail: t("Use the latest session's permission mode when it uses this provider, else the provider's own") },
+            ...(modes.data?.modes ?? []).map((m) => ({ value: m.id, label: m.label, detail: m.description })),
+          ]}
+          onChange={(modeId) => {
+            const { modeId: _old, ...rest } = value;
+            onChange(modeId ? { ...rest, modeId } : rest);
+          }} />
       )}
       {execution && !!value && !!model && <>
         <SettingSelect title={t("Permissions")} value={value.modeId ?? "__inherit"}

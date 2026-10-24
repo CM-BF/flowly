@@ -78,7 +78,7 @@ P3/P4 的建议方向（未决，供以后评估）：不依赖 agent 调用工�
 
 ### 5.3 渲染（`addTimelineRenderer`）
 
-- 外观与侧栏 Progress 一致（共用 `ContentCard` 的框与正文）：卡片**外面**上方一行小标题（`AiMark` + “Progress”，灰色、中等字重、`font.sm`），卡片里是 `state`（强调）、Target / Recap / Next，脚注一行：左边 Show more / Show less，右边 “Updated 5m ago · Haiku 5.5” 和 “Open card” 小按钮。**两张原生卡片的小标题相同**（2026-10-21 用户决定：保持 Progress 原来的样子，Next steps 向它对齐；曾试过把标题和 Open card 放进卡片头部，用户更喜欢原来的）：小标题在外（`client/native-card.tsx` 的 `NativeCardHeading`）。Next steps 之后又去掉了灰色卡片底（见 §6.3）。已知代价：手机宽度下 Progress 的脚注较挤，时间戳可能折成两行、按钮被截成 “Open ca…”（原版就如此，用户知情后仍选择保留原样）。
+- 外观与侧栏 Progress 一致（共用 `ContentCard` 的框与正文）：卡片**外面**上方一行小标题（`AiMark` + “Progress”，灰色、中等字重、`font.sm`），卡片里是 `state`（强调）、Target / Recap / Next，脚注一行：左边 Show more / Show less，右边 “Updated 5m ago”（不显示模型，2026-10-23 用户决定；侧栏 Progress 仍显示）和 “Open card” 小按钮。**两张原生卡片的小标题相同**（2026-10-21 用户决定：保持 Progress 原来的样子，Next steps 向它对齐；曾试过把标题和 Open card 放进卡片头部，用户更喜欢原来的）：小标题在外（`client/native-card.tsx` 的 `NativeCardHeading`）。Next steps 之后又去掉了灰色卡片底（见 §6.3）。已知代价：手机宽度下 Progress 的脚注较挤，时间戳可能折成两行、按钮被截成 “Open ca…”（原版就如此，用户知情后仍选择保留原样）。
 - 超过约 5 行时收起，Show more / Show less，规则同 TASK-SUMMARY-SPEC §7（动画、Reduce Motion、首次测量不播放）。
   - Paseo 在 Flowly 的组件树之外渲染 timeline 行，没有 `MotionProvider` 时动画钩子默认按“减少动态效果”处理、直接跳变（2026-10-20 用户反馈）。原生 timeline 行、Next moves 卡片与 Ideas 弹层都包在 `SharedMotionProvider` 里：所有行共用一个系统 Reduce Motion 查询与监听（`client/reduce-motion.ts`），系统回答前按减少动态效果处理。
 - 头部右侧的 “Open card” 小按钮，打开 Flowly 并定位到该卡概览（复用 Task chip 的 `openScreen("board", …)` 路径与校验）。
@@ -137,6 +137,7 @@ Next steps 没有边框、底色和内边距：小标题（与 Progress 的小�
 
 - **消息型建议**，按设置 `nextMoveTap`（host 设置 `native-session`，默认 `fill`）：
   - `fill`（默认）：把 `prompt` 填进**这个 session 的** Paseo 输入框；输入框已有文字时在其后空一行追加（与 Flowly 的 `nextMoveDraft` 相同），光标移到末尾并聚焦。**不发送**，由用户在 Paseo 里发送。仅 web 与桌面可用（`client/web-composer.ts`，见 AGENTS.md 例外）；找不到该 session 的输入框（iOS/Android app、Paseo 改了输入框结构）时退回 `copy`。（退回复制是设计者的决定。）
+    - 认定归属（2026-10-22 修正）：只看屏幕上的输入框（不在 `aria-hidden` 子树、有布局）；fiber 的两份副本里**任一**沿 `return` 链找到的 `agentId` 等于本 session 即算属于它。DOM 节点保存的是创建时的 fiber，React 每次更新在两份副本间切换，所以任一副本都可能停在旧的 props 上：在新 session 草稿里创建的输入框会一直带着草稿 id，直到刷新页面。原先“两份副本不一致就不认”的规则因此在长时间不刷新的桌面 app 里一直退回复制。仍有两个可见输入框属于同一 session（分屏）时不猜，退回复制。
   - `copy`：复制 `prompt`，toast “Copied. Paste it into the message box.”。
   - 卡片保留到下一轮开始或用户关闭。
 - **Move to Done**：同前（重新校验建议仍当前、卡片未完成 → 移到 Done；未开 *Auto wrap up* 且有东西可收尾时在卡片内询问 Wrap up / Open in Flowly / Not now，有阻塞或警告时只给 Open in Flowly）。
@@ -222,7 +223,7 @@ Next steps 没有边框、底色和内边距：小标题（与 Progress 的小�
 
 ### 12.1 范围
 
-- “外部 session”：未被 Flowly 管理（不在 `sessions.managed` 里）、未归档、有 workspace、不是子 agent（`parentAgentId` 为空）、不是 Flowly 自己的辅助 session（summarizer）的 session。包括：卡片 workspace 里未加入卡片的 session（P2）、Flowly 项目里不属于卡片的 session（P3）、不在任何 Flowly 项目里的 session（P4）。
+- “外部 session”：未被 Flowly 管理（不在 `sessions.managed` 里）、未归档、有 workspace、不是子 agent（`parentAgentId` 为空）、不是 Flowly 自己的辅助 session（summarizer，按 `flowly=summarizer` 标签判断；memory review、digest、workflow insights 都带这个标签。2026-10-23 前代码漏了这条判断，会给这些用完即删的 session 跑洞察，留下报错记录）的 session。包括：卡片 workspace 里未加入卡片的 session（P2）、Flowly 项目里不属于卡片的 session（P3）、不在任何 Flowly 项目里的 session（P4）。
 - 管理 session 维持 §5–§7 的卡片路径，不变。
 - Flowly 内部的行为与样式不变（§3），唯一新增是设置项（§12.6）。
 
@@ -272,6 +273,8 @@ Next steps 没有边框、底色和内边距：小标题（与 Progress 的小�
 - 不出现在任何 project 的 Ideas 页；没有 “Start a new task”。
 
 ### 12.6 设置
+
+> 2026-10-22 用户决定（ONBOARDING-SETUP-SPEC D2/D3）：改为“默认开”，但由欢迎导览写入：新用户首次导览以任何方式关闭时，按导览里三个 “Also in sessions outside Flowly” 开关（默认全开）写入 `outside` 与三项；schema 默认值仍为 `outside=false`，所以没完成导览的已安装用户保持关。导览写入时总是同时写四个字段（`outside` = 三项任一为开），避免开一项时把只因总开关关着而“看起来关”的其他项一并打开。
 
 host 设置 `native-session` 增加字段（默认值保证旧存储可读）：`outside`（默认 **false**）、`outsideProgress` / `outsideNextMoves` / `outsideIdeas`（默认 true，仅在 `outside` 开时生效）。Flowly 设置 → AI features → “Paseo's session view” 新增总开关与三个子开关，并说明：开启后，每个外部 session 每完成一轮会用 Summary 模型跑一次（读取最近对话，发送给该模型的 provider），并留下一个已归档的子 session。
 
