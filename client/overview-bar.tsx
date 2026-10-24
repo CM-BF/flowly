@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { Pressable, View } from "react-native";
+import { Pressable, View, type GestureResponderEvent } from "react-native";
 import { Icon, ScrollView } from "@getpaseo/plugin/client/react-native";
 import type { Status } from "../shared/model";
 import { Dot, Label, font, noFocusRing, radius, space, touch, useTheme } from "./ui";
@@ -25,6 +25,10 @@ export function OverviewBar({
   memoryCandidates,
   onMemory,
   memoryShortcut,
+  levels,
+  onLevels,
+  onTree,
+  treeShortcut = "",
 }: {
   overview: BoardOverview;
   nameOf(status: Status): string;
@@ -43,6 +47,13 @@ export function OverviewBar({
   memoryShortcut: string;
   /** Jump to a lane (compact: switch tabs; desktop: expand it if collapsed). */
   onLane(status: Status): void;
+  /** The Levels chip (CARD-TREE-SPEC §2.3): its text, and whether a level is hiding cards; absent when nothing is nested. */
+  levels?: { text: string; limited: boolean } | null;
+  /** Opens the Levels menu at the press. */
+  onLevels?(event: GestureResponderEvent): void;
+  /** Opens the Card tree page; absent when the project has no sub-card or blocks link. */
+  onTree?(): void;
+  treeShortcut?: string;
 }) {
   const { colors } = useTheme();
   const o = overview;
@@ -66,6 +77,11 @@ export function OverviewBar({
             <Label muted size={font.sm} selectable={false}>{t("· {n} done", { n: o.done })}</Label>
           )}
         </View>
+        {levels && onLevels && (
+          <Chip label={t("Sub-card levels shown: {text}", { text: levels.text })} icon={<Icon name="ListTree" size={13} color={levels.limited ? colors.accent : colors.foregroundMuted} />} onPress={onLevels} strong={levels.limited}>
+            {levels.text}
+          </Chip>
+        )}
         <Divider />
         <Chip
           label={o.runningTasks ? (o.runningSessions > o.runningTasks ? t("{tasks} running ({sessions})", { tasks: tn(o.runningTasks, "{n} task", "{n} tasks"), sessions: tn(o.runningSessions, "{n} session", "{n} sessions") }) : t("{tasks} running", { tasks: tn(o.runningTasks, "{n} task", "{n} tasks") })) : t("Nothing running")}
@@ -119,6 +135,11 @@ export function OverviewBar({
             {memoryCandidates ? t("Memory {n}", { n: memoryCandidates }) : t("Memory")}
           </Chip>
         )}
+        {onTree && (
+          <Chip label={`${t("Card tree")}${treeShortcut ? ` (${treeShortcut})` : ""}`} icon={<Icon name="Workflow" size={13} color={colors.foregroundMuted} />} onPress={onTree}>
+            {t("Tree")}
+          </Chip>
+        )}
         {onInsights && (
         <Chip label={`${t("Project insights")}${insightsShortcut ? ` (${insightsShortcut})` : ""}`} icon={<Icon name="Activity" size={13} color={colors.foregroundMuted} />} onPress={onInsights}>
           {t("Insights")}</Chip>
@@ -143,7 +164,7 @@ function Chip({
 }: {
   icon: ReactNode;
   label: string;
-  onPress?(): void;
+  onPress?(event: GestureResponderEvent): void;
   muted?: boolean;
   strong?: boolean;
   children: ReactNode;

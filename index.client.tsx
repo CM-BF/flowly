@@ -19,6 +19,7 @@ const intentItems: { intent: BoardIntent; title: string; icon: string; keywords:
   { intent: "filters", title: msg("Flowly: Search and filter tasks"), icon: "ListFilter", keywords: ["kanban", "search", "filter"] },
   { intent: "attention", title: msg("Flowly: Needs attention"), icon: "Bell", keywords: ["kanban", "attention", "unread", "approval"] },
   { intent: "shortcuts", title: msg("Flowly: Keyboard shortcuts"), icon: "Keyboard", keywords: ["kanban", "keyboard", "hotkey", "help"] },
+  { intent: "tree", title: msg("Flowly: Open card tree"), icon: "Workflow", keywords: ["kanban", "tree", "sub-card", "dependency", "blocks", "dag"] },
   { intent: "welcome", title: msg("Flowly: Welcome tour"), icon: "CircleHelp", keywords: ["kanban", "welcome", "tour", "onboarding", "help", "guide"] },
 ];
 

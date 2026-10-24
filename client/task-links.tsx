@@ -7,7 +7,7 @@ import * as rpc from "../shared/rpc";
 import type { Project, Task } from "../shared/model";
 import { enabledStatuses, laneName } from "../shared/lanes";
 import { linkFor, linksOf, type LinkView, type Relation } from "../shared/links";
-import { groupOf, groups, linkCandidates } from "./link-rows";
+import { groupFor, groups, linkCandidates } from "./link-rows";
 import { eventPoint, useMenuOpener } from "./context-menu";
 import { Modal } from "./modal";
 import { IdeaRow, useExitList } from "./task-ideas";
@@ -52,6 +52,9 @@ export function TaskLinks({
     [board.data, task.id, removing],
   );
   const rows = useExitList(useMemo(() => views.map((v) => ({ ...v, id: v.link.id })), [views]));
+  // A queued live card is held by a Cancelled or archived blocker: it stays under "Waiting on".
+  const queued = !task.archivedAt && task.status !== "done" && task.status !== "cancelled" && board.data?.automation.find((j) => j.taskId === task.id)?.state === "queued";
+  const groupOf = groupFor(!!queued);
   const remove = async (view: LinkView) => {
     setRemoving((current) => new Set(current).add(view.link.id));
     try {
@@ -101,6 +104,7 @@ export function TaskLinks({
               <IdeaRow key={row.item.id} leaving={row.leaving} entering={row.entering} spacing={0}>
                 <LinkRow
                   view={row.item}
+                  group={group.title}
                   lane={laneName(project, row.item.other!.status)}
                   disabled={disabled || row.leaving}
                   onOpenTask={onOpenTask}
@@ -117,12 +121,15 @@ export function TaskLinks({
 
 const LinkRow = memo(function LinkRow({
   view,
+  group,
   lane,
   disabled,
   onOpenTask,
   onRemove,
 }: {
   view: LinkView;
+  /** Its group's title (English identity). */
+  group: string;
   lane: string;
   disabled: boolean;
   onOpenTask(id: string): void;
@@ -149,15 +156,13 @@ const LinkRow = memo(function LinkRow({
       <IconButton
         icon="X"
         size={touch ? 36 : 24}
-        label={t("Remove link: {group} {title}", { group: groupTitle(view), title: other.title })}
+        label={t("Remove link: {group} {title}", { group: t(group), title: other.title })}
         disabled={disabled}
         onPress={() => onRemove(view)}
       />
     </View>
   );
 });
-
-const groupTitle = (view: LinkView) => t(groups.find((g) => g.id === groupOf(view))!.title);
 
 /**
  * Above the description: "From idea on <card>" or "Follow-up of <card>"

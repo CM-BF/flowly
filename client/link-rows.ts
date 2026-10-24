@@ -19,6 +19,13 @@ export const groupOf = (view: Pick<LinkView, "relation" | "other">): Group =>
   view.relation === "blocked_by" ? (isResolved(view.other) ? "waited" : "waiting") : view.relation;
 
 /**
+ * `groupOf` for a card whose automation job is queued (and the card is live): a Cancelled or archived
+ * blocker holds it (Held, CARD-TREE-SPEC §2.6), so it stays under "Waiting on"; a Done one has been waited on.
+ */
+export const groupFor = (queued: boolean) => (view: Pick<LinkView, "relation" | "other">): Group =>
+  queued && view.relation === "blocked_by" && !!view.other && view.other.status !== "done" ? "waiting" : groupOf(view);
+
+/**
  * Cards `task` can be linked to (CARD-LINKS-SPEC §5.4): same project, live,
  * not itself, title containing `query`. `linked` marks cards the server would
  * refuse as already linked for `relation`.

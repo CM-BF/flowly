@@ -7,45 +7,15 @@ import { useQueryClient } from "@tanstack/react-query";
 import * as rpc from "../shared/rpc";
 import type { Project, Task } from "../shared/model";
 import { activeAgent, automationOf, isLive, panelChoice, panelDefaults, panelOutOfReach, readiness, reviewersFor, type AutomationJob, type AutomationSettings } from "../shared/automation";
-import { automationReason, type AutomationActions } from "./automation-view";
+import { automationReason, automationSignal, type AutomationActions, type AutomationSignal } from "./automation-view";
+
+export type { AutomationSignal };
 import type { AgentModel } from "../shared/agent-defaults";
 import { boardKey, useBoardQuery } from "./queries";
 import { PulseDot } from "./motion";
 import { ModelDefaultGroup } from "./model-default";
 import { Button, Choices, Label, Toggle, font, message, space, toneColor, useTheme, type Tone } from "./ui";
 import { t } from "../shared/i18n";
-
-/** How a job reads on the card (AUTOMATION-SPEC §6.1). */
-export type AutomationSignal = { text: string; icon?: string; tone: Tone | "active" };
-
-/** The card's automation in a few words; null when the lane already says it (stopped, delivered without a review, or the card is finished). */
-export function automationSignal(job: AutomationJob | undefined, task: Pick<Task, "status">): AutomationSignal | null {
-  if (!job || (isFinished(task) && !isLive(job))) return null;
-  switch (job.state) {
-    case "queued":
-      return { text: t("Queued for agent"), icon: "Clock", tone: "info" };
-    case "starting":
-      return { text: t("Starting agent…"), tone: "active" };
-    case "working":
-      return { text: t("Agent working"), tone: "active" };
-    case "reviewing":
-      return { text: t("Agent reviewing"), tone: "active" };
-    case "retry_wait":
-      return { text: t("Agent retrying"), icon: "RotateCw", tone: "warning" };
-    case "needs_human":
-      return { text: job.code === "permission" ? t("Agent needs permission") : t("Agent waiting for you"), icon: "Hand", tone: "warning" };
-    case "waiting":
-      return { text: t("Waiting on sub-cards"), icon: "ListTree", tone: "info" };
-    case "delivered":
-      if (task.status !== "in_review") return null;
-      if (job.verdict === "approved") return { text: t("Agent review passed"), icon: "BadgeCheck", tone: "success" };
-      return job.verdict ? { text: t("Review needs you"), icon: "TriangleAlert", tone: "warning" } : null;
-    case "failed":
-      return { text: t("Automation stopped"), icon: "OctagonX", tone: "danger" };
-    case "stopped":
-      return null;
-  }
-}
 
 const isFinished = (task: Pick<Task, "status">) => task.status === "done" || task.status === "cancelled";
 

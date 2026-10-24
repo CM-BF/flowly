@@ -26,3 +26,8 @@ test("auto shows the progress summary and falls back to the latest output", () =
   expect(activityLines("output", true, true)).toEqual({ progress: false, output: true });
   expect(activityLines("none", true, true)).toEqual({ progress: false, output: false });
 });
+
+test("the parent breadcrumb shows by default and can be hidden (CARD-TREE-SPEC §2.5)", () => {
+  expect(cardDisplay(null).parent).toBe(true);
+  expect(cardDisplay({ cardHidden: ["parent"] }).parent).toBe(false);
+});

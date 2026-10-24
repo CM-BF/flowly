@@ -42,6 +42,8 @@ export const boardViewSettings = defineSettings({
     drawerOrder: z.array(z.string().max(40)).max(20).catch([]).default([]),
     /** Card sidebar sections that start open (true) or closed (false) unlike their default (DRAWER-SPEC, Section order). */
     drawerOpen: z.record(z.string().max(40), z.boolean()).catch({}).default({}),
+    /** Board "Levels shown" per project (CARD-TREE-SPEC §2.3); absent is All. Read through `levelOf`, write through `withSubCardLevel`. */
+    subCardLevels: z.record(z.string().max(200), z.number().int().min(1).max(9)).catch({}).default({}),
   }),
 });
 

@@ -1,7 +1,7 @@
 import { expect, test } from "vitest";
 import type { Link, Task } from "../shared/model";
 import { linksOf } from "../shared/links";
-import { groupOf, linkCandidates } from "./link-rows";
+import { groupFor, groupOf, linkCandidates } from "./link-rows";
 
 const now = "2026-10-16T00:00:00.000Z";
 const task = (id: string, extra: Partial<Task> = {}): Task => ({
@@ -31,4 +31,13 @@ test("the picker lists live cards of the project and marks those linked that way
   expect(shown("blocked_by")).toEqual(["b", "c*"]);
   expect(shown("follow_up_of")).toEqual(["b", "c"]);
   expect(shown("follow_up_of", " CARD C")).toEqual(["c"]);
+});
+
+test("a Cancelled or archived blocker of a queued card holds it, so it stays under Waiting on (CARD-TREE-SPEC §2.6)", () => {
+  const tasks = [task("a"), task("x", { status: "cancelled" }), task("y", { archivedAt: now }), task("d", { status: "done" })];
+  const links = [link("blocks", "x", "a"), link("blocks", "y", "a"), link("blocks", "d", "a")];
+  const views = linksOf({ tasks, links }, "a");
+  expect(views.map(groupFor(true))).toEqual(["waiting", "waiting", "waited"]);
+  // Without a queued job the dispatcher does not care: they count as resolved, as before.
+  expect(views.map(groupFor(false))).toEqual(["waited", "waited", "waited"]);
 });

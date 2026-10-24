@@ -50,3 +50,22 @@ test("an unchanged value does not write", async () => {
   expect(await saveMerged(() => s.state, { boardSort: "title" }, async () => undefined)).toBe(true);
   expect(s.state.revision).toBe(before);
 });
+
+test("a function patch is rebuilt on the reloaded values, so another device's project level survives (CARD-TREE-SPEC §2.3)", async () => {
+  const { withSubCardLevel } = await import("../shared/card-levels");
+  const s = store({ subCardLevels: { a: 1 } });
+  s.external({ subCardLevels: { a: 1, b: 2 } }); // another device set project b; we still see only a
+  const live = new Set(["a", "b", "c"]);
+  const seen: Record<string, number>[] = [];
+  const ok = await saveMerged(
+    () => s.state,
+    (base) => {
+      seen.push(base.subCardLevels);
+      return { subCardLevels: withSubCardLevel(base.subCardLevels, "c", 3, live) };
+    },
+    async () => undefined,
+  );
+  expect(ok).toBe(true);
+  expect(seen).toEqual([{ a: 1 }, { a: 1, b: 2 }]);
+  expect(s.doc.subCardLevels).toEqual({ a: 1, b: 2, c: 3 });
+});

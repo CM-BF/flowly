@@ -1,5 +1,7 @@
 import type { Project, Task } from "../shared/model";
 import { automationOf, isLive, type AutomationCode, type AutomationJob } from "../shared/automation";
+import type { BlockerInfo } from "../shared/card-tree";
+import type { Tone } from "./ui";
 import { localizedLabels, msg, t } from "../shared/i18n";
 
 /** Queue / stop a card's automation (client/task-automation.tsx `useAutomationActions`). */
@@ -58,4 +60,42 @@ export function automationMenu(project: Project | undefined, task: Task, job: Au
   if (isLive(job)) return [{ id: "automation-stop", label: t("Stop automation"), icon: "CircleStop", disabled: actions.pending, onPress: () => void actions.stop(task.id) }];
   if (!automationOf(project) || isFinished(task)) return [];
   return [{ id: "automation-run", label: t("Run with agent"), icon: "Bot", disabled: locked || runUnavailable || actions.pending, onPress: () => void actions.queue(task.id) }];
+}
+
+/** How a job reads on the card (AUTOMATION-SPEC §6.1). */
+export type AutomationSignal = { text: string; icon?: string; tone: Tone | "active" };
+
+/**
+ * The card's automation in a few words; null when the lane already says it (stopped, delivered without a review, or the card is finished)
+ * or when a Cancelled or archived blocker holds the queued card (its Held signal says so). `blockers`: the card's entry of `blockerIndex`.
+ */
+export function automationSignal(job: AutomationJob | undefined, task: Pick<Task, "status">, blockers?: Pick<BlockerInfo, "open" | "held"> | null): AutomationSignal | null {
+  if (!job || (isFinished(task) && !isLive(job))) return null;
+  switch (job.state) {
+    case "queued":
+      // Split by what it waits for (CARD-TREE-SPEC §2.5): Held shows its own signal instead.
+      if (blockers?.held) return null;
+      if (blockers?.open) return { text: t("Queued after blockers"), icon: "Hourglass", tone: "info" };
+      return { text: t("Queued for agent"), icon: "Clock", tone: "info" };
+    case "starting":
+      return { text: t("Starting agent…"), tone: "active" };
+    case "working":
+      return { text: t("Agent working"), tone: "active" };
+    case "reviewing":
+      return { text: t("Agent reviewing"), tone: "active" };
+    case "retry_wait":
+      return { text: t("Agent retrying"), icon: "RotateCw", tone: "warning" };
+    case "needs_human":
+      return { text: job.code === "permission" ? t("Agent needs permission") : t("Agent waiting for you"), icon: "Hand", tone: "warning" };
+    case "waiting":
+      return { text: t("Waiting on sub-cards"), icon: "ListTree", tone: "info" };
+    case "delivered":
+      if (task.status !== "in_review") return null;
+      if (job.verdict === "approved") return { text: t("Agent review passed"), icon: "BadgeCheck", tone: "success" };
+      return job.verdict ? { text: t("Review needs you"), icon: "TriangleAlert", tone: "warning" } : null;
+    case "failed":
+      return { text: t("Automation stopped"), icon: "OctagonX", tone: "danger" };
+    case "stopped":
+      return null;
+  }
 }
