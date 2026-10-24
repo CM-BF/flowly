@@ -157,3 +157,41 @@ test.each(["cancelled", "archived"] as const)("under a %s ancestor, the parent's
   expect((await x.store.read()).tasks.find((t) => t.id === "child")!.status).toBe("backlog");
   await expect(x.service.updateCard(x.identity, { ...(await x.request()), cardId: "child", action: "cancel" })).resolves.toMatchObject({ status: "cancelled" });
 });
+
+test.each([
+  { state: "reviewing", code: undefined },
+  { state: "needs_human", code: "question" },
+  { state: "retry_wait", code: "failed" },
+] as const)("accepting a sub-card while its own review is still open ($state) is refused and changes nothing", async ({ state, code }) => {
+  const x = await setup("in_review", { state, role: "reviewer", reviewerId: "child-reviewer", reviewRounds: 1, ...(code ? { code } : {}) });
+  const before = await x.store.read();
+  await expect(x.service.updateCard(x.identity, { ...(await x.request()), cardId: "child", action: "accept" })).rejects.toMatchObject({ code: "REVIEW_RUNNING", message: expect.stringMatching(/supervised parent is woken/) });
+  expect(await x.store.read()).toEqual(before);
+  expect(x.onStatusChange).not.toHaveBeenCalled();
+  // The verdict is in: the delivery can be accepted, and cancelling was never blocked.
+  await x.store.mutate((board) => { Object.assign(board.automation.find((j) => j.taskId === "child")!, { state: "delivered", role: "implementer", verdict: "approved", code: undefined }); });
+  expect(await x.service.updateCard(x.identity, { ...(await x.request()), cardId: "child", action: "accept" })).toMatchObject({ status: "done" });
+});
+
+test.each([
+  { state: "working", role: "implementer", extra: {}, refusal: "CHILD_BUSY" },
+  { state: "working", role: "implementer", extra: { reopened: true, deliveryEvent: "d1" }, refusal: "REVIEW_RUNNING" },
+  { state: "queued", role: "implementer", extra: {}, refusal: "CHILD_BUSY" },
+  { state: "needs_human", role: "implementer", extra: { code: "question" }, refusal: "NEEDS_PERSON" },
+] as const)("accepting an In review sub-card whose automation is still $state ($refusal) is refused before any review settles", async ({ state, role, extra, refusal }) => {
+  const x = await setup("in_review", { state, role, ...extra });
+  const before = await x.store.read();
+  await expect(x.service.updateCard(x.identity, { ...(await x.request()), cardId: "child", action: "accept" })).rejects.toMatchObject({ code: refusal, message: expect.stringMatching(/Nothing was changed/) });
+  expect(await x.store.read()).toEqual(before);
+});
+
+test("with the project's automation off, a frozen job does not hold the parent's accept", async () => {
+  const x = await setup("in_review", { state: "reviewing", role: "reviewer", reviewerId: "child-reviewer" });
+  await x.store.mutate((board) => { board.projects[0].automation = { ...board.projects[0].automation!, enabled: false }; });
+  expect(await x.service.updateCard(x.identity, { ...(await x.request()), cardId: "child", action: "accept" })).toMatchObject({ status: "done" });
+});
+
+test("cancelling a sub-card under review stays possible", async () => {
+  const x = await setup("in_review", { state: "reviewing", role: "reviewer", reviewerId: "child-reviewer", reviewRounds: 1 });
+  expect(await x.service.updateCard(x.identity, { ...(await x.request()), cardId: "child", action: "cancel" })).toMatchObject({ status: "cancelled" });
+});
