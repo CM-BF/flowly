@@ -1,5 +1,13 @@
 # Implementation progress
 
+## Review levels real verification complete — 2026-10-24
+
+- [x] Orchestrator's independent runtime and UI fix reviews passed; typecheck and 175 files / 1707 tests passed at runtime cc6a9ec.
+- [x] Exact cc6a9ec installed on the real daemon; all 18 original automation jobs retained their lifecycle fields across installation. A full-access GPT-6-Luna session verified three actual model classifications (Deep storage / Standard permission display / Light typo), content-hash invalidation, no-change cache reuse and pending-to-ready dirty-draft preservation.
+- [x] Light actual delivery was approved. Deep actual delivery ran two rounds with a three-perspective panel from the first round and stopped with changes when issues remained; five earlier-delivery risks were visible on the card. This verifies the review workflow, not approval of the fixture design.
+- [x] Real desktop and compact editor controls/Auto reasons, card signals and project Review levels settings checked. A focused visual recheck replaced invalid narrow clips with full 430x932 CSS-pixel screenshots and verified refresh after reselecting the fixture. All owned fixtures, sessions and projects cleaned. Original blocked/invalid evidence retained.
+- [x] Evidence and limitations: docs/verification/review-levels.md. Phone startup timing, native-speaker translation review and live observation of the one-time onboarding tip remain unrun. Historical component entries below describe their own earlier checkpoints.
+
 ## Cached review-difficulty classifier — 2026-10-24
 
 - [x] Approved design: AUTOMATION-SPEC §5.2; Summary models classify what the card changes, with ordered fallback, complete-input caching, 750 ms debounce, at most two helpers, a 45 s review wait and 90 s total run deadline.
