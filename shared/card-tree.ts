@@ -178,7 +178,8 @@ const compare = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
 
 /**
  * Kahn longest-path layering: step = 1 + the highest step before it. When only cycles are left, the
- * first remaining member (member order) goes after everything placed so far and Kahn continues.
+ * first remaining member (member order) that is on a cycle goes after everything placed so far and Kahn
+ * continues, so a card that only waits for a cycle still comes after it.
  * Returns the group's highest step.
  */
 function stepGroup(members: readonly string[], edges: readonly (readonly [string, string])[], step: Map<string, number>, cyclic: Set<string>) {
@@ -213,7 +214,11 @@ function stepGroup(members: readonly string[], edges: readonly (readonly [string
     if (placed.size === members.length) break;
     const rest = members.filter((m) => !placed.has(m));
     if (!stalled) stalled = rest;
-    place(rest[0], Math.max(max + 1, least.get(rest[0]) ?? 1));
+    // Release a card on a cycle, never one merely downstream of it: that one keeps its place after its blockers.
+    // Kahn stalls only when every remaining card has a remaining predecessor, so a cycle is always left.
+    const unplaced = new Set(rest);
+    const x = rest.find((m) => reaches(m, m, succ, unplaced)) ?? rest[0];
+    place(x, Math.max(max + 1, least.get(x) ?? 1));
   }
   if (stalled) {
     // Only the cards on a cycle are marked, not the ones merely ordered after one.

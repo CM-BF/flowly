@@ -144,6 +144,26 @@ describe("sibling edge lifting", () => {
     expect(stepsOf(tree, ["A", "B", "C"])).toEqual([1, 2, 3]);
     expect(buildCardTree(tasks, links).step).toEqual(tree.step);
   });
+
+  test("a card that only waits for a cycle comes after it, even when it is listed first", () => {
+    clock = 0;
+    const tasks = ["C", "A", "B", "A1", "A2", "B1", "B2"].map((id) => task(id));
+    const links = [sub("A1", "A"), sub("A2", "A"), sub("B1", "B"), sub("B2", "B"), blocks("A1", "B2"), blocks("B1", "A2"), blocks("A", "C")];
+    const tree = buildCardTree(tasks, links);
+    expect([...tree.cyclic].sort()).toEqual(["A", "B"]);
+    expect(tree.step.get("C")!).toBeGreaterThan(tree.step.get("A")!);
+    expect(stepsOf(tree, ["A", "B", "C"])).toEqual([1, 2, 2]);
+    expect(tree.ordered.get(rootGroup)).toEqual(["A", "C", "B"]);
+  });
+
+  test("the same holds inside a sub-card group", () => {
+    clock = 0;
+    const tasks = ["P", "z", "x", "y"].map((id) => task(id));
+    const links = [sub("z", "P"), sub("x", "P"), sub("y", "P"), blocks("x", "y"), blocks("y", "x"), blocks("x", "z")];
+    const tree = buildCardTree(tasks, links);
+    expect([...tree.cyclic].sort()).toEqual(["x", "y"]);
+    expect(tree.step.get("z")!).toBeGreaterThan(tree.step.get("x")!);
+  });
 });
 
 describe("robustness", () => {
