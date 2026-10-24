@@ -69,7 +69,7 @@ import { isLegacyScope } from "../shared/scope";
 import { MemoryError, type MemoryService } from "./memory";
 import type { AutomationService } from "./automation";
 import type { ReviewInput } from "../shared/automation-schema";
-import { automationOf, isLive, jobOf } from "../shared/automation";
+import { automationAllowed, automationOf, isLive, jobOf } from "../shared/automation";
 import { parentOf } from "../shared/links";
 import { createCardInputSchema, updateCardInputSchema, type CreateCardInput, type CreateCardResult, type UpdateCardInput } from "../shared/tools";
 import { taskInput, type Task, type TaskInput } from "../shared/model";
@@ -285,9 +285,14 @@ export class AgentService {
       const replayed = (input.action === "accept" && child.status === "done") || (input.action === "cancel" && child.status === "cancelled") || (input.action === "start" && isLive(job));
       if (!replayed && ["done", "cancelled"].includes(child.status)) throw new ToolError("TASK_FINISHED", "That sub-card is already finished.");
       if (!replayed && input.action === "accept" && child.status !== "in_review") throw new ToolError("NOT_DELIVERED", "Only a delivered sub-card in In review can be accepted.");
-      // The parent decides after the sub-card's own reviewer; a person can still move it to Done directly.
-      if (!replayed && input.action === "accept" && job && isLive(job) && job.role === "reviewer")
-        throw new ToolError("REVIEW_RUNNING", `This sub-card's review is still ${job.state === "needs_human" ? "waiting for a person" : "running"}. Nothing was changed; wait for its verdict (a supervised parent is woken when it settles), then accept it or request changes.`);
+      // The parent accepts a settled delivery, after the sub-card's own review; a person can still move it to Done directly.
+      if (!replayed && input.action === "accept" && job && isLive(job) && automationAllowed(board, job)) {
+        const after = "Nothing was changed; a supervised parent is woken when it settles, other sessions check again later.";
+        if (job.role === "reviewer" || job.reopened)
+          throw new ToolError("REVIEW_RUNNING", `This sub-card's review is still ${job.state === "needs_human" ? "waiting for a person" : "open"}: wait for its verdict, then accept it or request changes. ${after}`);
+        if (job.state === "needs_human") throw new ToolError("NEEDS_PERSON", `This sub-card waits for a person (${job.code ?? "needs_human"}); a person answers it in its own session. ${after}`);
+        throw new ToolError("CHILD_BUSY", `This sub-card's automation is still running (${job.state}): its delivery is not settled, and a review may follow. ${after}`);
+      }
       if (input.action === "start" && child.status === "in_review" && !input.note?.trim()) throw new ToolError("FEEDBACK_REQUIRED", "Describe the changes required when restarting a delivered sub-card.");
       const target: Status = replayed ? child.status : input.action === "accept" ? "done" : input.action === "cancel" ? "cancelled" : child.status === "in_review" ? resumeStage(board, child, project) ?? child.status : child.status === "backlog" && laneEnabled(project, "todo") ? "todo" : child.status;
       if (!laneEnabled(project, target)) throw new ToolError("STATUS_UNAVAILABLE", "The target lane is disabled.");
