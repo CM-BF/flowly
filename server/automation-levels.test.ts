@@ -102,7 +102,7 @@ test("Deep defaults to the reviewer in panels of 3 when no panel model is set, a
   const plain = await delivered({}, (b) => void (cardA(b).reviewLevel = "deep"));
   expect(plain.rev).toMatchObject({ provider: "codex/gpt-6-luna", title: "Deep review: Card a" });
   expect(plain.rev.prompt).toContain("3 independent reviewers at once");
-  expect(plain.rev.prompt).toContain("Review level: deep, because set on the card");
+  expect(plain.rev.prompt).toContain("Review level: deep, because it is set on the card");
   const own = await delivered({ panelReviewer: opus, levels: { deep: { panelReviewer: sol, panelSize: 2 } } }, (b) => void (cardA(b).reviewLevel = "deep"));
   expect(own.rev).toMatchObject({ provider: "codex/gpt-6.1-sol", title: "Deep review: Card a" });
   expect(own.rev.prompt).toContain("2 independent reviewers at once");

@@ -26,7 +26,7 @@ import { isLegacyScope } from "../shared/scope";
 import { AgentPicker, useAgentChoice, type AgentDefaults } from "./agent-choice";
 import { ModelDefaultGroup } from "./model-default";
 import { AutomationSettingsGroup } from "./task-automation";
-import { levelReasonText, reviewLevelLabels } from "./automation-view";
+import { autoLevelHint, levelEdit, reviewLevelLabels } from "./automation-view";
 import type { AutomationSettings } from "../shared/automation-schema";
 import { agentModelFromValues, startingAgent, type AgentModel } from "../shared/agent-defaults";
 import { modelSettings, modelSettingsValues } from "../shared/settings";
@@ -560,7 +560,7 @@ export function TaskForm({
             priority,
             type: type || null,
             ...(sameList(tags, tagsBase) ? {} : { tags, tagsBase }),
-            ...(reviewLevel === (task.reviewLevel ?? "auto") ? {} : { reviewLevel: reviewLevel === "auto" ? null : reviewLevel }),
+            ...levelEdit(task.reviewLevel, reviewLevel),
           })
         : await create({
             projectId: project.id,
@@ -726,7 +726,7 @@ export function TaskForm({
                 onChange={setReviewLevel}
               />
               {reviewLevel === "auto" && autoLevel && (
-                <Label muted size={font.sm}>{t("Auto: {level}, because {why}.", { level: reviewLevelLabels[autoLevel.level], why: levelReasonText(autoLevel.reason) })}</Label>
+                <Label muted size={font.sm}>{autoLevelHint(autoLevel)}</Label>
               )}
             </View>
           )}

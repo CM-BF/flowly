@@ -92,6 +92,19 @@ export function levelReasonText(reason: LevelReason): string {
   }
 }
 
+/** The drawer's level line for a round's plan: "Review level: Deep (its description mentions database)". */
+export const levelLine = (plan: Pick<ReviewPlan, "level" | "reason">) => t("Review level: {level} ({why})", { level: reviewLevelLabels[plan.level], why: levelReasonText(plan.reason) });
+
+/** The card editor's hint under Auto: what Auto resolves to with the form's current text and tags, and why. */
+export const autoLevelHint = (resolved: { level: ReviewLevel; reason: LevelReason }) =>
+  t("Auto: {level}, because {why}.", { level: reviewLevelLabels[resolved.level], why: levelReasonText(resolved.reason) });
+
+/** What the card editor sends for the Review level choice: nothing unless it changed; Auto clears the card's level. */
+export function levelEdit(stored: ReviewLevel | undefined, chosen: ReviewLevel | "auto"): { reviewLevel?: ReviewLevel | null } {
+  if (chosen === (stored ?? "auto")) return {};
+  return { reviewLevel: chosen === "auto" ? null : chosen };
+}
+
 /** A review round with its level (§5.2.5): "Deep review round 1 of 3 (panel of 3 reviewers)". */
 export function reviewRoundText(round: number, plan: Pick<ReviewPlan, "level" | "max" | "size">): string {
   const values = { n: round, max: plan.max, k: plan.size };

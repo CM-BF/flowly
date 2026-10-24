@@ -1,6 +1,7 @@
 import { expect, test } from "vitest";
 import type { AutomationJob } from "../shared/automation";
-import { automationSignal, levelReasonText, reviewLevelLabels, reviewRoundText } from "./automation-view";
+import { autoLevelHint, automationSignal, levelEdit, levelLine, levelReasonText, reviewLevelLabels, reviewRoundText } from "./automation-view";
+import { resolveReviewLevel } from "../shared/automation";
 import { setLocale, withLocale } from "../shared/i18n";
 import "../shared/i18n-all";
 
@@ -45,4 +46,17 @@ test("why a card has its level reads as a phrase for the editor and the drawer",
   // Every language gives each level its own word.
   for (const code of ["de", "es", "fr", "ja", "ko", "pt-BR", "ru", "zh-CN", "zh-TW"] as const)
     withLocale(code, () => expect(new Set(Object.values(reviewLevelLabels)).size, code).toBe(4));
+});
+
+test("the card editor sends the level only when it changed, Auto as null, and says what Auto picks with the draft", () => {
+  setLocale("en");
+  expect(levelEdit(undefined, "auto")).toEqual({});
+  expect(levelEdit("deep", "deep")).toEqual({});
+  expect(levelEdit(undefined, "deep")).toEqual({ reviewLevel: "deep" });
+  expect(levelEdit("light", "auto")).toEqual({ reviewLevel: null });
+  const board = { tasks: [], links: [], workpads: [] };
+  const draft = { id: "a", title: "Save drafts", description: "Write them to a SQLite database", tags: [] };
+  expect(autoLevelHint(resolveReviewLevel(board, draft))).toBe("Auto: Deep, because its description mentions database.");
+  expect(autoLevelHint(resolveReviewLevel(board, { ...draft, description: "" }))).toBe("Auto: Standard, because nothing calls for a deeper or lighter review.");
+  expect(levelLine({ level: "light", reason: { kind: "light_tag" } })).toBe("Review level: Light (the card has the tag light-review)");
 });

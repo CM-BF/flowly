@@ -21,7 +21,7 @@ import {
   type AutomationJob,
   type AutomationSettings,
 } from "../shared/automation";
-import { automationReason, automationSignal, levelReasonText, reviewLevelLabels, reviewRoundText, type AutomationActions, type AutomationSignal } from "./automation-view";
+import { automationReason, automationSignal, levelLine, reviewRoundText, type AutomationActions, type AutomationSignal } from "./automation-view";
 import { Disclosure } from "./disclosure";
 import type { AgentModel } from "../shared/agent-defaults";
 import { boardKey, useBoardQuery } from "./queries";
@@ -120,7 +120,7 @@ export function TaskAutomation({ task, project, active, unavailable = false }: {
         )}
         {!!counters.length && <Label muted size={font.sm}>{counters.join(" · ")}</Label>}
         {!!plan && !!job?.reviewRounds && (
-          <Label muted size={font.sm}>{t("Review level: {level} ({why})", { level: reviewLevelLabels[plan.level], why: levelReasonText(plan.reason) })}</Label>
+          <Label muted size={font.sm}>{levelLine(plan)}</Label>
         )}
         {!!job?.risks?.length && (
           <View testID="task-automation-risks" style={{ gap: 2, paddingTop: space[1] }}>

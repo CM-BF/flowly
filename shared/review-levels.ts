@@ -48,16 +48,19 @@ const escape = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 function plural(word: string) {
   return word.endsWith("y") ? `${escape(word.slice(0, -1))}(?:y|ies)` : `${escape(word)}(?:e?s)?`;
 }
-const englishPatterns = deepKeywords.en.map((keyword) => {
-  const words = keyword.split(/[\s-]+/);
-  const body = [...words.slice(0, -1).map(escape), plural(words[words.length - 1])].join("[\\s-]+");
-  return { keyword, pattern: new RegExp(`(?:^|${edge})${body}(?=$|${edge})`, "iu") };
-});
+/** Compiled on first use: the client evaluates this module at every app start (AGENTS.md, cold start). */
+let englishPatterns: { keyword: string; pattern: RegExp }[] | undefined;
+const patterns = () =>
+  (englishPatterns ??= deepKeywords.en.map((keyword) => {
+    const words = keyword.split(/[\s-]+/);
+    const body = [...words.slice(0, -1).map(escape), plural(words[words.length - 1])].join("[\\s-]+");
+    return { keyword, pattern: new RegExp(`(?:^|${edge})${body}(?=$|${edge})`, "iu") };
+  }));
 
 /** The first deep keyword `text` mentions (in list order), or null. */
 export function deepKeyword(text: string): string | null {
   if (!text) return null;
-  for (const { keyword, pattern } of englishPatterns) if (pattern.test(text)) return keyword;
+  for (const { keyword, pattern } of patterns()) if (pattern.test(text)) return keyword;
   for (const keyword of deepKeywords.zh) if (text.includes(keyword)) return keyword;
   return null;
 }
@@ -141,7 +144,7 @@ export function seatModel(settings: AutomationSettings, seat: ReviewSeat): Agent
 export function reasonText(reason: LevelReason): string {
   switch (reason.kind) {
     case "card":
-      return "set on the card";
+      return "it is set on the card";
     case "tag":
       return `the card has the tag ${reason.tag}`;
     case "ancestor_tag":

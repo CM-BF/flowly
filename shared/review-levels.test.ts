@@ -137,6 +137,18 @@ describe("levels in the project settings", () => {
     expect(seatModel({ ...saved, panelReviewer: opus }, roundSeat({ ...saved, panelReviewer: opus }, { level: "deep", size: 3 }))).toEqual(opus);
   });
 
+  test("settings saved before review levels parse without levels and keep today's Standard reviews", () => {
+    const before = automationSettingsSchema.parse({ enabled: true, maxRunning: 2, reviewer: luna, maxReviewRounds: 3, panelAfter: 1, panelSize: 4, fullAccess: true, nudgeLimit: 2, failureLimit: 2 });
+    expect(before).not.toHaveProperty("levels");
+    const b = board([card("a")]);
+    expect([1, 2, 3].map((round) => reviewPlan(before, b, b.tasks[0], round))).toEqual([
+      { level: "standard", reason: { kind: "default" }, max: 3, size: 1 },
+      { level: "standard", reason: { kind: "default" }, max: 3, size: 4 },
+      { level: "standard", reason: { kind: "default" }, max: 3, size: 4 },
+    ]);
+    expect(seatModel(before, roundSeat(before, { level: "standard", size: 4 }))).toEqual(luna);
+  });
+
   test("set values win: each level on its own model, size and cap", () => {
     const set = automationSettingsSchema.parse({ enabled: true, reviewer: luna, panelReviewer: opus, levels: { light: { reviewer: sol, maxReviewRounds: 1 }, deep: { panelReviewer: sol, panelSize: 5, maxReviewRounds: 4 } } });
     const b = board([card("a", { reviewLevel: "deep" }), card("b", { reviewLevel: "light" })]);
@@ -174,6 +186,6 @@ describe("levels in the project settings", () => {
       'Deep review round 1 of 3 (panel of 3 reviewers); level deep: its description mentions "database"',
     );
     expect(reviewStartNote(2, { level: "light", reason: { kind: "light_tag" }, max: 2, size: 1 })).toBe("Light review round 2 of 2; level light: the card has the tag light-review");
-    expect(reviewStartNote(1, { level: "standard", reason: { kind: "card" }, max: 3, size: 1 })).toBe("Standard review round 1 of 3; level standard: set on the card");
+    expect(reviewStartNote(1, { level: "standard", reason: { kind: "card" }, max: 3, size: 1 })).toBe("Standard review round 1 of 3; level standard: it is set on the card");
   });
 });
