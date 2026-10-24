@@ -235,7 +235,11 @@ AutomationJob {
 
 **缓存与调度**：`Task.reviewClassification?` 是派生数据，包含所有输入和规则版本的 128 位非安全内容指纹、`status: pending | ready | failed`、时间、关键词 fallback 和可选 `verdict: { level, reason, model }`。内部缓存写入只递增 board revision，不改变 task revision，不使人的编辑或 agent request 失效。内容不变就复用成功判断；验收项的完成勾选和其它元数据不使缓存失效。父标题变化也会失效。缓存字段为兼容的可选字段，不做读时迁移。
 
-只有未归档、未完成且项目启用了自动化和 reviewer 的卡片需要分类。保存后后台 debounce 750 ms，最多两个 helper 同时运行；队列里的卡片取最新内容。每次模型创建或等待最多 20 秒，整个分类最多 90 秒（包含提供方发现/创建），新一轮评审最多等 45 秒，之后按当前关键词 fallback 开始；迟到成功写缓存供下一轮用。失败不因后台每次写入而重复收费，下一轮评审可重试。插件重载后重新处理 pending，成功缓存保留。并发的后台和评审请求共享一次运行。取消、被新内容替代、解析失败、权限、模型错误和超时都清理本次创建的 helper；create 在取消后迟到也要删除。插件卸载会取消并等待当前清理。写回在同一个看板事务里重新核对指纹、当前请求身份和固定级别，过期结果不覆盖新内容。
+只有未归档、未完成且项目启用了自动化和 reviewer 的卡片需要分类。保存后后台 debounce 750 ms，最多两个 helper 同时运行；队列里的卡片取最新内容。每次模型创建或等待最多 20 秒，整个分类最多 90 秒（包含提供方发现/创建），新一轮评审最多等 45 秒，之后按当前关键词 fallback 开始；迟到成功写缓存供下一轮用。失败不因后台每次写入而重复收费，下一轮评审可重试。插件重载后重新处理 pending，成功缓存保留。并发的后台和评审请求共享一次运行。取消、被新内容替代、解析失败、权限、模型错误和超时都清理本次创建的 helper；create 在取消后迟到也要删除。正常卸载取消当前及已被替代的 worker，并把 native create / cleanup 全部纳入 drain；Paseo 0.12 的软停止期限只有 2 秒，所以本插件最多等 1 秒，不会为了未完成 create 无限卡住重载。`index.server.ts` 返回 stop 的 Promise，让 host 等待这段清理。
+
+**跨重载的 helper 所有权**：classifier 在调用 native create 之前分配稳定 `agentId`，并将 id、workspace、随机 owner token、创建是否已确认原子写进专用 `review-classifier-helpers.json`（不是看板历史，每次覆写）。session 带 `flowly-review-classifier=<owner>` 标签。在 SDK 明确返回创建成功后标 confirmed；确认删除且 refresh 证实缺失后才移除已确认记录。hard-delete 失败只归档时继续保留。下一次 attach 以及之后每 30 秒只检查清单里的 id，核对 workspace 和 owner 标签再清理，不扫描或删除别的 session。每次最多 20 条、轮转，单次 refresh/清理等待最多 1 秒；这些探测不阻塞评审启动。
+
+未确认的 create 不能因为一次 not-found 就忘掉：旧进程的 native 请求可能仍在 daemon 中完成。即使某次清理了已出现的会话，也保留未确认记录，直到原创建被明确确认后完成清理。彻底丢失创建结果时，这种小记录会长期留下，以便后来出现的同一 id 仍能被识别；这保证不会丢掉清理责任，不能保证永远不可达的 daemon 会话立即删除。worker 被强杀时只依赖这份创建前已持久化的所有权，不依赖旧进程里的 Promise 回调。标签或 workspace 不一致时绝不删除。写回在同一个看板事务里重新核对指纹、当前请求身份和固定级别，过期结果不覆盖新内容。
 
 **关键词**只作故障回退和模型的弱提示。原中英文表与边界规则保留在 `server/review-keywords.ts`，不进客户端 bundle；英文词形/CJK 边界和已知误报继续由测试覆盖。模型成功时不受关键词命中影响。模型输出不合法、没有可用模型、超时或所有模型失败都不阻止评审。
 
@@ -296,7 +300,7 @@ AutomationJob {
 
 #### 5.2.8 验收
 
-- `server/review-classifier.test.ts`：有效分类和真实模型记录；Summary models 按序回退；无模型、create/解析/权限/idle+error/超时路径；完整输入缓存与逐字段失效；后台 debounce、并发去重、45 秒边界的可配置短时测试、迟到结果供下一轮、固定/祖先标签不调用、stop/迟到 create 清理；测试只用内存 API 与临时目录，不触达 daemon。
+- `server/review-classifier.test.ts`：有效分类和真实模型记录；Summary models 按序回退；无模型、create/解析/权限/idle+error/超时路径；完整输入缓存与逐字段失效；后台 debounce、并发去重、45 秒边界的可配置短时测试、迟到结果供下一轮、固定/祖先标签不调用、stop/迟到 create 清理；`server/classifier-helpers.test.ts` 覆盖创建前持久化、确认/删除中途停机、grace 到期、restart 后迟到 create、身份不匹配拒删、未确认 not-found 保留；测试只用内存 API 与临时目录，不触达 daemon。
 - `client/review-level-view.test.ts`：分类模型与原因、pending/未保存/fallback 文案、当前 review 在 needs_human/retry_wait 时仍为本轮；`server/review-level-tools.test.ts`：tasks.update 非法级别拒绝后卡片不变、start 同时改级别的消息；祖先显式级别和 Light 不继承。客户端 bundle 用 daemon 的真实 esbuild 选项测量，数字见 PERFORMANCE-SPEC 与 PROGRESS。
 
 - 纯函数（`shared/review-levels.test.ts`）：显式级别优先；卡片和祖先的 deep-review/foundation 标签（近的祖先先，环不死循环）；中英文关键词在标题、描述、验收标准里命中，复数、词形与连字符，英文词紧挨中文或日文时也命中；误报（login、date format、lock icon、localStorage、journalist、schematic、Security settings、transaction、persistent toolbar 与 banner、Persist the selected tab、Migrate to the new design system、transactional email、file format icon、Save to disk button、size on disk、Close data panels、日志格式、锁屏、迁移到新的设计系统、文件格式图标、事务性邮件、保存到磁盘按钮、付款凭证、记账凭证、原子设计、原子化 CSS、手写盘、儲存按鈕、付款憑證、使用者協議）仍为 Standard；作修饰语的 data 与“数据”（data tables、data grid、data fetching、data-fetching、data-testid、data views、data cards、data charts、data visualization、data connection、数据看板、数据表格、数据大屏、数据可视化、数据统计、数据请求、数据不丢包）、mock data、persistent state 的 localStorage 卡、transactional updates 邮件、作“只加”的只追加与仅追加、儲存到磁碟按鈕、隔着介词或从句词的动词与数据（lose focus when data reloads、docs on disk usage、丢失焦点时数据、迁移后刷新数据）也为 Standard；英文正例的中文写法（简体与繁体）同样命中（写入磁盘、序列化格式、文件格式版本、只追加、迁移数据、事务性写入、原子地、访问凭证、登录凭证）；同一张卡的英文与中文写法两种语言都为 Deep（逐对测试）：动词与介质或数据之间隔着宾语（Persist board state to disk、Persisting board state on disk、Write the board file to disk、wrote the whole state to disk、Flush the buffer to disk、Migrate user/board/stored data、Never lose user data、lose no data，迁移用户数据、迁移 v5 的全部数据、刷到磁盘、存到磁盘），动词与被动写的数据丢失（lose any data、no data is lost、Data will not be lost、Data must not be lost、No data gets lost、Data lost after a restart，不会丢失任何数据、不丢失用户数据、数据不会丢、数据不能丢、数据也不会丢失、資料不會遺失）；light-review 只看卡片自己；各级别的轮数、人数与模型缺省；`levels` 只在改动时写入、改回缺省即删除；评审开始的活动文字总有级别与原因。

@@ -180,8 +180,8 @@ Results: [verification](verification/performance.md).
 Measured with Paseo.app esbuild 0.25.12 and the daemon's client options from `compiler.js`: CJS, JSX automatic, neutral/es2020, mainFields module/main, async-await lowered, host SDK/React/React Native/query/zod external, tree shaking, no minification, the daemon's eager-interop transform and CommonJS wrapper. Reproducer: `node docs/verification/review-classifier-bundle.cjs <checkout>`; it builds in memory and never contacts the daemon. Compare archived git trees with the same node_modules.
 
 - Review-levels before classifier (`253e416`): **1,421,571 bytes / 27,612 lines**.
-- Classifier tree: **1,401,137 bytes / 27,225 lines**, **−20,434 bytes (−1.44%) / −387 lines**.
+- Classifier tree: **1,401,525 bytes / 27,235 lines**, **−20,046 bytes (−1.41%) / −377 lines**.
 - The shared level module contributes 15,163 → 4,134 output bytes. The keyword tables and classifier are server-only; no `server/review-*` or `shared/i18n-all` input appears in the client metafile.
-- Complete review-levels + classifier versus installed card-tree base (`ca58787`, measured by this same script): 1,390,065 bytes / 26,928 lines → 1,401,137 / 27,225, **+11,072 bytes (+0.80%) / +297 lines**. These are directly comparable measurements with the current installed compiler and dependencies, rather than a comparison to historical compiler runs.
+- Complete review-levels + classifier versus installed card-tree base (`ca58787`, measured by this same script): 1,390,065 bytes / 26,928 lines → 1,401,525 / 27,235, **+11,460 bytes (+0.82%) / +307 lines**. These are directly comparable measurements with the current installed compiler and dependencies, rather than a comparison to historical compiler runs.
 
 This measures transferred/evaluated code size, not phone timings. Real desktop/compact rendering and phone startup timings remain unrun by the implementation session.

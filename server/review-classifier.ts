@@ -8,6 +8,7 @@ import type { BoardStore } from "./store";
 import { runSummaryModels, abortable } from "./summary-models";
 import { daemonRemoveAgent, type RemoveAgent } from "./summarizer-remove";
 import { keywordFallback } from "./review-levels";
+import { ClassifierHelpers } from "./classifier-helpers";
 
 export const classifierOutput = z.strictObject({ level: reviewLevelSchema, reason: z.string().trim().min(1).max(500) });
 const outputSchema = { type: "object", additionalProperties: false, properties: { level: { enum: ["light", "standard", "deep"] }, reason: { type: "string" } }, required: ["level", "reason"] };
@@ -33,10 +34,15 @@ export class ReviewClassifier {
   private runs = new Map<string, Run>();
   private queue: string[] = [];
   private active = 0;
+  private workers = new Set<Promise<void>>();
+  readonly helpers: ClassifierHelpers;
   constructor(readonly store: BoardStore, private settings: () => Promise<SummarySettings>, private options: {
     debounceMs?: number; waitMs?: number; modelMs?: number; runMs?: number; remove?: RemoveAgent;
-  } = {}) {}
-  attach(paseo: PaseoApi) { if (!this.paseo) { this.paseo = paseo; this.schedule(); } else this.paseo = paseo; }
+    stopGraceMs?: number; recoverMs?: number; newHelperId?: () => string;
+  } = {}) {
+    this.helpers = new ClassifierHelpers(store.directory, options.remove ?? daemonRemoveAgent(), { graceMs: options.stopGraceMs, recoverMs: options.recoverMs, newId: options.newHelperId });
+  }
+  attach(paseo: PaseoApi) { this.helpers.attach(paseo); if (!this.paseo) { this.paseo = paseo; this.schedule(); } else this.paseo = paseo; }
   schedule() {
     if (this.stopped || !this.paseo) return;
     clearTimeout(this.timer);
@@ -90,8 +96,9 @@ export class ReviewClassifier {
       run.started = true;
       this.active++;
       run.work = this.run(id, run).catch((e) => console.error("Flowly review classification:", String(e))).finally(() => {
-        this.active--; if (this.runs.get(id) === run) this.runs.delete(id); run.done(); this.drain();
+        this.workers.delete(run.work!); this.active--; if (this.runs.get(id) === run) this.runs.delete(id); run.done(); this.drain();
       });
+      this.workers.add(run.work);
     }
   }
   private async run(id: string, run: Run) {
@@ -106,15 +113,15 @@ export class ReviewClassifier {
         const settings = await abortable(this.settings(), signal);
         if (signal.aborted) throw new Error("Cancelled");
         const result = await runSummaryModels(this.paseo!, summaryModelsOf(settings), {
-          create: (model) => this.paseo!.workspaces.ref(task.workspaceId).agents.create({
+          create: (model) => this.helpers.create(task.workspaceId, {
             config: { provider: model }, title: `Review difficulty · ${task.title}`.slice(0, 120), labels: { ...SUMMARIZER_LABELS, "flowly-task": id },
             prompt: classifierPrompt(board, task), outputSchema,
-          }),
+          }, signal),
           parse: (text) => {
             const raw = text?.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
             return classifierOutput.parse(JSON.parse(raw || "null"));
           },
-          remove: this.options.remove ?? daemonRemoveAgent(), timeoutMs: this.options.modelMs ?? 20_000, signal,
+          remove: (agent) => this.helpers.remove(agent), timeoutMs: this.options.modelMs ?? 20_000, signal,
         });
         await this.save(id, run, { ...cache, status: "ready", verdict: { ...result.output, model: result.model } });
       } catch {
@@ -133,6 +140,6 @@ export class ReviewClassifier {
   stop() {
     this.stopped = true; clearTimeout(this.timer); this.queue = [];
     for (const run of this.runs.values()) { run.controller.abort(); run.done(); }
-    return Promise.allSettled([...this.runs.values()].flatMap((run) => run.work ? [run.work] : []));
+    return this.helpers.stop([...this.workers]);
   }
 }

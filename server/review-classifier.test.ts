@@ -12,26 +12,31 @@ afterEach(async () => { await Promise.all(stops.splice(0).map((stop) => stop()))
 const deferred = <T>() => { let resolve!: (value: T) => void; const promise = new Promise<T>((done) => { resolve = done; }); return { promise, resolve }; };
 type Result = { status: string; error?: string | null; lastMessage?: string | null };
 const good = (level = "standard", reason = "The card builds a UI without changing persisted data."): Result => ({ status: "idle", lastMessage: JSON.stringify({ level, reason }) });
-async function fixture(options: { waitMs?: number; modelMs?: number; runMs?: number; debounceMs?: number } = {}) {
+async function fixture(options: { waitMs?: number; modelMs?: number; runMs?: number; debounceMs?: number; stopGraceMs?: number } = {}) {
   const x = await automationFixture({ enabled: true, reviewer: { provider: "codex", model: "expensive-reviewer" } });
   await x.store.mutate((b) => { b.tasks.find((t) => t.id === "b")!.reviewLevel = "standard"; });
   const removed: string[] = [], created: { model: string; prompt: string; labels: Record<string, string>; id: string }[] = [];
   let output = (_model: string): Promise<Result> => Promise.resolve(good());
   let creating = async () => {};
+  let beforeRemove = async (_id: string) => {};
+  let helperIds = 0;
+  const native = new Map<string, { id: string; workspaceId: string; labels: Record<string, string> }>();
   const api = {
+    agents: { ref: (id: string) => ({ id, refresh: async () => native.has(id) ? { agent: native.get(id) } : null, archive: async () => {} }) },
     providers: { listAvailable: async () => ({ providers: [{ provider: "one", available: true }, { provider: "two", available: true }] }), listModels: async (provider: string) => ({ models: [{ id: provider === "one" ? "a" : "b" }] }) },
-    workspaces: { ref: (_id: string) => ({ agents: { create: async (input: { config: { provider: string }; prompt: string; labels: Record<string, string> }) => {
-      await creating(); const id = `helper-${created.length}`;
+    workspaces: { ref: (workspaceId: string) => ({ agents: { create: async (input: { agentId: string; config: { provider: string }; prompt: string; labels: Record<string, string> }) => {
+      await creating(); const id = input.agentId;
+      native.set(id, { id, workspaceId, labels: input.labels });
       created.push({ model: input.config.provider, prompt: input.prompt, labels: input.labels, id });
       return { id, archive: async () => { throw new Error("cleanup must use injected remover"); }, waitForFinish: () => output(input.config.provider) };
     } } }) },
   } as unknown as PaseoApi;
   const settings = vi.fn(async () => summarySettingsValues({ summaryModels: ["one/a", "two/b"] }));
-  const service = new ReviewClassifier(x.store, settings, { debounceMs: 5, modelMs: 100, runMs: 500, waitMs: 200, ...options, remove: async (agent) => { removed.push(agent.id); } });
+  const service = new ReviewClassifier(x.store, settings, { debounceMs: 5, modelMs: 100, runMs: 500, waitMs: 200, stopGraceMs: 10, ...options, newHelperId: () => `helper-${helperIds++}`, remove: async (agent) => { await beforeRemove(agent.id); removed.push(agent.id); native.delete(agent.id); } });
   stops.push(() => service.stop());
   const card = async () => (await x.store.read()).tasks.find((t) => t.id === "a")!;
   const edit = (change: (task: Task, board: Board) => void) => x.store.mutate((b) => { change(b.tasks.find((t) => t.id === "a")!, b); });
-  return { ...x, service, api, settings, created, removed, card, edit, output: (fn: typeof output) => { output = fn; }, creating: (fn: typeof creating) => { creating = fn; } };
+  return { ...x, service, api, settings, created, removed, card, edit, output: (fn: typeof output) => { output = fn; }, creating: (fn: typeof creating) => { creating = fn; }, removing: (fn: typeof beforeRemove) => { beforeRemove = fn; }, native };
 }
 
 test("summary models classify once; cache records actual model, reason and full input hash without changing card revision", async () => {
@@ -125,8 +130,8 @@ test("stale results and explicit overrides cannot overwrite changed cards; delet
 });
 
 test("stop cancels a running wait, and also removes a helper whose create finishes after cancellation", async () => {
-  const x = await fixture({ waitMs: 10 }); const created = deferred<void>(); x.creating(() => created.promise);
-  await x.service.forReview("a", x.api);
+  const x = await fixture({ waitMs: 10 }); const created = deferred<void>(), requested = deferred<void>(); x.creating(() => { requested.resolve(); return created.promise; });
+  await x.service.forReview("a", x.api); await requested.promise;
   await x.service.stop(); created.resolve();
   await vi.waitFor(() => expect(x.removed).toEqual(["helper-0"]));
   expect((await x.card()).reviewClassification?.verdict).toBeUndefined();
@@ -183,4 +188,31 @@ test("background helper concurrency stays at two while the third card queues", a
   finished.resolve(good());
   await vi.waitFor(async () => expect((await x.store.read()).tasks.every((t) => t.reviewClassification?.status === "ready")).toBe(true));
   expect(x.created).toHaveLength(3); expect(x.removed).toHaveLength(3);
+});
+
+test("stop waits for a superseded worker already inside removal, even after scan drops it from current requests", async () => {
+  const x = await fixture({ waitMs: 1, stopGraceMs: 200 }); const output = deferred<Result>(), removed = deferred<void>();
+  x.output(() => output.promise); let removing = false;
+  x.removing(async () => { removing = true; await removed.promise; });
+  await x.service.forReview("a", x.api);
+  await x.edit((t) => { t.reviewLevel = "standard"; }); await x.service.scan();
+  await vi.waitFor(() => expect(removing).toBe(true));
+  let stopped = false; const stopping = x.service.stop().then(() => { stopped = true; });
+  await new Promise((resolve) => setImmediate(resolve)); expect(stopped).toBe(false);
+  removed.resolve(); await stopping; expect(x.removed).toEqual(["helper-0"]);
+});
+
+test("stop drains a late create and its cleanup within grace, or leaves durable ownership when grace expires", async () => {
+  const x = await fixture({ waitMs: 1, stopGraceMs: 200 }); const created = deferred<void>(), removed = deferred<void>(), requestedCreate = deferred<void>();
+  x.creating(() => { requestedCreate.resolve(); return created.promise; }); let removing = false;
+  x.removing(async () => { removing = true; await removed.promise; });
+  await x.service.forReview("a", x.api); await requestedCreate.promise;
+  let stopped = false; const stopping = x.service.stop().then(() => { stopped = true; });
+  created.resolve(); await vi.waitFor(() => expect(removing).toBe(true)); expect(stopped).toBe(false);
+  removed.resolve(); await stopping;
+  expect(await x.service.helpers.store.read()).toEqual([]);
+  const y = await fixture({ waitMs: 1, stopGraceMs: 5 }); const pending = deferred<void>(), requested = deferred<void>(); y.creating(() => { requested.resolve(); return pending.promise; });
+  await y.service.forReview("a", y.api); await requested.promise; await y.service.stop();
+  expect(await y.service.helpers.store.read()).toMatchObject([{ id: "helper-0", confirmed: false }]);
+  pending.resolve(); await vi.waitFor(() => expect(y.removed).toEqual(["helper-0"]));
 });
