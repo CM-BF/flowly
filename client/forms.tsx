@@ -539,10 +539,14 @@ export function TaskForm({
     () => new Set((task?.tags || []).filter((x) => x.by === "agent").map((x) => x.tag)),
     [task],
   );
-  // What Auto resolves to with the form's current title, description and tags (AUTOMATION-SPEC §5.2.5).
+  // Editing metadata stays local; derived classification follows the latest board even while this form is open.
+  const autoLevelCard = useMemo(() => task && {
+    ...task, reviewLevel: undefined, title, description, tags,
+    reviewClassification: board.data?.tasks.find((current) => current.id === task.id)?.reviewClassification,
+  }, [task, board.data, title, description, tags]);
   const autoLevel = useMemo(
-    () => (task && board.data ? resolveReviewLevel(board.data, { ...task, reviewLevel: undefined, title, description, tags }) : null),
-    [task, board.data, title, description, tags],
+    () => (autoLevelCard && board.data ? resolveReviewLevel(board.data, autoLevelCard) : null),
+    [autoLevelCard, board.data],
   );
   const addTags = useStableCallback((values: string[]) => setTags((current) => [...current, ...values.filter((v) => !current.includes(v))]));
   const removeTag = useStableCallback((tag: string) => setTags((current) => current.filter((x) => x !== tag)));
@@ -726,7 +730,7 @@ export function TaskForm({
                 onChange={setReviewLevel}
               />
               {reviewLevel === "auto" && autoLevel && (
-                <Label muted size={font.sm}>{autoLevelStatus(board.data!, { ...task!, title, description, tags }, autoLevel)}</Label>
+                <Label muted size={font.sm}>{autoLevelStatus(board.data!, autoLevelCard!, autoLevel)}</Label>
               )}
             </View>
           )}

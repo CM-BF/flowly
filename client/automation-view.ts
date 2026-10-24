@@ -151,7 +151,10 @@ export const autoLevelHint = (resolved: { level: ReviewLevel; reason: LevelReaso
 /** Draft edits never start helpers. Cache matching and pending state use the same inputs as the daemon. */
 export function autoLevelStatus(board: LevelBoard, card: LevelCard, resolved: { level: ReviewLevel; reason: LevelReason }) {
   if (!["default", "keyword", "classifier"].includes(resolved.reason.kind)) return autoLevelHint(resolved);
-  if (card.reviewClassification && card.reviewClassification.inputHash !== classificationHash(board, card))
+  const saved = board.tasks.find((task) => task.id === card.id);
+  const currentHash = classificationHash(board, card);
+  if (saved ? currentHash !== classificationHash(board, saved)
+    : card.reviewClassification && card.reviewClassification.inputHash !== currentHash)
     return t("Save changes to classify this card.");
   if (card.reviewClassification?.status === "pending") return t("Classifying…");
   return autoLevelHint(resolved);
