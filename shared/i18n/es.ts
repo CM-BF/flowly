@@ -1607,7 +1607,7 @@ const catalog: Catalog = {
   "Holds this card until the link is removed": "Retiene esta tarjeta hasta que se quite el vínculo",
   "Waits for": "Espera a",
   "+{n} more": {"one": "+{n} más", "other": "+{n} más"},
-  "Card tree shows each item from the whole to its parts, with its steps in order. Use Levels to hide deeper sub-cards on the board.": "El árbol de tarjetas muestra cada elemento del todo a sus partes, con sus pasos en orden. Usa Niveles para ocultar subtarjetas más profundas en el tablero.",
+  "Open Tree in the bar above to see each item from the whole to its parts, with its steps in order. Levels hides deeper sub-cards on the board.": "Abre Árbol en la barra de arriba para ver cada elemento del todo a sus partes, con sus pasos en orden. Niveles oculta las subtarjetas más profundas en el tablero.",
   "Agents split work into sub-cards with their own workspaces; a supervised parent waits and accepts them. Card tree shows each item's steps in order, and Levels hides deeper sub-cards on the board.": "Los agentes dividen el trabajo en subtarjetas con su propio espacio de trabajo; una tarjeta padre supervisada espera y las acepta. El árbol de tarjetas muestra los pasos de cada elemento en orden, y Niveles oculta las subtarjetas más profundas en el tablero.",
 };
 export default catalog;

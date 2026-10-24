@@ -151,7 +151,7 @@ The Card tree page, board Levels and the drawer's Dependencies section ([CARD-TR
 - Drawer Dependencies: at most about 20 nodes and 80 Views, mounted after the open transition into a height reserved at once from `neighbourhoodLayout()`.
 - Levels 1 or 2 mount fewer cards, so lanes get cheaper.
 - Timing-log names: `tree.build`, `tree.flags`, `tree.rows`, `tree.mount`, `drawer.deps.mount`, `levels.change`. No numbers are written until measured on the SM-S911B; an optimisation with no measurable gain on the phone is reverted.
-- Cold start: about 1,100 lines and 40 KB unminified, to be checked with the daemon's esbuild options; nothing runs at plugin load and nothing imports the i18n catalogs.
+- Cold start: estimated at about 1,100 lines and 40 KB unminified; measured (2026-10-24, the esbuild 0.25.12 inside Paseo.app with the client options of the daemon's `compiler.js`, in memory, CommonJS wrapper included) at **+87,309 bytes (+6.8%) and +1,685 lines**: 1,287,613 bytes / 25,170 lines at `2b00cf6`, 1,374,922 / 26,855 on `sw/card-tree`. The largest parts are `client/card-tree-page.tsx` 23.7 KB, `client/task-dependencies.tsx` 19.9 KB, `shared/card-tree.ts` 17.2 KB and `client/board.tsx` +9.8 KB. V8 compile on the Mac (`vm.Script`, median of 25) 10.2 → 10.9 ms; the phone's `plugin.load` difference is not measured. Nothing runs at plugin load, and the bundle's metafile has no `shared/i18n-all.ts` or catalog.
 
 ## 4. Constraints kept
 

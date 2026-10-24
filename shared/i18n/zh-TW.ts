@@ -1607,7 +1607,7 @@ const catalog: Catalog = {
   "Holds this card until the link is removed": "在移除連結之前一直擋住這張卡",
   "Waits for": "等待",
   "+{n} more": "還有 {n} 張",
-  "Card tree shows each item from the whole to its parts, with its steps in order. Use Levels to hide deeper sub-cards on the board.": "卡片樹從整體到部分展示每個事項，並按順序列出它的步驟。用 「層級」 在看板上隱藏更深層的子卡片。",
-  "Agents split work into sub-cards with their own workspaces; a supervised parent waits and accepts them. Card tree shows each item's steps in order, and Levels hides deeper sub-cards on the board.": "智慧體把工作拆成各有工作區的子卡片；受監督的父卡會等待並驗收它們。卡片樹按順序展示每個事項的步驟，「層級」 在看板上隱藏更深層的子卡片。",
+  "Open Tree in the bar above to see each item from the whole to its parts, with its steps in order. Levels hides deeper sub-cards on the board.": "點上方列中的「樹」，從整體到部分查看每個事項，並按順序列出它的步驟。「層級」可在看板上隱藏更深層的子卡片。",
+  "Agents split work into sub-cards with their own workspaces; a supervised parent waits and accepts them. Card tree shows each item's steps in order, and Levels hides deeper sub-cards on the board.": "智慧體把工作拆成各有工作區的子卡片；受監督的父卡會等待並驗收它們。卡片樹按順序展示每個事項的步驟，「層級」在看板上隱藏更深層的子卡片。",
 };
 export default catalog;

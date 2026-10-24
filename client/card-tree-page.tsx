@@ -18,7 +18,7 @@ import {
   type Totals,
 } from "../shared/card-tree";
 import type { Project, Status, Task } from "../shared/model";
-import { t } from "../shared/i18n";
+import { t, tn } from "../shared/i18n";
 import { automationSignal, type AutomationSignal } from "./automation-view";
 import { connectors, nowNextText, revealOverrides, rowLabel, stepState, totalsText, waitChips, type StepState, type WaitChip } from "./card-tree-view";
 import { menuHandlers, useMenuOpener, type MenuEntry } from "./context-menu";
@@ -256,7 +256,7 @@ export const CardTreePage = memo(function CardTreePage({
         <View style={{ flex: 1, minWidth: 0 }}>
           <Label muted={!chainData} size={font.sm} lines={1} selectable={false}>
             {chainData
-              ? [t("Chain of {title}", { title: chainTitle }), t("{n} before", { n: chainData.up.length + chainData.inherited.length }), t("{n} after", { n: chainData.down.length })].join(" · ")
+              ? [t("Chain of {title}", { title: chainTitle }), tn(chainData.up.length + chainData.inherited.length, "{n} before", "{n} before"), tn(chainData.down.length, "{n} after", "{n} after")].join(" · ")
               : t("Same number = parallel · arrow = later step")}
           </Label>
         </View>

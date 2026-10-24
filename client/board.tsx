@@ -133,7 +133,7 @@ import {
   type BoardIntent,
 } from "./shortcuts";
 import { ConceptStrip, GuideBanner, WelcomeTour, useOnboarding } from "./onboarding";
-import { nextTip, settingsHintDue, welcomeDecision, type TipId } from "./onboarding-logic";
+import { cardTreeTipDue, nextTip, settingsHintDue, welcomeDecision, type TipId } from "./onboarding-logic";
 import { t, tn } from "../shared/i18n";
 import { workpadEnabled, workpadSignal } from "../shared/workpad";
 import { cardDisplay } from "../shared/card-display";
@@ -159,7 +159,7 @@ const tipText: Record<TipId, () => string> = {
   "summary-models": () => t("Choose summary models and their fallback order in Settings → Models. The default is Haiku, then Luna."),
   "ai-language": () => t("AI-written text follows Settings → AI features → AI output language. It starts as your interface language."),
   "sub-cards": () => t("Agents can split a card into sub-cards, each with its own workspace. The parent card shows Sub-cards 2/3, waits while they run and is woken to accept them and finish. New sub-card is in every card's menu."),
-  "card-tree": () => t("Card tree shows each item from the whole to its parts, with its steps in order. Use Levels to hide deeper sub-cards on the board."),
+  "card-tree": () => t("Open Tree in the bar above to see each item from the whole to its parts, with its steps in order. Levels hides deeper sub-cards on the board."),
   "agent-automation": () => t("Agents can now pick up cards on their own: turn on Agent automation in Edit project, then choose Run with agent on a card. The agent works it to In review, gets reminded or retried when it stalls, and an optional reviewer agent checks the delivery first."),
   "first-memory-candidate": () => t("An agent suggested something to remember. Confirm it in Memory and new sessions on this project will know it; you can edit or delete it any time."),
   "first-workflow-insight": () => t("Workflow insights found repeated work worth keeping. Open Insights to turn a suggestion into a card."),
@@ -553,8 +553,7 @@ function BoardContent(
   }, [board?.tasks, board?.links, project?.id]);
   const projectTasksById = useMemo(() => new Map((board?.tasks || []).filter((t) => t.projectId === project?.id).map((t) => [t.id, t] as const)), [board?.tasks, project?.id]);
   const hasTree = !!tree && (tree.parent.size > 0 || tree.blockers.size > 0);
-  // Tip "card-tree": a sub-card's sub-card, or two or more blocks links (CARD-TREE-SPEC §6).
-  const deepTree = useMemo(() => !!tree && ([...tree.depth.values()].some((d) => d >= 2) || [...tree.blockers.values()].reduce((n, list) => n + list.length, 0) >= 2), [tree]);
+  const deepTree = useMemo(() => cardTreeTipDue(tree), [tree]);
   const storedLevel: Level = project ? levelOf(view.values, project.id) : null;
   // For this visit only (CARD-TREE-SPEC §2.3): cards whose sub-cards are shown, lanes whose footer shows them, the card just dropped.
   const [revealedCards, setRevealedCards] = useState<ReadonlySet<string>>(() => new Set());

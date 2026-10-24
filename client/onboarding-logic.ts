@@ -1,5 +1,7 @@
 /** Pure decisions for first-run guidance (ONBOARDING-SPEC). No React, no storage. */
 
+import type { CardTree } from "../shared/card-tree";
+
 /** How it works, Built in, Project memory, Insights, Ready (ONBOARDING-SETUP-SPEC §3). */
 export const welcomePageCount = 5;
 
@@ -126,6 +128,15 @@ export function nextTip(input: { tipsSeen: readonly string[]; facts: TipFacts; b
   // Waiting for the user outranks introductions; the answer-in-session tip is the more specific one.
   const order: Exclude<TipId, "settings-entry">[] = ["agent-question", "needs-you", "attention-dismiss", "first-done", "older-finished", "next-move", "first-workpad", "sub-cards", "card-tree", "subagents", "first-idea", "first-memory-candidate", "first-workflow-insight", "ai-language", "summary-models", "first-artifact", "first-ticket", "first-tag", "first-card", "task-intake", "agent-automation", "card-display", "card-comments", "connectors", "session-history", "sidebar-order", "project-menu", "jira-connect"];
   return order.find((id) => input.facts[tipFact[id]] && !input.tipsSeen.includes(id)) ?? null;
+}
+
+/** Fact `hasCardTree` before the open-card check (CARD-TREE-SPEC §6): a sub-card's sub-card, or two or more `blocks` links. */
+export function cardTreeTipDue(tree: Pick<CardTree, "depth" | "blockers"> | null): boolean {
+  if (!tree) return false;
+  for (const d of tree.depth.values()) if (d >= 2) return true;
+  let links = 0;
+  for (const list of tree.blockers.values()) if ((links += list.length) >= 2) return true;
+  return false;
 }
 
 /**

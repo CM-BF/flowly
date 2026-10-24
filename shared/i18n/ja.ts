@@ -1541,7 +1541,7 @@ const catalog: Catalog = {
   "Session history {n} MB: too large for Paseo to load safely; the next instruction goes to a new session": "セッション履歴 {n} MB：Paseo が安全に読み込めない大きさです。次の指示は新しいセッションに送られます",
   "Continued in a new session: the history grew too large": "新しいセッションで続行：履歴が大きくなりすぎました",
   "Session history is getting too large": "セッション履歴が大きくなりすぎています",
-  "Queued after blockers": "ブロッカー待ちでキュー中",
+  "Queued after blockers": "ブロッカーの完了待ち",
   "Levels: All": "階層：すべて",
   "Levels: {n}": "階層：{n}",
   "Levels: {n} (paused while searching)": "階層：{n}（検索中は一時停止）",
@@ -1607,7 +1607,7 @@ const catalog: Catalog = {
   "Holds this card until the link is removed": "リンクを外すまでこのカードを保留します",
   "Waits for": "待機先",
   "+{n} more": "ほか {n} 件",
-  "Card tree shows each item from the whole to its parts, with its steps in order. Use Levels to hide deeper sub-cards on the board.": "カードツリーは各項目を全体から部分まで、ステップ順に表示します。「階層」 でボード上の深いサブカードを隠せます。",
-  "Agents split work into sub-cards with their own workspaces; a supervised parent waits and accepts them. Card tree shows each item's steps in order, and Levels hides deeper sub-cards on the board.": "エージェントは作業をそれぞれのワークスペースを持つサブカードに分け、監督下の親カードは待機して受け入れます。カードツリーは各項目のステップを順に表示し、「階層」 はボード上の深いサブカードを隠します。",
+  "Open Tree in the bar above to see each item from the whole to its parts, with its steps in order. Levels hides deeper sub-cards on the board.": "上のバーの「ツリー」を開くと、各項目を全体から部分まで、ステップ順に確認できます。「階層」でボード上の深いサブカードを隠せます。",
+  "Agents split work into sub-cards with their own workspaces; a supervised parent waits and accepts them. Card tree shows each item's steps in order, and Levels hides deeper sub-cards on the board.": "エージェントは作業をそれぞれのワークスペースを持つサブカードに分け、監督下の親カードは待機して受け入れます。カードツリーは各項目のステップを順に表示し、「階層」はボード上の深いサブカードを隠します。",
 };
 export default catalog;

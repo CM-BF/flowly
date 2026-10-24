@@ -1,5 +1,6 @@
 import { describe, expect, test } from "vitest";
-import { TIPS_SEEN_MAX, firstRunOutside, loopAutoStep, memoryAutoStep, nextTip, outsidePatch, outsideShown, settingsHintDue, stepPage, tipIds, tourKey, welcomeDecision, welcomePageCount, withTipSeen, type TipFacts } from "./onboarding-logic";
+import { TIPS_SEEN_MAX, cardTreeTipDue, firstRunOutside, loopAutoStep, memoryAutoStep, nextTip, outsidePatch, outsideShown, settingsHintDue, stepPage, tipIds, tourKey, welcomeDecision, welcomePageCount, withTipSeen, type TipFacts } from "./onboarding-logic";
+import { buildCardTree } from "../shared/card-tree";
 import { featureSettingsValues, nativeSessionSettingsValues, onboardingSettingsValues } from "../shared/settings";
 
 const base = { settingsStatus: "ready", welcomeSeen: false, boardLoaded: true, projectCount: 0, blocked: false };
@@ -195,6 +196,18 @@ test("the card tree is announced once the project nests or chains cards, right a
   expect(nextTip({ tipsSeen: ["sub-cards", "card-tree"], facts: { ...none, hasCardTree: true }, blocked: false })).toBeNull();
   expect(nextTip({ tipsSeen: [], facts: { ...none, hasCardTree: true }, blocked: true })).toBeNull();
   expect(nextTip({ tipsSeen: [], facts: none, blocked: false })).toBeNull();
+});
+
+test("the card tree tip waits for a sub-card's sub-card or a second blocks link (CARD-TREE-SPEC §6)", () => {
+  const cards = ["a", "b", "c", "d"].map((id, i) => ({ id, createdAt: `2026-10-24T00:00:0${i}.000Z` }));
+  const sub = (from: string, to: string) => ({ id: `${from}-sub-${to}`, kind: "subtask" as const, from, to });
+  const blocks = (from: string, to: string) => ({ id: `${from}-blocks-${to}`, kind: "blocks" as const, from, to });
+  expect(cardTreeTipDue(null)).toBe(false);
+  expect(cardTreeTipDue(buildCardTree(cards, []))).toBe(false);
+  // One level of sub-cards is the sub-cards tip's business; one blocks link is a plain card link.
+  expect(cardTreeTipDue(buildCardTree(cards, [sub("b", "a"), sub("c", "a"), blocks("b", "c")]))).toBe(false);
+  expect(cardTreeTipDue(buildCardTree(cards, [sub("b", "a"), sub("c", "b")]))).toBe(true);
+  expect(cardTreeTipDue(buildCardTree(cards, [blocks("a", "b"), blocks("c", "d")]))).toBe(true);
 });
 
 test("sub-cards are explained once a card of the project has them, before Paseo subagents", () => {

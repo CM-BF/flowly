@@ -67,6 +67,7 @@
 7. **卡片树页的 Levels**：桌面 `Choices` 的选项文字为 “1 / 2 / 3 / All”；compact 用与看板芯片相同的菜单。
 8. **Dependencies 邻域图**：按 §2.6 的 420 pt 阈值，默认 440 pt 宽的侧栏（内容约 408 pt）显示竖排；侧栏拉宽后才是三列。
 9. **perf 名称**：`tree.build`、`tree.flags`、`tree.rows`、`tree.mount`（挂载大纲那次渲染到提交）、`drawer.deps.mount`、`levels.change`（选择 Levels 到看板按新值渲染）都已记录，数字待真机测量。
+10. **Stage 4（i18n 与 onboarding 收尾）**：`card-tree` 提示改为 “Open Tree in the bar above to see each item from the whole to its parts, with its steps in order. Levels hides deeper sub-cards on the board.”，因为其他提示都说明入口在哪里，原文没有（提示就显示在 OverviewBar 下方，Tree 芯片在这一栏里）。链路栏的 “{n} before” / “{n} after” 按 §7 改用 tn。韩语把 Levels 译为 “계층”，不用 “단계”，因为 “단계” 已是步骤（Step）的译名，同一页上两者会混淆。
 
 ## 2. 行为
 
@@ -378,12 +379,12 @@ running 和 unread 两项受 Card display 的 Session activity 开关（`session
 - **抽屉邻域图**：最多约 20 个节点、约 80 个 View，只在区块展开且抽屉打开结束后挂载；占位高度立即算出。
 - **看板**：Levels 1 或 2 时挂载的卡片变少，泳道更便宜。`blockerIndex` 替换二次方的 `waitingIndex`。
 - **perf 名称**：`tree.build`、`tree.flags`、`tree.rows`、`tree.mount`、`drawer.deps.mount`、`levels.change`。在 SM-S911B 上测后才能写数字；没有可测收益的优化撤回。
-- **冷启动**：约 1,100 行、约 40 KB 未压缩，按 daemon 的 esbuild 选项核实。插件加载时不做任何工作，不加依赖，不加静态表，不 import `shared/i18n-all.ts` 或 catalog。
+- **冷启动**：估计约 1,100 行、约 40 KB 未压缩。实测（Stage 4，2026-10-24，Paseo.app 自带的 esbuild 0.25.12，按 daemon `compiler.js` 的 client 选项在内存中编译 `index.client.tsx`，含 CommonJS 包装）：`2b00cf6` 1,287,613 字节 / 25,170 行，本分支 1,374,922 字节 / 26,855 行，**+87,309 字节（+6.8%）、+1,685 行**，约为估计的两倍。最大的是 `client/card-tree-page.tsx` 23.7 KB、`client/task-dependencies.tsx` 19.9 KB、`shared/card-tree.ts` 17.2 KB、`client/board.tsx` +9.8 KB。本机 V8 编译（`vm.Script`，25 次中位数）10.2 → 10.9 ms。插件加载时不做任何工作，不加依赖，不加静态表，bundle 里没有 `shared/i18n-all.ts` 或 catalog（已核对 metafile）。手机上的 `plugin.load` 差值未测。
 
 ## 6. Onboarding
 
 - 新一次性提示 `card-tree`（`client/onboarding-logic.ts` 的 `tipIds`，文案在 `client/board.tsx` 的 `tipText`）：
-  - 条件 fact `hasCardTree`：项目里有 depth ≥ 2 的卡，或有 ≥ 2 条 blocks 链接，且没有打开的卡、页面或对话框。
+  - 条件 fact `hasCardTree`：项目里有 depth ≥ 2 的卡，或有 ≥ 2 条 blocks 链接（纯函数 `cardTreeTipDue()`，`client/onboarding-logic.ts`），且没有打开的卡、页面或对话框。
   - 排在 `sub-cards` 之后（`nextTip` 的 order）。
   - 用户已看过 `sub-cards`，所以改那条提示的文案到不了他们；用新 id 才会对每个用户显示一次。
 - 欢迎页 More features 的 “Sub-cards” 行改写正文，提到 Card tree 和 Levels。标题与图标（`ListTree`，唯一 key）不变。
@@ -479,7 +480,7 @@ running 和 unread 两项受 Card display 的 Session activity 开关（`session
 
 **Onboarding：**
 
-- tip："Card tree shows each item from the whole to its parts, with its steps in order. Use Levels to hide deeper sub-cards on the board."
+- tip："Open Tree in the bar above to see each item from the whole to its parts, with its steps in order. Levels hides deeper sub-cards on the board."（Stage 4 改写：原文没说页面从哪里打开，见 §1.5 第 10 条）
 - 欢迎页 Sub-cards 行正文："Agents split work into sub-cards with their own workspaces; a supervised parent waits and accepts them. Card tree shows each item's steps in order, and Levels hides deeper sub-cards on the board."
 
 ## 8. 修订的 spec
