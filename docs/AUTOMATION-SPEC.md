@@ -169,7 +169,7 @@ AutomationJob {
   - `approve`：job `delivered`、`verdict=approved`，卡片留在 In review，记 `automation_review_approved`（附摘要）。
   - `changes`：卡片回到 `resumeStage`（通常 Development，`rule="REVIEW"`），job 回到实现者 `working`，把摘要与发现以 `[Flowly automation] The reviewer requested changes …` 发给实现者，记 `automation_changes_requested`。评审者回合仍在进行时这条消息暂扣，回合一结束就送出（§4.2）。
 - 评审者回合结束没给结论：提醒（同 §4.2）；满了或失败到上限 → job `delivered`、`verdict=incomplete`，卡片留在 In review 给人。
-- **评审者不做卡片的工作**（2026-10-23，合并上游 #35/#39 时）：上游的回合清单要求每回合设阶段（核验前设 test）、写 workpad 结果并交付，而评审者也读 `flowly_get_task`。评审者自己的 `flowly_update_status`（任何状态）不会触发 `cardMoved`，会把卡片留在 Test、job 停在 `reviewing`，之后 `submitReview` 只能得到 `REVIEW_CLOSED`。所以：卡片的评审 session（`reviewerId` 或 `reviewers` 中、且不是 `implementerId`）调用 `flowly_update_status`、`flowly_update_workpad`、`flowly_set_type`、`flowly_set_tags`、`flowly_add_artifact`、`flowly_remove_artifact`、`flowly_update_idea`、`flowly_remove_idea` 或 `flowly_report_progress kind=result` 时返回 `REVIEWER_ONLY`，什么都不记录；`kind=question`/`progress`/`blocker`、`flowly_submit_review` 不受影响。它读到的 `turnChecklist` 是评审者清单（读卡与评论、只检查不改动、用 `flowly_submit_review` 或 `kind=question` 结束），见 §7。
+- **评审者不做卡片的工作**（2026-10-23，合并上游 #35/#39 时）：上游的回合清单要求每回合设阶段（核验前设 test）、写 workpad 结果并交付，而评审者也读 `flowly_get_task`。评审者自己的 `flowly_update_status`（任何状态）不会触发 `cardMoved`，会把卡片留在 Test、job 停在 `reviewing`，之后 `submitReview` 只能得到 `REVIEW_CLOSED`。所以：卡片的评审 session（`reviewerId` 或 `reviewers` 中、且不是 `implementerId`）调用 `flowly_update_status`、`flowly_update_workpad`、`flowly_set_type`、`flowly_set_tags`、`flowly_add_artifact`、`flowly_remove_artifact`、`flowly_update_idea`、`flowly_remove_idea` 或 `flowly_report_progress kind=result` 时返回 `REVIEWER_ONLY`，什么都不记录；`kind=question`/`progress`/`blocker`、`flowly_submit_review` 不受影响。它读到的 `turnChecklist` 是评审者清单（读卡与评论、只检查不改动、用 `flowly_submit_review` 或 `kind=question` 结束），见 §7。设置缺项（setup.missing）也不归评审者补，因为补的写入都返回 `REVIEWER_ONLY`：评审 session 的首条上下文没有 “Card setup missing” 一行（`prepare` 带 `reviewer: true`，Send work instructions 给已有评审 session 时按 `reviewerOfCard` 判断），它能做的写入不带设置提醒；评审者清单第 2 条、`flowly_get_task` 描述与 skill 的评审者一句都说明 setup 由实现者补，评审者需要时把缺项作为发现报告。
 
 ### 5.1 小组评审（按复杂度升级）
 
@@ -205,7 +205,7 @@ AutomationJob {
 合并上游 #35/#39 后（2026-10-23）：skill 开头的 “Start of every turn” 由 `shared/turn-checklist.ts` 的六条规则生成，`flowly_get_task` 每次也返回 `turnChecklist`，所以长期复用的实现者 session 也能读到最新规则。fork 的调整：
 - 第 1 条保留 “Handle unread inputs and unread comments first”，并说明 setup.missing 包括 metadata；“Small cards also need…” 一行补上 task.brief 的 `flowly_update_metadata`。
 - 第 5 条加一句：`[Flowly automation]` 下结果不结束回合，要以 in_review、提问或 blocked 结束，worktree workspace 里先在它的分支上提交。父卡和依赖卡合并的是分支，worktree 里未提交的工作到不了它们，所以开工说明（`startPrompt`）和 “Automated runs” 要求：`flowly_get_task` 的 `workspace.kind` 为 `worktree` 时，交付前在这个 worktree 的分支上提交。其它 workspace（`directory`）是项目根目录自己的 checkout，没有自己的分支，提交会无人值守地落到用户检出的分支（通常是 main）上，评审者或人还没看过，打回或取消时要回退提交；所以那里改动保持未提交，除非卡片或仓库规则要求提交，上游第 5 条的 “even if uncommitted” 照常适用。（合并时曾无条件要求 “在卡片分支上提交”，2026-10-23 复核后改为只限 worktree。）
-- 评审者 session 读到的 `turnChecklist` 是 `reviewerChecklist`（三条），“Automated runs” 也写明评审者跳过清单的阶段、workpad 与交付步骤；服务端用 `REVIEWER_ONLY` 兜底（§5）。
+- 评审者 session 读到的 `turnChecklist` 是 `reviewerChecklist`（三条），“Automated runs” 也写明评审者跳过清单的设置、阶段、workpad 与交付步骤（缺项需要时作为发现报告）；服务端用 `REVIEWER_ONLY` 兜底，评审者也收不到设置提醒和首条上下文的设置缺项一行（§5）。
 - 评论规则的 “end the turn as usual (a delivery, a question or a result)” 在自动化下改为交付、提问或 blocked。原有 “不要自行分派或完成” 已按 [SUB-CARDS-SPEC](SUB-CARDS-SPEC.md) 放宽：agent 可以建卡与子卡片，并启动、验收（In review → Done）、取消**自己的直接子卡片**；agent 自己那张顶层卡片的 Done/Cancelled 仍由人决定。
 
 ## 8. 验收

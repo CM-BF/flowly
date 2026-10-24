@@ -2,7 +2,9 @@ import { afterEach, expect, test } from "vitest";
 import { rm } from "node:fs/promises";
 import type { PaseoApi } from "@getpaseo/client";
 import { agentFixture } from "./agent-fixture";
+import { automationFixture, cleanupAutomationFixtures } from "./automation-fixture";
 import { AutomationService } from "./automation";
+import { ToolServer } from "./tool-server";
 import type { ToolPreparation } from "../shared/tools";
 import { reviewerChecklist, turnChecklist } from "../shared/turn-checklist";
 import { changesPrompt, nudgePrompt, startPrompt, type AutomationJob } from "../shared/automation";
@@ -10,10 +12,11 @@ import { skillText } from "./skill-source";
 
 // Upstream's turn checklist and refusal-first delivery gate under the fork's automation (AUTOMATION-SPEC §4.2, §7).
 const roots: string[] = [];
-const services: AutomationService[] = [];
+const services: { stop(): Promise<unknown> }[] = [];
 afterEach(async () => {
   await Promise.all(services.splice(0).map((s) => s.stop()));
   await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
+  await cleanupAutomationFixtures();
 });
 
 const stamp = () => new Date().toISOString();
@@ -128,4 +131,40 @@ test("automated implementers commit before delivering only on a worktree card's 
   expect((await x.service.get(x.identity)).workspace.kind).toBe("directory");
   x.setWorkspace({ ...x.workspace(), workspaceKind: "worktree" });
   expect((await x.service.get(x.identity)).workspace.kind).toBe("worktree");
+});
+
+// A reviewer's setup writes return REVIEWER_ONLY, so nothing may tell it to make them: not the reminders on the writes it
+// may make, not its first context (AUTOMATION-SPEC §5). The implementer keeps both.
+test("a reviewer is never told to fix card setup it may not write; the implementer still is", async () => {
+  const x = await setup({ tags: false });
+  await x.store.mutate((board) => {
+    board.tasks[0].status = "in_review";
+    board.automation.push(job({ role: "reviewer", state: "reviewing", implementerId: "second", reviewerId: "actor", reviewRounds: 1 }));
+  });
+  const implementer = { ...x.identity, agentId: "second" };
+  const reminder = "This card's setup is incomplete";
+  const asked = await x.service.write(x.identity, "progress", { ...(await signed(x)), kind: "question", note: "Is the API change intended?" });
+  expect(asked.reminders ?? []).not.toContainEqual(expect.stringContaining(reminder));
+  const noted = await x.service.write(implementer, "progress", { ...(await signed(x, implementer)), kind: "progress", note: "Still on it" });
+  expect(noted.reminders ?? []).toContainEqual(expect.stringContaining(reminder));
+
+  const server = new ToolServer(x.store);
+  services.push(server);
+  const line = "Card setup missing: tags";
+  expect((await server.prepareSession("t", "review-round", x.paseo, { reviewer: true })).instructions).not.toContain("Card setup missing");
+  expect((await server.prepareSession("t", "implementer-start", x.paseo)).instructions).toContain(line);
+  // Send work instructions to an existing session: the card's reviewer gets no setup line either.
+  expect((await server.prepareExisting("t", "actor", x.paseo)).instructions).not.toContain("Card setup missing");
+  expect((await server.prepareExisting("t", "second", x.paseo)).instructions).toContain(line);
+});
+
+test("automation prepares the reviewer's session as a reviewer and the implementer's as an implementer", async () => {
+  const x = await automationFixture({ enabled: true, reviewer: { provider: "codex", model: "gpt-6-luna" } });
+  const prepared: { op: string; reviewer?: boolean }[] = [];
+  x.hooks.prepare = async (_, op, options) => void prepared.push({ op, reviewer: options?.reviewer });
+  await x.automation.queue("a");
+  await x.automation.kick();
+  await x.turn(x.created[0].agentId, "a", "completed", x.setStatus("in_review"));
+  expect(x.created.map((c) => c.labels["flowly-automation"])).toEqual(["implementer", "reviewer"]);
+  expect(prepared.map((p) => [p.op.split(":")[3], p.reviewer])).toEqual([["implementer", false], ["reviewer", true]]);
 });

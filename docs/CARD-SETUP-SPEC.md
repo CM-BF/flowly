@@ -64,7 +64,7 @@ setup: {
 
 `Card setup missing: type, tags, workpad. Before you change anything, set them (flowly_set_type, flowly_set_tags, flowly_update_workpad with acceptance criteria and the checks you will run); see "Start of every turn" in the Flowly skill.`
 
-只列真正缺的项；项目关闭 workpad 时不列 workpad。三项齐全时不出现。它反映建卡/开 session/显式“工作说明”那一刻的状态；之后以 get_task 为准。普通跟进消息仍只发用户原文（AGENTS.md），不加此行。
+只列真正缺的项；项目关闭 workpad 时不列 workpad。三项齐全时不出现。它反映建卡/开 session/显式“工作说明”那一刻的状态；之后以 get_task 为准。普通跟进消息仍只发用户原文（AGENTS.md），不加此行。卡片的自动化评审 session（自动化建的评审 session，以及对 `reviewerOfCard` 成立的已有 session 发“工作说明”时）不加此行：它的设置写入返回 `REVIEWER_ONLY`（[AUTOMATION-SPEC](AUTOMATION-SPEC.md) §5）。
 
 ### 3.3 写入结果里的设置提醒
 
@@ -78,7 +78,7 @@ setup: {
 | `flowly_get_task`、`flowly_read_external`、`flowly_read_ticket`（只读） | 否（get_task 有 `setup`） |
 
 - 计算在写入之后：`flowly_set_type` 自己的结果不再提 type，`flowly_update_workpad` 写入非空内容后不再提 workpad。
-- 卡片已 Done/Cancelled 或已归档时不带（同 §9.5 现有规则）。写入失败不带。
+- 卡片已 Done/Cancelled 或已归档时不带（同 §9.5 现有规则）。写入失败不带。卡片的评审 session 的写入（`kind=question` 等它能做的）不带：设置由实现者补，评审者需要时把缺项写进 findings（2026-10-23，合并上游后）。
 - 与交付提醒同时出现时，交付提醒（next moves、ideas）在前，设置提醒在后。
 - 文案（英文；`{items}` 按顺序只列缺的项，用“; ”连接）：
   `This card's setup is incomplete: {items}. Make these calls now, before more work; they take seconds. This write already succeeded.`

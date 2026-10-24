@@ -14,6 +14,6 @@ export const turnChecklist: string[] = [
 /** What a reviewer session reads in flowly_get_task.turnChecklist instead of the implementer rules (AUTOMATION-SPEC §7). */
 export const reviewerChecklist: string[] = [
   "You are this card's reviewer: read flowly_get_task, including every comment, and review the delivery against the card, its workpad and the comments.",
-  "Inspect and run the relevant checks without changing the card's status, workpad, type, tags, ideas, artifacts or files; never commit or push.",
+  "Inspect and run the relevant checks without changing the card's status, workpad, type, tags, ideas, artifacts or files; never commit or push. setup.missing is the implementer's to fix: report it as a finding when it matters.",
   "Finish the round with flowly_submit_review (approve, or changes with concrete findings), or ask a person with flowly_report_progress kind=question.",
 ];

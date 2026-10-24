@@ -42,6 +42,7 @@ import {
   type ToolPreparation,
 } from "../shared/tools";
 import { reviewInputSchema, reviewResultSchema } from "../shared/automation-schema";
+import { reviewerOfCard } from "../shared/automation";
 import { createCardInputSchema, createCardResultSchema, updateCardInputSchema, updateCardResultSchema } from "../shared/tools";
 import { AgentService } from "./agent-service";
 import { BoardStore } from "./store";
@@ -191,7 +192,7 @@ export class ToolServer {
           "flowly_get_task",
           {
             description:
-              "Read this session's current Kanban card, latest turnChecklist, effective repo/worktree directories, both revisions and signed request. Read at the start of every turn, including commit/merge-only follow-ups, and before any write. Handle unread inputs (artifacts with unread=true were added or edited since your last read) and fix setup.missing (flowly_set_type, flowly_set_tags, flowly_update_workpad, flowly_update_metadata) before work. comments lists what people wrote on the card (questions about progress, opinions, requested changes), oldest first; those with unread=true were written since your last read: treat each of them like a message from the user and answer it or do what it asks. Comments you read before stay listed as context and are shortened when long.",
+              "Read this session's current Kanban card, latest turnChecklist, effective repo/worktree directories, both revisions and signed request. Read at the start of every turn, including commit/merge-only follow-ups, and before any write. Handle unread inputs (artifacts with unread=true were added or edited since your last read) and fix setup.missing (flowly_set_type, flowly_set_tags, flowly_update_workpad, flowly_update_metadata) before work; a reviewer leaves setup to the implementer. comments lists what people wrote on the card (questions about progress, opinions, requested changes), oldest first; those with unread=true were written since your last read: treat each of them like a message from the user and answer it or do what it asks. Comments you read before stay listed as context and are shortened when long.",
             inputSchema: z.strictObject({}),
             outputSchema: toolContextSchema,
             annotations: { readOnlyHint: true, openWorldHint: false },
@@ -548,14 +549,15 @@ export class ToolServer {
       },
     };
   }
-  async prepareSession(taskId: string, operationId: string, paseo: PaseoApi) {
+  /** `reviewer`: an automation reviewer session (AUTOMATION-SPEC §5); its context has no setup line. */
+  async prepareSession(taskId: string, operationId: string, paseo: PaseoApi, options: { reviewer?: boolean } = {}) {
     this.attach(paseo);
     const job = this.preparation.then(async () => {
       await this.start();
       const board = await this.store.read(),
         task = board.tasks.find((t) => t.id === taskId);
       if (!task) throw new ToolError("RESOURCE_UNAVAILABLE", "Task not found.");
-      const ctx = await new BoardService(this.store).context(taskId, paseo);
+      const ctx = await new BoardService(this.store).context(taskId, paseo, undefined, options);
       if (!ctx.available)
         throw new ToolError("RESOURCE_UNAVAILABLE", ctx.reason);
       const identity = await this.secrets.prepared(
@@ -586,13 +588,14 @@ export class ToolServer {
   async prepareExisting(taskId: string, agentId: string, paseo: PaseoApi) {
     this.attach(paseo);
     await this.start();
-    const task = (await this.store.read()).tasks.find((t) => t.id === taskId);
+    const board = await this.store.read();
+    const task = board.tasks.find((t) => t.id === taskId);
     if (!task) throw new ToolError("RESOURCE_UNAVAILABLE", "Task not found.");
     const identity = { taskId, agentId, workspaceId: task.workspaceId };
     const current = await this.agents.get(identity, false);
     if (current.task.archivedAt || current.project.archivedAt)
       throw new ToolError("ARCHIVED", "Task/project is archived.");
-    const ctx = await new BoardService(this.store).context(taskId, paseo);
+    const ctx = await new BoardService(this.store).context(taskId, paseo, undefined, { reviewer: reviewerOfCard(board, taskId, agentId) });
     void this.agents.memory?.markUsed(ctx.memoryIds, taskId).catch(() => undefined);
     return this.prepare(identity, ctx.context, "cli");
   }

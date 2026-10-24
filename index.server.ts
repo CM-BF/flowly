@@ -243,7 +243,7 @@ export default function contribute(server: PluginServerContext) {
   const tools = new ToolServer(store);
   // Agent automation (AUTOMATION-SPEC): Hermes Kanban's dispatcher, supervision and review loop, per project.
   const automation = new AutomationService(store, {
-    prepare: (taskId, operationId, paseo) => tools.prepareSession(taskId, operationId, paseo),
+    prepare: (taskId, operationId, paseo, options) => tools.prepareSession(taskId, operationId, paseo, options),
     globalModel: async () => {
       const state = await modelPrefs.read().catch(() => null);
       return agentModelFromValues(state?.status === "ready" ? modelSettingsValues(state.values) : null);

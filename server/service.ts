@@ -697,7 +697,8 @@ export class BoardService {
     const located = await this.connectors.locate(list).catch(() => new Map<string, null>());
     return new Set(list.filter((a) => located.has(a.id) && !located.get(a.id)).map((a) => a.id));
   }
-  async context(id: string, paseo: PaseoApi, snapshot?: Board) {
+  /** `reviewer`: the context of a card's reviewer session, without the implementer's setup line (AUTOMATION-SPEC §5). */
+  async context(id: string, paseo: PaseoApi, snapshot?: Board, options: { reviewer?: boolean } = {}) {
     const board = snapshot || (await this.store.read());
     const task = board.tasks.find((t) => t.id === id);
     const project = board.projects.find((p) => p.id === task?.projectId);
@@ -737,7 +738,7 @@ export class BoardService {
         workspace?.workspaceDirectory || task.sourcePath,
         linkContextLines(linksOf(board, task.id), (t) => laneName(project, t.status)),
         artifactContextLines(artifactsOf(board.artifacts, task.id), 10, await this.unreadableExternals(board, task.id)),
-        setupContextLine(setupMissing(task, workpadOf(board.workpads, task.id), workpadEnabled(project))),
+        options.reviewer ? "" : setupContextLine(setupMissing(task, workpadOf(board.workpads, task.id), workpadEnabled(project))),
         memory.lines,
       ),
       memoryIds: memory.ids,

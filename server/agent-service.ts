@@ -817,7 +817,8 @@ export class AgentService {
         : action === "progress"
           ? { action, kind: (input as ProgressInput).kind }
           : undefined;
-    // Missing card setup rides on every write (CARD-SETUP-SPEC §3.3), after the delivery reminders.
+    // Missing card setup rides on every write (CARD-SETUP-SPEC §3.3), after the delivery reminders. Not a
+    // reviewer's: setup writes return REVIEWER_ONLY, so it reports missing setup as a finding (AUTOMATION-SPEC §5).
     const reminders = (board: Board): string[] => {
       const task = board.tasks.find((t) => t.id === identity.taskId);
       if (!task || task.archivedAt || ["done", "cancelled"].includes(task.status)) return [];
@@ -825,7 +826,7 @@ export class AgentService {
       if (project?.archivedAt) return [];
       const out = call ? deliveryReminders(board, { taskId: task.id, agentId: identity.agentId }, call, ideasOn) : [];
       if (outputDelivery && outputs === undefined && artifactsOn) out.push(outputsReminder);
-      const missing = setupMissing(task, workpadOf(board.workpads, task.id), workpadEnabled(project));
+      const missing = reviewerOfCard(board, task.id, identity.agentId) ? [] : setupMissing(task, workpadOf(board.workpads, task.id), workpadEnabled(project));
       if (missing.length) out.push(setupReminder(missing));
       return out;
     };
