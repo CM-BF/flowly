@@ -193,12 +193,12 @@ export function reviewersFor(settings: AutomationSettings, round: number) {
   return after !== null && round > after ? (settings.panelSize ?? panelDefaults.size) : 1;
 }
 /**
- * The settings change for a panel choice in Edit project, or null when it changes nothing: picking the default of a
- * key that was never stored keeps it unstored, so boards stay readable by builds without panels (§5.1).
+ * The settings change for a panel choice in Edit project, or null when it changes nothing. Picking the default leaves
+ * the key unstored (removes it), so boards stay readable by builds without panels (§5.1).
  */
 export function panelChoice(settings: AutomationSettings, key: "panelAfter" | "panelSize", value: number | null): Partial<AutomationSettings> | null {
   const stored = settings[key];
-  if (stored === undefined) return value === (key === "panelAfter" ? panelDefaults.after : panelDefaults.size) ? null : { [key]: value };
+  if (value === (key === "panelAfter" ? panelDefaults.after : panelDefaults.size)) return stored === undefined ? null : { [key]: undefined };
   return stored === value ? null : { [key]: value };
 }
 /** Whether no round of a cycle can be a panel round: it would start only after the last round (§5.1). */
@@ -593,7 +593,7 @@ export function reviewPrompt(round: number, max: number, reviewers = 1) {
     "Read flowly_get_task: the card, its workpad (acceptance criteria and checks), the people's comments (what they asked for counts like the card's requirements) and the delivery note in its activity. Inspect the actual changes in this workspace (git status, git diff, git log) and run the relevant checks.",
     panel
       ? [
-          `Earlier rounds of this cycle requested changes${round > 1 ? ` (${round - 1} so far)` : ""} or the project reviews every round this way, so this round checks the delivery with ${reviewers} independent reviewers at once instead of one more serial pass. Start them in parallel with your subagent tool, in the foreground, and wait for all of them in this same turn (in Claude Code: ${reviewers} Agent calls in one message, not in the background); do not end your turn before you call flowly_submit_review, because a turn that ends without a verdict counts as an unfinished review. One reviewer per focus:`,
+          `Earlier rounds of this cycle requested changes${round > 1 ? ` (${round - 1} so far)` : ""} or the project reviews every round this way, so this round checks the delivery with ${reviewers} independent reviewers at once instead of one more serial pass. Start them in parallel with your subagent tool, in the foreground, and wait for all of them in this same turn (in Claude Code: ${reviewers} Agent calls in one message, not in the background); do not end your turn before you call flowly_submit_review (or ask a person with flowly_report_progress kind=question when only they can decide): a turn that ends with neither counts as an unfinished review. One reviewer per focus:`,
           ...panelFocuses.slice(0, reviewers).map((focus, i) => `${i + 1}. ${focus}.`),
           "Give each the card id, this workspace's path and its focus, plus what you read in flowly_get_task: the acceptance criteria, the delivery note, every change requested in earlier rounds and the people's comments. Tell it to report findings with file, problem and evidence; they only read and run checks, never edit files or call Flowly tools. If you cannot start subagents, review from each focus in turn yourself, independently. Then confirm each finding yourself (drop what you cannot reproduce or point to), merge duplicates and send every confirmed finding at once: the implementer gets one complete list instead of one problem per round.",
         ].join("\n")

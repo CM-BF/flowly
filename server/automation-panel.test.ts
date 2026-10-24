@@ -171,7 +171,7 @@ test("panel reviewers get the delivery note, earlier changes and comments, and r
   const text = reviewPrompt(3, 3, 3);
   expect(text).toContain("the delivery note, every change requested in earlier rounds and the people's comments");
   expect(text).toContain("in the foreground, and wait for all of them in this same turn");
-  expect(text).toContain("do not end your turn before you call flowly_submit_review");
+  expect(text).toContain("do not end your turn before you call flowly_submit_review (or ask a person with flowly_report_progress kind=question");
   expect(text).not.toContain("workflow");
 });
 
@@ -180,8 +180,14 @@ test("Edit project stores a panel choice only when it changes something, and tel
   expect(panelChoice(saved, "panelAfter", 2)).toBeNull();
   expect(panelChoice(saved, "panelSize", 3)).toBeNull();
   expect(panelChoice(saved, "panelAfter", null)).toEqual({ panelAfter: null });
-  expect(panelChoice({ ...saved, panelAfter: 1 }, "panelAfter", 2)).toEqual({ panelAfter: 2 });
-  expect(panelChoice({ ...saved, panelAfter: 2 }, "panelAfter", 2)).toBeNull();
+  expect(panelChoice({ ...saved, panelAfter: 1 }, "panelAfter", 0)).toEqual({ panelAfter: 0 });
+  expect(panelChoice({ ...saved, panelAfter: 0 }, "panelAfter", 0)).toBeNull();
+  // Back to a default: the stored key goes, so an older build reads the board again.
+  for (const [key, value] of [["panelAfter", 2], ["panelSize", 3]] as const) {
+    const patch = panelChoice({ ...saved, panelAfter: 1, panelSize: 4 }, key, value)!;
+    expect(Object.keys(patch)).toEqual([key]);
+    expect(JSON.parse(JSON.stringify({ ...saved, panelAfter: 1, panelSize: 4, ...patch }))).not.toHaveProperty(key);
+  }
   expect(panelOutOfReach(saved)).toBe(false);
   expect(panelOutOfReach({ ...saved, maxReviewRounds: 2 })).toBe(true);
   expect(panelOutOfReach({ ...saved, panelAfter: 3, maxReviewRounds: 3 })).toBe(true);
