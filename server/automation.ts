@@ -375,6 +375,8 @@ export class AutomationService {
         if (!held) { delete job.instruction; delete job.pendingOp; delete job.pendingRole; }
         job.role = "implementer";
         job.reopened = true;
+        // A person's feedback starts a new cycle; earlier requested changes were delivered already.
+        delete job.changes;
         // Preserve the reviewed delivery until actual new work is delivered.
         this.store.event(board, { taskId: job.taskId, actor: "system", action: "automation_resumed", agentId });
       }
@@ -507,6 +509,8 @@ export class AutomationService {
           break;
         case "deliver":
           delete job.reopened;
+          // Requested changes a delivery answered are no longer to do (a takeover must not redo them).
+          delete job.changes;
           job.state = "delivered";
           job.nudges = 0;
           job.failures = 0;
@@ -988,12 +992,13 @@ export class AutomationService {
           if (agent.status === "running" || agent.status === "initializing" || agent.activeTurn || agent.pendingPermissions?.length) return;
           const bytes = await this.measure(agent as HistoryAgent);
           if (bytes !== null && bytes >= historyLimits.rotate) {
+            // A turn started on it while it was measured (a person's message) keeps it: never two sessions in one
+            // workspace. The snapshot decides, so a lost turn-end hook cannot hold the rotation forever.
+            const again = (await paseo.agents.ref(id).refresh())?.agent;
+            if (!again || again.archivedAt || again.status === "running" || again.status === "initializing" || again.activeTurn || again.pendingPermissions?.length) return;
             const rotated = await this.store.transaction((b) => {
               const j = this.current(b, job, role);
               if (!j?.instruction || (role === "reviewer" ? j.reviewerId : j.implementerId) !== id) return { value: null, changed: false };
-              // A turn that started on the old session meanwhile (a person's message) keeps it: no second session in the workspace.
-              const latest = latestLifecycle(b, j.taskId, id);
-              if (latest?.action === "agent.turn_started" && (!j.turnAt || latest.at > j.turnAt)) return { value: null, changed: false };
               this.rotate(b, j, role, bytes);
               return { value: { ...j }, changed: true };
             });

@@ -215,10 +215,12 @@ export class ComposerService {
       // Sending makes Paseo load the session; an oversized Codex history would crash it (AUTOMATION-SPEC §4.6).
       const bytes = await oversized(paseo, agentId);
       if (bytes) {
-        await this.store.mutate((s) => {
-          const e = s.sessions[agentId];
-          if (e) e.lastError = tooLarge(bytes);
-        });
+        this.lastDrain.set(agentId, this.clock());
+        if (entry.lastError !== tooLarge(bytes))
+          await this.store.mutate((s) => {
+            const e = s.sessions[agentId];
+            if (e) e.lastError = tooLarge(bytes);
+          });
         return false;
       }
       const board = await this.board.read();

@@ -107,3 +107,18 @@ test("a Codex session just below the limit still drains and takes send now", asy
   expect(x.sent).toEqual([{ text: "first", steer: true }, { text: "second", steer: false }]);
   expect((await x.service.read()).sessions[x.id]).toBeUndefined();
 });
+
+test("polling an oversized session's queue does not rewrite the composer file each time", async () => {
+  const { stat } = await import("node:fs/promises");
+  const x = await setup(historyLimits.rotate);
+  await x.service.push({ taskId: "t", agentId: x.id, text: "after this turn" }, x.paseo);
+  await settle();
+  x.agent.status = "idle";
+  forgetHistory();
+  expect(await x.service.drain(x.id, x.paseo)).toBe(false);
+  const file = join((x.service as unknown as { store: { path: string } }).store.path);
+  const before = (await stat(file)).ino;
+  for (let i = 0; i < 3; i++) await x.service.drainAll(x.paseo);
+  expect((await stat(file)).ino).toBe(before);
+  expect(x.sent).toHaveLength(0);
+});

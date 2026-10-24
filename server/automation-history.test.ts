@@ -134,26 +134,69 @@ test("a reviewer rotated on a reminder gets its full review instruction and its 
   expect(await x.job("a")).toMatchObject({ state: "delivered", verdict: "approved" });
 });
 
-test("a turn a person started on the old session in the meantime keeps it: no second session joins the workspace", async () => {
+test("a turn that starts on the old session while it is measured keeps it: no second session joins the workspace", async () => {
   const x = await setup({ enabled: true });
   await x.automation.queue("a");
   await x.automation.kick();
   const old = x.created[0].agentId;
-  // The turn ends while the snapshot still reads running: the reminder is held.
+  // A person's message starts a turn on it right after Flowly saw it idle.
+  x.hooks.history = (id) => {
+    if (id !== old) return null;
+    x.agents.get(old)!.status = "running";
+    return big;
+  };
+  await x.turn(old, "a");
+  expect(x.created).toHaveLength(1);
+  expect((await x.job("a")).implementerId).toBe(old);
+});
+
+test("a turn start whose end was never recorded does not hold the rotation forever", async () => {
+  const x = await setup({ enabled: true });
+  await x.automation.queue("a");
+  await x.automation.kick();
+  const old = x.created[0].agentId;
+  x.agents.get(old)!.status = "running";
   x.advance(1000);
   await x.record("a", { actor: "system", action: "agent.turn_started", agentId: old });
   x.advance(1000);
   await x.record("a", { actor: "system", action: "agent.turn_ended", agentId: old, outcome: "completed" });
   x.advance(1000);
   await x.automation.turnEnded(old);
-  expect((await x.job("a")).instruction?.text).toContain("reminder 1 of 2");
-  expect(x.sent.filter((m) => m.agentId === old)).toHaveLength(0);
-  // A person's message starts a turn on it before the next pass, whose snapshot still reads idle.
+  // A later turn start whose end hook was lost (a reload mid-turn); the session is idle now.
   x.advance(1000);
   await x.record("a", { actor: "system", action: "agent.turn_started", agentId: old });
   x.agents.get(old)!.status = "idle";
   x.hooks.history = (id) => (id === old ? big : null);
+  x.advance(60_000);
   await x.automation.kick();
-  expect(x.created).toHaveLength(1);
-  expect((await x.job("a")).implementerId).toBe(old);
+  expect(x.created).toHaveLength(2);
+  expect((await x.job("a")).implementerId).toBe(x.created[1].agentId);
+});
+
+test("requested changes a later delivery answered are not handed to a takeover session", async () => {
+  const { x, impl, rev } = await underReview({ maxReviewRounds: 1 });
+  await x.automation.submitReview({ agentId: rev, taskId: "a", workspaceId: "w-a" }, { verdict: "changes", summary: "Not yet", findings: ["a.ts: OLD-FINDING"] });
+  await x.endTurn(rev, "a");
+  await x.automation.kick();
+  // The rework is delivered; review rounds are used up, so the card waits for the person.
+  await x.deliver(impl, "a");
+  await x.turn(impl, "a");
+  expect(await x.job("a")).toMatchObject({ state: "delivered", code: "review_rounds" });
+  // The person's feedback reopens it; the agent goes back to Development and ends its turn without a delivery,
+  // so the reminder would go to its oversized session.
+  await x.startTurn(impl, "a");
+  await x.store.mutate((board) => {
+    const t = board.tasks.find((t) => t.id === "a")!;
+    t.status = "development";
+    t.revision++;
+    board.events.push({ id: "agent-stage", at: x.at(), taskId: "a", actor: "agent", action: "status_changed", agentId: impl, from: "in_review", to: "development" });
+  });
+  x.hooks.history = (id) => (id === impl ? big : null);
+  await x.endTurn(impl, "a");
+  await x.automation.kick();
+  const takeover = x.created.at(-1)!;
+  expect(takeover.labels["flowly-automation"]).toBe("implementer");
+  expect(takeover.agentId).not.toBe(impl);
+  expect(takeover.prompt).toContain("reminder 1 of 2");
+  expect(takeover.prompt).not.toContain("OLD-FINDING");
 });
