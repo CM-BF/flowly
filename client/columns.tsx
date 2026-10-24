@@ -122,6 +122,7 @@ export function DesktopColumns({
   olderShown = [],
   onToggleOlder,
   reveal,
+  onRevealed,
   renderCard,
   onAdd,
   onDrop,
@@ -146,8 +147,13 @@ export function DesktopColumns({
   /** Lanes whose older cards are shown. */
   olderShown?: readonly Status[];
   onToggleOlder?(status: Status): void;
-  /** Scrolls this lane into view each time `n` changes (the overview bar's In review / Blocked chips). */
+  /**
+   * Scrolls this lane into view each time `n` changes to a non-zero value, also on mount (the overview bar's
+   * In review / Blocked chips pressed while a page replaced the board).
+   */
   reveal?: { status: Status; n: number };
+  /** The scroll for request `n` ran: the parent clears it, so a later mount does not scroll to it again. */
+  onRevealed?(n: number): void;
   renderCard(task: Task, drag: CardDrag, dragging: boolean): ReactNode;
   onAdd(status: Status): void;
   onDrop(input: Placement): void;
@@ -270,11 +276,13 @@ export function DesktopColumns({
     // After the lane has expanded and been measured.
     const timer = setTimeout(() => {
       const lane = columns.current.find((c) => c.status === reveal.status);
-      if (!lane) return;
-      const maxX = Math.max(0, contentWidth.current - viewport.current.width);
-      const x = Math.min(maxX, Math.max(0, lane.x - space[3]));
-      offset.current = x;
-      scrollRef.current?.scrollTo({ x, animated: true });
+      if (lane) {
+        const maxX = Math.max(0, contentWidth.current - viewport.current.width);
+        const x = Math.min(maxX, Math.max(0, lane.x - space[3]));
+        offset.current = x;
+        scrollRef.current?.scrollTo({ x, animated: true });
+      }
+      onRevealed?.(reveal.n);
     }, 120);
     return () => clearTimeout(timer);
   }, [reveal?.n]);

@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { boardOverview } from "./overview";
+import { boardOverview, noReveal, requestReveal, revealDone } from "./overview";
 import type { Task, Project } from "../shared/model";
 import type { AttentionItem } from "./attention";
 
@@ -40,4 +40,22 @@ test("overview counts live cards, working sessions and what needs you", () => {
   // Lanes that are off report null (hidden), not zero.
   const lanes = (["backlog", "todo", "design", "development", "test", "in_review", "blocked", "done", "cancelled"] as const).map((status) => ({ status, enabled: status !== "blocked" }));
   expect(boardOverview({ ...project, lanes }, tasks.filter((t) => t.status !== "blocked"), [], []).blocked).toBeNull();
+});
+
+test("a lane chip's reveal is served once: a board mounted afterwards does not scroll to it again", () => {
+  // DesktopColumns scrolls whenever it sees a pending reveal, also on mount (a chip pressed while a page replaced it).
+  const pending = (r: typeof noReveal) => r.n !== 0;
+  expect(pending(noReveal)).toBe(false);
+  const pressed = requestReveal(noReveal, "in_review");
+  expect(pressed).toMatchObject({ status: "in_review" });
+  expect(pending(pressed)).toBe(true);
+  // The board scrolled to it; Back from Ideas/Insights/Memory or a widened window mounts a board that sees nothing pending.
+  const served = revealDone(pressed, pressed.n);
+  expect(pending(served)).toBe(false);
+  // The next press is pending again, also for the same lane, and a press newer than the served one survives.
+  const again = requestReveal(served, "in_review");
+  expect(pending(again)).toBe(true);
+  const newer = requestReveal(again, "blocked");
+  expect(revealDone(newer, again.n)).toBe(newer);
+  expect(pending(revealDone(newer, newer.n))).toBe(false);
 });

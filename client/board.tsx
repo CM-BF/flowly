@@ -104,7 +104,7 @@ import { MemoryPage } from "./memory";
 import { lastViewedProject, pickProject, rememberViewedProject } from "./project-memory";
 import { ProjectTabs } from "./project-tabs";
 import { RemoveProjectDialog } from "./project-remove";
-import { boardOverview } from "./overview";
+import { boardOverview, noReveal, requestReveal, revealDone, type LaneReveal } from "./overview";
 import { enabledStatuses, laneName } from "../shared/lanes";
 import { boardSortText, boardSorts, latestTurnEnds, sortTasks, turnEndActivity, type BoardSort } from "../shared/sort";
 import { projectTagStats, tagPrefixes, taskMatchesSearch, taskMatchesTagFilter } from "../shared/tags";
@@ -321,7 +321,7 @@ function BoardContent(
     // `idea`: Start session prefilled from an idea on the Ideas page (IDEAS-SPEC §6.3).
     [startRequest, setStartRequest] = useState<{ taskId: string; key: string; idea?: Idea } | null>(null),
     [mobileStatus, setMobileStatus] = useState<Status>("todo"),
-    [reveal, setReveal] = useState<{ status: Status; n: number }>({ status: "todo", n: 0 }),
+    [reveal, setReveal] = useState<LaneReveal>(noReveal),
     [actionTask, setActionTask] = useState<Task | null>(null),
     [projectForm, setProjectForm] = useState<"new" | "edit" | null>(null),
     [removing, setRemoving] = useState<Project | null>(null),
@@ -488,6 +488,8 @@ function BoardContent(
       : [...collapsedColumns, status];
     void view.update({ collapsedColumns: next });
   };
+  // A lane chip's scroll runs once: a DesktopColumns mounted later (Back from a page, a widened window) must not repeat it.
+  const revealed = useStableCallback((n: number) => setReveal((r) => revealDone(r, n)));
   const chooseSort = (next: BoardSort) => {
     if (!view.values || next === boardSort) return;
     void view.update({ boardSort: next });
@@ -1677,7 +1679,7 @@ function BoardContent(
               else {
                 if (collapsedColumns.includes(status)) toggleCollapse(status);
                 // Scroll the desktop board to that lane (upstream #44 declared `reveal` but never set it).
-                setReveal((r) => ({ status, n: r.n + 1 }));
+                setReveal((r) => requestReveal(r, status));
               }
             }}
           />
@@ -1859,6 +1861,7 @@ function BoardContent(
                     olderShown={olderShown}
                     onToggleOlder={toggleOlder}
                     reveal={reveal}
+                    onRevealed={revealed}
                     nameOf={nameOf}
                     onToggleCollapse={toggleCollapse}
                     onReorderBlocked={() =>
