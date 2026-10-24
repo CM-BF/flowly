@@ -1453,5 +1453,6 @@ const catalog: Catalog = {
   "Same as reviewer": "与评审者相同",
   "Reviewers in a panel": "小组评审者人数",
   "Panel review round {n} of {max}": "第 {n}/{max} 轮小组评审",
+  "With {n} review rounds a panel round never comes: allow more Review rounds or start the panel earlier.": "只有 {n} 轮评审时永远轮不到小组评审：请增加评审轮次，或让小组评审更早开始。",
 };
 export default catalog;

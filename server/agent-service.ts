@@ -69,7 +69,7 @@ import { isLegacyScope } from "../shared/scope";
 import { MemoryError, type MemoryService } from "./memory";
 import type { AutomationService } from "./automation";
 import type { ReviewInput } from "../shared/automation-schema";
-import { automationAllowed, automationOf, isLive, jobOf } from "../shared/automation";
+import { automationAllowed, automationOf, isLive, jobOf, reviewsFor } from "../shared/automation";
 import { parentOf } from "../shared/links";
 import { createCardInputSchema, updateCardInputSchema, type CreateCardInput, type CreateCardResult, type UpdateCardInput } from "../shared/tools";
 import { taskInput, type Task, type TaskInput } from "../shared/model";
@@ -947,7 +947,7 @@ export class AgentService {
             })()
           : undefined;
       const metadataEvent = action === "metadata" ? (() => {
-        if (board.automation.some((job) => job.taskId === task.id && job.reviewerId === identity.agentId))
+        if (board.automation.some((job) => job.taskId === task.id && reviewsFor(job, identity.agentId)))
           throw new ToolError("REVIEWER_ONLY", "A reviewer reports findings; the implementer organizes this card.");
         const fields = input as MetadataInput;
         if (task.brief && !task.intakeOrganized && fields.description !== undefined && !fields.description.trim())

@@ -1453,5 +1453,6 @@ const catalog: Catalog = {
   "Same as reviewer": "Comme le relecteur",
   "Reviewers in a panel": "Relecteurs du panel",
   "Panel review round {n} of {max}": "Tour de relecture en panel {n} sur {max}",
+  "With {n} review rounds a panel round never comes: allow more Review rounds or start the panel earlier.": "Avec {n} tours de relecture, aucun tour en panel n'arrive : autorisez plus de tours ou lancez le panel plus tôt.",
 };
 export default catalog;

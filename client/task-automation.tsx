@@ -6,7 +6,7 @@ import { useRpc } from "@getpaseo/plugin/client";
 import { useQueryClient } from "@tanstack/react-query";
 import * as rpc from "../shared/rpc";
 import type { Project, Task } from "../shared/model";
-import { automationOf, isLive, panelDefaults, readiness, reviewersFor, type AutomationJob, type AutomationSettings } from "../shared/automation";
+import { automationOf, isLive, panelChoice, panelDefaults, panelOutOfReach, readiness, reviewersFor, type AutomationJob, type AutomationSettings } from "../shared/automation";
 import { automationReason, type AutomationActions } from "./automation-view";
 import type { AgentModel } from "../shared/agent-defaults";
 import { boardKey, useBoardQuery } from "./queries";
@@ -172,12 +172,18 @@ function PanelSettings({
           { value: "1", label: t("After 1 round with changes") },
           ...["2", "3"].map((n) => ({ value: n, label: t("After {n} rounds with changes", { n }) })),
         ]}
-        onChange={(v) => set({ panelAfter: v === "off" ? null : Number(v) })}
+        onChange={(v) => {
+          const patch = panelChoice(current, "panelAfter", v === "off" ? null : Number(v));
+          if (patch) set(patch);
+        }}
       />
       <Label muted size={font.sm}>
         {t("When serial reviews keep requesting changes, the next round is checked by several reviewers in parallel, each from its own focus, and every confirmed problem goes to the implementer at once.")}
       </Label>
-      {after !== null && (
+      {after !== null && panelOutOfReach(current) && (
+        <Label muted size={font.sm}>{t("With {n} review rounds a panel round never comes: allow more Review rounds or start the panel earlier.", { n: current.maxReviewRounds })}</Label>
+      )}
+      {after !== null && !panelOutOfReach(current) && (
         <>
           <ModelDefaultGroup execution cwd={cwd}
             title={t("Panel reviewer")}
@@ -190,7 +196,10 @@ function PanelSettings({
             title={t("Reviewers in a panel")}
             value={String(current.panelSize ?? panelDefaults.size)}
             options={["2", "3", "4", "5"].map((n) => ({ value: n, label: n }))}
-            onChange={(n) => set({ panelSize: Number(n) })}
+            onChange={(n) => {
+              const patch = panelChoice(current, "panelSize", Number(n));
+              if (patch) set(patch);
+            }}
           />
         </>
       )}

@@ -61,9 +61,11 @@ export const activeAgent = (job: Pick<AutomationJob, "role" | "implementerId" | 
  * The reviewer's turns are not work on the card, in its round or outside it (a person asking it about
  * its verdict): rule A1 must not pull the card out of In review, and the job is not taken over.
  */
+/** Whether `agentId` is one of the job's reviewer sessions, the current one or an earlier one (`reviewers`). */
+export const reviewsFor = (job: Pick<AutomationJob, "reviewerId" | "reviewers">, agentId: string) => job.reviewerId === agentId || !!job.reviewers?.includes(agentId);
 export const reviewerJob = (board: Pick<Board, "automation">, agentId: string) =>
   // Older jobs could carry one session in both roles; that session is the implementer.
-  board.automation.find((j) => j.reviewerId === agentId && j.reviewerId !== j.implementerId && (isLive(j) || j.state === "delivered"));
+  board.automation.find((j) => reviewsFor(j, agentId) && agentId !== j.implementerId && (isLive(j) || j.state === "delivered"));
 
 /** The delivery the job's latest verdict was given on (jobs recorded before `reviewedEvent` existed: a verdict judged `deliveryEvent`). */
 export const judgedDelivery = (job: Pick<AutomationJob, "reviewedEvent" | "deliveryEvent" | "verdict">) =>
@@ -190,6 +192,20 @@ export function reviewersFor(settings: AutomationSettings, round: number) {
   const after = settings.panelAfter === undefined ? panelDefaults.after : settings.panelAfter;
   return after !== null && round > after ? (settings.panelSize ?? panelDefaults.size) : 1;
 }
+/**
+ * The settings change for a panel choice in Edit project, or null when it changes nothing: picking the default of a
+ * key that was never stored keeps it unstored, so boards stay readable by builds without panels (§5.1).
+ */
+export function panelChoice(settings: AutomationSettings, key: "panelAfter" | "panelSize", value: number | null): Partial<AutomationSettings> | null {
+  const stored = settings[key];
+  if (stored === undefined) return value === (key === "panelAfter" ? panelDefaults.after : panelDefaults.size) ? null : { [key]: value };
+  return stored === value ? null : { [key]: value };
+}
+/** Whether no round of a cycle can be a panel round: it would start only after the last round (§5.1). */
+export function panelOutOfReach(settings: Pick<AutomationSettings, "panelAfter" | "maxReviewRounds">) {
+  const after = settings.panelAfter === undefined ? panelDefaults.after : settings.panelAfter;
+  return after !== null && after >= settings.maxReviewRounds;
+}
 export const modelKey = (model: Pick<AgentModel, "provider" | "model">) => `${model.provider}/${model.model}`;
 /** How long a limited model is avoided: new sessions start on their role's fallback, then try it again. */
 export const fallbackHoldMs = 30 * 60_000;
@@ -197,9 +213,9 @@ export const fallbackHoldMs = 30 * 60_000;
 export function modelLimited(board: Pick<Board, "automation">, model: Pick<AgentModel, "provider" | "model">, now: number) {
   return board.automation.some(
     (job) =>
-      !!job.providerLimit &&
-      Date.parse(job.providerLimit.until) > now &&
-      (job.providerLimit.model ? job.providerLimit.model === modelKey(model) : job.providerLimit.provider === model.provider),
+      [job.providerLimit, ...(job.heldLimits ?? [])].some(
+        (limit) => !!limit && Date.parse(limit.until) > now && (limit.model ? limit.model === modelKey(model) : limit.provider === model.provider),
+      ),
   );
 }
 /**
@@ -577,9 +593,9 @@ export function reviewPrompt(round: number, max: number, reviewers = 1) {
     "Read flowly_get_task: the card, its workpad (acceptance criteria and checks), the people's comments (what they asked for counts like the card's requirements) and the delivery note in its activity. Inspect the actual changes in this workspace (git status, git diff, git log) and run the relevant checks.",
     panel
       ? [
-          `Earlier rounds of this cycle requested changes${round > 1 ? ` (${round - 1} so far)` : ""} or the project reviews every round this way, so this round checks the delivery with ${reviewers} independent reviewers at once instead of one more serial pass. Start them in parallel with your subagent tool (in Claude Code: ${reviewers} Agent calls in one message; a workflow if you have one), one per focus:`,
+          `Earlier rounds of this cycle requested changes${round > 1 ? ` (${round - 1} so far)` : ""} or the project reviews every round this way, so this round checks the delivery with ${reviewers} independent reviewers at once instead of one more serial pass. Start them in parallel with your subagent tool, in the foreground, and wait for all of them in this same turn (in Claude Code: ${reviewers} Agent calls in one message, not in the background); do not end your turn before you call flowly_submit_review, because a turn that ends without a verdict counts as an unfinished review. One reviewer per focus:`,
           ...panelFocuses.slice(0, reviewers).map((focus, i) => `${i + 1}. ${focus}.`),
-          "Give each the card id, this workspace's path, the acceptance criteria and its focus, and tell it to report findings with file, problem and evidence; they only read and run checks, never edit files or call Flowly tools. If you cannot start subagents, review from each focus in turn yourself, independently. Then confirm each finding yourself (drop what you cannot reproduce or point to), merge duplicates and send every confirmed finding at once: the implementer gets one complete list instead of one problem per round.",
+          "Give each the card id, this workspace's path and its focus, plus what you read in flowly_get_task: the acceptance criteria, the delivery note, every change requested in earlier rounds and the people's comments. Tell it to report findings with file, problem and evidence; they only read and run checks, never edit files or call Flowly tools. If you cannot start subagents, review from each focus in turn yourself, independently. Then confirm each finding yourself (drop what you cannot reproduce or point to), merge duplicates and send every confirmed finding at once: the implementer gets one complete list instead of one problem per round.",
         ].join("\n")
       : lenses[Math.min(round, lenses.length) - 1],
     "Then call flowly_submit_review exactly once: verdict=approve when the acceptance criteria are met and the checks pass; verdict=changes with concrete findings the implementer can act on (file, problem, expected fix). Do not edit files, commit, push or change the card status. If only a person can decide something, ask with flowly_report_progress kind=question and end your turn.",

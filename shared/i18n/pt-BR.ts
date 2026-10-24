@@ -1453,5 +1453,6 @@ const catalog: Catalog = {
   "Same as reviewer": "Igual ao revisor",
   "Reviewers in a panel": "Revisores no painel",
   "Panel review round {n} of {max}": "Rodada de revisão em painel {n} de {max}",
+  "With {n} review rounds a panel round never comes: allow more Review rounds or start the panel earlier.": "Com {n} rodadas de revisão, nunca chega uma rodada em painel: permita mais rodadas ou comece o painel antes.",
 };
 export default catalog;

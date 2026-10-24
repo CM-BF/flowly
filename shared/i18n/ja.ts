@@ -1453,5 +1453,6 @@ const catalog: Catalog = {
   "Same as reviewer": "レビュー担当と同じ",
   "Reviewers in a panel": "パネルのレビュー担当数",
   "Panel review round {n} of {max}": "パネルレビュー {n}/{max} ラウンド",
+  "With {n} review rounds a panel round never comes: allow more Review rounds or start the panel earlier.": "レビューが {n} ラウンドだとパネルのラウンドは来ません。レビューのラウンド数を増やすか、パネルを早めに始めてください。",
 };
 export default catalog;

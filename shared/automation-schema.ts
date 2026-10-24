@@ -158,6 +158,16 @@ export const automationJobSchema = z.object({
    * switch; until `until` a new session of any card starts on its role's fallback instead of trying it again.
    */
   providerLimit: z.object({ provider: z.string(), model: z.string().optional(), until: z.string() }).optional(),
+  /** Earlier limits of this run still on hold when a later one took `providerLimit` (a panel model after the reviewer's own). */
+  heldLimits: z.array(z.object({ provider: z.string(), model: z.string().optional(), until: z.string() })).max(10).optional(),
+  /**
+   * Earlier reviewer sessions of this card's automation (replaced by a panel or fallback session, a new session after an
+   * archived one, or not carried by Run again). They are still the card's reviewers: their turns are no takeover, keep
+   * the card In review and cannot manage cards; only `reviewerId` may give the verdict.
+   */
+  reviewers: z.array(z.string()).max(20).optional(),
+  /** The full requested changes of the latest verdict, as sent to the implementer; a takeover session gets them unclipped. */
+  changes: z.string().max(40000).optional(),
   cooldowns: z.number().int().nonnegative().optional(),
   /** What the sub-cards looked like when the parent last saw them (SUB-CARDS-SPEC §5); a change wakes it. */
   subSeen: z.string().max(20000).optional(),

@@ -1453,5 +1453,6 @@ const catalog: Catalog = {
   "Same as reviewer": "Как у рецензента",
   "Reviewers in a panel": "Рецензентов в панели",
   "Panel review round {n} of {max}": "Раунд проверки панелью {n} из {max}",
+  "With {n} review rounds a panel round never comes: allow more Review rounds or start the panel earlier.": "При {n} раундах проверки до раунда панели дело не дойдёт: разрешите больше раундов или начните панель раньше.",
 };
 export default catalog;

@@ -45,6 +45,7 @@ import {
   slotStates,
   reviewPrompt,
   reviewersFor,
+  reviewsFor,
   startPrompt,
   turnDecision,
   automationExecution,
@@ -196,6 +197,11 @@ export class AutomationService {
         const existing = jobOf(board, taskId);
         if (isLive(existing)) throw new Error("This card is already queued or running.");
         const now = this.now();
+        const healthy = existing?.reviewerId && existing.reviewerId !== existing.implementerId && !existing.fallback?.reviewer && !existing.panel;
+        const carried = healthy ? existing.reviewerId : undefined;
+        // Reviewer sessions not carried stay the card's reviewers (no takeover when a person asks them later).
+        const earlierReviewers = [...(existing?.reviewers ?? []), ...(existing?.reviewerId && !carried && existing.reviewerId !== existing.implementerId ? [existing.reviewerId] : [])].slice(-20);
+        const held = (existing?.heldLimits ?? []).filter((limit) => Date.parse(limit.until) > this.clock());
         const job: AutomationJob = {
           taskId,
           projectId: project.id,
@@ -204,10 +210,12 @@ export class AutomationService {
           ...(existing?.implementerId ? { implementerId: existing.implementerId } : {}),
           // A reviewer that ran on its fallback model (§4.5) or the panel model (§5.1) is not carried: the next run
           // starts serial rounds on the reviewer's own model.
-          ...(existing?.reviewerId && existing.reviewerId !== existing.implementerId && !existing.fallback?.reviewer && !existing.panel ? { reviewerId: existing.reviewerId } : {}),
+          ...(carried ? { reviewerId: carried } : {}),
+          ...(earlierReviewers.length ? { reviewers: earlierReviewers } : {}),
           // The implementer session is kept, so is its model: a limit on it is not another switch to the same fallback.
           ...(existing?.implementerId && existing.fallback?.implementer ? { fallback: { implementer: true } } : {}),
           ...(existing?.providerLimit && Date.parse(existing.providerLimit.until) > this.clock() ? { providerLimit: existing.providerLimit } : {}),
+          ...(held.length ? { heldLimits: held } : {}),
           ...(existing?.launchKey && !existing.launchConsumed ? { launchKey: existing.launchKey } : {}),
           generation: (existing?.generation ?? 0) + 1,
           nudges: 0,
@@ -280,7 +288,7 @@ export class AutomationService {
       if (taskId) {
         const owner = jobOf(board, taskId);
         // Another managed session of the card took over. The job's own reviewer, outside its round, did not.
-        if (owner && automationAllowed(board, owner) && (isLive(owner) || owner.state === "delivered") && agentId !== owner.implementerId && agentId !== owner.reviewerId && agentId !== activeAgent(owner)) {
+        if (owner && automationAllowed(board, owner) && (isLive(owner) || owner.state === "delivered") && agentId !== owner.implementerId && !reviewsFor(owner, agentId) && agentId !== activeAgent(owner)) {
           this.close(owner, "stopped", "taken_over");
           this.store.event(board, { taskId, actor: "system", agentId, action: "automation_stopped", note: "Another session took over the card" });
           return { value: null, changed: true };
@@ -453,6 +461,7 @@ export class AutomationService {
           delete job.code;
           delete job.pendingOp;
           delete job.pendingRole;
+          delete job.changes;
           const reviewers = reviewersFor(settings, job.reviewRounds);
           this.choosePanelSession(job, reviewers > 1 && !!settings.panelReviewer);
           this.instruct(job, "reviewer", reviewPrompt(job.reviewRounds, settings.maxReviewRounds, reviewers));
@@ -568,9 +577,15 @@ export class AutomationService {
     const project = board.projects.find((p) => p.id === job.projectId);
     const primary = primaryModel(settings, project, role, job);
     const limited = primary ? modelKey(primary) : (job.provider ?? "its model");
-    job.providerLimit = { provider: primary?.provider ?? job.provider ?? "", ...(primary ? { model: modelKey(primary) } : {}), until: new Date(this.clock() + fallbackHoldMs).toISOString() };
+    const limit = { provider: primary?.provider ?? job.provider ?? "", ...(primary ? { model: modelKey(primary) } : {}), until: new Date(this.clock() + fallbackHoldMs).toISOString() };
+    // An earlier limit of this run (the reviewer's own model before a panel model's) stays on hold.
+    const earlier = job.providerLimit && Date.parse(job.providerLimit.until) > this.clock() && job.providerLimit.model !== limit.model ? [job.providerLimit] : [];
+    const held = [...(job.heldLimits ?? []).filter((l) => Date.parse(l.until) > this.clock() && l.model !== limit.model), ...earlier].slice(-10);
+    if (held.length) job.heldLimits = held;
+    else delete job.heldLimits;
+    job.providerLimit = limit;
     job.fallback = { ...job.fallback, [role]: true };
-    if (role === "reviewer") delete job.reviewerId;
+    if (role === "reviewer") this.retireReviewer(job);
     else delete job.implementerId;
     job.role = role;
     job.state = role === "reviewer" ? "reviewing" : job.state === "starting" ? "starting" : "working";
@@ -591,8 +606,9 @@ export class AutomationService {
       this.instruct(job, "reviewer", `${note}\n\n${reviewPrompt(job.reviewRounds, settings.maxReviewRounds, reviewersFor(settings, job.reviewRounds))}`);
       job.instruction!.reviewDelivery = job.deliveryEvent;
     } else {
-      const changes = job.verdict === "changes" ? [...board.events].reverse().find((e) => e.taskId === job.taskId && e.action === "automation_changes_requested")?.note : undefined;
-      const carried = pending?.role === "implementer" ? pending.text : changes ? `The reviewer's requested changes, still to do:\n${changes}` : undefined;
+      const recorded = job.verdict === "changes" && !job.changes ? [...board.events].reverse().find((e) => e.taskId === job.taskId && e.action === "automation_changes_requested")?.note : undefined;
+      const changes = job.verdict === "changes" ? (job.changes ?? (recorded ? `The reviewer's requested changes, still to do:\n${recorded}` : undefined)) : undefined;
+      const carried = pending?.role === "implementer" ? pending.text : changes;
       this.instruct(job, "implementer", [note, startPrompt({ review: !!settings.reviewer, again: false }), job.feedback, carried].filter(Boolean).join("\n\n"));
     }
     this.store.event(board, { taskId: job.taskId, actor: "system", action: "automation_fallback", note: `${limited} reported a provider limit; the ${role} continues on its fallback model` });
@@ -612,13 +628,19 @@ export class AutomationService {
     job.instruction = { id: randomUUID(), role, text, fresh };
   }
 
+  /** The current reviewer session gives way to a new one; it stays one of the card's reviewers (`reviewers`). */
+  private retireReviewer(job: AutomationJob) {
+    if (job.reviewerId && job.reviewerId !== job.implementerId) job.reviewers = [...(job.reviewers ?? []).filter((id) => id !== job.reviewerId), job.reviewerId].slice(-20);
+    delete job.reviewerId;
+  }
+
   /**
    * Panel rounds on their own model get a reviewer session of their own (§5.1), and the rounds after them a regular
    * one again: a round whose model differs from the current reviewer session's starts a new session on its model.
    */
   private choosePanelSession(job: AutomationJob, onPanelModel: boolean) {
     if (!!job.panel === onPanelModel) return;
-    delete job.reviewerId;
+    this.retireReviewer(job);
     if (job.fallback?.reviewer) {
       const { reviewer: _reviewer, ...rest } = job.fallback;
       job.fallback = rest;
@@ -660,6 +682,7 @@ export class AutomationService {
         throw new ToolError("REVIEW_CLOSED", "The card is no longer In review; nothing was changed.");
       const now = this.now();
       const text = [input.summary, ...input.findings.map((f) => `- ${f}`)].join("\n");
+      delete job.changes;
       job.verdict = verdict;
       job.reviewedEvent = job.deliveryEvent;
       job.detail = clip(input.summary);
@@ -675,7 +698,7 @@ export class AutomationService {
         delete job.instruction;
         delete job.pendingOp;
         delete job.pendingRole;
-        this.store.event(board, { taskId: task.id, actor: "agent", agentId: identity.agentId, action: "automation_review_approved", note: clip(text, 4000) });
+        this.store.event(board, { taskId: task.id, actor: "agent", agentId: identity.agentId, action: "automation_review_approved", note: clip(text, 10000) });
         return { value: { answer: { accepted: true, verdict: input.verdict, message: "Approved. The card stays In review for the user to accept; end your turn." } }, changed: true };
       }
       // The rework continues this review cycle: its delivery is the next round.
@@ -684,8 +707,9 @@ export class AutomationService {
       job.turnAt = now;
       const settings = automationOf(project)!;
       const reviewers = reviewersFor(settings, job.reviewRounds);
-      this.instruct(job, "implementer", changesPrompt(job.reviewRounds, settings.maxReviewRounds, input.summary, input.findings, reviewers));
-      this.store.event(board, { taskId: task.id, actor: "agent", agentId: identity.agentId, action: "automation_changes_requested", note: clip(text, 4000) });
+      job.changes = changesPrompt(job.reviewRounds, settings.maxReviewRounds, input.summary, input.findings, reviewers);
+      this.instruct(job, "implementer", job.changes);
+      this.store.event(board, { taskId: task.id, actor: "agent", agentId: identity.agentId, action: "automation_changes_requested", note: clip(text, 10000) });
       // Back to work: the same stage a person's review feedback leads to (rule A1).
       const stage = resumeStage(board, task, project);
       if (stage && stage !== task.status) {
@@ -932,7 +956,10 @@ export class AutomationService {
       const j = this.current(board, job, role);
       if (!j || j.pendingOp !== op) return { value: false, changed: false };
       if (preparation.agentId === (role === "reviewer" ? j.implementerId : j.reviewerId)) throw new Error("Implementer and reviewer must be different sessions.");
-      if (role === "reviewer") j.reviewerId = preparation.agentId;
+      if (role === "reviewer") {
+        if (j.reviewerId !== preparation.agentId) this.retireReviewer(j);
+        j.reviewerId = preparation.agentId;
+      }
       else j.implementerId = preparation.agentId;
       return { value: true, changed: true };
     });

@@ -1,6 +1,6 @@
 import { afterEach, expect, test } from "vitest";
 import { automationFixture as setup, cleanupAutomationFixtures, underReview } from "./automation-fixture";
-import { automationSettingsSchema, reviewPrompt, reviewersFor } from "../shared/automation";
+import { automationSettingsSchema, panelChoice, panelOutOfReach, reviewPrompt, reviewersFor } from "../shared/automation";
 
 // AUTOMATION-SPEC §5.1: serial review rounds that keep requesting changes escalate to a panel review.
 afterEach(cleanupAutomationFixtures);
@@ -101,4 +101,89 @@ test("projects saved before panels parse without panel keys and get the default 
   expect(Object.keys(saved).filter((k) => k.startsWith("panel"))).toEqual([]);
   expect([1, 2, 3].map((round) => reviewersFor(saved, round))).toEqual([1, 1, 3]);
   expect(reviewPrompt(1, 3)).toContain("Lens for this round: the artifact");
+});
+
+/** What the turn hook records for a turn the provider failed with a limit notice, then hands to automation. */
+async function limitEnd(x: Fixture, agentId: string) {
+  x.advance(1000);
+  await x.record("a", { actor: "system", action: "agent.turn_started", agentId });
+  x.advance(1000);
+  await x.record("a", { actor: "system", action: "agent.turn_ended", agentId, outcome: "failed", note: "You've hit your session limit · resets 2pm" });
+  x.advance(1000);
+  const ended = x.agents.get(agentId);
+  if (ended) ended.status = "idle";
+  await x.automation.turnEnded(agentId);
+  await x.automation.kick();
+}
+
+test("the serial reviewer a panel session replaced is still the card's reviewer: a person asking it neither takes over nor moves the card", async () => {
+  const { x, impl, rev } = await underReview({ reviewer: luna, panelReviewer: opus, panelAfter: 1 });
+  await rework(x, rev, impl);
+  const panel = x.created[2].agentId;
+  expect(await x.job("a")).toMatchObject({ reviewerId: panel, reviewers: [rev] });
+  await x.startTurn(rev, "a");
+  expect(await x.job("a")).toMatchObject({ state: "reviewing", reviewerId: panel });
+  expect((await x.task("a")).status).toBe("in_review");
+  await x.endTurn(rev, "a");
+  await x.automation.submitReview(as(panel), { verdict: "approve", summary: "Checked" });
+  expect(await x.job("a")).toMatchObject({ state: "delivered", verdict: "approved" });
+  // After the panel's approval, too.
+  await x.startTurn(rev, "a");
+  expect(await x.job("a")).toMatchObject({ state: "delivered", verdict: "approved" });
+});
+
+test("a panel model's limit keeps the reviewer model's earlier limit on hold: the next run reviews on the fallback", async () => {
+  const { x, impl, rev } = await underReview({ reviewer: luna, reviewerFallback: sol, panelReviewer: opus, panelAfter: 1 });
+  await limitEnd(x, rev);
+  const serial = x.created[2];
+  expect(serial.provider).toBe("codex/gpt-6.1-sol");
+  await rework(x, serial.agentId, impl);
+  const panel = x.created[3];
+  expect(panel.provider).toBe("claude/claude-opus-5-5");
+  await limitEnd(x, panel.agentId);
+  const panelFallback = x.created[4];
+  expect(panelFallback.provider).toBe("codex/gpt-6.1-sol");
+  await x.automation.submitReview(as(panelFallback.agentId), { verdict: "approve", summary: "Checked" });
+  await x.endTurn(panelFallback.agentId, "a");
+  await x.automation.queue("a");
+  await x.automation.kick();
+  await x.deliver(impl, "a");
+  await x.turn(impl, "a");
+  expect(x.created.at(-1)).toMatchObject({ provider: "codex/gpt-6.1-sol", title: "Review: Card a" });
+});
+
+test("a takeover implementer gets the panel's complete list of changes, not a clipped copy", async () => {
+  const { x, impl, rev } = await underReview({ implementer: opus, implementerFallback: sol, panelAfter: 0 });
+  const findings = Array.from({ length: 20 }, (_, i) => `F${String(i + 1).padStart(2, "0")} src/file${i}.ts: ${"the handler drops the error and the caller never retries; ".repeat(5)}`);
+  await x.automation.submitReview(as(rev), { verdict: "changes", summary: "Twenty problems", findings });
+  await x.endTurn(rev, "a");
+  await x.automation.kick();
+  expect(x.sent.at(-1)).toMatchObject({ agentId: impl });
+  await limitEnd(x, impl);
+  const takeover = x.created.at(-1)!;
+  expect(takeover.provider).toBe("codex/gpt-6.1-sol");
+  expect(takeover.prompt).toContain("F01 src/file0.ts");
+  expect(takeover.prompt).toContain("F20 src/file19.ts");
+  expect(takeover.prompt).toContain("fix all of them");
+});
+
+test("panel reviewers get the delivery note, earlier changes and comments, and run in the foreground of the same turn", () => {
+  const text = reviewPrompt(3, 3, 3);
+  expect(text).toContain("the delivery note, every change requested in earlier rounds and the people's comments");
+  expect(text).toContain("in the foreground, and wait for all of them in this same turn");
+  expect(text).toContain("do not end your turn before you call flowly_submit_review");
+  expect(text).not.toContain("workflow");
+});
+
+test("Edit project stores a panel choice only when it changes something, and tells when a panel can never come", () => {
+  const saved = automationSettingsSchema.parse({ enabled: true, reviewer: luna });
+  expect(panelChoice(saved, "panelAfter", 2)).toBeNull();
+  expect(panelChoice(saved, "panelSize", 3)).toBeNull();
+  expect(panelChoice(saved, "panelAfter", null)).toEqual({ panelAfter: null });
+  expect(panelChoice({ ...saved, panelAfter: 1 }, "panelAfter", 2)).toEqual({ panelAfter: 2 });
+  expect(panelChoice({ ...saved, panelAfter: 2 }, "panelAfter", 2)).toBeNull();
+  expect(panelOutOfReach(saved)).toBe(false);
+  expect(panelOutOfReach({ ...saved, maxReviewRounds: 2 })).toBe(true);
+  expect(panelOutOfReach({ ...saved, panelAfter: 3, maxReviewRounds: 3 })).toBe(true);
+  expect(panelOutOfReach({ ...saved, panelAfter: null, maxReviewRounds: 1 })).toBe(false);
 });

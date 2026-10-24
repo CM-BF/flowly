@@ -1453,5 +1453,6 @@ const catalog: Catalog = {
   "Same as reviewer": "與審查者相同",
   "Reviewers in a panel": "小組審查者人數",
   "Panel review round {n} of {max}": "第 {n}/{max} 輪小組審查",
+  "With {n} review rounds a panel round never comes: allow more Review rounds or start the panel earlier.": "只有 {n} 輪審查時永遠輪不到小組審查：請增加審查輪次，或讓小組審查更早開始。",
 };
 export default catalog;
