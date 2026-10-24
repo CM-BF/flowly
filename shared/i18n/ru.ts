@@ -1,6 +1,12 @@
 import type { Catalog } from "../i18n";
 
 const catalog: Catalog = {
+  "{reason} (classified by {model})": "{reason} (классификация: {model})",
+  "Auto: {level} — {reason} ({model})": "Авто: {level} — {reason} ({model})",
+  "Auto: {level} (keyword fallback), because {why}.": "Авто: {level} (резерв по ключевым словам), потому что {why}.",
+  "Save changes to classify this card.": "Сохраните изменения, чтобы классифицировать карточку.",
+  "Classifying…": "Классификация…",
+  "Each card is reviewed at its level. Auto follows explicit levels and review tags, then asks the Summary models what this card changes. The result is reused until the card changes; keywords are only a fallback. Set a card's level in Edit task.": "Каждая карточка проверяется на своём уровне. Авто учитывает явный уровень и теги проверки, затем просит модели сводок определить, что меняет эта карточка. Результат используется повторно до изменения карточки; ключевые слова служат только резервным вариантом. Уровень можно задать при редактировании задачи.",
   "The card's workspace is no longer available": "Рабочее пространство карточки больше недоступно",
   "Another session took over the card": "Другой сеанс взял карточку на себя",
   "An ancestor card was cancelled, archived or removed": "Карточка-предок была отменена, архивирована или удалена",
@@ -1632,7 +1638,6 @@ const catalog: Catalog = {
   "Risks the reviewer noted beyond the acceptance criteria": "Риски за рамками критериев приёмки, отмеченные рецензентом",
   "Rounds: Light {light} · Deep {deep}, panel of {size}": "Раунды: Лёгкая {light} · Глубокая {deep}, панель из {size}",
   "Review levels": "Уровни проверки",
-  "Each card is reviewed at its level. Auto picks it at every review round: Deep for the tags deep-review or foundation (also on a parent card) or terms such as database, schema, protocol, migration or permission; Light for the tag light-review; otherwise Standard, the reviews set above. Set a card's level in Edit task.": "Каждая карточка проверяется на своём уровне. «Авто» выбирает его в каждом раунде проверки: «Глубокая» — для тегов deep-review или foundation (в том числе у родительской карточки) или терминов вроде database, schema, protocol, migration или permission (на английском или китайском); «Лёгкая» — для тега light-review; иначе «Обычная», то есть проверки, настроенные выше. Уровень карточки задаётся в «Изменить задачу».",
   "Light reviewer": "Рецензент: Лёгкая",
   "Light cards get one reviewer, never a panel.": "У лёгких карточек один рецензент, никогда не панель.",
   "Light rounds": "Раунды: Лёгкая",

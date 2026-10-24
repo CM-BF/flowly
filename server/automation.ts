@@ -1,3 +1,4 @@
+import { resolveReviewLevel, reviewPlan, withFallback } from "./review-levels";
 import { AutomationLaunches } from "./automation-launch";
 import type { AutomationLaunch } from "../shared/automation-launch";
 import { supportedFeatures } from "../shared/agent-features";
@@ -61,8 +62,6 @@ import {
   takeoverNote,
   levelRounds,
   reasonText,
-  resolveReviewLevel,
-  reviewPlan,
   reviewStartNote,
   roundSeat,
   seatOf,
@@ -88,6 +87,8 @@ export type AutomationDeps = {
   prepare(taskId: string, operationId: string, paseo: PaseoApi, options?: { reviewer?: boolean }): Promise<ToolPreparation>;
   /** The global default model (Settings → Models), or null. */
   globalModel(): Promise<AgentModel | null>;
+  /** Bounded preparation of Auto; no classifier dependency in offline automation fixtures. */
+  classifyReview?: (taskId: string, paseo: PaseoApi) => Promise<void>;
   clock?: () => number;
   /** Dispatcher period; the dispatcher also runs on every queue, stop, turn end and card move. */
   intervalMs?: number;
@@ -471,7 +472,16 @@ export class AutomationService {
   }
 
   /** Commits a turn decision; null when the job moved on meanwhile. */
-  private apply(seen: AutomationJob, agentId: string, endedAt: string, outcome: TurnOutcome) {
+  private async apply(seen: AutomationJob, agentId: string, endedAt: string, outcome: TurnOutcome) {
+    const snapshot = await this.store.read();
+    const candidate = snapshot.tasks.find((t) => t.id === seen.taskId);
+    const settings = automationOf(snapshot.projects.find((p) => p.id === seen.projectId));
+    if (candidate && settings?.reviewer && seen.role === "implementer" && outcome.kind === "completed" && candidate.status === "in_review") {
+      candidate.reviewClassification = withFallback(snapshot, candidate).reviewClassification;
+      const next = turnDecision(snapshot, seen, agentId, outcome, settings, this.clock());
+      if (next.kind === "review" || (next.kind === "deliver" && next.code === "review_rounds"))
+        await this.deps.classifyReview?.(seen.taskId, this.api());
+    }
     return this.store.transaction((board) => {
       const job = jobOf(board, seen.taskId);
       if (!job || !isLive(job) || !automationAllowed(board, job) || job.generation !== seen.generation || activeAgent(job) !== agentId || (job.turnAt && endedAt <= job.turnAt))
@@ -479,6 +489,9 @@ export class AutomationService {
       const latest = latestTurnEnd(board, seen.taskId, agentId);
       if (!latest || latest.at !== endedAt) return { value: null, changed: false };
       const settings = automationOf(board.projects.find((p) => p.id === job.projectId))!;
+      // Keyword fallback is prepared for shared turnDecision's round-cap calculation too.
+      const currentTask = board.tasks.find((t) => t.id === job.taskId)!;
+      currentTask.reviewClassification = withFallback(board, currentTask).reviewClassification;
       const decision = turnDecision(board, job, agentId, outcome, settings, this.clock());
       const task = board.tasks.find((t) => t.id === job.taskId)!;
       // Kept on the job: the card's history holds only its newest events, and later turns are compared with it (§3).

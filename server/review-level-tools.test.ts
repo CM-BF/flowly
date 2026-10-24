@@ -3,6 +3,7 @@ import { readFile, rm } from "node:fs/promises";
 import { agentFixture } from "./agent-fixture";
 import { BoardService } from "./service";
 import { ToolServer } from "./tool-server";
+import { updateTask } from "../shared/rpc";
 
 // AUTOMATION-SPEC §5.2.1, §5.2.7: agents give cards a review level, reviewers report risks; people set the level in the editor.
 const cleanups: (() => Promise<unknown>)[] = [];
@@ -57,7 +58,7 @@ test("flowly_update_card sets a direct sub-card's level alone or with start, and
   await expect(x.service.updateCard(x.identity, { ...(await x.request()), cardId: separate.cardId, review_level: "light" })).rejects.toMatchObject({ code: "NOT_PARENT" });
   expect((await x.card(child.cardId)).revision).toBe(after.revision);
   // With start: the level is set and the card leaves Backlog.
-  expect(await x.service.updateCard(x.identity, { ...(await x.request()), cardId: child.cardId, action: "start", review_level: "light" })).toMatchObject({ status: "todo" });
+  expect(await x.service.updateCard(x.identity, { ...(await x.request()), cardId: child.cardId, action: "start", review_level: "light" })).toMatchObject({ status: "todo", message: expect.stringMatching(/^Review level set to light\. /) });
   expect((await x.card(child.cardId)).reviewLevel).toBe("light");
   // auto removes it again.
   await x.service.updateCard(x.identity, { ...(await x.request()), cardId: child.cardId, review_level: "auto" });
@@ -143,9 +144,16 @@ test("get_task gives the card's review level and every sub-card's, set on the ca
   const auto = await x.service.createCard(x.identity, { ...(await x.request()), title: "Keep boards in a SQLite database" });
   const plain = await x.service.createCard(x.identity, { ...(await x.request()), title: "Copy edits" });
   const context = await x.service.get(x.identity);
-  expect(context.reviewLevel).toEqual({ level: "standard", set: false, why: "no tag or keyword calls for a deep or light review" });
+  expect(context.reviewLevel).toEqual({ level: "standard", set: false, why: "keyword fallback: no tag or keyword calls for a deep or light review" });
   const level = (id: string) => context.links.find((l) => l.taskId === id && l.relation === "sub_card")?.reviewLevel;
   expect(level(deep.cardId)).toEqual({ level: "deep", set: true, why: "it is set on the card" });
-  expect(level(auto.cardId)).toEqual({ level: "deep", set: false, why: 'its title mentions "database"' });
-  expect(level(plain.cardId)).toEqual({ level: "standard", set: false, why: "no tag or keyword calls for a deep or light review" });
+  expect(level(auto.cardId)).toEqual({ level: "deep", set: false, why: 'keyword fallback: its title mentions "database"' });
+  expect(level(plain.cardId)).toEqual({ level: "standard", set: false, why: "keyword fallback: no tag or keyword calls for a deep or light review" });
+});
+
+
+test("tasks.update rejects an invalid reviewLevel before any card, event or revision changes", async () => {
+  const x = await setup(); const before = await x.store.read();
+  await expect(async () => x.store.editTask(updateTask.input.parse({ id: "t", revision: (await x.card("t")).revision, reviewLevel: "enormous", actor: "human" }))).rejects.toThrow();
+  expect(await x.store.read()).toEqual(before);
 });

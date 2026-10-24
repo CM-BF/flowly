@@ -1,6 +1,12 @@
 import type { Catalog } from "../i18n";
 
 const catalog: Catalog = {
+  "{reason} (classified by {model})": "{reason} (clasificado por {model})",
+  "Auto: {level} — {reason} ({model})": "Auto: {level} — {reason} ({model})",
+  "Auto: {level} (keyword fallback), because {why}.": "Auto: {level} (alternativa por palabras clave), porque {why}.",
+  "Save changes to classify this card.": "Guarda los cambios para clasificar esta tarjeta.",
+  "Classifying…": "Clasificando…",
+  "Each card is reviewed at its level. Auto follows explicit levels and review tags, then asks the Summary models what this card changes. The result is reused until the card changes; keywords are only a fallback. Set a card's level in Edit task.": "Cada tarjeta se revisa según su nivel. Auto respeta los niveles explícitos y las etiquetas de revisión; después pide a los modelos de resumen que evalúen qué cambia esta tarjeta. El resultado se reutiliza hasta que la tarjeta cambie; las palabras clave son solo una alternativa. Puedes fijar el nivel en Editar tarea.",
   "The card's workspace is no longer available": "El espacio de trabajo de la tarjeta ya no está disponible",
   "Another session took over the card": "Otra sesión tomó el control de la tarjeta",
   "An ancestor card was cancelled, archived or removed": "Una tarjeta antecesora se canceló, archivó o eliminó",
@@ -1632,7 +1638,6 @@ const catalog: Catalog = {
   "Risks the reviewer noted beyond the acceptance criteria": "Riesgos fuera de los criterios de aceptación que anotó el revisor",
   "Rounds: Light {light} · Deep {deep}, panel of {size}": "Rondas: Ligera {light} · Profunda {deep}, panel de {size}",
   "Review levels": "Niveles de revisión",
-  "Each card is reviewed at its level. Auto picks it at every review round: Deep for the tags deep-review or foundation (also on a parent card) or terms such as database, schema, protocol, migration or permission; Light for the tag light-review; otherwise Standard, the reviews set above. Set a card's level in Edit task.": "Cada tarjeta se revisa según su nivel. Auto lo elige en cada ronda de revisión: Profunda con las etiquetas deep-review o foundation (también en una tarjeta superior) o términos como database, schema, protocol, migration o permission (en inglés o chino); Ligera con la etiqueta light-review; si no, Estándar, las revisiones configuradas arriba. El nivel de una tarjeta se cambia en Editar tarea.",
   "Light reviewer": "Revisor: Ligera",
   "Light cards get one reviewer, never a panel.": "Las tarjetas ligeras tienen un solo revisor, nunca un panel.",
   "Light rounds": "Rondas: Ligera",

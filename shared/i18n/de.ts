@@ -1,6 +1,12 @@
 import type { Catalog } from "../i18n";
 
 const catalog: Catalog = {
+  "{reason} (classified by {model})": "{reason} (eingestuft von {model})",
+  "Auto: {level} — {reason} ({model})": "Auto: {level} — {reason} ({model})",
+  "Auto: {level} (keyword fallback), because {why}.": "Auto: {level} (Schlüsselwort-Ersatz), weil {why}.",
+  "Save changes to classify this card.": "Änderungen speichern, um diese Karte einzustufen.",
+  "Classifying…": "Wird eingestuft…",
+  "Each card is reviewed at its level. Auto follows explicit levels and review tags, then asks the Summary models what this card changes. The result is reused until the card changes; keywords are only a fallback. Set a card's level in Edit task.": "Jede Karte wird auf ihrer Stufe geprüft. Auto beachtet explizite Stufen und Prüf-Tags und lässt dann die Zusammenfassungsmodelle beurteilen, was diese Karte ändert. Das Ergebnis bleibt gültig, bis sich die Karte ändert; Schlüsselwörter sind nur ein Ersatz. Die Stufe lässt sich unter Aufgabe bearbeiten festlegen.",
   "The card's workspace is no longer available": "Der Arbeitsbereich der Karte ist nicht mehr verfügbar",
   "Another session took over the card": "Eine andere Sitzung hat die Karte übernommen",
   "An ancestor card was cancelled, archived or removed": "Eine übergeordnete Karte wurde abgebrochen, archiviert oder entfernt",
@@ -1632,7 +1638,6 @@ const catalog: Catalog = {
   "Risks the reviewer noted beyond the acceptance criteria": "Risiken jenseits der Akzeptanzkriterien, die der Prüfer notiert hat",
   "Rounds: Light {light} · Deep {deep}, panel of {size}": "Runden: Leicht {light} · Gründlich {deep}, Panel mit {size}",
   "Review levels": "Prüfstufen",
-  "Each card is reviewed at its level. Auto picks it at every review round: Deep for the tags deep-review or foundation (also on a parent card) or terms such as database, schema, protocol, migration or permission; Light for the tag light-review; otherwise Standard, the reviews set above. Set a card's level in Edit task.": "Jede Karte wird auf ihrer Stufe geprüft. Auto wählt sie in jeder Prüfrunde: Gründlich bei den Tags deep-review oder foundation (auch auf einer übergeordneten Karte) oder Begriffen wie database, schema, protocol, migration oder permission (englisch oder chinesisch); Leicht beim Tag light-review; sonst Standard, die oben eingestellten Prüfungen. Die Stufe einer Karte legst du unter Aufgabe bearbeiten fest.",
   "Light reviewer": "Prüfer: Leicht",
   "Light cards get one reviewer, never a panel.": "Leichte Karten bekommen einen Prüfer, nie ein Panel.",
   "Light rounds": "Runden: Leicht",

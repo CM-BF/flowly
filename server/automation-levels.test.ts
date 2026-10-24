@@ -51,7 +51,7 @@ test("a Standard card is reviewed as before: same session, rounds and lens, plus
   expect(rev.prompt).toContain("Risks never block approval");
   expect(await x.job("a")).toMatchObject({ review: { level: "standard", reason: { kind: "default" }, max: 3, size: 1 } });
   expect((await x.job("a")).seat).toBeUndefined();
-  expect(await notes(x)).toEqual(["Standard review round 1 of 3; level standard: no tag or keyword calls for a deep or light review"]);
+  expect(await notes(x)).toEqual(["Standard review round 1 of 3; level standard: keyword fallback: no tag or keyword calls for a deep or light review"]);
 });
 
 test("Light never panels, runs on its own model and stops after its own cap", async () => {
@@ -80,14 +80,14 @@ test("Deep is a panel from round 1 on its model, with the fixed angles in order 
   );
   expect(panel).toMatchObject({ provider: "claude/claude-opus-5-5", modeId: "bypassPermissions", title: "Deep review: Card a", labels: { "flowly-automation": "reviewer" } });
   expect(panel.prompt).toContain("(deep review round 1 of 2, a panel review)");
-  expect(panel.prompt).toContain('Review level: deep, because its description mentions "database"');
+  expect(panel.prompt).toContain('Review level: deep, because keyword fallback: its description mentions "database"');
   expect(panel.prompt).toContain("every round, this one included, checks the delivery with 4 independent reviewers at once");
   expect(panel.prompt).toMatch(/1\. contract and correctness[\s\S]*2\. design and scale[\s\S]*3\. failure, data safety and security[\s\S]*4\. execution and integration/);
   expect(panel.prompt).not.toContain("5. integration");
   for (const question of designQuestions) expect(panel.prompt).toContain(question);
   expect(panel.prompt).not.toContain("Earlier rounds of this cycle requested changes");
   expect(await x.job("a")).toMatchObject({ panel: true, review: { level: "deep", reason: { kind: "keyword", keyword: "database", field: "description" }, max: 2, size: 4 } });
-  expect(await notes(x)).toEqual(['Deep review round 1 of 2 (panel of 4 reviewers); level deep: its description mentions "database"']);
+  expect(await notes(x)).toEqual(['Deep review round 1 of 2 (panel of 4 reviewers); level deep: keyword fallback: its description mentions "database"']);
   await rework(x, panel.agentId, impl);
   expect(x.sent.find((s) => s.agentId === impl)!.text).toContain("The review panel (4 reviewers) requested changes (deep review round 1 of 2):");
   // The same panel session reviews the next round, again as a panel.

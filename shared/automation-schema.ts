@@ -26,6 +26,7 @@ export const levelSettingsSchema = z.strictObject({
 export type LevelSettings = z.infer<typeof levelSettingsSchema>;
 /** Why a card's review has its level (§5.2.2). */
 export const levelReasonSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("classifier"), model: z.string().max(200), text: z.string().min(1).max(500) }),
   z.object({ kind: z.literal("card") }),
   z.object({ kind: z.literal("tag"), tag: z.string().max(64) }),
   z.object({ kind: z.literal("ancestor_tag"), tag: z.string().max(64), cardId: z.string().max(200), title: z.string().max(200) }),
@@ -34,6 +35,14 @@ export const levelReasonSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("default") }),
 ]);
 export type LevelReason = z.infer<typeof levelReasonSchema>;
+/** Derived cache; writes do not change the card's editing revision. */
+export const reviewClassificationSchema = z.object({
+  inputHash: z.string(),
+  status: z.enum(["pending", "ready", "failed"]),
+  at: z.string(),
+  fallback: z.object({ level: reviewLevelSchema, reason: levelReasonSchema }),
+  verdict: z.object({ level: reviewLevelSchema, reason: z.string().min(1).max(500), model: z.string().max(200) }).optional(),
+});
 /** A review round's plan, resolved when the round starts: level and why, the cycle's round cap and the round's reviewers. */
 export const reviewPlanSchema = z.object({
   level: reviewLevelSchema,

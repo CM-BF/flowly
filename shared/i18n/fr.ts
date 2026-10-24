@@ -1,6 +1,12 @@
 import type { Catalog } from "../i18n";
 
 const catalog: Catalog = {
+  "{reason} (classified by {model})": "{reason} (classé par {model})",
+  "Auto: {level} — {reason} ({model})": "Auto : {level} — {reason} ({model})",
+  "Auto: {level} (keyword fallback), because {why}.": "Auto : {level} (repli par mots-clés), car {why}.",
+  "Save changes to classify this card.": "Enregistrez les modifications pour classer cette carte.",
+  "Classifying…": "Classement en cours…",
+  "Each card is reviewed at its level. Auto follows explicit levels and review tags, then asks the Summary models what this card changes. The result is reused until the card changes; keywords are only a fallback. Set a card's level in Edit task.": "Chaque carte est examinée à son niveau. Auto respecte les niveaux explicites et les étiquettes de revue, puis demande aux modèles de résumé ce que cette carte modifie. Le résultat est réutilisé tant que la carte ne change pas ; les mots-clés ne servent que de repli. Le niveau peut être fixé dans Modifier la tâche.",
   "The card's workspace is no longer available": "L’espace de travail de la carte n’est plus disponible",
   "Another session took over the card": "Une autre session a repris la carte",
   "An ancestor card was cancelled, archived or removed": "Une carte ancêtre a été annulée, archivée ou supprimée",
@@ -1632,7 +1638,6 @@ const catalog: Catalog = {
   "Risks the reviewer noted beyond the acceptance criteria": "Risques au-delà des critères d’acceptation notés par le relecteur",
   "Rounds: Light {light} · Deep {deep}, panel of {size}": "Tours : Légère {light} · Approfondie {deep}, panel de {size}",
   "Review levels": "Niveaux de revue",
-  "Each card is reviewed at its level. Auto picks it at every review round: Deep for the tags deep-review or foundation (also on a parent card) or terms such as database, schema, protocol, migration or permission; Light for the tag light-review; otherwise Standard, the reviews set above. Set a card's level in Edit task.": "Chaque carte est relue à son niveau. Auto le choisit à chaque tour de revue : Approfondie pour les étiquettes deep-review ou foundation (aussi sur une carte parente) ou des termes comme database, schema, protocol, migration ou permission (en anglais ou en chinois) ; Légère pour l’étiquette light-review ; sinon Standard, les revues réglées ci-dessus. Le niveau d’une carte se règle dans Modifier la tâche.",
   "Light reviewer": "Relecteur : Légère",
   "Light cards get one reviewer, never a panel.": "Les cartes légères ont un seul relecteur, jamais de panel.",
   "Light rounds": "Tours : Légère",

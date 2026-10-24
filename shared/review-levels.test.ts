@@ -1,12 +1,10 @@
+import { deepKeyword, resolveReviewLevel, reviewPlan } from "../server/review-levels";
 import { describe, expect, test } from "vitest";
 import type { Board, Link, Task, Workpad } from "./model";
 import {
   automationSettingsSchema,
-  deepKeyword,
   levelChoice,
   levelRounds,
-  resolveReviewLevel,
-  reviewPlan,
   reviewStartNote,
   roundSeat,
   seatModel,
@@ -333,9 +331,9 @@ describe("Auto resolution", () => {
     expect(level(b, "a")).toEqual({ level: "deep", reason: { kind: "keyword", keyword: "丢失数据", field: "title" } });
   });
 
-  test("light-review counts only on the card itself, and only after every deep trigger", () => {
+  test("light-review counts only on the card itself and takes priority over keyword fallback", () => {
     expect(level(board([card("a", tagged("light-review"))]), "a")).toEqual({ level: "light", reason: { kind: "light_tag" } });
-    expect(level(board([card("a", { title: "Database index", ...tagged("light-review") })]), "a").level).toBe("deep");
+    expect(level(board([card("a", { title: "Database index", ...tagged("light-review") })]), "a").level).toBe("light");
   });
 
   test("the card editor's draft tags count before they are saved, typed like people type them", () => {
@@ -404,13 +402,13 @@ describe("levels in the project settings", () => {
 
   test("the review-start note always names the level and why, also for a Standard round without a trigger", () => {
     expect(reviewStartNote(1, { level: "standard", reason: { kind: "default" }, max: 3, size: 1 })).toBe(
-      "Standard review round 1 of 3; level standard: no tag or keyword calls for a deep or light review",
+      "Standard review round 1 of 3; level standard: keyword fallback: no tag or keyword calls for a deep or light review",
     );
     expect(reviewStartNote(3, { level: "standard", reason: { kind: "default" }, max: 3, size: 3 })).toBe(
-      "Standard review round 3 of 3 (panel of 3 reviewers); level standard: no tag or keyword calls for a deep or light review",
+      "Standard review round 3 of 3 (panel of 3 reviewers); level standard: keyword fallback: no tag or keyword calls for a deep or light review",
     );
     expect(reviewStartNote(1, { level: "deep", reason: { kind: "keyword", keyword: "database", field: "description" }, max: 3, size: 3 })).toBe(
-      'Deep review round 1 of 3 (panel of 3 reviewers); level deep: its description mentions "database"',
+      'Deep review round 1 of 3 (panel of 3 reviewers); level deep: keyword fallback: its description mentions "database"',
     );
     expect(reviewStartNote(2, { level: "light", reason: { kind: "light_tag" }, max: 2, size: 1 })).toBe("Light review round 2 of 2; level light: the card has the tag light-review");
     expect(reviewStartNote(1, { level: "standard", reason: { kind: "card" }, max: 3, size: 1 })).toBe("Standard review round 1 of 3; level standard: it is set on the card");

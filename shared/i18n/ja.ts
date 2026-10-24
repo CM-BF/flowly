@@ -1,6 +1,12 @@
 import type { Catalog } from "../i18n";
 
 const catalog: Catalog = {
+  "{reason} (classified by {model})": "{reason}（{model} が判定）",
+  "Auto: {level} — {reason} ({model})": "自動: {level} — {reason}（{model}）",
+  "Auto: {level} (keyword fallback), because {why}.": "自動: {level}（キーワードによる代替）、理由: {why}。",
+  "Save changes to classify this card.": "変更を保存すると、このカードを再判定します。",
+  "Classifying…": "判定中…",
+  "Each card is reviewed at its level. Auto follows explicit levels and review tags, then asks the Summary models what this card changes. The result is reused until the card changes; keywords are only a fallback. Set a card's level in Edit task.": "各カードは設定されたレベルでレビューされます。自動では明示的なレベルとレビュータグを優先し、要約モデルにこのカードが何を変更するかを判定させます。カードが変わるまで結果を再利用し、キーワードは代替手段としてのみ使います。タスクの編集でレベルを指定できます。",
   "The card's workspace is no longer available": "カードのワークスペースは利用できなくなりました",
   "Another session took over the card": "別のセッションがカードを引き継ぎました",
   "An ancestor card was cancelled, archived or removed": "上位カードがキャンセル、アーカイブ、または削除されました",
@@ -1632,7 +1638,6 @@ const catalog: Catalog = {
   "Risks the reviewer noted beyond the acceptance criteria": "レビュー担当が記録した受け入れ基準の範囲外のリスク",
   "Rounds: Light {light} · Deep {deep}, panel of {size}": "回数: 簡易 {light} · 徹底 {deep}（{size} 人のパネル）",
   "Review levels": "レビューレベル",
-  "Each card is reviewed at its level. Auto picks it at every review round: Deep for the tags deep-review or foundation (also on a parent card) or terms such as database, schema, protocol, migration or permission; Light for the tag light-review; otherwise Standard, the reviews set above. Set a card's level in Edit task.": "各カードはそのレベルでレビューされます。自動では毎回のレビューでレベルを決めます。タグ deep-review または foundation（上位のカードに付いている場合も含む）や、database・schema・protocol・migration・permission などの語（英語または中国語）があれば徹底、タグ light-review があれば簡易、それ以外は標準（上で設定したレビュー）です。カードのレベルは「タスクを編集」で設定できます。",
   "Light reviewer": "レビュー担当（簡易）",
   "Light cards get one reviewer, never a panel.": "簡易のカードはレビュー担当 1 人で、パネルにはなりません。",
   "Light rounds": "レビュー回数（簡易）",

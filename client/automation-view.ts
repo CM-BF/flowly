@@ -1,3 +1,4 @@
+import { classificationHash, type LevelBoard, type LevelCard } from "../shared/review-levels";
 import type { Project, Task } from "../shared/model";
 import {
   automationOf,
@@ -99,6 +100,8 @@ export function levelReasonText(reason: LevelReason): string {
           : t("its acceptance criteria mention {keyword}", { keyword: reason.keyword });
     case "light_tag":
       return t("the card has the tag {tag}", { tag: "light-review" });
+    case "classifier":
+      return t("{reason} (classified by {model})", { reason: reason.text, model: reason.model });
     case "default":
       return t("nothing calls for a deeper or lighter review");
   }
@@ -109,12 +112,12 @@ export function levelReasonText(reason: LevelReason): string {
  * round: Deep (…)" while it runs, else "Last review round: …"), and the next round's when the card resolves to another
  * level now (a person changed it in Edit task). `current`: the card's resolution now, null when no round will follow.
  */
-export function levelLines(job: Pick<AutomationJob, "state" | "review" | "reviewRounds">, current: { level: ReviewLevel; reason: LevelReason } | null): string[] {
+export function levelLines(job: Pick<AutomationJob, "state" | "role" | "review" | "reviewRounds">, current: { level: ReviewLevel; reason: LevelReason } | null): string[] {
   const plan = job.review;
   if (!plan || !job.reviewRounds) return [];
   const values = (p: { level: ReviewLevel; reason: LevelReason }) => ({ level: reviewLevelLabels[p.level], why: levelReasonText(p.reason) });
   return [
-    job.state === "reviewing" ? t("This review round: {level} ({why})", values(plan)) : t("Last review round: {level} ({why})", values(plan)),
+    (job.state === "reviewing" || (job.role === "reviewer" && ["needs_human", "retry_wait"].includes(job.state))) ? t("This review round: {level} ({why})", values(plan)) : t("Last review round: {level} ({why})", values(plan)),
     ...(current && current.level !== plan.level ? [t("Next review round: {level} ({why})", values(current))] : []),
   ];
 }
@@ -139,7 +142,20 @@ export const deepPanelNone = (settings: Pick<AutomationSettings, "panelReviewer"
 
 /** The card editor's hint under Auto: what Auto resolves to with the form's current text and tags, and why. */
 export const autoLevelHint = (resolved: { level: ReviewLevel; reason: LevelReason }) =>
-  t("Auto: {level}, because {why}.", { level: reviewLevelLabels[resolved.level], why: levelReasonText(resolved.reason) });
+  resolved.reason.kind === "classifier"
+    ? t("Auto: {level} — {reason} ({model})", { level: reviewLevelLabels[resolved.level], reason: resolved.reason.text, model: resolved.reason.model })
+    : resolved.reason.kind === "keyword" || resolved.reason.kind === "default"
+      ? t("Auto: {level} (keyword fallback), because {why}.", { level: reviewLevelLabels[resolved.level], why: levelReasonText(resolved.reason) })
+      : t("Auto: {level}, because {why}.", { level: reviewLevelLabels[resolved.level], why: levelReasonText(resolved.reason) });
+
+/** Draft edits never start helpers. Cache matching and pending state use the same inputs as the daemon. */
+export function autoLevelStatus(board: LevelBoard, card: LevelCard, resolved: { level: ReviewLevel; reason: LevelReason }) {
+  if (!["default", "keyword", "classifier"].includes(resolved.reason.kind)) return autoLevelHint(resolved);
+  if (card.reviewClassification && card.reviewClassification.inputHash !== classificationHash(board, card))
+    return t("Save changes to classify this card.");
+  if (card.reviewClassification?.status === "pending") return t("Classifying…");
+  return autoLevelHint(resolved);
+}
 
 /** What the card editor sends for the Review level choice: nothing unless it changed; Auto clears the card's level. */
 export function levelEdit(stored: ReviewLevel | undefined, chosen: ReviewLevel | "auto"): { reviewLevel?: ReviewLevel | null } {

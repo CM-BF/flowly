@@ -1,6 +1,12 @@
 import type { Catalog } from "../i18n";
 
 const catalog: Catalog = {
+  "{reason} (classified by {model})": "{reason} (classificado por {model})",
+  "Auto: {level} — {reason} ({model})": "Auto: {level} — {reason} ({model})",
+  "Auto: {level} (keyword fallback), because {why}.": "Auto: {level} (alternativa por palavras-chave), pois {why}.",
+  "Save changes to classify this card.": "Salve as alterações para classificar este cartão.",
+  "Classifying…": "Classificando…",
+  "Each card is reviewed at its level. Auto follows explicit levels and review tags, then asks the Summary models what this card changes. The result is reused until the card changes; keywords are only a fallback. Set a card's level in Edit task.": "Cada cartão é revisado no seu nível. Auto respeita os níveis explícitos e as etiquetas de revisão e depois pede aos modelos de resumo que avaliem o que este cartão altera. O resultado é reutilizado até o cartão mudar; palavras-chave são apenas uma alternativa. Defina o nível em Editar tarefa.",
   "The card's workspace is no longer available": "O espaço de trabalho do cartão não está mais disponível",
   "Another session took over the card": "Outra sessão assumiu o cartão",
   "An ancestor card was cancelled, archived or removed": "Um cartão ancestral foi cancelado, arquivado ou removido",
@@ -1632,7 +1638,6 @@ const catalog: Catalog = {
   "Risks the reviewer noted beyond the acceptance criteria": "Riscos além dos critérios de aceitação anotados pelo revisor",
   "Rounds: Light {light} · Deep {deep}, panel of {size}": "Rodadas: Leve {light} · Profunda {deep}, painel de {size}",
   "Review levels": "Níveis de revisão",
-  "Each card is reviewed at its level. Auto picks it at every review round: Deep for the tags deep-review or foundation (also on a parent card) or terms such as database, schema, protocol, migration or permission; Light for the tag light-review; otherwise Standard, the reviews set above. Set a card's level in Edit task.": "Cada card é revisado no seu nível. Auto o escolhe a cada rodada de revisão: Profunda para as tags deep-review ou foundation (também num card acima) ou termos como database, schema, protocol, migration ou permission (em inglês ou chinês); Leve para a tag light-review; senão Padrão, as revisões definidas acima. Defina o nível de um card em Editar tarefa.",
   "Light reviewer": "Revisor: Leve",
   "Light cards get one reviewer, never a panel.": "Cards leves têm um só revisor, nunca um painel.",
   "Light rounds": "Rodadas: Leve",

@@ -1,7 +1,9 @@
+import { classificationHash } from "../shared/review-levels";
+import { resolveReviewLevel } from "../server/review-levels";
 import { expect, test } from "vitest";
 import type { AutomationJob } from "../shared/automation";
-import { autoLevelHint, automationSignal, deepPanelNone, levelEdit, levelLines, levelReasonText, panelFields, reviewLevelLabels, reviewRoundText, risksHeading } from "./automation-view";
-import { automationSettingsSchema, resolveReviewLevel } from "../shared/automation";
+import { autoLevelHint, autoLevelStatus, automationSignal, deepPanelNone, levelEdit, levelLines, levelReasonText, panelFields, reviewLevelLabels, reviewRoundText, risksHeading } from "./automation-view";
+import { automationSettingsSchema } from "../shared/automation";
 import { setLocale, withLocale } from "../shared/i18n";
 import "../shared/i18n-all";
 
@@ -56,8 +58,8 @@ test("the card editor sends the level only when it changed, Auto as null, and sa
   expect(levelEdit("light", "auto")).toEqual({ reviewLevel: null });
   const board = { tasks: [], links: [], workpads: [] };
   const draft = { id: "a", title: "Save drafts", description: "Write them to a SQLite database", tags: [] };
-  expect(autoLevelHint(resolveReviewLevel(board, draft))).toBe("Auto: Deep, because its description mentions database.");
-  expect(autoLevelHint(resolveReviewLevel(board, { ...draft, description: "" }))).toBe("Auto: Standard, because nothing calls for a deeper or lighter review.");
+  expect(autoLevelHint(resolveReviewLevel(board, draft))).toBe("Auto: Deep (keyword fallback), because its description mentions database.");
+  expect(autoLevelHint(resolveReviewLevel(board, { ...draft, description: "" }))).toBe("Auto: Standard (keyword fallback), because nothing calls for a deeper or lighter review.");
 });
 
 test("the drawer's level lines say which round they describe, and the next round's level when the card changed since", () => {
@@ -100,4 +102,18 @@ test("Edit project keeps the panel model visible, since Deep cards use it, and D
   expect(panelFields(settings({}))).toEqual({ panelReviewer: true, panelSize: true, outOfReach: false });
   expect(deepPanelNone(settings({ panelReviewer: opus, panelAfter: null }))).toBe("Same as panel reviewer");
   expect(deepPanelNone(settings({}))).toBe("Same as reviewer");
+});
+
+
+test("the Auto hint distinguishes model output, pending, stale drafts and keyword fallback", () => {
+  setLocale("en");
+  const board = { tasks: [], links: [], workpads: [] };
+  const task = { id: "a", title: "UI", description: "", reviewClassification: { inputHash: "", status: "pending" as const, at: "", fallback: { level: "standard" as const, reason: { kind: "default" as const } } } };
+  task.reviewClassification.inputHash = classificationHash(board, task);
+  expect(autoLevelStatus(board, task, task.reviewClassification.fallback)).toBe("Classifying…");
+  expect(autoLevelStatus(board, { ...task, title: "new draft" }, task.reviewClassification.fallback)).toBe("Save changes to classify this card.");
+  expect(autoLevelHint({ level: "light", reason: { kind: "classifier", model: "one/a", text: "The card changes a label." } })).toBe("Auto: Light — The card changes a label. (one/a)");
+  for (const state of ["needs_human", "retry_wait"] as const) {
+    expect(levelLines(job({ state, role: "reviewer", review: { level: "light", reason: { kind: "card" }, max: 2, size: 1 } }), null)[0]).toBe("This review round: Light (set on the card)");
+  }
 });

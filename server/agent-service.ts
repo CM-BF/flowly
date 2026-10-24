@@ -1,3 +1,4 @@
+import { resolveReviewLevel } from "./review-levels";
 import { linkExtras, type LinkHandoff } from "./automation-handoff";
 import { resumeStage } from "./progress-rules";
 import { authorizeCardActor, authorizeCardCreation, checkStartable, refuseAbandonedTree, type AgentCardActor } from "./agent-card-guard";
@@ -79,7 +80,7 @@ import { automationAllowed, automationOf, isLive, jobOf, reviewerOfCard, reviews
 import { parentOf } from "../shared/links";
 import { createCardInputSchema, updateCardInputSchema, type CreateCardInput, type CreateCardResult, type UpdateCardInput } from "../shared/tools";
 import { taskInput, type Task, type TaskInput } from "../shared/model";
-import { reasonText, resolveReviewLevel, reviewLevelNote, type LevelBoard } from "../shared/review-levels";
+import { reasonText, reviewLevelNote, type LevelBoard } from "../shared/review-levels";
 import { existsSync } from "node:fs";
 
 /** A card's review level for get_task (AUTOMATION-SPEC §5.2.1): what it resolves to now, whether it is set on the card, and why. */

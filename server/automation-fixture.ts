@@ -79,6 +79,7 @@ export async function automationFixture(automation: Partial<AutomationSettings> 
   const prepared = new Map<string, string>();
   let failCreate = 0;
   const hooks: {
+    classifyReview?: (taskId: string) => Promise<void>;
     prepare?: (taskId: string, op: string, options?: { reviewer?: boolean }) => Promise<void>;
     /** Runs before each session refresh; return "missing" to report the session as not (yet) known. */
     refresh?: (id: string) => Promise<void | "missing">;
@@ -145,6 +146,7 @@ export async function automationFixture(automation: Partial<AutomationSettings> 
   let now = Date.parse(stamp);
   let globalModel: AgentModel | null = null;
   const deps = {
+    classifyReview: async (taskId: string) => hooks.classifyReview?.(taskId),
     clock: () => now,
     historyBytes: async (agent: { id?: string }) => (agent.id ? (hooks.history?.(agent.id) ?? null) : null),
     globalModel: async () => globalModel,

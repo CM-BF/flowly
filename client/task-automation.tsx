@@ -228,7 +228,7 @@ function LevelSettingsGroup({ current, set, cwd }: { current: AutomationSettings
     <Disclosure title={t("Review levels")} summary={summary} open={open} onChange={setOpen}>
       <View style={{ gap: space[3] }}>
         <Label muted size={font.sm}>
-          {t("Each card is reviewed at its level. Auto picks it at every review round: Deep for the tags deep-review or foundation (also on a parent card) or terms such as database, schema, protocol, migration or permission; Light for the tag light-review; otherwise Standard, the reviews set above. Set a card's level in Edit task.")}
+          {t("Each card is reviewed at its level. Auto follows explicit levels and review tags, then asks the Summary models what this card changes. The result is reused until the card changes; keywords are only a fallback. Set a card's level in Edit task.")}
         </Label>
         <ModelDefaultGroup execution cwd={cwd}
           title={t("Light reviewer")}

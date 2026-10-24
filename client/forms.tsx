@@ -26,7 +26,7 @@ import { isLegacyScope } from "../shared/scope";
 import { AgentPicker, useAgentChoice, type AgentDefaults } from "./agent-choice";
 import { ModelDefaultGroup } from "./model-default";
 import { AutomationSettingsGroup } from "./task-automation";
-import { autoLevelHint, levelEdit, reviewLevelLabels } from "./automation-view";
+import { autoLevelStatus, levelEdit, reviewLevelLabels } from "./automation-view";
 import type { AutomationSettings } from "../shared/automation-schema";
 import { agentModelFromValues, startingAgent, type AgentModel } from "../shared/agent-defaults";
 import { modelSettings, modelSettingsValues } from "../shared/settings";
@@ -541,7 +541,7 @@ export function TaskForm({
   );
   // What Auto resolves to with the form's current title, description and tags (AUTOMATION-SPEC §5.2.5).
   const autoLevel = useMemo(
-    () => (task && board.data ? resolveReviewLevel(board.data, { id: task.id, title, description, tags }) : null),
+    () => (task && board.data ? resolveReviewLevel(board.data, { ...task, reviewLevel: undefined, title, description, tags }) : null),
     [task, board.data, title, description, tags],
   );
   const addTags = useStableCallback((values: string[]) => setTags((current) => [...current, ...values.filter((v) => !current.includes(v))]));
@@ -726,7 +726,7 @@ export function TaskForm({
                 onChange={setReviewLevel}
               />
               {reviewLevel === "auto" && autoLevel && (
-                <Label muted size={font.sm}>{autoLevelHint(autoLevel)}</Label>
+                <Label muted size={font.sm}>{autoLevelStatus(board.data!, { ...task!, title, description, tags }, autoLevel)}</Label>
               )}
             </View>
           )}

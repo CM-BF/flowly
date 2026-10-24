@@ -1,6 +1,12 @@
 import type { Catalog } from "../i18n";
 
 const catalog: Catalog = {
+  "{reason} (classified by {model})": "{reason}（由 {model} 判斷）",
+  "Auto: {level} — {reason} ({model})": "自動：{level} — {reason}（{model}）",
+  "Auto: {level} (keyword fallback), because {why}.": "自動：{level}（關鍵字備援），因為{why}。",
+  "Save changes to classify this card.": "儲存變更後將重新判斷這張卡片。",
+  "Classifying…": "正在判斷…",
+  "Each card is reviewed at its level. Auto follows explicit levels and review tags, then asks the Summary models what this card changes. The result is reused until the card changes; keywords are only a fallback. Set a card's level in Edit task.": "每張卡片依其級別審查。自動模式先遵循明確級別和審查標籤，再由摘要模型判斷這張卡片要改什麼。卡片內容不變就重用結果；關鍵字僅作為模型無法使用時的備援。在編輯任務中可自行設定級別。",
   "The card's workspace is no longer available": "卡片的工作區已無法使用",
   "Another session took over the card": "另一個工作階段接管了卡片",
   "An ancestor card was cancelled, archived or removed": "祖先卡片已取消、封存或移除",
@@ -1632,7 +1638,6 @@ const catalog: Catalog = {
   "Risks the reviewer noted beyond the acceptance criteria": "審查者記錄的驗收標準之外的風險",
   "Rounds: Light {light} · Deep {deep}, panel of {size}": "輪次：輕量 {light} · 深度 {deep}，{size} 人小組",
   "Review levels": "審查級別",
-  "Each card is reviewed at its level. Auto picks it at every review round: Deep for the tags deep-review or foundation (also on a parent card) or terms such as database, schema, protocol, migration or permission; Light for the tag light-review; otherwise Standard, the reviews set above. Set a card's level in Edit task.": "每張卡片依它的級別審查。自動會在每輪審查開始時選級別：有 deep-review 或 foundation 標籤（上層卡片有也算），或提到資料庫、表結構、協定、資料遷移、權限這類詞（中英文都算，如 database、schema）時為深度；有 light-review 標籤時為輕量；否則為標準，即上面設定的審查。卡片的級別在「編輯任務」裡設定。",
   "Light reviewer": "輕量審查者",
   "Light cards get one reviewer, never a panel.": "輕量卡片只有一位審查者，從不組成小組。",
   "Light rounds": "輕量審查輪次",

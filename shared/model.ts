@@ -3,7 +3,7 @@ import { agentModelSchema } from "./agent-defaults";
 import { connectorLimits, externalRefSchema, itemTypeSchema } from "./connectors";
 import { z } from "zod";
 import { attentionDismissLimits, attentionDismissalSchema } from "./attention-dismiss";
-import { automationJobSchema, automationSettingsSchema, reviewLevelSchema } from "./automation-schema";
+import { automationJobSchema, automationSettingsSchema, reviewLevelSchema, reviewClassificationSchema } from "./automation-schema";
 
 export const statuses = [
   "backlog",
@@ -152,6 +152,7 @@ export const taskSchema = z.object({
   createdByAgent: z.object({ agentId: z.string(), taskId: z.string() }).optional(),
   /** How hard agent automation reviews the card (AUTOMATION-SPEC §5.2); absent: Auto. */
   reviewLevel: reviewLevelSchema.optional(),
+  reviewClassification: reviewClassificationSchema.optional(),
 });
 /** A follow-up an agent proposed on its card; the user may turn it into a card (IDEAS-SPEC). */
 export const ideaStatuses = ["open", "accepted", "dismissed"] as const;

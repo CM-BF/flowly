@@ -1,6 +1,12 @@
 import type { Catalog } from "../i18n";
 
 const catalog: Catalog = {
+  "{reason} (classified by {model})": "{reason} ({model}에서 분류)",
+  "Auto: {level} — {reason} ({model})": "자동: {level} — {reason} ({model})",
+  "Auto: {level} (keyword fallback), because {why}.": "자동: {level} (키워드 대체), 이유: {why}.",
+  "Save changes to classify this card.": "변경 내용을 저장하면 이 카드를 분류합니다.",
+  "Classifying…": "분류 중…",
+  "Each card is reviewed at its level. Auto follows explicit levels and review tags, then asks the Summary models what this card changes. The result is reused until the card changes; keywords are only a fallback. Set a card's level in Edit task.": "각 카드는 해당 수준으로 검토합니다. 자동은 명시된 수준과 검토 태그를 우선한 뒤 요약 모델에 이 카드가 무엇을 변경하는지 판단하도록 요청합니다. 카드가 바뀔 때까지 결과를 재사용하며 키워드는 대체 수단으로만 사용합니다. 작업 편집에서 수준을 지정할 수 있습니다.",
   "The card's workspace is no longer available": "카드의 작업 공간을 더 이상 사용할 수 없습니다",
   "Another session took over the card": "다른 세션이 카드를 인계받았습니다",
   "An ancestor card was cancelled, archived or removed": "상위 카드가 취소, 보관 또는 제거되었습니다",
@@ -1632,7 +1638,6 @@ const catalog: Catalog = {
   "Risks the reviewer noted beyond the acceptance criteria": "검토 담당이 기록한 인수 기준 밖의 위험",
   "Rounds: Light {light} · Deep {deep}, panel of {size}": "횟수: 간단 {light} · 심층 {deep} ({size}명 패널)",
   "Review levels": "검토 수준",
-  "Each card is reviewed at its level. Auto picks it at every review round: Deep for the tags deep-review or foundation (also on a parent card) or terms such as database, schema, protocol, migration or permission; Light for the tag light-review; otherwise Standard, the reviews set above. Set a card's level in Edit task.": "각 카드는 해당 수준으로 검토됩니다. 자동은 검토할 때마다 수준을 정합니다. deep-review 또는 foundation 태그(상위 카드에 있어도 포함)나 database, schema, protocol, migration, permission 같은 용어(영어 또는 중국어)가 있으면 심층, light-review 태그가 있으면 간단, 그 밖에는 표준(위에서 설정한 검토)입니다. 카드의 수준은 작업 편집에서 정합니다.",
   "Light reviewer": "검토 담당(간단)",
   "Light cards get one reviewer, never a panel.": "간단 카드는 검토 담당 1명이 맡고 패널은 쓰지 않습니다.",
   "Light rounds": "검토 횟수(간단)",
