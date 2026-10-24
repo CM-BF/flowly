@@ -1,6 +1,6 @@
 # Card display: calmer layout and user-chosen fields
 
-Status: implemented 2026-10-19. Card: 任务卡片布局调整. Amended 2026-10-24 by [CARD-TREE-SPEC](CARD-TREE-SPEC.md) (parent breadcrumb, Held, sub-card roll-up; specified, not implemented yet).
+Status: implemented 2026-10-19. Card: 任务卡片布局调整. Amended 2026-10-24 by [CARD-TREE-SPEC](CARD-TREE-SPEC.md) (parent breadcrumb, Held, sub-card roll-up; implemented 2026-10-24, Web UI not verified yet).
 
 ## 1. Problem
 

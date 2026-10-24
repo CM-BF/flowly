@@ -99,6 +99,9 @@ export const CardTreePage = memo(function CardTreePage({
   const { colors } = useTheme();
   const reduced = useReducedMotion();
   const settled = useSettled(`tree|${project.id}`);
+  // Timing log: the render that mounts the outline, to its commit.
+  const mountStart = settled ? perfStart() : 0;
+  useEffect(() => perfEnd("tree.mount", mountStart), [settled]);
   const inScope = useMemo(() => scopeOf(tree, showArchived), [tree, showArchived]);
   // Chevron choices for this visit; changing project or Levels starts over (like Show older).
   const [overrides, setOverrides] = useState<ReadonlyMap<string, boolean>>(() => new Map());

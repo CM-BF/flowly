@@ -65,7 +65,7 @@ Status: implemented 2026-10-19 (user choice: automatic by parent, option 1). Car
 
 ## Dependencies section
 
-Status: specified 2026-10-24 by [CARD-TREE-SPEC](CARD-TREE-SPEC.md) §2.6 (user request: "card dependencies are hard to see"); not implemented yet.
+Status: specified 2026-10-24 by [CARD-TREE-SPEC](CARD-TREE-SPEC.md) §2.6 (user request: "card dependencies are hard to see"); implemented 2026-10-24 (`client/task-dependencies.tsx`), Web UI not verified yet.
 
 1. A movable section `dependencies` (`shared/drawer-sections.ts`), open by default, after Ideas and before Links. Stored orders get it inserted by `drawerSectionOrder` (after Ideas, or after the closest earlier section the stored list has); a stored open/closed choice wins.
 2. Shown only when the card has a parent, sub-cards or `blocks` links. Collapsed summary: "Waits for {n} · Blocks {n}".

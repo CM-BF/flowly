@@ -141,7 +141,7 @@ Findings:
 
 Checked and left as is: `board.read.same` (200–700 ms on the phone, mostly the relay round trip; the response is tiny, so it does not load the JS thread) and `board.render` (about 80 ms per board change, also for a two-card lane). A per-card derivation cache keyed by each card's own events and sessions was tried and reverted: no measurable change, so the cost is elsewhere (candidates: the O(events) passes over the 2840 events per board change, the header counts); it needs a profiler run, not a guess.
 
-### Follow-up: card tree budget (CARD-TREE-SPEC, specified 2026-10-24, not implemented yet)
+### Follow-up: card tree budget (CARD-TREE-SPEC, implemented 2026-10-24; phone timings not measured yet)
 
 The Card tree page, board Levels and the drawer's Dependencies section ([CARD-TREE-SPEC](CARD-TREE-SPEC.md) §5) add no RPC, poll, dependency or static table. Budget and rules:
 

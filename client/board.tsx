@@ -71,7 +71,7 @@ import { useBoardQuery, useLiveAgents, useMemoryCountsQuery, useResourcesQuery, 
 import { useStableCallback, useStableTheme } from "./stable";
 import { isLegacyScope } from "../shared/scope";
 import { LaneList } from "./lane-list";
-import { perfConfigure, perfEnd, perfMark, perfStart, usePerfRender } from "./perf";
+import { perfConfigure, perfEnd, perfLap, perfMark, perfStart, usePerfRender } from "./perf";
 import { laneRows, sameRows } from "./lane-rows";
 import { LiveTaskCard, type CardDrag, type LiveTaskCardProps } from "./card";
 import { useAutomationActions } from "./task-automation";
@@ -587,6 +587,8 @@ function BoardContent(
   );
   const toggleLevelLane = (status: Status) =>
     setLevelLanes((shown) => (shown.includes(status) ? shown.filter((s) => s !== status) : [...shown, status]));
+  // Timing log: a Levels choice to the board rendered with it.
+  useEffect(() => perfLap("levels.change", "levels.change", true), [levels?.level]);
   const setLevel = (level: Level) => {
     if (!project || !board) return;
     perfMark("levels.change");
@@ -1119,6 +1121,12 @@ function BoardContent(
     );
   });
   const setLevelStable = useStableCallback((level: Level) => setLevel(level));
+  // A chain highlight lasts while the page is open; another project or leaving the page drops it.
+  useEffect(() => {
+    if (page === "tree") return;
+    setTreeChain(null);
+    setTreeFocus(null);
+  }, [page]);
   useEffect(() => {
     setTreeChain(null);
     setTreeFocus(null);
@@ -1510,6 +1518,11 @@ function BoardContent(
     const parsed = parseBoardIntent(props.params);
     if (!parsed || consumedIntents.has(parsed.key)) return;
     consumedIntents.add(parsed.key);
+    // "Flowly: Open card tree" opens the page; only the T key toggles it.
+    if (parsed.intent === "tree") {
+      if (project) setPage("tree");
+      return;
+    }
     runIntent(parsed.intent);
   }, [props.params?.intent, props.params?.at, data.isPending]);
   // A sub-card's row says which card it belongs to (CARD-TREE-SPEC §2.4).

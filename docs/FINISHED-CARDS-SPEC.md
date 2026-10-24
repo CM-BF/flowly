@@ -8,7 +8,7 @@ Status: implemented on the user's request (card `5b2c9cd2`, "UI/UX细节优化",
 
 This is presentation only. No board data, RPC, revision or native resource changes.
 
-Amended 2026-10-24 by [CARD-TREE-SPEC](CARD-TREE-SPEC.md) §2.3 (board Levels, specified, not implemented yet): the order in which the board narrows its cards and how lanes count them (§3).
+Amended 2026-10-24 by [CARD-TREE-SPEC](CARD-TREE-SPEC.md) §2.3 (board Levels, implemented 2026-10-24): the order in which the board narrows its cards and how lanes count them (§3).
 
 ## 1. Attention dropdown (desktop)
 

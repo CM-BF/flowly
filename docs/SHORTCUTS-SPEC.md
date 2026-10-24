@@ -1,6 +1,6 @@
 # F4 桌面快捷键 — 增量 spec（2026-10-15）
 
-修订：2026-10-24 按当前代码（`client/shortcuts.ts`、`index.client.tsx`）补齐后来加入的 I/B/M/E/⇧H/⇧L、Welcome tour 条目与 5 秒的 intent 有效期；并加入卡片树的 `T` 与 Levels 的 `1` `2` `3` `0`（[CARD-TREE-SPEC](CARD-TREE-SPEC.md)，规定未实现）。Command Center 条目的前缀随改名为 `Flowly:`。
+修订：2026-10-24 按当前代码（`client/shortcuts.ts`、`index.client.tsx`）补齐后来加入的 I/B/M/E/⇧H/⇧L、Welcome tour 条目与 5 秒的 intent 有效期；并加入卡片树的 `T` 与 Levels 的 `1` `2` `3` `0`（[CARD-TREE-SPEC](CARD-TREE-SPEC.md)，2026-10-24 已实现；Command Center 条目打开卡片树，`T` 切换）。Command Center 条目的前缀随改名为 `Flowly:`。
 
 ## 1. 调研结论（Paseo 0.11.2）
 

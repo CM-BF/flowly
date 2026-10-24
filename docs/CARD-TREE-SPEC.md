@@ -1,6 +1,6 @@
 # 卡片树：分层查看子卡片与 blocks 依赖（CARD-TREE-SPEC）
 
-状态：2026-10-24 用户提出，设计已评审（大纲优先方案），§1.2 的三项决定由用户于 2026-10-24 定为默认值。Stage 1：spec 已写，未实现。用户原话：
+状态：2026-10-24 用户提出，设计已评审（大纲优先方案），§1.2 的三项决定由用户于 2026-10-24 定为默认值。Stage 1 写 spec，Stage 2 纯模型，Stage 3 界面已实现（§1.5）；Web UI、真机未验证。用户原话：
 
 1. “Card dependencies are hard to see. We have card/sub-card relations, but the blocking relations between cards are not clear to me. I suggest a DAG or another way to show their relations.”
 2. “I expect sub-cards within sub-cards, nested level after level from the whole to the parts. Add a way to hide sub-cards, e.g. hide sub-cards below level 1/2/3, so that I can clearly run several items in one project.”
@@ -55,6 +55,18 @@
 8. `saveMerged`（`client/board-view.ts`）现在只接受对象补丁；`subCardLevels` 需要在重新读到的文档上重建 record，所以 `saveMerged`/`useBoardView().update` 增加函数补丁 `(base) => Partial<BoardView>`。
 9. `automationSignal(job, task)`（`client/task-automation.tsx`）不读看板；拆分排队芯片需要传入该卡的 blocker 状态（`blockerIndex` 的结果，§3）。
 10. 卡片树页的列表用 host `FlatList`，检测写 `!!FlatList`（同 `client/session-transcript.tsx` 的注释：host 的 FlatList 可能是 memo/forwardRef 对象），不用 `client/lane-list.tsx` 的 `typeof FlatList !== "function"`。后者可能让手机上的泳道列表静默退回普通 ScrollView，本功能不改它，记入 PROGRESS 待真机核实。
+
+### 1.5 Stage 3 实现说明（2026-10-24，相对 §2 的细节调整）
+
+1. **Attention 行的父卡**：`Row` 只有一行 detail，所以 “in {title}” 作为 detail 的前缀（“in Main · Project · Lane · …”），不是单独一行。
+2. **waits-for 芯片里的 stuck**：只在这张卡被 Held（有 queued job）时显示 “… · Cancelled/Archived, holds this”。没有排队 job 时，Cancelled 或归档的 blocker 按 §1.2 第 3 条视为已解决，不显示芯片。
+3. **步骤连线**：只画在相邻的兄弟行之间（前一张的子卡片收起时）。前一张展开时，中间是它的子卡片，连线不穿过它们，结构由树轨表示。
+4. **Command Center** 的 “Flowly: Open card tree” 总是打开页面；`T` 和 Tree 芯片是切换。
+5. **keep**：被 Levels 隐藏的卡拖不起来，所以 keep 里放的是“刚放下的卡”（泳道底部展开后拖到别的泳道的卡），本次访问内保持可见，不是“正在拖拽的卡”。
+6. **链路高亮栏**与图例共用头部下的一行（同高），高亮时换成 “Chain of {title} · {n} before · {n} after · Clear”，所以不会造成布局跳动。离开页面或切换项目时清除高亮。
+7. **卡片树页的 Levels**：桌面 `Choices` 的选项文字为 “1 / 2 / 3 / All”；compact 用与看板芯片相同的菜单。
+8. **Dependencies 邻域图**：按 §2.6 的 420 pt 阈值，默认 440 pt 宽的侧栏（内容约 408 pt）显示竖排；侧栏拉宽后才是三列。
+9. **perf 名称**：`tree.build`、`tree.flags`、`tree.rows`、`tree.mount`（挂载大纲那次渲染到提交）、`drawer.deps.mount`、`levels.change`（选择 Levels 到看板按新值渲染）都已记录，数字待真机测量。
 
 ## 2. 行为
 
