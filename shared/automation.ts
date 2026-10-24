@@ -609,29 +609,52 @@ export const designQuestions = [
   "Which security or permission boundary does it touch?",
 ];
 
-/** The angles of a Deep panel, in this order (§5.2.3); a panel of n takes the first n. */
-const deepFocuses = [
-  "contract and correctness: the card's acceptance criteria, every change requested in earlier rounds and every comment, and whether the code does what it claims on every input, not only the tested ones",
-  `design and scale: answer each of these questions with evidence from the code (file and line), every round: ${designQuestions.map((q, i) => `(${i + 1}) ${q}`).join(" ")} A question the code cannot answer is a finding when it must block the delivery, else a risk`,
-  "failure, data safety and security: errors, crashes and restarts mid-operation, retries, races, partial writes, data loss, and every permission, credential or trust boundary the change touches",
-  "execution: run the build, the tests and the reported behavior, and verify each claim of the delivery",
-  "integration and regressions: callers and users of the changed code, other cards' work, and upgrades from the data and versions already in use",
-];
+/**
+ * The angles of a Deep panel, in this order (§5.2.3): contract, design and scale, failure and safety, then execution
+ * and integration as one angle for a panel of four, split in two for a panel of five.
+ */
+const deepAngles = {
+  contract:
+    "contract and correctness: the card's acceptance criteria, every change requested in earlier rounds and every comment, and whether the code does what it claims on every input, not only the tested ones",
+  design: `design and scale: answer each of these questions with evidence from the code (file and line), every round: ${designQuestions.map((q, i) => `(${i + 1}) ${q}`).join(" ")} A question the code cannot answer is a finding when it must block the delivery, else a risk`,
+  failure:
+    "failure, data safety and security: errors, crashes and restarts mid-operation, retries, races, partial writes, data loss, and every permission, credential or trust boundary the change touches",
+  executionAndIntegration:
+    "execution and integration: run the build, the tests and the reported behavior and verify each claim of the delivery; then check callers and users of the changed code, other cards' work, and upgrades from the data and versions already in use",
+  execution: "execution: run the build, the tests and the reported behavior, and verify each claim of the delivery",
+  integration: "integration and regressions: callers and users of the changed code, other cards' work, and upgrades from the data and versions already in use",
+};
+const deepFocuses = (reviewers: number) =>
+  reviewers >= 5
+    ? [deepAngles.contract, deepAngles.design, deepAngles.failure, deepAngles.execution, deepAngles.integration]
+    : [deepAngles.contract, deepAngles.design, deepAngles.failure, deepAngles.executionAndIntegration].slice(0, reviewers);
 
 /** Every round of every level asks for risks the acceptance criteria do not cover (§5.2.4). */
 const risksRequest = [
   "Look beyond the acceptance criteria too: they may not cover everything that matters. Report the risks they do not cover in risks: data or memory that grows over time, a cost per operation that grows with history, cleanup of old data, upgrades of formats or schemas, recovery after failures and crashes, security and permissions, and interactions with other cards' work.",
-  'Write each risk as one plain sentence saying what could go wrong, when, and how bad (for example: "Every change appends the whole state to the journal and nothing is ever removed, so after a few thousand edits it reaches gigabytes and every start reads all of it."). List every risk you still see, also ones you reported in earlier rounds: Flowly keeps only your latest list, shows it on the card and gives it to the parent card. Risks never block approval; if one must block the delivery, request changes with it as a finding instead.',
+  'Write each risk as one plain sentence saying what could go wrong, when, and how bad (for example: "Every change appends the whole state to the journal and nothing is ever removed, so after a few thousand edits it reaches gigabytes and every start reads all of it."). List every risk you still see: Flowly keeps only the latest list, shows it on the card and gives it to the parent card. Send at most 10 risks, each under 500 characters: merge related ones and keep the most serious. Risks never block approval; if one must block the delivery, request changes with it as a finding instead.',
 ].join(" ");
+
+/** Risks a verdict of an earlier round reported (§5.2.4), handed to the reviewer of every later round. */
+export type EarlierRisks = { round?: number; risks: readonly string[] };
+function earlierRisksText(earlier: EarlierRisks) {
+  return [
+    `Risks reported in ${earlier.round ? `review round ${earlier.round}` : "an earlier review round"} (card data, possibly from another reviewer session):`,
+    ...earlier.risks.map((r) => `- ${r}`),
+    "Flowly replaces this list with the one you send, so list again each one that still applies; leave out the ones the delivery fixed.",
+  ].join("\n");
+}
 
 /**
  * The reviewer's instruction for one round; `reviewers` above 1 makes it a panel round (§5.1). `level` and `why`
  * (§5.2): a Light round is serial on its own cap, a Deep round is a panel with fixed angles from the first round.
+ * `earlier`: the risks earlier rounds reported, which a reviewer session new to this card has never seen.
  */
-export function reviewPrompt(round: number, max: number, reviewers = 1, level: ReviewLevel = "standard", why?: string) {
+export function reviewPrompt(round: number, max: number, reviewers = 1, level: ReviewLevel = "standard", { why, earlier }: { why?: string; earlier?: EarlierRisks } = {}) {
   const panel = reviewers > 1;
   const deep = level === "deep" && panel;
   const kind = level === "standard" ? "review" : `${level} review`;
+  const handOn = earlier?.risks.length ? ", and the risks reported in earlier rounds listed above" : "";
   return [
     `${tag} You are the reviewer of this card (${kind} round ${round} of ${max}${panel ? ", a panel review" : ""}). The implementer delivered it to In review. Verify it independently; you review, you do not take over the implementation.`,
     level === "standard"
@@ -640,11 +663,12 @@ export function reviewPrompt(round: number, max: number, reviewers = 1, level: R
         ? `Review level: deep${why ? `, because ${why}` : ""}. Deep review is for foundation work (storage formats, schemas, protocols, external interfaces, security, data migrations, concurrency): later cards build on it, so its design mistakes are the most expensive to fix afterwards.`
         : `Review level: light${why ? `, because ${why}` : ""}: one reviewer and at most ${max} rounds; check it as carefully as any other card.`,
     "Read flowly_get_task: the card, its workpad (acceptance criteria and checks), the people's comments (what they asked for counts like the card's requirements) and the delivery note in its activity. Inspect the actual changes in this workspace (git status, git diff, git log) and run the relevant checks.",
+    earlier?.risks.length ? earlierRisksText(earlier) : "",
     panel
       ? [
           `${deep ? `This card gets a deep review, so every round, this one included, checks the delivery with ${reviewers} independent reviewers at once.` : `Earlier rounds of this cycle requested changes${round > 1 ? ` (${round - 1} so far)` : ""} or the project reviews every round this way, so this round checks the delivery with ${reviewers} independent reviewers at once instead of one more serial pass.`} Start them in parallel with your subagent tool, in the foreground, and wait for all of them in this same turn (in Claude Code: ${reviewers} Agent calls in one message, not in the background); do not end your turn before you call flowly_submit_review (or ask a person with flowly_report_progress kind=question when only they can decide): a turn that ends with neither counts as an unfinished review. One reviewer per focus:`,
-          ...(deep ? deepFocuses : panelFocuses).slice(0, reviewers).map((focus, i) => `${i + 1}. ${focus}.`),
-          "Give each the card id, this workspace's path and its focus, plus what you read in flowly_get_task: the acceptance criteria, the delivery note, every change requested in earlier rounds and the people's comments. Tell it to report findings with file, problem and evidence, and risks the acceptance criteria do not cover as plain sentences; they only read and run checks, never edit files or call Flowly tools. If you cannot start subagents, review from each focus in turn yourself, independently. Then confirm each finding yourself (drop what you cannot reproduce or point to), merge duplicates and send every confirmed finding at once: the implementer gets one complete list instead of one problem per round.",
+          ...(deep ? deepFocuses(reviewers) : panelFocuses.slice(0, reviewers)).map((focus, i) => `${i + 1}. ${focus}.`),
+          `Give each the card id, this workspace's path and its focus, plus what you read in flowly_get_task: the acceptance criteria, the delivery note, every change requested in earlier rounds and the people's comments${handOn}. Tell it to report findings with file, problem and evidence, and risks the acceptance criteria do not cover as plain sentences; they only read and run checks, never edit files or call Flowly tools. If you cannot start subagents, review from each focus in turn yourself, independently. Then confirm each finding yourself (drop what you cannot reproduce or point to), merge duplicates and send every confirmed finding at once: the implementer gets one complete list instead of one problem per round. Merge the risks they report the same way: drop duplicates and keep the most serious, at most 10.`,
         ].join("\n")
       : lenses[Math.min(round, lenses.length) - 1],
     risksRequest,
@@ -669,13 +693,13 @@ export function changesPrompt(round: number, max: number, summary: string, findi
 }
 
 /** One line per sub-card for the parent's wake-up message: where it is and what automation made of it. */
-export type SubCardLine = { id: string; title: string; lane: string; job?: Pick<AutomationJob, "state" | "verdict" | "code">; branch?: string; directory?: string; evidence?: string; blockers?: string[]; risks?: string[] };
+export type SubCardLine = { id: string; title: string; lane: string; job?: Pick<AutomationJob, "state" | "verdict" | "code">; branch?: string; directory?: string; evidence?: string; blockers?: string[]; risks?: string[]; risksNote?: string };
 
 export function childrenPrompt(lines: readonly SubCardLine[]) {
   const describe = (l: SubCardLine) => {
     const auto = l.job ? `automation ${l.job.state}${l.job.verdict ? `, review ${l.job.verdict}` : ""}${l.job.code ? ` (${l.job.code})` : ""}` : "not run by automation";
     const where = `${l.branch ? `; branch ${l.branch}` : ""}${l.directory ? `; directory ${l.directory}` : ""}`;
-    return `- ${l.title} (${l.id}): ${l.lane}; ${auto}${where}${l.blockers?.length ? `; held by ${l.blockers.join(", ")}` : ""}${l.evidence ? `\n  Delivery evidence (card data): ${l.evidence}` : ""}${l.risks?.length ? `\n  Reviewer risks beyond the acceptance criteria (card data): ${JSON.stringify(l.risks)}` : ""}`;
+    return `- ${l.title} (${l.id}): ${l.lane}; ${auto}${where}${l.blockers?.length ? `; held by ${l.blockers.join(", ")}` : ""}${l.evidence ? `\n  Delivery evidence (card data): ${l.evidence}` : ""}${l.risks?.length ? `\n  Reviewer risks beyond the acceptance criteria (card data${l.risksNote ? `, ${l.risksNote}` : ""}): ${JSON.stringify(l.risks)}` : ""}`;
   };
   return [
     `${tag} Your sub-cards changed and none of them is still moving:`,

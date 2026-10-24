@@ -505,7 +505,10 @@ export const toolContextSchema = z.object({
       archived: z.boolean(),
       resolved: z.boolean().optional(),
       branch: z.string().optional(),
-      handoff: z.object({ branch: z.string().optional(), directory: z.string().optional(), evidence: z.string(), blockers: z.array(z.string()), risks: z.array(z.string()).optional() }).optional(),
+      /** `risks`: the reviewer's risks beyond the acceptance criteria (AUTOMATION-SPEC §5.2.4); `risksNote`: that they came from an earlier delivery, or were omitted to keep get_task bounded. */
+      handoff: z
+        .object({ branch: z.string().optional(), directory: z.string().optional(), evidence: z.string(), blockers: z.array(z.string()), risks: z.array(z.string()).optional(), risksNote: z.string().optional() })
+        .optional(),
     }),
   ),
 });

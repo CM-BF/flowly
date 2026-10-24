@@ -1,11 +1,11 @@
 import type { PaseoApi } from "@getpaseo/client";
 import { laneName } from "../shared/lanes";
 import { linksOf, type LinkView } from "../shared/links";
-import { jobOf, subCardActive, type SubCardLine } from "../shared/automation";
+import { jobOf, risksOrigin, subCardActive, type SubCardLine } from "../shared/automation";
 import type { Board, Task } from "../shared/model";
 import { defaultGit, readHead, type Git } from "./workpad";
 
-/** get_task's handoffs together carry at most `total` characters of evidence, one link at most `perLink`. */
+/** get_task's handoffs together carry at most `total` characters of evidence and reviewer risks, one link's evidence at most `perLink`. */
 export const handoffBudget = { total: 16_000, perLink: 6_000 } as const;
 
 /** A card's delivery note and workpad checks as bounded card data (never instructions). */
@@ -33,11 +33,28 @@ export async function cardHandoff(board: Board, taskId: string, paseo: PaseoApi)
     evidence: handoffEvidence(board, taskId),
     blockers: unmetBlockers(board, taskId),
     // The reviewer's risks (AUTOMATION-SPEC §5.2.4) for the parent to weigh before it accepts; a finished card's were weighed.
-    ...(job?.risks?.length && task.status !== "done" && task.status !== "cancelled" ? { risks: job.risks } : {}),
+    // Risks of an earlier delivery (its reviewer gave up, the rounds ran out) say so.
+    ...(job?.risks?.length && task.status !== "done" && task.status !== "cancelled" ? { risks: job.risks, ...(risksOrigin(job) ? { risksNote: risksOrigin(job) } : {}) } : {}),
   };
 }
 
-export type LinkHandoff = { branch?: string; directory?: string; evidence: string; blockers: string[]; risks?: string[] };
+export type LinkHandoff = { branch?: string; directory?: string; evidence: string; blockers: string[]; risks?: string[]; risksNote?: string };
+
+/** A linked card's reviewer risks within the handoff budget, or a note on what happened to them (§5.2.4). */
+function handoffRisks(board: Board, taskId: string, left: number): { cost: number; value: Pick<LinkHandoff, "risks" | "risksNote"> } {
+  const job = jobOf(board, taskId);
+  if (!job?.risks?.length) return { cost: 0, value: {} };
+  const cost = JSON.stringify(job.risks).length;
+  if (cost > left)
+    return {
+      cost: 0,
+      value: {
+        risksNote: `Omitted: get_task carries at most ${handoffBudget.total} characters of handoff evidence and risks, and the links before this one used them. This card's reviewer risks are in its Agent automation section and in a supervised parent's wake-up message.`,
+      },
+    };
+  const origin = risksOrigin(job);
+  return { cost, value: { risks: job.risks, ...(origin ? { risksNote: `Reviewer risks ${origin}.` } : {}) } };
+}
 
 /** The branch a card's work is on as last recorded (its delivery or workpad write); no git. */
 const storedBranch = (board: Board, taskId: string) => {
@@ -96,16 +113,20 @@ export async function linkExtras(board: Board, taskId: string, paseo: PaseoApi, 
     }),
   );
   for (const { v, directory, branch } of located) {
+    // The reviewer's risks beyond the criteria (AUTOMATION-SPEC §5.2.4), so the parent weighs them before accepting. They
+    // come out of the budget first: they are short, and the parent has no other tool to read them, while evidence can
+    // be read from the card's directory and branch.
+    const risks = handoffRisks(board, v.other!.id, left);
+    left -= risks.cost;
     const full = handoffEvidence(board, v.other!.id);
     const fits = full.length <= left;
     if (fits) left -= full.length;
     handoffs.set(v.other!.id, {
       ...(branch ? { branch } : {}),
       ...(directory ? { directory } : {}),
-      evidence: fits ? full : `Omitted: get_task carries at most ${handoffBudget.total} characters of handoff evidence and the links before this one used them. Inspect this card's directory and branch (git log, git diff) instead.`,
+      evidence: fits ? full : `Omitted: get_task carries at most ${handoffBudget.total} characters of handoff evidence and risks, and the links before this one used them. Inspect this card's directory and branch (git log, git diff) instead.`,
       blockers: unmetBlockers(board, v.other!.id),
-      // The reviewer's risks beyond the criteria (AUTOMATION-SPEC §5.2.4), so the parent weighs them before accepting.
-      ...(jobOf(board, v.other!.id)?.risks?.length ? { risks: jobOf(board, v.other!.id)!.risks } : {}),
+      ...risks.value,
     });
   }
   await Promise.all(

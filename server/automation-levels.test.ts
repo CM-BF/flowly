@@ -82,7 +82,7 @@ test("Deep is a panel from round 1 on its model, with the fixed angles in order 
   expect(panel.prompt).toContain("(deep review round 1 of 2, a panel review)");
   expect(panel.prompt).toContain('Review level: deep, because its description mentions "database"');
   expect(panel.prompt).toContain("every round, this one included, checks the delivery with 4 independent reviewers at once");
-  expect(panel.prompt).toMatch(/1\. contract and correctness[\s\S]*2\. design and scale[\s\S]*3\. failure, data safety and security[\s\S]*4\. execution/);
+  expect(panel.prompt).toMatch(/1\. contract and correctness[\s\S]*2\. design and scale[\s\S]*3\. failure, data safety and security[\s\S]*4\. execution and integration/);
   expect(panel.prompt).not.toContain("5. integration");
   for (const question of designQuestions) expect(panel.prompt).toContain(question);
   expect(panel.prompt).not.toContain("Earlier rounds of this cycle requested changes");

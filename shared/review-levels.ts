@@ -184,6 +184,16 @@ export function reviewStartNote(round: number, plan: ReviewPlan) {
   return `${levelNames[plan.level]} review round ${round} of ${plan.max}${panel}; level ${plan.level}: ${reasonText(plan.reason)}`;
 }
 
+/**
+ * Whether the job's risks were reported on an earlier delivery than its latest one (§5.2.4): the next round's reviewer
+ * gave up, the rounds ran out, or a new run has not been reviewed yet. They stay until the next verdict, labelled.
+ */
+export const risksEarlier = (job: Pick<AutomationJob, "risks" | "risksFrom" | "latestDelivery" | "deliveryEvent">) =>
+  !!job.risks?.length && !!job.risksFrom?.delivery && job.risksFrom.delivery !== (job.latestDelivery ?? job.deliveryEvent);
+/** Where earlier risks came from, for the parent's wake-up line and get_task handoffs (agent English); else undefined. */
+export const risksOrigin = (job: Pick<AutomationJob, "risks" | "risksFrom" | "latestDelivery" | "deliveryEvent">) =>
+  risksEarlier(job) ? `reported in review round ${job.risksFrom!.round} on an earlier delivery; some may be fixed` : undefined;
+
 type LevelKey = "reviewer" | "maxReviewRounds" | "panelReviewer" | "panelSize";
 function levelDefault(settings: AutomationSettings, level: "light" | "deep", key: LevelKey): number | undefined {
   if (key === "maxReviewRounds") return level === "light" ? Math.min(2, settings.maxReviewRounds) : settings.maxReviewRounds;

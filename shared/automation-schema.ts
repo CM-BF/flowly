@@ -211,6 +211,8 @@ export const automationJobSchema = z.object({
   seat: z.enum(["light", "deep"]).optional(),
   /** Risks beyond the acceptance criteria the latest verdict reported (§5.2.4); they never block approval. */
   risks: z.array(z.string().max(automationLimits.risk)).max(automationLimits.risks).optional(),
+  /** The review round and the delivery (`deliveryEvent`) `risks` were reported on; kept until the next verdict. */
+  risksFrom: z.object({ round: z.number().int().nonnegative(), delivery: z.string().optional() }).optional(),
   /** The full requested changes of the latest verdict, as sent to the implementer; a takeover session gets them unclipped. */
   changes: z.string().max(40000).optional(),
   cooldowns: z.number().int().nonnegative().optional(),
