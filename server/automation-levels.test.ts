@@ -41,10 +41,21 @@ async function rework(x: Fixture, rev: string, impl: string) {
 }
 const notes = async (x: Fixture, action = "automation_review_started") => (await x.store.read()).events.filter((e) => e.action === action).map((e) => e.note);
 
+/** The actual instruction delivered to every level must distinguish delivery blockers from advisory risks. */
+function expectReviewAuthority(prompt: string) {
+  expect(prompt).toContain("confirmed serious correctness, data safety, security or unbounded-growth problems");
+  expect(prompt).toContain("even when the acceptance criteria omit them");
+  expect(prompt).toContain("verdict=approve only when the acceptance criteria are met, the relevant checks pass, and no such confirmed findings remain unresolved");
+  expect(prompt).toContain("Keep unconfirmed risks and out-of-scope improvements in risks");
+  expect(prompt).toContain("Do not expand review into unrelated code");
+}
+
+
 test("a Standard card is reviewed as before: same session, rounds and lens, plus the request for risks; the job and the note keep the plan", async () => {
   const { x, rev } = await delivered();
   expect(rev).toMatchObject({ provider: "codex/gpt-6-luna", title: "Review: Card a" });
   expect(rev.prompt).toContain("(review round 1 of 3)");
+  expectReviewAuthority(rev.prompt);
   expect(rev.prompt).toContain("Lens for this round: the artifact");
   expect(rev.prompt).not.toContain("Review level:");
   expect(rev.prompt).toContain("Report the risks they do not cover in risks");
@@ -57,6 +68,7 @@ test("a Standard card is reviewed as before: same session, rounds and lens, plus
 test("Light never panels, runs on its own model and stops after its own cap", async () => {
   const { x, impl, rev } = await delivered({ panelAfter: 0, levels: { light: { reviewer: sol } } }, (b) => void (cardA(b).tags = [tag("light-review")]));
   expect(rev).toMatchObject({ provider: "codex/gpt-6.1-sol", title: "Light review: Card a" });
+  expectReviewAuthority(rev.prompt);
   expect(rev.prompt).toContain("(light review round 1 of 2)");
   expect(rev.prompt).not.toContain("panel review");
   expect(await x.job("a")).toMatchObject({ seat: "light", review: { level: "light", reason: { kind: "light_tag" }, max: 2, size: 1 } });
@@ -79,6 +91,7 @@ test("Deep is a panel from round 1 on its model, with the fixed angles in order 
     (b) => void (cardA(b).description = "Keep the board in a SQLite database."),
   );
   expect(panel).toMatchObject({ provider: "claude/claude-opus-5-5", modeId: "bypassPermissions", title: "Deep review: Card a", labels: { "flowly-automation": "reviewer" } });
+  expectReviewAuthority(panel.prompt);
   expect(panel.prompt).toContain("(deep review round 1 of 2, a panel review)");
   expect(panel.prompt).toContain('Review level: deep, because keyword fallback: its description mentions "database"');
   expect(panel.prompt).toContain("every round, this one included, checks the delivery with 4 independent reviewers at once");

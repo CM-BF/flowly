@@ -631,8 +631,8 @@ const deepFocuses = (reviewers: number) =>
 
 /** Every round of every level asks for risks the acceptance criteria do not cover (§5.2.4). */
 const risksRequest = [
-  "Look beyond the acceptance criteria too: they may not cover everything that matters. Report the risks they do not cover in risks: data or memory that grows over time, a cost per operation that grows with history, cleanup of old data, upgrades of formats or schemas, recovery after failures and crashes, security and permissions, and interactions with other cards' work.",
-  'Write each risk as one plain sentence saying what could go wrong, when, and how bad (for example: "Every change appends the whole state to the journal and nothing is ever removed, so after a few thousand edits it reaches gigabytes and every start reads all of it."). List every risk you still see: Flowly keeps only the latest list, shows it on the card and gives it to the parent card. Send at most 10 risks, each under 500 characters: merge related ones and keep the most serious. Risks never block approval; if one must block the delivery, request changes with it as a finding instead.',
+  "Look beyond the acceptance criteria too: they may not cover everything that matters. Report the risks they do not cover in risks: data or memory that grows over time, a cost per operation that grows with history, cleanup of old data, upgrades of formats or schemas, recovery after failures and crashes, security and permissions, and interactions with other cards' work. In this card's changes and their realistic interactions, confirmed serious correctness, data safety, security or unbounded-growth problems are findings requiring changes even when the acceptance criteria omit them. Keep unconfirmed risks and out-of-scope improvements in risks. Do not expand review into unrelated code.",
+  'Write each risk as one plain sentence saying what could go wrong, when, and how bad (for example: "The supported six-month workload has not been measured, so storage costs beyond the tested workload remain uncertain."). List every risk you still see: Flowly keeps only the latest list, shows it on the card and gives it to the parent card. Send at most 10 risks, each under 500 characters: merge related ones and keep the most serious. Risks never block approval; confirmed serious delivery blockers must be findings requiring changes, not entries in risks.',
 ].join(" ");
 
 /** Risks a verdict of an earlier round reported (§5.2.4), handed to the reviewer of every later round. */
@@ -672,7 +672,7 @@ export function reviewPrompt(round: number, max: number, reviewers = 1, level: R
         ].join("\n")
       : lenses[Math.min(round, lenses.length) - 1],
     risksRequest,
-    "Then call flowly_submit_review exactly once: verdict=approve when the acceptance criteria are met and the checks pass; verdict=changes with concrete findings the implementer can act on (file, problem, expected fix). Do not edit files, commit, push or change the card status. If only a person can decide something, ask with flowly_report_progress kind=question and end your turn.",
+    "Then call flowly_submit_review exactly once: verdict=changes with concrete findings the implementer can act on (file, problem, expected fix), including the confirmed serious problems above even if the acceptance criteria omit them; verdict=approve only when the acceptance criteria are met, the relevant checks pass, and no such confirmed findings remain unresolved. Do not edit files, commit, push or change the card status. If only a person can decide something, ask with flowly_report_progress kind=question and end your turn.",
   ]
     .filter(Boolean)
     .join("\n\n");
