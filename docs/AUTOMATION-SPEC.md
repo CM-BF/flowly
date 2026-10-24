@@ -26,7 +26,10 @@ Hermes Kanban 的 agent 自动化有四块：**dispatcher**（依赖、并发、
 | `implementer` | 无 | 实现者模型；无则用项目默认模型 → 全局默认模型 → 第一个可用 provider 的默认模型。 |
 | `reviewer` | 无 | 评审者模型；无则不做 agent 评审（`review_dispatch=false`）。 |
 | `implementerFallback`、`reviewerFallback` | 无 | 角色的备用模型：该角色的模型报告频率或用量上限时，换到它继续（§4.5，用户决定 2026-10-23）。无则按 provider 冷却等待上限重置。 |
-| `maxReviewRounds` | 3 | 一个**评审周期**内最多几轮评审（周期的定义见 §5）。 |
+| `maxReviewRounds` | 3 | 一个**评审周期**内最多几轮评审（周期的定义见 §5）。界面可选 1–5。 |
+| `panelAfter` | 2（缺省） | 小组评审（§5.1）：一个周期里要求修改的轮数达到它之后，下一轮改为小组评审；`0` 每一轮都是，`null` 关闭。 |
+| `panelReviewer` | 无 | 小组评审轮使用的模型；无则用评审者（或其备用）模型。 |
+| `panelSize` | 3（缺省） | 小组评审的评审者人数，2–5。 |
 | `fullAccess` | true | 开着时，所有自动化 session（执行者和评审者）都用 provider 的免审批模式（claude `bypassPermissions`、codex `full-access`），**覆盖**角色自己设的 Permissions 和同 provider 项目默认模型的 Permissions（用户决定，2026-10-23）；没有已知免审批模式的 provider 保留选定的权限。关着时按 [TASK-INTAKE-SPEC](TASK-INTAKE-SPEC.md)：角色的 Permissions → 同 provider 项目默认模型的 Permissions（包括显式的 “Provider default”）→ provider 默认。自动化开启时 New task 表单默认显示同样的结果；有人在表单里为某张卡改了权限，那张卡按其选择启动。速度等其它执行设置仍按角色 → 项目默认继承。 |
 | `nudgeLimit` | 2 | 静默结束后的提醒次数（stop nudge）。界面不暴露。 |
 | `failureLimit` | 2 | 连续失败回合上限（`failure_limit`）。界面不暴露。 |
@@ -162,6 +165,18 @@ AutomationJob {
   - `approve`：job `delivered`、`verdict=approved`，卡片留在 In review，记 `automation_review_approved`（附摘要）。
   - `changes`：卡片回到 `resumeStage`（通常 Development，`rule="REVIEW"`），job 回到实现者 `working`，把摘要与发现以 `[Flowly automation] The reviewer requested changes …` 发给实现者，记 `automation_changes_requested`。评审者回合仍在进行时这条消息暂扣，回合一结束就送出（§4.2）。
 - 评审者回合结束没给结论：提醒（同 §4.2）；满了或失败到上限 → job `delivered`、`verdict=incomplete`，卡片留在 In review 给人。
+
+### 5.1 小组评审（按复杂度升级）
+
+用户决定，2026-10-23：评审是串行循环还是并行，应按难度调整。容易的卡一轮就过，串行省 token；串行几轮还在要求修改，说明问题难或多，这时再一轮一轮地找、每轮修一个问题最浪费时间（next-workspace 的 C5b.2 四次进入评审、三次被打回），应改为多个不同的评审者同时复查，一次把问题找全。
+
+- **何时升级**：周期第 `r` 轮评审开始时，若 `r > panelAfter`（缺省 2，即第 3 轮起；`0` 每轮；`null` 关闭），这一轮是**小组评审**，否则是普通的串行评审（§5 的分轮视角）。周期之前 `r-1` 轮都以要求修改结束，否则周期已结束。新周期（人的反馈、Run again）回到第 1 轮，回到串行。
+- **怎么评**：这一轮仍由一个评审 session 负责、仍只提交一个结论，所以评审回路的其它规则（`reviewerId`、`REVIEW_CLOSED`、提醒、失败、限额与备用模型、对账恢复）都不变。不同的是它的指令（`reviewPrompt(round, max, reviewers)`）：用自己的子智能体工具**并行**启动 `panelSize` 个评审者，在前台运行、在同一回合里等它们全部结束（Claude Code：一条消息里多个 Agent 调用，不放到后台），并在调用 `flowly_submit_review` 之前不结束回合：没有结论就结束的回合按评审未完成处理（提醒，最后 `incomplete`），所以不建议用后台 subagent 或 workflow。每个评审者检查完整的交付、各有侧重：交付物本身（冷读 diff）、执行（亲自跑构建、测试与所述行为）、契约（验收标准、此前各轮的修改要求与评论）、集成与回归、失败路径与安全（按人数取前几个）。评审者把卡片 id、workspace 路径、它的侧重，以及从 `flowly_get_task` 读到的验收标准、交付说明、此前各轮的修改要求和人的评论一并交给每个子评审者（它们不调 Flowly 工具，所以要由评审者转交）。子评审者只读和跑检查，不改文件；不能启动子智能体时，评审者按各个侧重依次独立评审。评审者自己确认每条发现（无法复现或指出位置的丢掉），合并重复，**一次给出全部确认的问题**。
+- **模型**：设了 `panelReviewer` 时，小组评审轮在它上面新建一个评审 session（标题 `Panel review: <卡片>`，label 仍是 `flowly-automation=reviewer`，job 记 `panel: true`），本轮只有它能提交结论；之后的小组评审轮复用它。周期回到串行轮时重新建普通评审 session。被换下的评审 session（换到小组 session、换到备用模型、归档后新建、Run again 不沿用）记在 job 的 `reviewers` 里，仍算这张卡的评审者：人问它们时它们的回合不算接管、不触发 A1 把卡拉出 In review，也不能建卡或改元数据（`REVIEWER_ONLY`）；只有当前的 `reviewerId` 能提交结论。小组模型报告限额时按 §4.5 换到 `reviewerFallback`，仍是小组评审；本次运行里更早的限额（评审者自己的模型）记在 `heldLimits`，不被小组模型的限额覆盖，所以之后的串行轮在保持期内仍从备用模型开始。Run again 不沿用小组 session。最好选能启动子智能体的模型（例如 Claude Opus）。没设时用评审者当前的 session。
+- **修改要求**：小组评审要求修改时，给实现者的消息写明是 “review panel (n reviewers)” 给出的全部问题，要求全部修好、逐条核对后再交付。一次评审最多 20 条发现（原为 10 条）。完整的修改要求存在 job 的 `changes` 上，执行者遇到限额换到备用模型时，新 session 拿到的是完整列表（此前从活动记录里取，被截到 4000 字符）；活动里的评审结论记录上限从 4000 提到 10000 字符（事件 note 的上限）。
+- **界面**：编辑项目 → Agent automation，Reviewer 下：Panel review（Off / Every round / After 1 round with changes / After 2 / After 3）、Panel reviewer（无 = Same as reviewer）、Reviewers in a panel（2–5）。卡片上显示 “Panel review round n of max”，活动记 “Review round n of max (panel of k reviewers)”。设置组合让小组评审永远轮不到时（`panelAfter` ≥ Review rounds），表单不显示小组模型和人数，改为提示 “With n review rounds a panel round never comes…”。
+- **兼容**：三个字段都只在人改过之后才写入（点选当前的缺省值不算改动）；此前保存的设置不变（按缺省值工作）。一旦任何项目存了其中一个字段，不认识它的旧版本会拒绝读取**整个** `board.json`（项目设置是严格对象），所以回退到旧版本前要先在界面里把它们改回缺省、或从备份恢复；PR #1 起的 `implementerFallback`/`reviewerFallback` 也是这样。job 上的新字段（`panel`、`reviewers`、`heldLimits`、`changes`）旧版本会直接丢掉。
+- **不做**：由 Flowly 自己同时开多个评审 session 并合并多个结论。那要改动评审回路里所有按单个评审者设计的状态（回合结束、提醒、失败、限额、对账、接管判断），风险大；子智能体方案得到同样的并行复查，状态机不变。
 
 ## 6. 界面
 

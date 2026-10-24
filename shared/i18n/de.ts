@@ -1442,5 +1442,17 @@ const catalog: Catalog = {
   "Used when the reviewer's model reports a rate or usage limit: the review round runs again on this model. None: the review waits for the limit to reset.": "Wird verwendet, wenn das Modell des Prüfers ein Raten- oder Nutzungslimit meldet: Die Prüfrunde läuft mit diesem Modell erneut. Keines: Die Prüfung wartet, bis das Limit zurückgesetzt ist.",
   "On the fallback model after a provider limit": "Nach einem Anbieterlimit auf dem Ersatzmodell",
   "Switched to the fallback model": "Zum Ersatzmodell gewechselt",
+  "Panel review": "Panel-Prüfung",
+  "Off": "Aus",
+  "Every round": "Jede Runde",
+  "After 1 round with changes": "Nach 1 Runde mit Änderungswünschen",
+  "After {n} rounds with changes": "Nach {n} Runden mit Änderungswünschen",
+  "When serial reviews keep requesting changes, the next round is checked by several reviewers in parallel, each from its own focus, and every confirmed problem goes to the implementer at once.": "Fordern die Prüfungen nacheinander immer wieder Änderungen, prüfen in der nächsten Runde mehrere Prüfer parallel, jeder mit eigenem Schwerpunkt, und alle bestätigten Probleme gehen auf einmal an den Umsetzer.",
+  "Panel reviewer": "Panel-Prüfer",
+  "The model panel rounds run on, best one that can start subagents (such as Claude). None: the reviewer's model.": "Das Modell für Panel-Runden, am besten eines, das Subagenten starten kann (etwa Claude). Keins: das Modell des Prüfers.",
+  "Same as reviewer": "Wie der Prüfer",
+  "Reviewers in a panel": "Prüfer im Panel",
+  "Panel review round {n} of {max}": "Panel-Prüfrunde {n} von {max}",
+  "With {n} review rounds a panel round never comes: allow more Review rounds or start the panel earlier.": "Mit {n} Prüfrunden kommt nie eine Panel-Runde: Erlaube mehr Prüfrunden oder starte das Panel früher.",
 };
 export default catalog;

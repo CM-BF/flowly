@@ -1442,5 +1442,17 @@ const catalog: Catalog = {
   "Used when the reviewer's model reports a rate or usage limit: the review round runs again on this model. None: the review waits for the limit to reset.": "Используется, когда модель рецензента сообщает о лимите запросов или использования: раунд проверки повторяется на этой модели. Нет: проверка ждёт сброса лимита.",
   "On the fallback model after a provider limit": "На запасной модели после лимита провайдера",
   "Switched to the fallback model": "Переключился на запасную модель",
+  "Panel review": "Проверка панелью",
+  "Off": "Выключено",
+  "Every round": "Каждый раунд",
+  "After 1 round with changes": "После 1 раунда с правками",
+  "After {n} rounds with changes": "После {n} раундов с правками",
+  "When serial reviews keep requesting changes, the next round is checked by several reviewers in parallel, each from its own focus, and every confirmed problem goes to the implementer at once.": "Когда последовательные проверки снова и снова просят правок, следующий раунд проверяют несколько рецензентов параллельно, каждый со своей стороны, и все подтверждённые проблемы сразу уходят исполнителю.",
+  "Panel reviewer": "Рецензент панели",
+  "The model panel rounds run on, best one that can start subagents (such as Claude). None: the reviewer's model.": "Модель для раундов панели, лучше та, что умеет запускать субагентов (например, Claude). Нет: модель рецензента.",
+  "Same as reviewer": "Как у рецензента",
+  "Reviewers in a panel": "Рецензентов в панели",
+  "Panel review round {n} of {max}": "Раунд проверки панелью {n} из {max}",
+  "With {n} review rounds a panel round never comes: allow more Review rounds or start the panel earlier.": "При {n} раундах проверки до раунда панели дело не дойдёт: разрешите больше раундов или начните панель раньше.",
 };
 export default catalog;

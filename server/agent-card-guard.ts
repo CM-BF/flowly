@@ -1,7 +1,7 @@
 import type { Board, Project, Receipt, Task } from "../shared/model";
 import type { ToolIdentity } from "../shared/tools";
 import { parentOf } from "../shared/links";
-import { automationOf } from "../shared/automation";
+import { automationOf, reviewsFor } from "../shared/automation";
 import { laneEnabled } from "../shared/lanes";
 import { ToolError } from "./tool-error";
 
@@ -25,7 +25,7 @@ export function authorizeCardActor(board: Board, actor: AgentCardActor, { revisi
   if (!task || !project || task.workspaceId !== actor.workspaceId) throw new ToolError("SESSION_MISMATCH", "Card binding changed.");
   if (task.archivedAt || project.archivedAt) throw new ToolError("ARCHIVED", "Task or project is archived.");
   if (["done", "cancelled"].includes(task.status)) throw new ToolError("TASK_FINISHED", "A finished card cannot manage cards.");
-  if (board.automation.some((j) => j.taskId === task.id && j.reviewerId === actor.agentId)) throw new ToolError("REVIEWER_ONLY", "Reviewer sessions may inspect the card and submit a review, not create or manage cards.");
+  if (board.automation.some((j) => j.taskId === task.id && reviewsFor(j, actor.agentId))) throw new ToolError("REVIEWER_ONLY", "Reviewer sessions may inspect the card and submit a review, not create or manage cards.");
   if (revision && (task.revision !== actor.expectedRevision.task || project.revision !== actor.expectedRevision.project)) throw new ToolError("REVISION_CONFLICT", "Card or project changed. Re-read before deciding again.");
   return { task, project };
 }

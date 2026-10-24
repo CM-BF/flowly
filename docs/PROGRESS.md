@@ -1,5 +1,17 @@
 # Implementation progress
 
+## Panel review escalation and sub-card tree fixes — 2026-10-23
+
+User decisions, from the Next Workspace run (C5b.2 went through four review rounds, three of them changes; C5 was nudged while its sub-card's sub-card still ran; parents accepted sub-cards during their own review):
+
+- [x] Panel review ([AUTOMATION-SPEC](AUTOMATION-SPEC.md) §5.1): from round `panelAfter + 1` of a cycle (default the third), the round's reviewer runs `panelSize` reviewers in parallel with its subagent tool, each from its own focus, confirms their findings and sends them all at once. Optional `panelReviewer` model (its own session, `Panel review: <card>`); limits on it switch to the reviewer fallback; Run again and a new cycle go back to serial rounds on the reviewer's model. Settings stored only once changed. Review rounds up to 5 in the UI; up to 20 findings per review. Nine catalogs.
+- [x] Motion climbs the card tree ([SUB-CARDS-SPEC](SUB-CARDS-SPEC.md) §5): an unfinished card moves while any of its sub-cards moves; such sub-cards end their signature in `:moving` (was `:turn`).
+- [x] `flowly_update_card action=accept` is refused with `REVIEW_RUNNING` while the sub-card's own review is open (SUB-CARDS-SPEC §4); people's moves and cancel are not.
+- [x] The skill tells supervised parents not to poll their sub-cards with their own timers.
+- [x] Review fixes (three-lens review with adversarial verification, every finding reproduced): earlier reviewer sessions stay the card's reviewers (`reviewers`: no takeover, no A1, `REVIEWER_ONLY`); panel subagents get the delivery note, earlier changes and comments from the reviewer and run in the foreground of the same turn; earlier limits of a run stay on hold (`heldLimits`); a takeover implementer gets the full changes (`changes`), activity notes up to 10000 characters; Edit project ignores taps on the default and tells when a panel can never come.
+- [x] Tests: `server/automation-panel.test.ts` (10, the five review-fix tests fail on the first panel commit), `shared/automation-tree.test.ts` (6, three fail on `1884436`), three `REVIEW_RUNNING` cases in `server/sub-cards-round2.test.ts` (fail on `1884436`), the property test's reference walk extended; typecheck and full suite green.
+- Onboarding: no new tip. Panel review is a reviewer setting next to Review rounds, and its rounds read "Panel review round n of max" on the card.
+
 ## Automation resilience after a live stall — 2026-10-23
 
 The user's Next Workspace pipeline stalled on the daemon: C5b.2 failed on "Selected model is at capacity. Please try a different model." after two attempts 38 s apart (not recognised as a provider limit); a person then continued C5b.2's session by hand, but its parent C5b did not count that running sub-card as moving, was reminded twice and gave up (Blocked, `no_delivery`), so C5 asked for a person. The user also asked that Flowly resume on its own after a reload.

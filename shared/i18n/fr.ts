@@ -1442,5 +1442,17 @@ const catalog: Catalog = {
   "Used when the reviewer's model reports a rate or usage limit: the review round runs again on this model. None: the review waits for the limit to reset.": "Utilisé quand le modèle du relecteur signale une limite de débit ou d'utilisation : le tour de revue est relancé avec ce modèle. Aucun : la revue attend que la limite soit réinitialisée.",
   "On the fallback model after a provider limit": "Sur le modèle de secours après une limite du fournisseur",
   "Switched to the fallback model": "Passage au modèle de secours",
+  "Panel review": "Relecture en panel",
+  "Off": "Désactivé",
+  "Every round": "À chaque tour",
+  "After 1 round with changes": "Après 1 tour avec modifications",
+  "After {n} rounds with changes": "Après {n} tours avec modifications",
+  "When serial reviews keep requesting changes, the next round is checked by several reviewers in parallel, each from its own focus, and every confirmed problem goes to the implementer at once.": "Quand les relectures successives demandent encore des modifications, le tour suivant est vérifié par plusieurs relecteurs en parallèle, chacun selon son angle, et tous les problèmes confirmés partent d'un coup vers l'implémenteur.",
+  "Panel reviewer": "Relecteur du panel",
+  "The model panel rounds run on, best one that can start subagents (such as Claude). None: the reviewer's model.": "Le modèle des tours en panel, de préférence un modèle capable de lancer des sous-agents (comme Claude). Aucun : le modèle du relecteur.",
+  "Same as reviewer": "Comme le relecteur",
+  "Reviewers in a panel": "Relecteurs du panel",
+  "Panel review round {n} of {max}": "Tour de relecture en panel {n} sur {max}",
+  "With {n} review rounds a panel round never comes: allow more Review rounds or start the panel earlier.": "Avec {n} tours de relecture, aucun tour en panel n'arrive : autorisez plus de tours ou lancez le panel plus tôt.",
 };
 export default catalog;

@@ -1442,5 +1442,17 @@ const catalog: Catalog = {
   "Used when the reviewer's model reports a rate or usage limit: the review round runs again on this model. None: the review waits for the limit to reset.": "Usado quando o modelo do revisor informa um limite de taxa ou de uso: a rodada de revisão é refeita com este modelo. Nenhum: a revisão espera o limite ser restabelecido.",
   "On the fallback model after a provider limit": "No modelo reserva após um limite do provedor",
   "Switched to the fallback model": "Mudou para o modelo reserva",
+  "Panel review": "Revisão em painel",
+  "Off": "Desativada",
+  "Every round": "Toda rodada",
+  "After 1 round with changes": "Após 1 rodada com alterações",
+  "After {n} rounds with changes": "Após {n} rodadas com alterações",
+  "When serial reviews keep requesting changes, the next round is checked by several reviewers in parallel, each from its own focus, and every confirmed problem goes to the implementer at once.": "Quando as revisões em sequência continuam pedindo alterações, a próxima rodada é verificada por vários revisores em paralelo, cada um com seu foco, e todos os problemas confirmados vão de uma vez para o implementador.",
+  "Panel reviewer": "Revisor do painel",
+  "The model panel rounds run on, best one that can start subagents (such as Claude). None: the reviewer's model.": "O modelo das rodadas em painel, de preferência um que possa iniciar subagentes (como o Claude). Nenhum: o modelo do revisor.",
+  "Same as reviewer": "Igual ao revisor",
+  "Reviewers in a panel": "Revisores no painel",
+  "Panel review round {n} of {max}": "Rodada de revisão em painel {n} de {max}",
+  "With {n} review rounds a panel round never comes: allow more Review rounds or start the panel earlier.": "Com {n} rodadas de revisão, nunca chega uma rodada em painel: permita mais rodadas ou comece o painel antes.",
 };
 export default catalog;

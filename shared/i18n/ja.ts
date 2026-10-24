@@ -1442,5 +1442,17 @@ const catalog: Catalog = {
   "Used when the reviewer's model reports a rate or usage limit: the review round runs again on this model. None: the review waits for the limit to reset.": "レビュー担当のモデルがレート制限や使用量の上限を報告したときに使います。このモデルでレビューラウンドをやり直します。なし：上限がリセットされるまでレビューは待機します。",
   "On the fallback model after a provider limit": "プロバイダーの上限に達したため代替モデルで実行中",
   "Switched to the fallback model": "代替モデルに切り替えました",
+  "Panel review": "パネルレビュー",
+  "Off": "オフ",
+  "Every round": "毎ラウンド",
+  "After 1 round with changes": "修正依頼が 1 ラウンド続いた後",
+  "After {n} rounds with changes": "修正依頼が {n} ラウンド続いた後",
+  "When serial reviews keep requesting changes, the next round is checked by several reviewers in parallel, each from its own focus, and every confirmed problem goes to the implementer at once.": "順番のレビューで修正依頼が続くと、次のラウンドは複数のレビュー担当がそれぞれの観点から並行して確認し、確認できた問題をまとめて実装担当に渡します。",
+  "Panel reviewer": "パネルレビューのモデル",
+  "The model panel rounds run on, best one that can start subagents (such as Claude). None: the reviewer's model.": "パネルのラウンドで使うモデル。サブエージェントを起動できるモデル（Claude など）がおすすめです。なし：レビュー担当のモデル。",
+  "Same as reviewer": "レビュー担当と同じ",
+  "Reviewers in a panel": "パネルのレビュー担当数",
+  "Panel review round {n} of {max}": "パネルレビュー {n}/{max} ラウンド",
+  "With {n} review rounds a panel round never comes: allow more Review rounds or start the panel earlier.": "レビューが {n} ラウンドだとパネルのラウンドは来ません。レビューのラウンド数を増やすか、パネルを早めに始めてください。",
 };
 export default catalog;
