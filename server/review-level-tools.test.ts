@@ -113,3 +113,39 @@ test("risks are part of flowly_submit_review over MCP and over the CLI's endpoin
   // Valid risks pass validation and reach the service, which only takes verdicts from an automation reviewer.
   expect(await api({ ...tooMany, risks: ["One plain sentence."] })).toMatchObject({ ok: false, error: { code: "NOT_REVIEWER" } });
 });
+
+test("start with a review level on a live sub-card changes the level and says so, instead of 'nothing changed'", async () => {
+  const x = await setup();
+  const child = await x.service.createCard(x.identity, { ...(await x.request()), title: "Child", start: "later" });
+  const at = new Date().toISOString();
+  await x.store.mutate((board) => {
+    const card = board.tasks.find((t) => t.id === child.cardId)!;
+    card.status = "development";
+    board.automation.push({ taskId: card.id, projectId: card.projectId, state: "working", role: "implementer", generation: 1, nudges: 0, failures: 0, reviewRounds: 0, queuedAt: at, updatedAt: at });
+  });
+  const answer = await x.service.updateCard(x.identity, { ...(await x.request()), cardId: child.cardId, action: "start", review_level: "deep" });
+  expect(answer).not.toHaveProperty("replayed");
+  expect(answer).toMatchObject({
+    cardId: child.cardId, status: "development", queued: true,
+    message: "Review level set to deep; the sub-card is already queued or running, so nothing else changed and the level applies from its next review round.",
+  });
+  expect((await x.card(child.cardId)).reviewLevel).toBe("deep");
+  // The same level again changes nothing: the no-op start answers as before.
+  expect(await x.service.updateCard(x.identity, { ...(await x.request()), cardId: child.cardId, action: "start", review_level: "deep" })).toMatchObject({
+    replayed: true, message: "This sub-card is already queued or running; nothing changed.",
+  });
+  expect((await x.store.read()).events.filter((e) => e.taskId === child.cardId && e.action === "review_level_set")).toHaveLength(1);
+});
+
+test("get_task gives the card's review level and every sub-card's, set on the card or chosen by Auto, and why", async () => {
+  const x = await setup();
+  const deep = await x.service.createCard(x.identity, { ...(await x.request()), title: "Storage", review_level: "deep" });
+  const auto = await x.service.createCard(x.identity, { ...(await x.request()), title: "Keep boards in a SQLite database" });
+  const plain = await x.service.createCard(x.identity, { ...(await x.request()), title: "Copy edits" });
+  const context = await x.service.get(x.identity);
+  expect(context.reviewLevel).toEqual({ level: "standard", set: false, why: "no tag or keyword calls for a deep or light review" });
+  const level = (id: string) => context.links.find((l) => l.taskId === id && l.relation === "sub_card")?.reviewLevel;
+  expect(level(deep.cardId)).toEqual({ level: "deep", set: true, why: "it is set on the card" });
+  expect(level(auto.cardId)).toEqual({ level: "deep", set: false, why: 'its title mentions "database"' });
+  expect(level(plain.cardId)).toEqual({ level: "standard", set: false, why: "no tag or keyword calls for a deep or light review" });
+});

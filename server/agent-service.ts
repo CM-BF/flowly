@@ -79,8 +79,14 @@ import { automationAllowed, automationOf, isLive, jobOf, reviewerOfCard, reviews
 import { parentOf } from "../shared/links";
 import { createCardInputSchema, updateCardInputSchema, type CreateCardInput, type CreateCardResult, type UpdateCardInput } from "../shared/tools";
 import { taskInput, type Task, type TaskInput } from "../shared/model";
-import { reviewLevelNote } from "../shared/review-levels";
+import { reasonText, resolveReviewLevel, reviewLevelNote, type LevelBoard } from "../shared/review-levels";
 import { existsSync } from "node:fs";
+
+/** A card's review level for get_task (AUTOMATION-SPEC §5.2.1): what it resolves to now, whether it is set on the card, and why. */
+function levelContext(board: LevelBoard, task: Task) {
+  const { level, reason } = resolveReviewLevel(board, task);
+  return { level, set: !!task.reviewLevel, why: reasonText(reason) };
+}
 
 /** A project-memory refusal as the tool error agents read (PROJECT-MEMORY-SPEC §4.1). */
 function memoryToolError(e: unknown): unknown {
@@ -310,12 +316,14 @@ export class AgentService {
         if (job.state === "needs_human") throw new ToolError("NEEDS_PERSON", `This sub-card waits for a person (${job.code ?? "needs_human"}); a person answers it in its own session. Nothing was changed${dropped}.`);
         throw new ToolError("CHILD_BUSY", `This sub-card's automation is still ${liveWords[job.state] ?? job.state}. Nothing was changed${dropped}; wait until it settles, then start it again with the note.`);
       }
-      const replayed = (input.action === "accept" && child.status === "done") || (input.action === "cancel" && child.status === "cancelled") || (input.action === "start" && isLive(job));
-      if (input.review_level && !["done", "cancelled"].includes(child.status)) this.setReviewLevel(board, child, input.review_level, identity.agentId);
-      if (!replayed && ["done", "cancelled"].includes(child.status)) throw new ToolError("TASK_FINISHED", "That sub-card is already finished.");
-      if (!replayed && input.action === "accept" && child.status !== "in_review") throw new ToolError("NOT_DELIVERED", "Only a delivered sub-card in In review can be accepted.");
+      const noop = (input.action === "accept" && child.status === "done") || (input.action === "cancel" && child.status === "cancelled") || (input.action === "start" && isLive(job));
+      const levelSet = !!input.review_level && !["done", "cancelled"].includes(child.status) && this.setReviewLevel(board, child, input.review_level, identity.agentId);
+      // `replayed` means nothing changed: a start that finds the job live still changed the level (AUTOMATION-SPEC §5.2.1).
+      const replayed = noop && !levelSet;
+      if (!noop && ["done", "cancelled"].includes(child.status)) throw new ToolError("TASK_FINISHED", "That sub-card is already finished.");
+      if (!noop && input.action === "accept" && child.status !== "in_review") throw new ToolError("NOT_DELIVERED", "Only a delivered sub-card in In review can be accepted.");
       // The parent accepts a settled delivery, after the sub-card's own review; a person can still move it to Done directly.
-      if (!replayed && input.action === "accept" && job && isLive(job) && automationAllowed(board, job)) {
+      if (!noop && input.action === "accept" && job && isLive(job) && automationAllowed(board, job)) {
         const after = "Nothing was changed; a supervised parent is woken when it settles, other sessions check again later.";
         if (job.role === "reviewer" || job.reopened)
           throw new ToolError("REVIEW_RUNNING", `This sub-card's review is still ${job.state === "needs_human" ? "waiting for a person" : "open"}: wait for its verdict, then accept it or request changes. ${after}`);
@@ -323,20 +331,26 @@ export class AgentService {
         throw new ToolError("CHILD_BUSY", `This sub-card's automation is still running (${job.state}): its delivery is not settled, and a review may follow. ${after}`);
       }
       if (input.action === "start" && child.status === "in_review" && !input.note?.trim()) throw new ToolError("FEEDBACK_REQUIRED", "Describe the changes required when restarting a delivered sub-card.");
-      const target: Status = replayed ? child.status : input.action === "accept" ? "done" : input.action === "cancel" ? "cancelled" : child.status === "in_review" ? resumeStage(board, child, project) ?? child.status : child.status === "backlog" && laneEnabled(project, "todo") ? "todo" : child.status;
+      const target: Status = noop ? child.status : input.action === "accept" ? "done" : input.action === "cancel" ? "cancelled" : child.status === "in_review" ? resumeStage(board, child, project) ?? child.status : child.status === "backlog" && laneEnabled(project, "todo") ? "todo" : child.status;
       if (!laneEnabled(project, target)) throw new ToolError("STATUS_UNAVAILABLE", "The target lane is disabled.");
       const previous = child.status;
-      if (!replayed && (target !== previous || input.note)) {
+      if (!noop && (target !== previous || input.note)) {
         child.status = target;
         child.revision++;
         child.updatedAt = new Date(this.clock()).toISOString();
         this.store.event(board, { taskId: child.id, actor: "agent", agentId: identity.agentId, action: target !== previous ? "status_changed" : "progress_reported", from: previous, to: target, note: input.note || `Parent card ${input.action}: ${parent.title}` });
       }
-      if (!replayed && input.action === "start" && this.automation && automationOf(project)) this.automation.queueIn(board, child.id, { agentId: identity.agentId }, input.note);
+      if (!noop && input.action === "start" && this.automation && automationOf(project)) this.automation.queueIn(board, child.id, { agentId: identity.agentId }, input.note);
       const queued = isLive(jobOf(board, child.id));
       const receipt = this.cardReceipt(board, actor, "update_card");
       receipt.cardId = child.id; receipt.status = child.status; receipt.queued = queued;
-      return { value: { cardId: child.id, status: child.status, queued, ...(replayed ? { replayed: true } : {}), message: replayed ? (input.action === "start" ? "This sub-card is already queued or running; nothing changed." : "This sub-card is already in the requested state.") : input.action === "accept" ? "Accepted: the sub-card is Done." : input.action === "cancel" ? "Cancelled." : queued ? "Queued for automation. End your turn only if this parent is supervised; otherwise check progress yourself." : "Agent automation is off; a person starts the card.", previous, moved: { ...child } }, changed: true };
+      const level = levelSet ? `Review level set to ${input.review_level}` : "";
+      const message = replayed
+        ? input.action === "start" ? "This sub-card is already queued or running; nothing changed." : "This sub-card is already in the requested state."
+        : noop
+          ? `${level}; the sub-card is already queued or running, so nothing else changed and the level applies from its next review round.`
+          : `${level ? `${level}. ` : ""}${queued ? "Queued for automation. End your turn only if this parent is supervised; otherwise check progress yourself." : "Agent automation is off; a person starts the card."}`;
+      return { value: { cardId: child.id, status: child.status, queued, ...(replayed ? { replayed: true } : {}), message: input.action === "accept" && !noop ? "Accepted: the sub-card is Done." : input.action === "cancel" && !noop ? "Cancelled." : message, previous, moved: { ...child } }, changed: true };
     });
     if (result.moved && result.previous !== result.status) this.onStatusChange?.(result.previous, result.moved, r.paseo);
     void this.automation?.kick();
@@ -599,6 +613,7 @@ export class AgentService {
         const emittedHandoffs = new Set<string>();
         setup = setupContext(setupMissing(r.task, workpadOf(board.workpads, r.task.id), workpadEnabled(r.project)), r.task.status);
         return {
+          reviewLevel: levelContext(board, r.task),
           // Comments come in `comments` only, with their own unread flag and bound (CARD-COMMENTS-SPEC §3).
           activity: board.events.filter((e) => e.taskId === r.task.id && !isComment(e)).slice(-20),
           comments: agentComments(board.events, r.task.id, lastRead),
@@ -657,6 +672,8 @@ export class AgentService {
                 laneName: laneName(r.project, other!.status),
                 archived: !!other!.archivedAt,
                 ...(branches.has(other!.id) ? { branch: branches.get(other!.id)! } : {}),
+                // A parent reads which sub-cards it set to which level, and what Auto picks for the rest (AUTOMATION-SPEC §5.2.1).
+                ...(relation === "sub_card" ? { reviewLevel: levelContext(board, other!) } : {}),
                 ...(emitHandoff ? { handoff } : {}),
                 ...(relation === "blocked_by" ? { resolved: isResolved(other) } : {}),
               };

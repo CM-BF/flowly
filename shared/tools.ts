@@ -3,6 +3,7 @@ import { relations } from "./links";
 import { setupItems } from "./card-setup";
 import { connectorProviderSchema, itemTypeSchema } from "./connectors";
 import { memoryKinds, memoryLimits } from "./memory";
+import { reviewLevelSchema } from "./automation-schema";
 import {
   taskSchema,
   projectSchema,
@@ -358,6 +359,11 @@ export const identitySchema = z.strictObject({
   workspaceId: z.string().min(1),
 });
 export type ToolIdentity = z.infer<typeof identitySchema>;
+/**
+ * A card's review level as get_task reports it (AUTOMATION-SPEC §5.2.1): what it resolves to now, whether it is set on
+ * the card (else Auto chose it) and why, in daemon English.
+ */
+export const reviewLevelContextSchema = z.object({ level: reviewLevelSchema, set: z.boolean(), why: z.string() });
 export const toolContextSchema = z.object({
   identity: identitySchema,
   /** Latest action checklist, including for sessions created with an older skill. Optional for older servers. */
@@ -374,6 +380,8 @@ export const toolContextSchema = z.object({
     })
     .optional(),
   task: taskSchema,
+  /** How hard agent automation reviews this card from its next review round (AUTOMATION-SPEC §5.2). Optional for older servers. */
+  reviewLevel: reviewLevelContextSchema.optional(),
   project: projectSchema,
   revision: revisionSchema,
   request: requestSchema,
@@ -505,6 +513,8 @@ export const toolContextSchema = z.object({
       archived: z.boolean(),
       resolved: z.boolean().optional(),
       branch: z.string().optional(),
+      /** On sub_card links: the sub-card's review level, so a parent knows which it set (AUTOMATION-SPEC §5.2.1). */
+      reviewLevel: reviewLevelContextSchema.optional(),
       /** `risks`: the reviewer's risks beyond the acceptance criteria (AUTOMATION-SPEC §5.2.4); `risksNote`: that they came from an earlier delivery, or were omitted to keep get_task bounded. */
       handoff: z
         .object({ branch: z.string().optional(), directory: z.string().optional(), evidence: z.string(), blockers: z.array(z.string()), risks: z.array(z.string()).optional(), risksNote: z.string().optional() })
