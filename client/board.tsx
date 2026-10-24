@@ -105,6 +105,7 @@ import { OverviewBar } from "./overview-bar";
 import { InsightsPage } from "./insights";
 import { IdeasPage } from "./ideas-page";
 import { MemoryPage } from "./memory";
+import { CardTreePage, type TreeFocus } from "./card-tree-page";
 import { lastViewedProject, pickProject, rememberViewedProject } from "./project-memory";
 import { ProjectTabs } from "./project-tabs";
 import { RemoveProjectDialog } from "./project-remove";
@@ -189,6 +190,7 @@ const noIds: ReadonlySet<string> = new Set();
 const noBlockers: ReturnType<typeof blockerIndex> = new Map();
 const noFlags: ReadonlyMap<string, number> = new Map();
 const noBelow: ReadonlyMap<string, Below> = new Map();
+const noChoices: { level: Level; hides: number }[] = [];
 
 // Module scope: a remounted board must not reopen a modal for a token it already handled.
 const appliedAttentionTokens = new Set<string>();
@@ -324,7 +326,10 @@ function BoardContent(
     [movedToFinished, setMovedToFinished] = useState(false),
     [escapeRequest, setEscapeRequest] = useState<{ taskId: string; key: string } | null>(null),
     // Project-level page over the board area: Insights or Ideas (IDEAS-INBOX-SPEC §3.3).
-    [page, setPage] = useState<"insights" | "ideas" | "memory" | null>(null),
+    [page, setPage] = useState<"insights" | "ideas" | "memory" | "tree" | null>(null),
+    // Card tree: the highlighted chain (Esc clears it before leaving the page) and the latest Show in tree request.
+    [treeChain, setTreeChain] = useState<string | null>(null),
+    [treeFocus, setTreeFocus] = useState<TreeFocus | null>(null),
     // Ideas page: only this card's ideas ("All ideas" from a card).
     [ideaCard, setIdeaCard] = useState(""),
     // `idea`: Start session prefilled from an idea on the Ideas page (IDEAS-SPEC §6.3).
@@ -860,6 +865,7 @@ function BoardContent(
       { id: "follow-up", label: t("New follow-up task"), icon: "CornerDownRight", disabled: locked, onPress: () => followUp(card) },
       { id: "sub-card", label: t("New sub-card"), icon: "ListTree", disabled: locked, onPress: () => subCard(card) },
       ...treeMenuEntries(card),
+      ...(hasTree && page !== "tree" ? [{ id: "show-in-tree", label: t("Show in tree"), icon: "Workflow", onPress: () => showInTree(card.id) }] : []),
       ...attentionMenuEntry(card),
       { kind: "separator", id: "s1" },
       { kind: "label", id: "move", label: t("Move to") },
@@ -1080,10 +1086,40 @@ function BoardContent(
   );
   const linkFrom = useStableCallback((source: Task) => setLinking(source));
   const openTaskById = useStableCallback((id: string) => setTask(id));
-  const togglePage = (next: "insights" | "ideas" | "memory") => {
+  const togglePage = (next: "insights" | "ideas" | "memory" | "tree") => {
     setPage((current) => (current === next ? null : next));
   };
   const closePage = useStableCallback(() => setPage(null));
+  // "Show in tree" (CARD-TREE-SPEC §2.2): the page opens the card's ancestors, scrolls to it, flashes it and highlights its chain.
+  const showInTree = useStableCallback((id: string) => {
+    setPage("tree");
+    setTreeChain(id);
+    setTreeFocus({ id, key: `focus-${Date.now()}` });
+    // Phones: the card overlay would cover the page.
+    if (compact) setTask("");
+  });
+  const treeMenuFor = useStableCallback((id: string) => {
+    const card = projectTasksById.get(id);
+    return card ? cardMenu(card) : [];
+  });
+  const openLevelsMenu = useStableCallback((event: GestureResponderEvent) => {
+    if (!levels) return;
+    openMenu?.(
+      eventPoint(event),
+      t("Levels"),
+      levels.choices.map((choice) => ({
+        id: `level-${choice.level ?? "all"}`,
+        label: choice.hides ? `${levelChoiceText(choice.level)} · ${tn(choice.hides, "hides {n}", "hides {n}")}` : levelChoiceText(choice.level),
+        checked: choice.level === levels.level,
+        onPress: () => setLevel(choice.level),
+      })),
+    );
+  });
+  const setLevelStable = useStableCallback((level: Level) => setLevel(level));
+  useEffect(() => {
+    setTreeChain(null);
+    setTreeFocus(null);
+  }, [project?.id]);
   const openMemoryPage = useStableCallback(() => setPage("memory"));
   // Turning Ideas off closes its page.
   useEffect(() => {
@@ -1343,6 +1379,7 @@ function BoardContent(
         ? [{ id: "ideas", label: t("Ideas"), icon: "Lightbulb", onPress: () => openIn(() => { setIdeaCard(""); setPage("ideas"); }) }]
         : []),
       ...(features.memory && p.memory !== false ? [{ id: "memory", label: t("Memory"), icon: "BookMarked", onPress: () => openIn(() => setPage("memory")) }] : []),
+      { id: "tree", label: t("Card tree"), icon: "Workflow", onPress: () => openIn(() => setPage("tree")) },
       { kind: "separator", id: "order" },
       { id: "left", label: t("Move left"), icon: "ChevronLeft", disabled: index === 0 || pending, onPress: () => reorderProject(p.id, { direction: "up" }) },
       { id: "right", label: t("Move right"), icon: "ChevronRight", disabled: index === projects.length - 1 || pending, onPress: () => reorderProject(p.id, { direction: "down" }) },
@@ -1405,8 +1442,15 @@ function BoardContent(
         return true;
       }
       case "tree":
-        return false;
+        if (!project) return false;
+        togglePage("tree");
+        return true;
       case "escape":
+        // Esc order on the Card tree: session, sidebar, the chain highlight, then the page (CARD-TREE-SPEC §4.1).
+        if (!task && page === "tree" && treeChain) {
+          setTreeChain(null);
+          return true;
+        }
         if (!task && page) {
           setPage(null);
           return true;
@@ -1780,19 +1824,9 @@ function BoardContent(
             onMemory={() => togglePage("memory")}
             memoryShortcut={shortcutsOn ? "M" : ""}
             levels={levels?.choices.length ? { text: levelChipText(levels), limited: levels.level !== null && !levels.paused } : null}
-            onLevels={(event) =>
-              levels &&
-              openMenu?.(
-                eventPoint(event),
-                t("Levels"),
-                levels.choices.map((choice) => ({
-                  id: `level-${choice.level ?? "all"}`,
-                  label: choice.hides ? `${levelChoiceText(choice.level)} · ${tn(choice.hides, "hides {n}", "hides {n}")}` : levelChoiceText(choice.level),
-                  checked: choice.level === levels.level,
-                  onPress: () => setLevel(choice.level),
-                })),
-              )
-            }
+            onLevels={openLevelsMenu}
+            onTree={hasTree ? () => togglePage("tree") : undefined}
+            treeShortcut={shortcutsOn ? "T" : ""}
             onLane={(status) => {
               setPage(null);
               if (compact) setMobileStatus(status);
@@ -1916,6 +1950,31 @@ function BoardContent(
                     onCreate={createFromIdea}
                     onNewSession={ideaInNewSession}
                     onBack={closePage}
+                  />
+                ) : page === "tree" && board && tree ? (
+                  <CardTreePage
+                    project={project}
+                    tree={tree}
+                    tasksById={projectTasksById}
+                    flags={flags}
+                    blockers={blockers}
+                    jobs={automationIndex}
+                    showArchived={archived}
+                    level={levels?.level ?? null}
+                    choices={levels?.choices ?? noChoices}
+                    levelText={levelChipText({ level: levels?.level ?? null, paused: false, hiddenCount: 0 })}
+                    onLevel={setLevelStable}
+                    onLevelsMenu={openLevelsMenu}
+                    compact={compact}
+                    active={!(compact && drawer.active)}
+                    selectedId={taskId}
+                    chain={treeChain}
+                    onChain={setTreeChain}
+                    focus={treeFocus}
+                    nameOf={nameOf}
+                    onOpenTask={openTaskById}
+                    onBack={closePage}
+                    menuFor={treeMenuFor}
                   />
                 ) : page === "memory" && board ? (
                   <MemoryPage project={project} tasks={projectTasks} compact={compact} nameOf={nameOf} onOpenTask={openTaskById} onBack={closePage} />
@@ -2307,7 +2366,7 @@ function BoardContent(
                       setActionTask(null);
                     }}
                   />
-                  {[...automationMenu(project ?? undefined, actionTask, automationIndex.get(actionTask.id), !!project?.archivedAt || !!actionTask.archivedAt, automationActions, runUnavailable(actionTask)), ...treeMenuEntries(actionTask), ...attentionMenuEntry(actionTask)].map((entry) => (
+                  {[...automationMenu(project ?? undefined, actionTask, automationIndex.get(actionTask.id), !!project?.archivedAt || !!actionTask.archivedAt, automationActions, runUnavailable(actionTask)), ...treeMenuEntries(actionTask), ...(hasTree && page !== "tree" ? [{ id: "show-in-tree", label: t("Show in tree"), icon: "Workflow", onPress: () => showInTree(actionTask.id) }] : []), ...attentionMenuEntry(actionTask)].map((entry) => (
                     <Row
                       key={entry.id}
                       title={entry.label}
