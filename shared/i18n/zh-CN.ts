@@ -1540,5 +1540,8 @@ const catalog: Catalog = {
   "Your likely next message, one tap away.": "你最可能发的下一条消息，点一下就填好。",
   "{messages} messages · {permissions} permissions · {moves} moves": "消息 {messages} · 权限 {permissions} · 移卡 {moves}",
   "{n} in one pass": "{n} 张一次通过",
+  "Session history {n} MB: too large for Paseo to load safely; the next instruction goes to a new session": "会话历史 {n} MB：太大，Paseo 无法安全加载；下一条指令会交给新的会话",
+  "Continued in a new session: the history grew too large": "在新会话中继续：历史太大",
+  "Session history is getting too large": "会话历史即将过大",
 };
 export default catalog;

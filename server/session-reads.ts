@@ -12,6 +12,8 @@ import type { PaseoApi } from "@getpaseo/client";
 import { BoardStore } from "./store";
 import { openLocalDaemon } from "./local-daemon";
 import { paseoHome } from "./service";
+import { historyBytes, oversized, type HistoryAgent } from "./provider-history";
+import { historyLimits } from "../shared/automation";
 import {
   nativeAttentionToken,
   type AttentionAgent,
@@ -253,7 +255,9 @@ export class SessionReadService {
     const receipt = await this.reads.mark(input, () => this.current(input, paseo));
     // The Flowly receipt is committed; Paseo's own unread flag follows. A failure
     // keeps the receipt and is retried by `syncNative`.
-    if (receipt && receipt.token !== manualUnreadToken) await this.clearNative([receipt.agentId]);
+    // Clearing Paseo's flag makes it load the session, which an oversized Codex history cannot survive (AUTOMATION-SPEC
+    // §4.6): such a session keeps only Flowly's receipt.
+    if (receipt && receipt.token !== manualUnreadToken && !(await oversized(paseo, receipt.agentId))) await this.clearNative([receipt.agentId]);
     return receipt;
   }
   private async clearNative(agentIds: string[]) {
@@ -275,7 +279,13 @@ export class SessionReadService {
     if (!this.native) return 0;
     const connection = await this.native.connect();
     try {
-      const ids = unsyncedReads((await this.reads.read()).receipts, await connection.agents());
+      const agents = await connection.agents();
+      const unsynced = unsyncedReads((await this.reads.read()).receipts, agents);
+      const ids: string[] = [];
+      for (const id of unsynced) {
+        const bytes = await historyBytes((agents.find((a) => a.id === id) ?? {}) as HistoryAgent).catch(() => null);
+        if (bytes === null || bytes < historyLimits.rotate) ids.push(id);
+      }
       if (ids.length) await connection.clear(ids);
       return ids.length;
     } finally {

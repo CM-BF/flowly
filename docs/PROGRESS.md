@@ -16,6 +16,16 @@ Merged upstream/main (`0e5caf4`) into the fork's main (`2bdb74e`); the owner's f
 - [x] `npm run typecheck`; `npm test` full suite (docs/verification now excluded, so the 65 renderer-gated fixture skips and their 31 passes leave the count).
 - [ ] UNRUN: install on the daemon and Web UI checks (tour, Settings → Models permissions row, lane chips, comments), live automation with the new gate and reviewer guard, the constraint benchmark, Android.
 - Onboarding: no new tip from the fork side; #36 and #40 add no tip (agent-facing tools and a settings row).
+## Oversized session histories — 2026-10-24
+
+Incident on the owner's daemon: a Codex automation session (C5b.3) grew a 1.18 GB history through UI verification relayed via Paseo browser tools; Paseo's worker crashed whenever it loaded that thread (heap out of memory, then `RangeError: Invalid string length` in its Codex transport, every ~30 s), disconnecting every session until the rollout was renamed and the session archived.
+
+- [x] [AUTOMATION-SPEC](AUTOMATION-SPEC.md) §4.6: Flowly measures Codex session histories from the session's thread id (`server/provider-history.ts`). At 200 MB the next instruction goes to a new session that takes over (`automation_rotated`); a running session past 300 MB is flagged once on the card (`automation_history_large`), never interrupted; Flowly stops reading timelines of sessions past 200 MB (turn-end limit check, summaries, insights backfill, session images, session preview).
+- [x] Skill: keep tool output small, write screenshots and dumps to files, never relay bulk browser commands through your own tools or sub-agents.
+- [x] Review fixes (two-lens review, every finding reproduced): rotation carries outstanding requested changes and feedback, continues a retry instead of restarting, gives a rotated reviewer its full review instruction and binds the round; no rotation when a person started a turn on the old session meanwhile; the card warning follows the active session; providers built on Codex are measured; Flowly no longer makes Paseo load an oversized session by clearing its read state, restoring a wrapped-up card or draining the composer queue.
+- [x] Tests: `server/provider-history.test.ts` (3), `server/automation-history.test.ts` (5); nine catalogs.
+- [ ] Open for the owner: automatic stop of a running session past a hard size (needs an exception to "never interrupts sessions").
+- Onboarding: no new tip (a safety behaviour; its card line and activity events explain themselves).
 
 ## Panel review escalation and sub-card tree fixes — 2026-10-23
 

@@ -188,6 +188,18 @@ export const fallbackModel = (settings: AutomationSettings, role: AutomationJob[
 export const primaryModel = (settings: AutomationSettings, project: Pick<Project, "agentModel"> | undefined, role: AutomationJob["role"], job?: Pick<AutomationJob, "panel">) =>
   role === "reviewer" ? ((job?.panel && settings.panelReviewer) || settings.reviewer) : (settings.implementer ?? project?.agentModel ?? undefined);
 
+/**
+ * Provider history sizes (AUTOMATION-SPEC §4.6). Paseo reads a Codex session's whole history as one message when it
+ * loads the session; around half a gigabyte that crashes the daemon's worker for every session on the host.
+ * `rotate`: automation continues the card in a new session instead of sending this one another instruction, and
+ * Flowly stops reading its timeline. `warn`: a running session past it is flagged on the card.
+ */
+export const historyLimits = { rotate: 200 * 2 ** 20, warn: 300 * 2 ** 20 } as const;
+
+export function rotationNote(role: AutomationJob["role"], megabytes: number) {
+  return `${tag} The previous ${role} session of this card grew a ${megabytes} MB provider history, too large for Paseo to load safely, so Flowly started this new session to take over. Continue from the current state of the card and the workspace (flowly_get_task, git status, git log); do not redo finished work. Keep tool output small: write screenshots, DOM dumps and logs to files instead of returning them through tools.`;
+}
+
 /** Panel review (§5.1) when a project never chose: from the third round of a cycle, three reviewers. */
 export const panelDefaults = { after: 2, size: 3 } as const;
 /** How many reviewers check review round `round` of a cycle: 1 for a serial round, the panel size for a panel round. */

@@ -1540,5 +1540,8 @@ const catalog: Catalog = {
   "Your likely next message, one tap away.": "다음에 보낼 만한 메시지를 한 번에.",
   "{messages} messages · {permissions} permissions · {moves} moves": "메시지 {messages} · 권한 {permissions} · 이동 {moves}",
   "{n} in one pass": "{n}개 한 번에 통과",
+  "Session history {n} MB: too large for Paseo to load safely; the next instruction goes to a new session": "세션 기록 {n} MB: Paseo가 안전하게 불러오기에 너무 큽니다. 다음 지시는 새 세션으로 갑니다",
+  "Continued in a new session: the history grew too large": "새 세션에서 계속: 기록이 너무 커졌습니다",
+  "Session history is getting too large": "세션 기록이 너무 커지고 있습니다",
 };
 export default catalog;

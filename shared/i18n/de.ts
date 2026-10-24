@@ -1540,5 +1540,8 @@ const catalog: Catalog = {
   "Your likely next message, one tap away.": "Deine wahrscheinlich nächste Nachricht, einen Tipp entfernt.",
   "{messages} messages · {permissions} permissions · {moves} moves": "{messages} Nachrichten · {permissions} Berechtigungen · {moves} Verschiebungen",
   "{n} in one pass": "{n} im ersten Anlauf",
+  "Session history {n} MB: too large for Paseo to load safely; the next instruction goes to a new session": "Sitzungsverlauf {n} MB: zu groß, um ihn in Paseo sicher zu laden; die nächste Anweisung geht an eine neue Sitzung",
+  "Continued in a new session: the history grew too large": "In einer neuen Sitzung fortgesetzt: der Verlauf wurde zu groß",
+  "Session history is getting too large": "Der Sitzungsverlauf wird zu groß",
 };
 export default catalog;
