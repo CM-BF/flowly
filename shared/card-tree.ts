@@ -618,9 +618,9 @@ export interface OutlineOptions {
   flags: Flags;
   /** Default expansion follows the level; null is All. */
   level: Level;
-  /** Per-row (and `group:<section>`) open state set with the chevron. */
+  /** Per-row (and `group:<section>`) open state set with the chevron; it wins over the level and over the chain. */
   overrides?: ReadonlyMap<string, boolean>;
-  /** Chain highlight: the chosen card and its chain; ancestors of every card on it are opened. */
+  /** Chain highlight: the chosen card and its chain; ancestors of every card on it open unless a chevron override says otherwise. */
   chain?: (Chain & { focus: string }) | null;
 }
 
@@ -654,7 +654,8 @@ export function outlineRows(tree: CardTree, opts: OutlineOptions): OutlineRow[] 
   const base = { step: 0, steps: 0, joinNext: false, nextStepHigher: false, cyclic: false, rails: 0, last: false, inherited: false };
   const card = (id: string, section: OutlineSection, depth: number, rails: number, last: boolean, next: string | undefined) => {
     const children = kids(id);
-    const open = children.length > 0 && (forced.has(id) || (overrides?.get(id) ?? (level === null || depth + 1 < level)));
+    // An explicit chevron choice wins, so a row the chain opens can still be folded (and stays as the person left it).
+    const open = children.length > 0 && (overrides?.get(id) ?? (forced.has(id) || level === null || depth + 1 < level));
     const group = groupOf(tree, id);
     const joinNext = depth > 0 && next !== undefined && groupOf(tree, next) === group;
     rows.push({
@@ -684,7 +685,7 @@ export function outlineRows(tree: CardTree, opts: OutlineOptions): OutlineRow[] 
     const list = sections[section].sort(newest);
     if (!list.length) return;
     const holdsChain = list.some((r) => onChain.has(r) || forced.has(r));
-    const open = holdsChain || (overrides?.get(groupRowId(section)) ?? section === "items");
+    const open = overrides?.get(groupRowId(section)) ?? (holdsChain || section === "items");
     rows.push({ ...base, kind: "group", id: groupRowId(section), section, depth: 0, hasKids: true, open, count: list.length, inChain: false, dim: !!chain });
     if (open) list.forEach((root, i) => card(root, section, 0, 0, i === list.length - 1, list[i + 1]));
   });

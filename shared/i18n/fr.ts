@@ -1559,6 +1559,8 @@ const catalog: Catalog = {
   "{n} sub-cards hidden: {details}": {"one": "{n} sous-carte masquée : {details}", "other": "{n} sous-cartes masquées : {details}"},
   "Show its sub-cards": "Afficher ses sous-cartes",
   "Hide its sub-cards": "Masquer ses sous-cartes",
+  "Show sub-cards of {title}": "Afficher les sous-cartes de {title}",
+  "Hide sub-cards of {title}": "Masquer les sous-cartes de {title}",
   "in {title}": "dans {title}",
   "Levels": "Niveaux",
   "hides {n}": {"one": "masque {n}", "other": "masque {n}"},

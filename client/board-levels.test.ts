@@ -41,6 +41,31 @@ const levels = (o: ReturnType<typeof ownerProject>, patch: Partial<Parameters<ty
   boardLevels({ tree: o.tree, level: null, showArchived: false, searching: false, revealed: new Set(), keep: new Set(), visible: o.tasks, lanesShown: [], ...patch });
 
 describe("boardLevels (CARD-TREE-SPEC §2.3)", () => {
+  test("the roll-up and Show its sub-cards count only the cards the chip counts", () => {
+    clock = 0;
+    const tasks = [task("P", "todo", { priority: "urgent" }), task("k1"), task("k2"), task("k3")];
+    const tree = buildCardTree(tasks, ["k1", "k2", "k3"].map((k) => sub(k, "P")));
+    const flags = new Map(tasks.map((x) => [x.id, x.id === "k1" ? cardFlag.needs : 0] as const));
+    const run = (patch: Partial<Parameters<typeof boardLevels>[0]>) =>
+      boardLevels({ tree, level: 1, showArchived: false, searching: false, revealed: new Set(), keep: new Set(), visible: tasks, lanesShown: [], ...patch });
+    // Priority Urgent: the filter, not Levels, hides the Normal sub-cards.
+    const urgent = run({ visible: tasks.filter((x) => x.priority === "urgent") });
+    expect(urgent.hiddenCount).toBe(0);
+    expect([...urgent.folded]).toEqual([]);
+    expect(hiddenAncestors(tree, urgent.folded).has("P")).toBe(false);
+    expect(rollupBelow(tree, urgent.folded, new Set(["P"]), flags).get("P")).toBeUndefined();
+    // The lane footer already shows them.
+    const footer = run({ lanesShown: ["todo"] });
+    expect(footer.shown.length).toBe(4);
+    expect(footer.folded.size).toBe(0);
+    expect(hiddenAncestors(tree, footer.folded).has("P")).toBe(false);
+    // No filter, no footer: all three roll up and the menu offers them.
+    const plain = run({});
+    expect(plain.folded.size).toBe(plain.hiddenCount);
+    expect(hiddenAncestors(tree, plain.folded).has("P")).toBe(true);
+    expect(rollupBelow(tree, plain.folded, new Set(["P"]), flags).get("P")).toMatchObject({ hidden: 3, needs: 1 });
+  });
+
   test("Levels 1 / 2 / 3 / All show 1 / 9 / 13 / 19 cards, with the choices the tree offers", () => {
     const o = ownerProject();
     expect([1, 2, 3, null].map((level) => levels(o, { level }).shown.length)).toEqual([1, 9, 13, 19]);

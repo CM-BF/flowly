@@ -1,8 +1,8 @@
 import { describe, expect, test } from "vitest";
-import { buildCardTree, cardFlag, groupRowId, nextUp, outlineRows, scopeOf, type CardTree } from "../shared/card-tree";
+import { buildCardTree, cardFlag, chainOf, groupRowId, nextUp, outlineRows, scopeOf, type CardTree } from "../shared/card-tree";
 import type { Link, Status, Task } from "../shared/model";
 import { setLocale } from "../shared/i18n";
-import { connectors, nowNextText, revealOverrides, rowLabel, sectionOf, stepState, totalsText, waitChips } from "./card-tree-view";
+import { chainRows, connectors, nowNextText, revealOverrides, rowLabel, samePageProps, sectionOf, stepState, totalsText, waitChips, withRevealed, withoutFolds } from "./card-tree-view";
 
 let clock = 0;
 const now = "2026-10-24T00:00:00.000Z";
@@ -107,6 +107,57 @@ describe("Card tree rows (CARD-TREE-SPEC §2.2)", () => {
     const rows = outlineRows(tree, { inScope, flags, level: null });
     expect(rows.map((r) => r.id)).not.toContain("C3");
     expect(rows.find((r) => r.id === "C3a")?.depth).toBe(1);
+  });
+});
+
+describe("chain highlight, chevrons and Show in tree (CARD-TREE-SPEC §2.2)", () => {
+  const setup = () => {
+    const { tree, byId } = project();
+    const flags = flagsOf(tree, byId);
+    const chain = { ...chainOf(tree, "C3b"), focus: "C3b" };
+    const ids = (opts: Partial<Parameters<typeof outlineRows>[1]>) => outlineRows(tree, { inScope: all, flags, level: 1, ...opts }).map((r) => r.id);
+    const row = (id: string, opts: Partial<Parameters<typeof outlineRows>[1]>) => outlineRows(tree, { inScope: all, flags, level: 1, ...opts }).find((r) => r.id === id);
+    return { tree, flags, chain, ids, row };
+  };
+
+  test("Show in tree keeps the card revealed after the chain is cleared", () => {
+    const { tree, flags, chain, ids } = setup();
+    expect(ids({ chain })).toContain("C3b");
+    const overrides = withRevealed(new Map(), tree, "C3b", flags, all);
+    expect(ids({ chain: null, overrides })).toContain("C3b");
+    expect(withRevealed(overrides, tree, "C3b", flags, all)).toBe(overrides);
+  });
+
+  test("a chevron folds a row the chain holds open, and the row stays as it was left", () => {
+    const { chain, row } = setup();
+    expect(row("C3", { chain })!.open).toBe(true);
+    const folded = new Map([["C3", false]]);
+    expect(row("C3", { chain, overrides: folded })!.open).toBe(false);
+    expect(row("C3b", { chain, overrides: folded })).toBeUndefined();
+    expect(row("C3", { level: null, chain: null, overrides: folded })!.open).toBe(false);
+    // Group rows too.
+    expect(row(groupRowId("items"), { chain, overrides: new Map([[groupRowId("items"), false]]) })!.open).toBe(false);
+  });
+
+  test("a new chain drops the earlier folds on the rows it opens, and only those", () => {
+    const { tree, flags, chain, ids } = setup();
+    const opens = chainRows(tree, chain, flags, all);
+    expect([...opens].sort()).toEqual(["C3", groupRowId("items"), "main"]);
+    const before = new Map([["C3", false], [groupRowId("other"), true], ["C1", false]]);
+    const after = withoutFolds(before, opens);
+    expect([...after]).toEqual([[groupRowId("other"), true], ["C1", false]]);
+    expect(ids({ chain, overrides: after })).toContain("C3b");
+    expect(withoutFolds(after, opens)).toBe(after);
+  });
+});
+
+describe("CardTreePage memo (PERFORMANCE-SPEC §5)", () => {
+  test("holds still while covered, else compares shallowly", () => {
+    const fn = () => {};
+    expect(samePageProps({ active: false, n: 1 }, { active: false, n: 2 })).toBe(true);
+    expect(samePageProps({ active: true, n: 1, fn }, { active: true, n: 1, fn })).toBe(true);
+    expect(samePageProps({ active: true, n: 1 }, { active: true, n: 2 })).toBe(false);
+    expect(samePageProps({ active: false, n: 1 }, { active: true, n: 1 })).toBe(false);
   });
 });
 

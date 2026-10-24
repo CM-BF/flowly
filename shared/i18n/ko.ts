@@ -1559,6 +1559,8 @@ const catalog: Catalog = {
   "{n} sub-cards hidden: {details}": "하위 카드 {n}개 숨김: {details}",
   "Show its sub-cards": "하위 카드 보기",
   "Hide its sub-cards": "하위 카드 숨기기",
+  "Show sub-cards of {title}": "{title}의 하위 카드 보기",
+  "Hide sub-cards of {title}": "{title}의 하위 카드 숨기기",
   "in {title}": "{title} 하위",
   "Levels": "계층",
   "hides {n}": "{n}개 숨김",

@@ -1,4 +1,4 @@
-import { blockerState, cardFlag, groupRowId, rootGroup, scopedChildren, type CardTree, type Flags, type InScope, type NextUp, type OutlineRow, type OutlineSection } from "../shared/card-tree";
+import { blockerState, cardFlag, groupRowId, rootGroup, scopedChildren, type Chain, type CardTree, type Flags, type InScope, type NextUp, type OutlineRow, type OutlineSection } from "../shared/card-tree";
 import type { Task } from "../shared/model";
 import { t, tn } from "../shared/i18n";
 
@@ -32,6 +32,46 @@ export function revealOverrides(tree: CardTree, id: string, flags: Flags, inScop
   const up = tree.chain(id).filter(inScope);
   if (!up.length) return [];
   return [[groupRowId(sectionOf(tree, up[0], flags, inScope)), true], ...up.slice(0, -1).map((a) => [a, true] as [string, boolean])];
+}
+
+/**
+ * The rows a chain highlight opens: the section and in-scope ancestors of every card on it. A new chain
+ * drops the chevron folds on these rows, so the whole chain shows; a chevron press after that still wins.
+ */
+export function chainRows(tree: CardTree, chain: Chain & { focus: string }, flags: Flags, inScope: InScope): Set<string> {
+  const out = new Set<string>();
+  for (const id of [chain.focus, ...chain.up, ...chain.inherited, ...chain.down]) for (const [key] of revealOverrides(tree, id, flags, inScope)) out.add(key);
+  return out;
+}
+
+/** `overrides` without the folds (false) on `rows`; the same map when there are none. */
+export function withoutFolds(overrides: ReadonlyMap<string, boolean>, rows: ReadonlySet<string>): ReadonlyMap<string, boolean> {
+  let next: Map<string, boolean> | null = null;
+  for (const [key, open] of overrides)
+    if (!open && rows.has(key)) {
+      next ??= new Map(overrides);
+      next.delete(key);
+    }
+  return next ?? overrides;
+}
+
+/** `overrides` with `id`'s section and ancestors opened (Show in tree, a waits-for chip), or as it is when nothing changes. */
+export function withRevealed(overrides: ReadonlyMap<string, boolean>, tree: CardTree, id: string, flags: Flags, inScope: InScope): ReadonlyMap<string, boolean> {
+  const open = revealOverrides(tree, id, flags, inScope).filter(([key]) => overrides.get(key) !== true);
+  if (!open.length) return overrides;
+  const next = new Map(overrides);
+  for (const [key] of open) next.set(key, true);
+  return next;
+}
+
+/**
+ * CardTreePage's memo (PERFORMANCE-SPEC §5): while the phone's card overlay covers it (inactive before
+ * and after) it does not render at all; otherwise a shallow compare.
+ */
+export function samePageProps<P extends { active: boolean }>(a: P, b: P): boolean {
+  if (!a.active && !b.active) return true;
+  const keys = Object.keys(a) as (keyof P)[];
+  return keys.length === Object.keys(b).length && keys.every((k) => Object.is(a[k], b[k]));
 }
 
 /**

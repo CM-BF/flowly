@@ -1559,6 +1559,8 @@ const catalog: Catalog = {
   "{n} sub-cards hidden: {details}": "{n} 件のサブカードを非表示：{details}",
   "Show its sub-cards": "サブカードを表示",
   "Hide its sub-cards": "サブカードを隠す",
+  "Show sub-cards of {title}": "{title} のサブカードを表示",
+  "Hide sub-cards of {title}": "{title} のサブカードを隠す",
   "in {title}": "{title} の中",
   "Levels": "階層",
   "hides {n}": "{n} 件を隠す",

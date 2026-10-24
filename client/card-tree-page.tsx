@@ -20,9 +20,8 @@ import {
 import type { Project, Status, Task } from "../shared/model";
 import { t, tn } from "../shared/i18n";
 import { automationSignal, type AutomationSignal } from "./automation-view";
-import { connectors, nowNextText, revealOverrides, rowLabel, stepState, totalsText, waitChips, type StepState, type WaitChip } from "./card-tree-view";
+import { chainRows, connectors, nowNextText, rowLabel, samePageProps, stepState, totalsText, waitChips, withRevealed, withoutFolds, type StepState, type WaitChip } from "./card-tree-view";
 import { menuHandlers, useMenuOpener, type MenuEntry } from "./context-menu";
-import { Chevron } from "./disclosure";
 import { useMotionValue, useReducedMotion, useSettled, motionDuration } from "./motion";
 import { perfEnd, perfStart } from "./perf";
 import { useStableCallback } from "./stable";
@@ -34,9 +33,13 @@ import { Button, Choices, Label, font, noFocusRing, radius, space, tint, touch, 
 export type TreeFocus = { id: string; key: string };
 
 const rowMax = 960;
-const stepSlot = 24;
+// Touch: the step circle and the chevron are each a full 44 pt target, not a slop that the next control covers.
+const stepSlot = touch ? 44 : 24;
+const chevronSlot = touch ? 44 : 22;
 const circle = 18;
 const rowTop = 56;
+/** The Show in tree flash fades out over this long. */
+const flashFade = 900;
 // Not `typeof === "function"`: a host FlatList wrapped in memo/forwardRef is an object (client/session-transcript.tsx).
 const virtualized = !!FlatList;
 
@@ -140,8 +143,10 @@ export const CardTreePage = memo(function CardTreePage({
     timers.current.add(timer);
   };
   useEffect(() => () => timers.current.forEach(clearTimeout), []);
+  // Show in tree writes the same overrides as a chip press, so the card stays revealed once the chain is cleared.
   useEffect(() => {
     if (!focus) return;
+    if (tree.ids.includes(focus.id) && inScope(focus.id)) setOverrides((current) => withRevealed(current, tree, focus.id, flags, inScope));
     setTarget({ id: focus.id, key: focus.key });
   }, [focus?.key]);
   useEffect(() => {
@@ -168,14 +173,18 @@ export const CardTreePage = memo(function CardTreePage({
     setOverrides((current) => new Map(current).set(id, !row.open));
   });
   const jump = useStableCallback((id: string) => {
-    setOverrides((current) => {
-      const next = new Map(current);
-      for (const [key, open] of revealOverrides(tree, id, flags, inScope)) next.set(key, open);
-      return next;
-    });
+    // A blocker the outline does not show (archived with Show archived off): open it instead of a scroll that finds nothing.
+    if (!tree.ids.includes(id) || !inScope(id)) return onOpenTask(id);
+    setOverrides((current) => withRevealed(current, tree, id, flags, inScope));
     setTarget({ id, key: `jump-${Date.now()}` });
   });
-  const step = useStableCallback((id: string) => onChain(chain === id ? null : id));
+  const step = useStableCallback((id: string) => {
+    if (chain === id) return onChain(null);
+    // A new chain shows whole: earlier chevron folds on the rows it opens are dropped (a later fold still wins).
+    const opens = chainRows(tree, { ...chainOf(tree, id), focus: id }, flags, inScope);
+    setOverrides((current) => withoutFolds(current, opens));
+    onChain(id);
+  });
   const menuOf = useStableCallback((id: string) => menuFor(id));
   const open = useStableCallback((id: string) => onOpenTask(id));
 
@@ -299,7 +308,7 @@ export const CardTreePage = memo(function CardTreePage({
       )}
     </View>
   );
-});
+}, samePageProps);
 
 type RowView = {
   title: string;
@@ -351,12 +360,37 @@ const TreeRow = memo(function TreeRow({ row, join, view, root, indent, selected,
   const { colors } = useTheme();
   const openMenu = useMenuOpener();
   const opacity = useMotionValue(row.dim ? 0.45 : 1);
-  const flashOpacity = useMotionValue(flash ? 1 : 0, flash ? motionDuration.forward : 900);
+  const flashOpacity = useMotionValue(flash ? 1 : 0, flash ? motionDuration.forward : flashFade);
+  // The overlay stays mounted through its fade-out, then goes.
+  const [flashShown, setFlashShown] = useState(flash);
+  useEffect(() => {
+    if (flash) {
+      setFlashShown(true);
+      return;
+    }
+    if (!flashShown) return;
+    const timer = setTimeout(() => setFlashShown(false), flashFade);
+    return () => clearTimeout(timer);
+  }, [flash]);
   const id = row.id;
   const press = useCallback(() => onOpen(id), [onOpen, id]);
   const pressStep = useCallback(() => onStep(id), [onStep, id]);
   const pressChevron = useCallback(() => onToggle(id), [onToggle, id]);
   const menu = useMemo(() => menuHandlers(openMenu, view.title, () => menuFor(id)), [openMenu, menuFor, id, view.title]);
+  // Chips sit inside the row's accessible Pressable, which VoiceOver reads as one element: each jump is also a row action.
+  const chipActions = useMemo(
+    () =>
+      view.chips.length
+        ? {
+            accessibilityActions: view.chips.map((chip, i) => ({ name: `waits-${i}`, label: t("waits for {titles}", { titles: chip.text }) })),
+            onAccessibilityAction: (event: { nativeEvent: { actionName: string } }) => {
+              const chip = view.chips[Number(event.nativeEvent.actionName.replace("waits-", ""))];
+              if (event.nativeEvent.actionName.startsWith("waits-") && chip) onJump(chip.id);
+            },
+          }
+        : null,
+    [view.chips, onJump],
+  );
   const left = row.depth * indent;
   const cx = left + stepSlot / 2;
   const mid = rowTop / 2;
@@ -399,7 +433,7 @@ const TreeRow = memo(function TreeRow({ row, join, view, root, indent, selected,
           accessibilityRole="button"
           accessibilityLabel={t("Chain of {title}", { title: view.title })}
           accessibilityState={{ selected: row.inChain }}
-          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+          hitSlop={touch ? undefined : { top: 10, bottom: 10, left: 10, right: 10 }}
           onPress={pressStep}
           style={{ ...noFocusRing, width: stepSlot, height: rowTop, alignItems: "center", justifyContent: "center" }}
         >
@@ -423,13 +457,13 @@ const TreeRow = memo(function TreeRow({ row, join, view, root, indent, selected,
         {row.hasKids ? (
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel={row.open ? t("Hide its sub-cards") : t("Show its sub-cards")}
+            accessibilityLabel={row.open ? t("Hide sub-cards of {title}", { title: view.title }) : t("Show sub-cards of {title}", { title: view.title })}
             accessibilityState={{ expanded: row.open }}
-            hitSlop={{ top: 10, bottom: 10, left: 4, right: 4 }}
+            hitSlop={touch ? undefined : { top: 10, bottom: 10, left: 4, right: 4 }}
             onPress={pressChevron}
-            style={{ ...noFocusRing, width: 22, height: rowTop, alignItems: "center", justifyContent: "center" }}
+            style={{ ...noFocusRing, width: chevronSlot, height: rowTop, alignItems: "center", justifyContent: "center" }}
           >
-            <Chevron open={row.open} title={`tree-${id}`} size={14} color={colors.foregroundMuted} />
+            <RowChevron open={row.open} color={colors.foregroundMuted} />
           </Pressable>
         ) : (
           <View style={{ width: 6 }} />
@@ -438,6 +472,7 @@ const TreeRow = memo(function TreeRow({ row, join, view, root, indent, selected,
           accessibilityRole="button"
           accessibilityLabel={view.label}
           {...menu}
+          {...chipActions}
           onPress={press}
           style={({ pressed }) => ({ ...noFocusRing, flex: 1, minWidth: 0, paddingVertical: space[2], paddingRight: space[2], justifyContent: "center", gap: 3, opacity: pressed ? 0.75 : 1 })}
         >
@@ -474,7 +509,7 @@ const TreeRow = memo(function TreeRow({ row, join, view, root, indent, selected,
             </Label>
           )}
         </Pressable>
-        {flash && (
+        {flashShown && (
           <Animated.View pointerEvents="none" style={{ position: "absolute", top: 0, bottom: 0, left: 0, right: 0, borderRadius: radius.md, borderWidth: 1.5, borderColor: colors.accent, backgroundColor: tint(colors.accent, 0.06), opacity: flashOpacity }} />
         )}
       </View>
@@ -482,7 +517,15 @@ const TreeRow = memo(function TreeRow({ row, join, view, root, indent, selected,
   );
 }, sameTreeRow);
 
-/** A waits-for chip: pressing it opens the way to that card, scrolls to it and flashes it. */
+/**
+ * The outline's chevron: a static icon, not the disclosure's rotating one (a JS-driver animation per row
+ * would run on every row a Levels change or a chain flips at once); expanding is just inserting rows.
+ */
+function RowChevron({ open, color }: { open: boolean; color: string }) {
+  return <Icon name={open ? "ChevronDown" : "ChevronRight"} size={14} color={color} />;
+}
+
+/** A waits-for chip: pressing it opens the way to that card, scrolls to it and flashes it (or opens a blocker the outline does not show). */
 function WaitFor({ chip, onJump }: { chip: WaitChip; onJump(id: string): void }) {
   const { colors } = useTheme();
   const press = useCallback(() => onJump(chip.id), [onJump, chip.id]);
@@ -545,7 +588,7 @@ const GroupRow = memo(function GroupRow({ row, onToggle }: { row: OutlineRow; on
       onPress={press}
       style={{ ...noFocusRing, width: "100%", maxWidth: rowMax, alignSelf: "center", flexDirection: "row", alignItems: "center", gap: space[1.5], minHeight: touch ? 44 : 36, paddingTop: space[2] }}
     >
-      <Chevron open={row.open} title={`tree-${row.id}`} size={14} color={colors.foregroundMuted} />
+      <RowChevron open={row.open} color={colors.foregroundMuted} />
       <Label bold size={font.sm} muted selectable={false}>{`${title} · ${row.count}`}</Label>
     </Pressable>
   );

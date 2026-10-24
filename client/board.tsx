@@ -1,4 +1,4 @@
-import { useEffect, useId, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { Animated, Platform, Pressable, View, useWindowDimensions, type GestureResponderEvent } from "react-native";
 import { Icon, ScrollView, useToast } from "@getpaseo/plugin/client/react-native";
 import { Modal, useAfterModalClose } from "./modal";
@@ -573,7 +573,8 @@ function BoardContent(
   );
   // The filtered cards Levels leaves on the board: lane counts, the lane chooser and navigation follow it.
   const visibleLevel = levels?.shown ?? visible;
-  const levelAncestors = useMemo(() => (tree && levels?.hidden.size ? hiddenAncestors(tree, levels.hidden) : noIds), [tree, levels]);
+  // The filtered cards Levels hides, as the chip counts them: a filtered-out or footer-shown sub-card offers nothing to show.
+  const levelAncestors = useMemo(() => (tree && levels?.folded.size ? hiddenAncestors(tree, levels.folded) : noIds), [tree, levels]);
   const subCardsFoldOf = (id: string): "show" | "hide" | null =>
     levels?.level == null ? null : revealedCards.has(id) ? "hide" : levelAncestors.has(id) ? "show" : null;
   const toggleSubCards = useStableCallback((card: Task) =>
@@ -596,7 +597,8 @@ function BoardContent(
   };
   // The project's lanes are its workflow: enabled lanes in their configured order.
   const shownStatuses = enabledStatuses(project);
-  const nameOf = (status: Status) => laneName(project, status);
+  // Stable per project: it is a prop of the memoized pages (CardTreePage, InsightsPage).
+  const nameOf = useCallback((status: Status) => laneName(project, status), [project]);
   const wrapPromptTask = wrapPrompt
     ? board?.tasks.find((t) => t.id === wrapPrompt && !t.archivedAt)
     : undefined;
@@ -870,7 +872,8 @@ function BoardContent(
       { id: "link", label: t("Link to a card…"), icon: "Link", disabled: locked, onPress: () => setLinking(card) },
       { id: "follow-up", label: t("New follow-up task"), icon: "CornerDownRight", disabled: locked, onPress: () => followUp(card) },
       { id: "sub-card", label: t("New sub-card"), icon: "ListTree", disabled: locked, onPress: () => subCard(card) },
-      ...treeMenuEntries(card),
+      // Not on the tree page: its rows follow its own Levels and chevrons, so these would change only the hidden board.
+      ...(page !== "tree" ? treeMenuEntries(card) : []),
       ...(hasTree && page !== "tree" ? [{ id: "show-in-tree", label: t("Show in tree"), icon: "Workflow", onPress: () => showInTree(card.id) }] : []),
       ...attentionMenuEntry(card),
       { kind: "separator", id: "s1" },
@@ -987,9 +990,9 @@ function BoardContent(
     return built;
   }, [tree, projectTasksById, automationIndex, allAttention, agents.data]);
   const below = useMemo(() => {
-    if (!tree || !levels?.hidden.size) return noBelow;
+    if (!tree || !levels?.folded.size) return noBelow;
     const shown = new Set(onScreen.map((t) => t.id));
-    return rollupBelow(tree, [...levels.hidden].filter((id) => !shown.has(id)), shown, flags);
+    return rollupBelow(tree, levels.folded, shown, flags);
   }, [tree, levels, flags, older, olderShown]);
   const automationActions = useAutomationActions();
   // Stable for every card (memoized cards; PERFORMANCE-SPEC §3).
@@ -2385,7 +2388,7 @@ function BoardContent(
                       setActionTask(null);
                     }}
                   />
-                  {[...automationMenu(project ?? undefined, actionTask, automationIndex.get(actionTask.id), !!project?.archivedAt || !!actionTask.archivedAt, automationActions, runUnavailable(actionTask)), ...treeMenuEntries(actionTask), ...(hasTree && page !== "tree" ? [{ id: "show-in-tree", label: t("Show in tree"), icon: "Workflow", onPress: () => showInTree(actionTask.id) }] : []), ...attentionMenuEntry(actionTask)].map((entry) => (
+                  {[...automationMenu(project ?? undefined, actionTask, automationIndex.get(actionTask.id), !!project?.archivedAt || !!actionTask.archivedAt, automationActions, runUnavailable(actionTask)), ...(page !== "tree" ? treeMenuEntries(actionTask) : []), ...(hasTree && page !== "tree" ? [{ id: "show-in-tree", label: t("Show in tree"), icon: "Workflow", onPress: () => showInTree(actionTask.id) }] : []), ...attentionMenuEntry(actionTask)].map((entry) => (
                     <Row
                       key={entry.id}
                       title={entry.label}

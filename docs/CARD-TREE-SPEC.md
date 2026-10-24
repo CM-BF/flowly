@@ -109,7 +109,7 @@
 - 项目标签右键菜单的 pages 组（`projectTabMenu`，在 Insights、Ideas、Memory 之后）。
 - 卡片右键菜单（`cardMenu`）、手机操作表、抽屉 Dependencies 区块里的 “Show in tree”。
 
-“Show in tree” 的行为：打开页面，展开该卡的祖先，滚到该行，闪一次（沿用现有的状态闪烁 opacity，Reduce Motion 下不闪），并开启链路高亮。`Esc` 和 Back 照常离开页面。
+“Show in tree” 的行为：打开页面，展开该卡的祖先，滚到该行，闪一次（沿用现有的状态闪烁 opacity，Reduce Motion 下不闪），并开启链路高亮。`Esc` 和 Back 照常离开页面。展开祖先与点 waits-for 芯片一样写入 Chevron 覆盖（`withRevealed`），所以清除链路高亮后这张卡仍然可见，不会因为链路不再撑开祖先而折回、让列表跳动。闪烁的边框在 900 ms 内淡出后才卸载。
 
 页面头部：
 
@@ -143,7 +143,7 @@
 1. **树轨**：每个仍在延续的祖先层画一条 1 px 绝对定位 View（来自 `outlineRows` 的 bitmask），本行再加一个肘形。
    - 缩进：桌面每层 20 pt，compact 每层 14 pt，最多 3 层。
    - 线用 top:0/bottom:0，不需要测量。
-2. **步骤槽**（24 pt）：18 pt 圆圈里写步骤号，填充或描边表示状态：
+2. **步骤槽**（24 pt，触屏 44 pt）：18 pt 圆圈里写步骤号，填充或描边表示状态：
    - done：success 填充
    - active：accent 填充
    - needs you：warning 填充
@@ -152,14 +152,14 @@
    - ready：accent 描边
 
    同组相邻行之间连一条 1 px 竖线。下一行步骤号更大时，竖线末端加 4 pt 边框三角箭头；步骤相同则只有直线，表示并行。
-3. 有子卡片时显示 Chevron。
+3. 有子卡片时显示 Chevron（22 pt，触屏 44 pt）。触屏上步骤槽和 Chevron 都用实际宽度做 44 pt 命中区，不用 hitSlop：后一个控件会盖住前一个的 slop。Chevron 是静态的 `ChevronRight` / `ChevronDown` 图标，不用抽屉里会转动的 disclosure Chevron：后者走 JS driver，改 Levels 或开启链路时几十行会同时转。
 4. StatusIcon 和标题，最多 2 行。
 5. **meta 行**：泳道 · 自动化信号 · “Sub-cards 1/2” · waits-for 芯片。芯片只在以下情况出现，所以一条直链只看编号就能读懂：
    - blocker 未完成：显示 “{title}”。
    - blocker 不在本组兄弟里：显示 “{title} (in {parent})”。
    - stuck：warning 色 “{title} · Cancelled, holds this” 或 “{title} · Archived, holds this”。
 
-   点芯片会展开所需的祖先、滚到那张卡并闪一次。
+   点芯片会展开所需的祖先、滚到那张卡并闪一次。blocker 不在当前范围里（归档且 Show archived 关闭）时，大纲里没有它的行，点芯片改为在抽屉里打开它，不展开任何行。
 6. 折叠的行另加子树进度条和 “{done}/{total} done · {n} running · {n} needs you”。
 
 **交互：**
@@ -169,9 +169,9 @@
 - 点步骤圆圈（44 pt 命中区）切换**链路高亮**：
   - 上游：传递的 blocker，加上祖先的 blocker（较浅色，“inherited”）。
   - 下游：传递的被阻塞卡及其子卡片。
-  - 链上卡片的祖先强制展开，链上行用 accent 底色，其他行 opacity 0.45（native driver）。
+  - 链上卡片的祖先和所在分组展开，链上行用 accent 底色，其他行 opacity 0.45（native driver）。开启新链路时，清掉这些行上之前按 Chevron 留下的折叠，整条链因此可见；之后再按 Chevron 仍以它为准。
   - 头部出现一条栏：“Chain of {title} · {n} before · {n} after · Clear”。
-- 每行 Chevron 可覆盖当前 Levels 的展开状态。覆盖只存在客户端内存里（按项目），切换项目或改 Levels 时清空，同 `olderShown`。
+- 每行 Chevron 可覆盖当前 Levels 的展开状态，也覆盖链路的展开（review 修正：原来链路撑开的行按 Chevron 没有反应，存下的折叠在清除链路后才突然生效）。覆盖只存在客户端内存里（按项目），切换项目或改 Levels 时清空，同 `olderShown`。分组行（Other cards、Finished）同样。
 - 一行显示示例（用户的树，Levels All）：
 
 ```
@@ -200,7 +200,7 @@ main card · Now: C3 · Next: C4 (queued) · Needs you: C5b
   - 按下后，桌面打开 ContextMenu（`client/context-menu.tsx`），手机打开操作表。各选项带勾选，各附 “hides {n}”（由深度直方图得出）。
 - Card tree 页头部有同一控件，同一个值。
 - 快捷键 `1` `2` `3` 设层级，`0` 为 All。只在桌面 web、焦点在看板内、无修饰键时生效，写入 `shortcutHelp` 与 ? 对话框。不在本项目选项里的层级（大于 maxDepth）不做任何事。
-- 卡片菜单和手机操作表：卡有被隐藏的后代时显示 “Show its sub-cards”，已展开时显示 “Hide its sub-cards”。卡片 Pressable 同时提供同名 accessibilityActions。展开的效果是显示这张卡的整棵子树，只在本次访问有效，切换项目或改 Levels 时清空。
+- 卡片菜单和手机操作表：卡有被隐藏的后代（§2.4 的同一批）时显示 “Show its sub-cards”，已展开时显示 “Hide its sub-cards”。卡片树页上的卡片菜单不含这两项：页面的行只跟随页面自己的 Levels 和 Chevron，这两项只改看板。卡片 Pressable 同时提供同名 accessibilityActions。展开的效果是显示这张卡的整棵子树，只在本次访问有效，切换项目或改 Levels 时清空。
 - 泳道底部：该泳道有被 Levels 隐藏的卡片时，显示 “Show {n} hidden sub-cards / Hide sub-cards”。
   - 复用 `OlderToggle`（`client/columns.tsx`）的样式，图标换成 `ListTree`，只在本次访问有效。
   - 位置：泳道的当前卡片之后、“Show {n} older tasks” 之前。展开后，这些卡按看板排序回到泳道里；其中较旧的已完成卡照常折叠在 Show older 下。
@@ -250,7 +250,7 @@ tasks（含 Show archived）
 - ACTIVE：卡的 workspace 里有 running/initializing session，或 job 处于 starting/working/reviewing/retry_wait。
 - HELD：§2.1 的 isHeld。
 
-**归属。** `rollupBelow()` 把每张隐藏卡只算给一张卡：它在屏幕上的最近祖先。中间被隐藏的层会跳过。没有在屏幕上的祖先（例如祖先被筛选掉）时，只计入芯片总数，Attention 里照常列出，泳道底部的展开按钮也能把它显示出来。
+**归属。** 汇总的隐藏卡与芯片的 “{n} hidden” 是同一批（`boardLevels().folded`）：通过了筛选、被 Levels 隐藏、且所在泳道的底部没有展开的卡。被筛选掉的子卡不汇总，也不让卡片菜单出现 “Show its sub-cards”（按下也看不到它们）；它们的 act-now 状态仍在不受筛选影响的 Attention 里。泳道底部已展开的卡就在屏幕上，同样不算。（review 修正：原来用整棵项目树上 Levels 隐藏的全部卡，与芯片不一致。）`rollupBelow()` 把每张隐藏卡只算给一张卡：它在屏幕上的最近祖先。中间被隐藏的层会跳过。没有在屏幕上的祖先（例如祖先被筛选掉）时，只计入芯片总数，Attention 里照常列出，泳道底部的展开按钮也能把它显示出来。
 
 **可见祖先卡面，在 “Sub-cards n/m” 之后依次显示：**
 
@@ -367,6 +367,8 @@ running 和 unread 两项受 Card display 的 Session activity 开关（`session
 - 不对节点位置做动画。展开就是插入行。
 - 线条 View 设 `pointerEvents="none"`，并对无障碍隐藏。坐标经 `PixelRatio.roundToNearestPixel` 取整。
 - 行的无障碍标签示例：“C3, Development, Agent working, step 3 of 5 under main card, waits for C2”。cyclic 卡加 “order is circular”。
+- Chevron 的标签带卡名：“Show sub-cards of {title}” / “Hide sub-cards of {title}”。
+- waits-for 芯片在行的 Pressable 里面，VoiceOver 把整行读成一个元素，够不到芯片；所以每个芯片也是行的一个 accessibilityAction（标签 “waits for {titles}”），效果与点芯片相同。
 - 按 Hermes 规则（AGENTS.md），所有行和节点的处理函数都用 map 或 forEach 加 `useStableCallback(id)` 构建，不在 for 循环里建闭包。
 
 ## 5. 性能
@@ -377,6 +379,7 @@ running 和 unread 两项受 Card display 的 Session activity 开关（`session
   - FlatList 虚拟化，每行约 12 到 16 个 View，首屏约 200 个 View。
   - 首次挂载由 `useSettled` 门控，在页面转场之后。
   - 行的 props 全是基本类型；`sameRowList` 让每 3 秒的轮询不重渲染没变的行；链路高亮只改两个布尔值。
+  - 页面本身 `memo(…, samePageProps)`：看板传入的 props 都稳定（`nameOf` 按项目 `useCallback`），所以抽屉开合、toast、菜单引起的看板渲染不会让每个挂载的行重算 view。手机上卡片覆盖层盖住页面时（`active` 前后都为 false）页面完全不渲染，回到页面时按最新 props 渲染一次。
 - **抽屉邻域图**：最多约 20 个节点、约 80 个 View，只在区块展开且抽屉打开结束后挂载；占位高度立即算出。
 - **看板**：Levels 1 或 2 时挂载的卡片变少，泳道更便宜。`blockerIndex` 替换二次方的 `waitingIndex`。
 - **perf 名称**：`tree.build`、`tree.flags`、`tree.rows`、`tree.mount`、`drawer.deps.mount`、`levels.change`。在 SM-S911B 上测后才能写数字；没有可测收益的优化撤回。
@@ -414,6 +417,10 @@ running 和 unread 两项受 Card display 的 Session activity 开关（`session
 - "{title} · Cancelled, holds this"
 - "{title} · Archived, holds this"
 - "Chain of {title}"
+- "Levels"（页头 Choices 和 Levels 菜单的标题）
+- "Sub-card levels shown: {text}"（Levels 芯片与 compact 页头按钮的无障碍标签）
+- "Show sub-cards of {title}" / "Hide sub-cards of {title}"（行 Chevron 的无障碍标签，review 加入）
+- "waits for {titles}"、"under {title}"（行与芯片的无障碍标签，§4.3）
 - tn "{n} before"
 - tn "{n} after"
 - "Clear"
@@ -452,6 +459,7 @@ running 和 unread 两项受 Card display 的 Session activity 开关（`session
 - "Queued after blockers"
 - "Parent card"（Card display 字段）
 - "Show which card a sub-card belongs to"
+- "Checkout redesign"（Settings → Cards 预览里示例父卡的标题）
 - "Sub-card of {title}"（已存在，复用）
 
 **抽屉：**

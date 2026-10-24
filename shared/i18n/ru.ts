@@ -1559,6 +1559,8 @@ const catalog: Catalog = {
   "{n} sub-cards hidden: {details}": {"one": "Скрыта {n} подкарточка: {details}", "few": "Скрыты {n} подкарточки: {details}", "many": "Скрыто {n} подкарточек: {details}", "other": "Скрыто {n} подкарточки: {details}"},
   "Show its sub-cards": "Показать подкарточки",
   "Hide its sub-cards": "Скрыть подкарточки",
+  "Show sub-cards of {title}": "Показать подкарточки {title}",
+  "Hide sub-cards of {title}": "Скрыть подкарточки {title}",
   "in {title}": "в {title}",
   "Levels": "Уровни",
   "hides {n}": {"one": "скрывает {n}", "few": "скрывает {n}", "many": "скрывает {n}", "other": "скрывает {n}"},

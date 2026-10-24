@@ -33,6 +33,12 @@ export interface BoardLevels<T> {
   hidden: ReadonlySet<string>;
   /** Filtered cards hidden by Levels (the chip's "{n} hidden"); those a lane footer shows are not hidden. */
   hiddenCount: number;
+  /**
+   * Those same cards by id: the one population behind the chip, the roll-up's "{n} hidden below" and
+   * the menu's "Show its sub-cards" (§2.4), so a card never offers to show sub-cards a filter or an
+   * open lane footer already decides about.
+   */
+  folded: ReadonlySet<string>;
   /** Filtered cards hidden by Levels per lane (the lane footer). */
   byLane: ReadonlyMap<Status, number>;
   /** `visible` without the hidden cards, except in lanes whose footer shows them. */
@@ -48,7 +54,7 @@ export function boardLevels<T extends { id: string; status: Status }>(input: Lev
   const paused = input.searching && level !== null;
   const hidden = level === null || paused ? none : foldByLevel(input.tree, level, input.revealed, input.keep, inScope);
   const byLane = new Map<Status, number>();
-  let hiddenCount = 0;
+  const folded = new Set<string>();
   const shown: T[] = [];
   for (const card of input.visible) {
     if (!hidden.has(card.id)) {
@@ -57,12 +63,12 @@ export function boardLevels<T extends { id: string; status: Status }>(input: Lev
     }
     byLane.set(card.status, (byLane.get(card.status) ?? 0) + 1);
     if (input.lanesShown.includes(card.status)) shown.push(card);
-    else hiddenCount++;
+    else folded.add(card.id);
   }
-  return { choices, level, paused, hidden, hiddenCount, byLane, shown };
+  return { choices, level, paused, hidden, hiddenCount: folded.size, folded, byLane, shown };
 }
 
-/** The cards with a sub-card the level hides (the menu's "Show its sub-cards"), in one pass. */
+/** The cards with a sub-card the level hides (the menu's "Show its sub-cards"), in one pass; pass `folded`. */
 export function hiddenAncestors(tree: Pick<CardTree, "chain">, hidden: ReadonlySet<string>): Set<string> {
   const out = new Set<string>();
   for (const h of hidden) {

@@ -1559,6 +1559,8 @@ const catalog: Catalog = {
   "{n} sub-cards hidden: {details}": {"one": "{n} Unterkarte ausgeblendet: {details}", "other": "{n} Unterkarten ausgeblendet: {details}"},
   "Show its sub-cards": "Unterkarten anzeigen",
   "Hide its sub-cards": "Unterkarten ausblenden",
+  "Show sub-cards of {title}": "Unterkarten von {title} anzeigen",
+  "Hide sub-cards of {title}": "Unterkarten von {title} ausblenden",
   "in {title}": "in {title}",
   "Levels": "Ebenen",
   "hides {n}": {"one": "blendet {n} aus", "other": "blendet {n} aus"},
