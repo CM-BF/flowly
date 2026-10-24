@@ -46,8 +46,8 @@
 fork 的 owner 拥有 fork（AGENTS.md “Fork ownership”）。合并上游 #32-#45 时，清单与 fork 的自动化、评论和任务录入合并如下（详见 [AUTOMATION-SPEC](AUTOMATION-SPEC.md) §4.2、§5、§7）：
 
 - 第 1 项保留 fork 的原话 “Handle unread inputs and unread comments first”，并说明 setup.missing 包括 metadata（[TASK-INTAKE-SPEC](TASK-INTAKE-SPEC.md)）；skill 的 “Small cards also need…” 补上 task.brief 的 `flowly_update_metadata`。
-- 第 5 项加一句：`[Flowly automation]` 下 result 不结束回合，先提交，再以 in_review、提问或 blocked 结束。原因：自动化的 `turnDecision` 只认 in_review、本回合设的 blocked、question/blocker 报告和推进中的子卡片，其余都是静默结束，提醒 `nudgeLimit` 次后移到 Blocked；父卡和依赖卡合并分支，未提交的成果到不了它们。普通 session 的 “even if uncommitted” 不变。
-- 六项合计 1743 字符（< 1800）。
+- 第 5 项加一句：`[Flowly automation]` 下 result 不结束回合，要以 in_review、提问或 blocked 结束；worktree workspace 的卡片在 in_review 之前先在自己的分支上提交。原因：自动化的 `turnDecision` 只认 in_review、本回合设的 blocked、question/blocker 报告和推进中的子卡片，其余都是静默结束，提醒 `nudgeLimit` 次后移到 Blocked；父卡和依赖卡合并分支，worktree 里未提交的成果到不了它们。directory workspace（New task 的缺省、没有 `.git` 的项目里 agent 建的卡）是项目根目录自己的 checkout，没有自己的分支：在那里提交等于无人值守地提交到用户检出的分支（通常是 main），所以不要求提交，改动留在工作区（除非卡片或仓库规则要求提交）。`flowly_get_task` 的 `workspace.kind` 给出 Paseo 的 workspace 类型（`worktree` 或 `directory` 等），开工说明和 skill 按它说明。普通 session 的 “even if uncommitted” 不变。
+- 六项合计 1784 字符（< 1800）。
 - **按角色返回**：自动化评审 session（job 的 `reviewerId` 或 `reviewers`，且不是 `implementerId`）从 `flowly_get_task` 读到的是 `reviewerChecklist`（三项：读卡与全部评论后对照交付评审；运行检查但不改状态、workpad、type、tags、ideas、artifacts 或文件，不提交不推送；用 `flowly_submit_review` 或 `kind=question` 结束），不是本清单。服务端对评审者的状态、workpad、type、tags、artifact、idea 修改和 `kind=result` 返回 `REVIEWER_ONLY`。skill 只渲染实现者清单；“Automated runs” 告诉评审者跳过清单的阶段、workpad 与交付步骤。
 
 ## 3. 统计校准

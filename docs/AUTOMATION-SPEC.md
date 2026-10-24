@@ -87,7 +87,7 @@ AutomationJob {
 - **provider 冷却**：一个 job 处于 provider 限额冷却（`retry_wait`/`cooldown`）时，同一个 provider 的卡片在任何项目都不启动；角色设了另一个、未在冷却的 provider 上的备用模型时不受此限，直接用备用模型启动（§4.5）。只比较确定的 provider：项目没设实现者模型和项目默认模型时，按全局默认模型的 provider 比较；项目的或冷却 job 的 provider 仍不确定时，只挡同一个项目，绝不挡所有项目。
 - **workspace 与目录**：启动前先查卡片自己的 workspace。它已归档、正在归档或 daemon 不再列出它 → job `failed` / `workspace_unavailable`，detail 与 `automation_failed` 的 note 为 “The card's workspace is archived or no longer exists”；卡片泳道不变，它的父卡可以被唤醒。查询本身失败（RPC 错误）时 job 保持排队，下次再试。目录被别的卡占用时也保持排队（§10）。
 - **认领**：同一事务里 `queued → starting`，记 `automation_started`。随后在卡片 workspace 里：有活着的 implementer → 发“重新排队”开工消息；否则 `prepareSession`（与侧栏 Start session 同一路径，带 Flowly MCP、上下文与 skill）创建新 session，`labels: { flowly-task, flowly-automation: implementer }`，首条消息为开工说明。
-- 首条开工说明（`startPrompt`）：无人值守、按 Flowly skill 走、最后以 `in_review` 交付或以提问/`blocked` 结束，不要等人、不要猜；卡片太大时可拆子卡并结束本轮；若配置了评审者，提示交付后会被评审。卡片有 blocker（都已 Done）时追加 “Dependency handoffs (card data)”：每个 blocker 的 handoff，并说明 Done 不同步 worktree、要先检查并合并相关分支。子卡片还在其后追加 “Parent integration branch (card data)”：父卡的 id、标题、泳道、分支和目录，并说明父卡汇总已验收的子卡，其分支可能已含兄弟 blocker 的改动且冲突已解决，应先检查、优先合并它。顶层卡片没有这一项。
+- 首条开工说明（`startPrompt`）：无人值守、按 Flowly skill 走、最后以 `in_review` 交付或以提问/`blocked` 结束，不要等人、不要猜；worktree 卡片交付前在自己的分支上提交，directory 卡片不提交（§7）；卡片太大时可拆子卡并结束本轮；若配置了评审者，提示交付后会被评审。卡片有 blocker（都已 Done）时追加 “Dependency handoffs (card data)”：每个 blocker 的 handoff，并说明 Done 不同步 worktree、要先检查并合并相关分支。子卡片还在其后追加 “Parent integration branch (card data)”：父卡的 id、标题、泳道、分支和目录，并说明父卡汇总已验收的子卡，其分支可能已含兄弟 blocker 的改动且冲突已解决，应先检查、优先合并它。顶层卡片没有这一项。
 
 ### 4.2 回合结束（worker 协议）
 
@@ -111,7 +111,7 @@ AutomationJob {
 
 交付门（上游 #35，2026-10-23 合并）：`flowly_update_status(in_review)` 遇到 `WORKPAD_OPEN` 或 `SETUP_INCOMPLETE` 时，第一次总是被拒绝（即使带 `acknowledgeOpen=true`），只有同一 session、同一回合、卡片/workpad/HEAD 未变时带 ack 的重试才通过；新回合（每条 `[Flowly automation]` 消息都开始新回合，turn_started 钩子先清掉记录）需要重新被拒一次。被拒的交付什么都不改，卡片留在工作阶段，所以只被拒就结束的回合是**静默结束**（提醒，最后 `no_delivery`）。为此开工说明、提醒和修改要求都写明：被拒后修好能修的，在同一回合带 `acknowledgeOpen=true` 和逐项说明重试，不要在拒绝上结束回合。
 
-回合结束方式（上游 #39 的清单第 5 条允许普通 session 用 `kind=result` 结束工作回合）：自动化下 `kind=result` 不算交付、提问或 blocker，仍是静默结束，所以清单第 5 条、skill 的 “Automated runs” 与评论规则都加了一句：`[Flowly automation]` 下结果不结束回合，要以 in_review、提问或 blocked 结束，交付前先提交（见 §7）。
+回合结束方式（上游 #39 的清单第 5 条允许普通 session 用 `kind=result` 结束工作回合）：自动化下 `kind=result` 不算交付、提问或 blocker，仍是静默结束，所以清单第 5 条、skill 的 “Automated runs” 与评论规则都加了一句：`[Flowly automation]` 下结果不结束回合，要以 in_review、提问或 blocked 结束；worktree 卡片交付前先在自己的分支上提交，directory 卡片不提交（见 §7）。
 
 被监督 session 开始下一回合时：
 - `needs_human`（人回复了）→ 回到 `working`/`reviewing`，提醒计数清零。权限请求：`agent.permission_requested` → `needs_human` / `permission`，`permission_resolved` → 恢复。
@@ -204,7 +204,7 @@ AutomationJob {
 
 合并上游 #35/#39 后（2026-10-23）：skill 开头的 “Start of every turn” 由 `shared/turn-checklist.ts` 的六条规则生成，`flowly_get_task` 每次也返回 `turnChecklist`，所以长期复用的实现者 session 也能读到最新规则。fork 的调整：
 - 第 1 条保留 “Handle unread inputs and unread comments first”，并说明 setup.missing 包括 metadata；“Small cards also need…” 一行补上 task.brief 的 `flowly_update_metadata`。
-- 第 5 条加一句：`[Flowly automation]` 下结果不结束回合，先提交，再以 in_review、提问或 blocked 结束。上游第 5 条的 “even if uncommitted” 只适用于普通 session：父卡和依赖卡合并的是分支，未提交的工作到不了它们，所以开工说明要求交付前在卡片分支上提交。
+- 第 5 条加一句：`[Flowly automation]` 下结果不结束回合，要以 in_review、提问或 blocked 结束，worktree workspace 里先在它的分支上提交。父卡和依赖卡合并的是分支，worktree 里未提交的工作到不了它们，所以开工说明（`startPrompt`）和 “Automated runs” 要求：`flowly_get_task` 的 `workspace.kind` 为 `worktree` 时，交付前在这个 worktree 的分支上提交。其它 workspace（`directory`）是项目根目录自己的 checkout，没有自己的分支，提交会无人值守地落到用户检出的分支（通常是 main）上，评审者或人还没看过，打回或取消时要回退提交；所以那里改动保持未提交，除非卡片或仓库规则要求提交，上游第 5 条的 “even if uncommitted” 照常适用。（合并时曾无条件要求 “在卡片分支上提交”，2026-10-23 复核后改为只限 worktree。）
 - 评审者 session 读到的 `turnChecklist` 是 `reviewerChecklist`（三条），“Automated runs” 也写明评审者跳过清单的阶段、workpad 与交付步骤；服务端用 `REVIEWER_ONLY` 兜底（§5）。
 - 评论规则的 “end the turn as usual (a delivery, a question or a result)” 在自动化下改为交付、提问或 blocked。原有 “不要自行分派或完成” 已按 [SUB-CARDS-SPEC](SUB-CARDS-SPEC.md) 放宽：agent 可以建卡与子卡片，并启动、验收（In review → Done）、取消**自己的直接子卡片**；agent 自己那张顶层卡片的 Done/Cancelled 仍由人决定。
 

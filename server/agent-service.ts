@@ -562,6 +562,7 @@ export class AgentService {
       workspace: {
         id: r.workspace.id,
         directory: r.workspace.workspaceDirectory,
+        kind: r.workspace.workspaceKind,
         nativeOwner: r.context.owner,
         status: r.workspace.status,
         repoPaths: r.context.workspaceRepoPaths,

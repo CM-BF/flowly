@@ -6,6 +6,7 @@ import { AutomationService } from "./automation";
 import type { ToolPreparation } from "../shared/tools";
 import { reviewerChecklist, turnChecklist } from "../shared/turn-checklist";
 import { changesPrompt, nudgePrompt, startPrompt, type AutomationJob } from "../shared/automation";
+import { skillText } from "./skill-source";
 
 // Upstream's turn checklist and refusal-first delivery gate under the fork's automation (AUTOMATION-SPEC §4.2, §7).
 const roots: string[] = [];
@@ -101,11 +102,30 @@ test("a supervised implementer's acknowledged first delivery is refused, the ret
   expect((await deliver("Delivered again; no tags: the card spans no module")).receipt.status).toBe("in_review");
 });
 
-test("automation messages tell the implementer to retry a refused delivery in the same turn and to commit first", () => {
+test("automation messages tell the implementer to retry a refused delivery in the same turn", () => {
   for (const text of [startPrompt({ review: true, again: false }), nudgePrompt(1, 2), changesPrompt(1, 3, "Fix it", ["a.ts: wrong"]), changesPrompt(3, 3, "Fix it", ["a.ts: wrong"], 3)]) {
     expect(text).toContain("retry in this same turn with acknowledgeOpen=true");
     expect(text).toContain("do not end the turn on the refusal");
   }
-  expect(startPrompt({ review: false, again: true })).toContain("Commit your changes on the card's branch before delivering");
   expect(startPrompt({ review: false, again: false })).toContain("does not end an automated turn");
+});
+
+// A directory workspace is the project root's own checkout (often on main): an unattended commit there lands on the
+// user's branch before anyone reviewed it. Only a worktree card has a branch of its own to commit on (AUTOMATION-SPEC §7).
+test("automated implementers commit before delivering only on a worktree card's own branch", async () => {
+  const worktreeOnly = "If flowly_get_task's workspace.kind is worktree, commit your changes on that worktree's branch before delivering";
+  const directoryStays = "Any other workspace (directory) is the project root's own checkout with no branch of its own: leave your changes uncommitted there";
+  for (const text of [startPrompt({ review: false, again: false }), startPrompt({ review: true, again: true }), skillText]) {
+    expect(text).toContain(worktreeOnly);
+    expect(text).toContain(directoryStays);
+    expect(text).not.toContain("Commit your changes on the card's branch");
+  }
+  expect(turnChecklist[4]).toContain("Under [Flowly automation] a result never ends the turn: end with in_review (in a worktree workspace, commit on its branch first)");
+  expect(turnChecklist[4]).toContain("even if uncommitted");
+
+  // The kind those texts key on is in every get_task.
+  const x = await setup();
+  expect((await x.service.get(x.identity)).workspace.kind).toBe("directory");
+  x.setWorkspace({ ...x.workspace(), workspaceKind: "worktree" });
+  expect((await x.service.get(x.identity)).workspace.kind).toBe("worktree");
 });

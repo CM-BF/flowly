@@ -391,6 +391,12 @@ export const toolContextSchema = z.object({
   workspace: z.object({
     id: z.string(),
     directory: z.string(),
+    /**
+     * Paseo's workspace kind: "worktree" is this card's own Git worktree and branch; any other kind (usually
+     * "directory") is a checkout it shares with the project root, with no branch of its own (AUTOMATION-SPEC §7).
+     * Optional for older servers.
+     */
+    kind: z.string().optional(),
     nativeOwner: z.string(),
     status: z.string(),
     repoPaths: z.array(z.string()),
