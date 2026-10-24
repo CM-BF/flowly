@@ -1454,5 +1454,8 @@ const catalog: Catalog = {
   "Reviewers in a panel": "Revisores no painel",
   "Panel review round {n} of {max}": "Rodada de revisão em painel {n} de {max}",
   "With {n} review rounds a panel round never comes: allow more Review rounds or start the panel earlier.": "Com {n} rodadas de revisão, nunca chega uma rodada em painel: permita mais rodadas ou comece o painel antes.",
+  "Session history {n} MB: too large for Paseo to load safely; the next instruction goes to a new session": "Histórico da sessão com {n} MB: grande demais para o Paseo carregar com segurança; a próxima instrução vai para uma nova sessão",
+  "Continued in a new session: the history grew too large": "Continuou em uma nova sessão: o histórico ficou grande demais",
+  "Session history is getting too large": "O histórico da sessão está ficando grande demais",
 };
 export default catalog;

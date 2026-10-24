@@ -1309,6 +1309,8 @@ const activityText: Record<string, string> = localizedLabels({
   automation_waiting: msg("Waits for its sub-cards"),
   automation_woken: msg("Woke the agent: its sub-cards settled"),
   automation_fallback: msg("Switched to the fallback model"),
+  automation_rotated: msg("Continued in a new session: the history grew too large"),
+  automation_history_large: msg("Session history is getting too large"),
 });
 
 function ActivityItem({

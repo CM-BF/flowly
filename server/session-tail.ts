@@ -1,6 +1,7 @@
 import type { PaseoApi } from "@getpaseo/client";
 import type { BoardStore } from "./store";
 import { HISTORY_PAGE, TURN_MAX_ENTRIES, slimTimeline, type TailPage, type TimelineCursor } from "../shared/session-tail";
+import { megabytes, oversized } from "./provider-history";
 
 type TailInput = {
   taskId: string;
@@ -29,6 +30,9 @@ export class SessionTailService {
     const task = board.tasks.find((t) => t.id === input.taskId);
     if (!task) throw new Error("Task not found.");
     const handle = paseo.agents.ref(input.agentId);
+    // Reading an oversized Codex history can crash Paseo for every session on the host (AUTOMATION-SPEC §4.6).
+    const bytes = await oversized(paseo, input.agentId);
+    if (bytes) throw new Error(`This session's history is ${megabytes(bytes)} MB, too large for Paseo to load safely, so Flowly does not show it.`);
     const mode = input.mode ?? "tail";
     if ((mode === "before" || mode === "after") && !input.cursor) throw new Error("A cursor is required to page the timeline.");
     const read = async (options: Parameters<typeof handle.timeline.refetch>[0]) => {

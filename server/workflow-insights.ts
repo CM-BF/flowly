@@ -12,6 +12,7 @@ import { projectWorkspace } from "./insights";
 import { validZone } from "../shared/insights";
 import { SUMMARIZER_LABELS, isSummarizer, resolveModel, type SummarySettings } from "../shared/summary";
 import type { Board, Project } from "../shared/model";
+import { oversized } from "./provider-history";
 import {
   BACKFILL_DAYS,
   RETRY_PROMPT,
@@ -289,6 +290,8 @@ export class WorkflowInsightsService {
   ) {
     const records: CommandRecord[] = [];
     let before: unknown;
+    // Reading an oversized Codex history can crash Paseo (AUTOMATION-SPEC §4.6).
+    if (await oversized(paseo, agent.id)) return 0;
     try {
       for (let page = 0; page < 120; page++) {
         const res = await paseo.agents.ref(agent.id).timeline.refetch({

@@ -1454,5 +1454,8 @@ const catalog: Catalog = {
   "Reviewers in a panel": "패널 검토 담당 수",
   "Panel review round {n} of {max}": "패널 검토 {n}/{max}라운드",
   "With {n} review rounds a panel round never comes: allow more Review rounds or start the panel earlier.": "검토 라운드가 {n}개이면 패널 라운드가 오지 않습니다. 검토 라운드를 늘리거나 패널을 더 일찍 시작하세요.",
+  "Session history {n} MB: too large for Paseo to load safely; the next instruction goes to a new session": "세션 기록 {n} MB: Paseo가 안전하게 불러오기에 너무 큽니다. 다음 지시는 새 세션으로 갑니다",
+  "Continued in a new session: the history grew too large": "새 세션에서 계속: 기록이 너무 커졌습니다",
+  "Session history is getting too large": "세션 기록이 너무 커지고 있습니다",
 };
 export default catalog;

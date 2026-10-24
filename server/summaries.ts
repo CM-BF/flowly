@@ -24,6 +24,7 @@ import {
 } from "../shared/summary";
 import { daemonRemoveAgent, type RemoveAgent } from "./summarizer-remove";
 import { summaryRow } from "../shared/native-session";
+import { oversized } from "./provider-history";
 
 /** `summaries.json`: serialized writes, backup, atomic replacement; invalid data is preserved. */
 export class SummaryStore {
@@ -311,6 +312,8 @@ export class SummaryService {
     if (!managedAgentIds.length) throw new Error("This card has no Kanban sessions to summarize yet.");
     let best: { agentId: string; at: string; items: { type: string }[] } | null = null;
     for (const agentId of managedAgentIds) {
+      // Reading an oversized Codex history can crash Paseo (AUTOMATION-SPEC §4.6).
+      if (await oversized(paseo, agentId)) continue;
       const response = await paseo.agents
         .ref(agentId)
         .timeline.refetch({ direction: "tail", limit: 200, projection: "projected" })
