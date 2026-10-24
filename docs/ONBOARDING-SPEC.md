@@ -17,9 +17,13 @@ Success: a new user can say what a project, a card and a session are, who decide
 - Settings loading, error or invalid never show the tour (fail quiet). The tour never opens over another modal, over an open card, or while a shortcut dialog is open.
 - Closing it in any way (Skip, Esc, scrim, finishing) sets `welcomeSeen=true`. It is not shown again automatically.
 
-### 2. The tour: a modal sheet, three pages, skippable
+### 2. The tour: a modal sheet, five pages, skippable
+
+Redesigned 2026-10-22 (card "重设计onboarding流程"): the tour also sets the basics. Pages (in a window of its own, about 780 wide, with Enter / → / ← navigation): How Flowly works (interface language, the three objects in equal columns, and the board's real Attention button over a Needs attention list of four cards waiting on a question, an approval, an error and a review, which you can open or dismiss; the lane strip and loop steps are gone), Built in (one live case with Flowly's real components: a finished turn with its Progress card and a suggested Run tests; sending it rewrites Progress, suggests Push / Open a PR and brings an idea, and Good idea turns the idea into a task; Start over replays it; *Always on* once; below them the AI output language, the progress model and the *Also in sessions outside Flowly* switches), Project memory (two real memory cards) and Insights (its metric rows), each with its switches, Ready when you are. The full behavior, when settings are stored, the first-run outside-session defaults and the settings-button callout are in [ONBOARDING-SETUP-SPEC](ONBOARDING-SETUP-SPEC.md); the page 1 and Ready descriptions below still apply, the old *What makes it different* page is gone (its tiles moved to pages 1, 2 and 5).
 
 Uses the plugin `Modal` (host-owned open/close; content has the shared rise from `client/modal.tsx`). Same component on desktop and phone: single column, max width ~480, scrolls if the viewport is short. Footer: step dots, **Skip** (text button, all pages except the last), **Back** (from page 2), **Next** / final primary button. Page changes use `MotionReveal` (short, interruptible, Reduce Motion honoured, no delay before the action). The modal title carries the Flowly mark as its icon (`FlowlyMark` in `client/brand-icons.tsx`): the small-size mark from `docs/brand/logo/` (a solid start dot and an open end ring joined by one S curve), inlined as 20, 40 and 60 px PNGs per theme (ink on light surfaces, paper on dark; about 3 KB of source together) that `docs/brand/export-logo.mjs` generates into `client/flowly-mark-data.ts`. The one matching the screen's pixel ratio is shown, so the 20 pt icon is never resampled. It is decorative: the title already reads "Welcome to Flowly". No tip announces it (a visual change, no new capability).
+
+> 2026-10-22 (user feedback): *The loop* below was replaced by *When an agent needs you*, a drawn Attention list and one paragraph on Needs you, Reply and Dismiss; the boxes are now equal-width and the small headings are plain section headings. Current layout: ONBOARDING-SETUP-SPEC §3 and §3.1.
 
 **Page 1: How Flowly works** — "Everything on the board is a real Paseo object, so you can always open it in Paseo." The former map and loop pages are merged (user decision 2026-10-21: three pages instead of four). Two parts, each under a small muted heading:
 
@@ -38,31 +42,15 @@ Uses the plugin `Modal` (host-owned open/close; content has the shared rise from
 
 The old footer "card status and session status are separate" is dropped; the strip's accent Done makes the same point with less text.
 
-**Page 2: What makes it different** — the page stays short: five headline features as bordered tiles (icon, name, one short sentence; two per row, one per row when narrow), in the README's highlight order so promo and product agree, then every other feature folded under a collapsed **More features (n)** disclosure (small icon, name and sentence per row; collapsed each time the tour opens).
-The page title has the detail line "Anything marked with the sparkle was written or suggested by AI." ([AI-MARK-SPEC](AI-MARK-SPEC.md)).
+**Page 2 to 4**: see ONBOARDING-SETUP-SPEC §3. A new user-visible feature normally gets a line under **More features** on the Ready page (listed, not collapsed) (Workpad, Inputs and outputs, Tickets, docs and PRs as inputs, Tags, Saved with your project); a built-in or advanced AI feature with a switch gets its block on page 2, 3 or 4.
 
-Headline tiles:
+More features on the Ready page also lists the fork's features, after upstream's lines:
 - *Describe once, start working*: describe the task once; new cards start an agent by default, and it organizes the title, description and tags. Speed and permissions are in Edit project ([TASK-INTAKE-SPEC](TASK-INTAKE-SPEC.md)).
-- *Automatic status*: cards follow the agent's work through the lanes. Done stays yours.
-- *Needs-you reminders*: questions, approvals and errors light up the card; answer them right there.
-- *Run summaries*: after every turn a cheap model keeps state / target / recap / next on the card.
-- *Suggested next steps*: tap one to fill in the message box; nothing is sent until you send it.
-
-Under More features (a new feature normally goes here; promote it to a tile only by replacing one):
 - *Comments*: ask about progress or request changes right on the card; comments stay on it and go to the card's agent, which also sees them when it reads the card ([CARD-COMMENTS-SPEC](CARD-COMMENTS-SPEC.md)).
 - *Sub-cards*: agents split work into sub-cards with their own workspaces; a supervised parent waits, checks their deliveries and accepts them; failed or stopped jobs need your Run again ([SUB-CARDS-SPEC](SUB-CARDS-SPEC.md)).
-- *Agent automation*: optional per project; Run with agent queues a card, Flowly starts it when its blockers are Done, reminds or retries the agent when it stalls, and can have a reviewer agent check the delivery; Done stays yours ([AUTOMATION-SPEC](AUTOMATION-SPEC.md)).
-- *Workpad*: agents set the card's type and tags and write a workpad before they start: acceptance criteria, checks (passed, failed or not run on a named commit) and confusions; delivering without them needs a note ([WORKPAD-SPEC](WORKPAD-SPEC.md), [CARD-SETUP-SPEC](CARD-SETUP-SPEC.md) §4). No new tip: the change is agent behavior with no new screen moment.
-- *Follow-up ideas*: work an agent finds on the way lands in the Ideas inbox; Good idea or Dismiss.
-- *Project memory*: decisions and pitfalls you confirm carry over to new cards' sessions; agents and the review of finished cards suggest them, and you edit or delete them any time (PROJECT-MEMORY-SPEC).
-- *Inputs and outputs*: each card lists the files and links it worked from and delivered, added by agents or by you ([CARD-ARTIFACTS-SPEC](CARD-ARTIFACTS-SPEC.md)).
-- *Tickets, docs and PRs as inputs*: start a card from a Jira ticket, Confluence page, or GitHub/GitLab issue or pull request; agents read it every turn and Flowly never changes it.
-- *Tags*: tag cards by module or direction; agents tag their own cards too; filter and search by #tag.
-- *Project insights*: today's cards, turns, agent time, commits, tokens and what is waiting on you.
-- *Workflow insights*: optional; on a schedule you choose, a model reads the commands agents ran and suggests scripts, tools and rules worth keeping (WORKFLOW-INSIGHTS-SPEC).
-- *Saved with your project*: each project's board is also kept in its folder (`.flowly`, ignored by git); adding the folder again restores it.
+- *Agent automation*: optional per project; Run with agent queues a card, Flowly starts it when its blockers are Done, reminds or retries the agent when it stalls, and can have a reviewer agent check the delivery; Done stays yours ([AUTOMATION-SPEC](AUTOMATION-SPEC.md)). Its switch is per project (Edit project), not a host setting, so it is a More features line, not a tour block.
 
-**Page 3: Ready when you are**
+**Page 5: Ready when you are**
 
 Title with detail "Your first three steps." (plus "Nothing is created until you confirm." when there is no project yet), then one bordered checklist of three rows (empty circle, text, small accent icon): *Pick a folder to make a project.* / *Add your first task and start an agent.* / *Reply when a card says Needs you.* The rows are static, not tracked progress. Then the reopen hint. Primary **Create project** (opens the existing project form after the tour closes) with secondary **Not now**, or **Done** when a project exists. No project, workspace, card or session is created by the tour itself (no sample data).
 
@@ -79,10 +67,11 @@ Title with detail "Your first three steps." (plus "Nothing is created until you 
 
 ### 5. One-time contextual tips (small, non-modal)
 
-A tip is a single dismissible banner row (icon, one sentence, **Got it**) under the overview bar; only **Got it** records it as seen. Priority when several apply: agent-question, needs-you, attention-dismiss, first-done, older-finished, next-move, first-workpad, sub-cards, subagents, first-idea, first-memory-candidate, first-workflow-insight, ai-language, first-artifact, first-ticket, first-tag, first-card, task-intake, agent-automation, card-display, card-comments, connectors, session-history, sidebar-order, project-menu, jira-connect. The empty-project hint takes the same slot and wins at the top of the relevant surface, using theme colours. At most one tip is visible at a time; a tip appears at most once per host (`tipsSeen`); dismissing or acting on the feature records it. Tips never block input, never move a focused input, and are not shown while the welcome tour is open.
+A tip is a single dismissible banner row (icon, one sentence, **Got it**) under the overview bar; only **Got it** records it as seen. Priority when several apply: agent-question, needs-you, attention-dismiss, first-done, older-finished, next-move, first-workpad, sub-cards, subagents, first-idea, first-memory-candidate, first-workflow-insight, ai-language, summary-models, first-artifact, first-ticket, first-tag, first-card, task-intake, agent-automation, card-display, card-comments, connectors, session-history, sidebar-order, project-menu, jira-connect. The empty-project hint takes the same slot and wins at the top of the relevant surface, using theme colours. At most one tip is visible at a time; a tip appears at most once per host (`tipsSeen`); dismissing or acting on the feature records it. Tips never block input, never move a focused input, and are not shown while the welcome tour is open or the settings callout (`settings-entry`) shows.
 
 | Tip id | Shown when | Text |
 | --- | --- | --- |
+| `settings-entry` | the welcome tour closed during this visit (first run or manual) and nothing else is open; not a banner: a callout above the bottom-left settings button, which is outlined meanwhile; **Got it** or opening Settings records it (ONBOARDING-SETUP-SPEC §5). It outranks every banner tip. | "Turn features on or off and change settings here." |
 | `first-card` | the project has a card and none is open | "Your card moves by itself as the agent works. Open it any time to see its sessions, output and summary." |
 | `task-intake` | a project board is shown and no card is open (TASK-INTAKE-SPEC) | "Describe your task once. New cards start an agent by default; it organizes the title, description and tags. Set speed and permissions in Edit project." |
 | `agent-automation` | the project has a Backlog or Todo card that is not archived and no card is open (AUTOMATION-SPEC §6) | "Agents can now pick up cards on their own: turn on Agent automation in Edit project, then choose Run with agent on a card. The agent works it to In review, gets reminded or retried when it stalls, and an optional reviewer agent checks the delivery first." |
@@ -106,6 +95,7 @@ A tip is a single dismissible banner row (icon, one sentence, **Got it**) under 
 | `connectors` | a card is open, so its Artifacts + is in view (CONNECTORS-SPEC §8.5; new id, so every existing user sees it once) | "The Artifacts + now adds Confluence pages and GitHub or GitLab issues and pull requests too, besides files, links and Jira tickets. Connect services in Settings → Connections." |
 | `session-history` | a card is open and it has a session (SESSION-PANE-SPEC §1) | "A session's output now starts at the beginning of its current turn. Press Load earlier at the top to read further back." |
 | `ai-language` | a card of the current project has an AI progress summary (AI-LANGUAGE-SPEC §7) | "AI-written text follows Settings → AI features → AI output language. It starts as your interface language." |
+| `summary-models` | the card has a summary; after `ai-language`; seen on visiting Summary models in Settings or the tour | "Choose summary models and their fallback order in Settings → Models. The default is Haiku, then Luna." |
 | `sidebar-order` | a card is open and it has at least one artifact or idea (DRAWER-SPEC, Section order) | "Arrange an open card your way: reorder its sections and choose which start open in Settings → Cards → Card sidebar." |
 | `project-menu` | desktop project tabs show two or more projects and no card is open (PROJECT-TABS-SPEC) | "Drag a project tab to reorder it. Right-click it for its settings, a new task, Insights, Ideas or Remove." |
 | `jira-connect` | the project has a card, no card is open, and no connection is configured (announces the feature; lowest priority) | "Work from Jira, Confluence, GitHub or GitLab: connect them in Settings → Connections, then start a card with From… or add items with the Artifacts +. Flowly only reads them." |
@@ -156,6 +146,9 @@ Covered by unit tests: the pure logic (fresh user shows; existing user silently 
 
 ### Change notes
 
-- 2026-10-22, agent automation and sub-cards: the tour's More features gained *Sub-cards* and *Agent automation*, and the one-time tips `sub-cards` and `agent-automation` announce them to existing users (rows and priority above). The review of this feature added no tip id.
-- 2026-10-23, card comments (CARD-COMMENTS-SPEC): More features gained *Comments* (first in the list, the newest feature), and the one-time tip `card-comments` announces the Comments section the first time a card with a live session is open (row and priority above).
-- 2026-10-22, single task input (TASK-INTAKE-SPEC): the headline tile *Describe once, start working* and the `task-intake` tip (rows and priority above).
+- 2026-10-22, agent automation and sub-cards: the tour's More features gained *Sub-cards* and *Agent automation* (since the 2026-10-23 upstream tour redesign: lines under More features on the Ready page), and the one-time tips `sub-cards` and `agent-automation` announce them to existing users (rows and priority above). The review of this feature added no tip id.
+- 2026-10-23, card comments (CARD-COMMENTS-SPEC): More features gained *Comments* (now a line under More features on the Ready page), and the one-time tip `card-comments` announces the Comments section the first time a card with a live session is open (row and priority above).
+- 2026-10-22, single task input (TASK-INTAKE-SPEC): the headline tile *Describe once, start working* (the upstream tour redesign removed the tiles; it is now a line under More features on the Ready page) and the `task-intake` tip (rows and priority above).
+- 2026-10-23, upstream merge (JasprW/flowly #32-#45): upstream's five-page tour replaces the fork's three pages; the fork's headline tile and More features entries became Ready-page More features lines, and the tip order keeps the fork's tips with upstream's `summary-models` after `ai-language`. `settings-entry` is the settings callout, never a banner tip.
+
+2026-10-23：Progress models 与 Settings → Models 共用有序多模型列表，见 [SUMMARY-MODELS-SPEC](SUMMARY-MODELS-SPEC.md)。

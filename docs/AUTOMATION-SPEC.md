@@ -23,7 +23,7 @@ Hermes Kanban 的 agent 自动化有四块：**dispatcher**（依赖、并发、
 | --- | --- | --- |
 | `enabled` | — | 总开关。关闭后不派发、不监督；已有 job 保持原状，再打开继续。关闭期间这些 job 也不出现在 Needs attention 与侧栏角标里（§6）。 |
 | `maxRunning` | 2 | 同时占用名额的卡片数（`max_in_progress`）。`starting/working/reviewing/retry_wait` 占名额；等人回复的、`waiting` 的父卡不占。 |
-| `implementer` | 无 | 实现者模型；无则用项目默认模型 → 全局默认模型 → 第一个可用 provider 的默认模型。 |
+| `implementer` | 无 | 实现者模型；无则用项目默认模型 → 全局默认模型 → 第一个可用 provider 的默认模型。全局默认模型带的 Permissions（Settings → Models，上游 #40 合并后可存，见 [MODEL-DEFAULTS-SPEC](MODEL-DEFAULTS-SPEC.md) §3）只在全局默认模型就是实际所用模型时生效；Full access 开着时仍被它覆盖。 |
 | `reviewer` | 无 | 评审者模型；无则不做 agent 评审（`review_dispatch=false`）。 |
 | `implementerFallback`、`reviewerFallback` | 无 | 角色的备用模型：该角色的模型报告频率或用量上限时，换到它继续（§4.5，用户决定 2026-10-23）。无则按 provider 冷却等待上限重置。 |
 | `maxReviewRounds` | 3 | 一个**评审周期**内最多几轮评审（周期的定义见 §5）。界面可选 1–5。 |
@@ -109,6 +109,10 @@ AutomationJob {
 
 成功的回合把连续失败计数清零；provider 冷却计数不清零。
 
+交付门（上游 #35，2026-10-23 合并）：`flowly_update_status(in_review)` 遇到 `WORKPAD_OPEN` 或 `SETUP_INCOMPLETE` 时，第一次总是被拒绝（即使带 `acknowledgeOpen=true`），只有同一 session、同一回合、卡片/workpad/HEAD 未变时带 ack 的重试才通过；新回合（每条 `[Flowly automation]` 消息都开始新回合，turn_started 钩子先清掉记录）需要重新被拒一次。被拒的交付什么都不改，卡片留在工作阶段，所以只被拒就结束的回合是**静默结束**（提醒，最后 `no_delivery`）。为此开工说明、提醒和修改要求都写明：被拒后修好能修的，在同一回合带 `acknowledgeOpen=true` 和逐项说明重试，不要在拒绝上结束回合。
+
+回合结束方式（上游 #39 的清单第 5 条允许普通 session 用 `kind=result` 结束工作回合）：自动化下 `kind=result` 不算交付、提问或 blocker，仍是静默结束，所以清单第 5 条、skill 的 “Automated runs” 与评论规则都加了一句：`[Flowly automation]` 下结果不结束回合，要以 in_review、提问或 blocked 结束，交付前先提交（见 §7）。
+
 被监督 session 开始下一回合时：
 - `needs_human`（人回复了）→ 回到 `working`/`reviewing`，提醒计数清零。权限请求：`agent.permission_requested` → `needs_human` / `permission`，`permission_resolved` → 恢复。
 - `retry_wait`（失败退避或 provider 冷却期间，人在该 session 里发了消息）→ 回到 `working`（评审者为 `reviewing`），清掉重试时间和失败文本，失败与冷却计数保留。这一回合的结束按上表正常判断（提问、交付、提醒），过时的 “The last turn failed” 重试不再发送。
@@ -148,7 +152,7 @@ AutomationJob {
   - 计数清零（失败、冷却、提醒），活动记 `automation_fallback`（“<model> reported a provider limit; the <role> continues on its fallback model”）。原 session 保留、不归档、不再受监督。
 - **之后**：该角色在本次运行剩下的时间里一直用备用模型（不在中途换回）。备用模型也触及上限时按原来的冷却处理，不再换。Run again 开始新的运行：实现者沿用原 session（及其模型标记）以保持上下文；评审者不沿用备用 session，`providerLimit` 到期后重新用评审者自己的模型。
 - **启动时**：角色原模型有未到期的 `providerLimit`，或其 provider 正在冷却，而备用模型可用：直接用备用模型创建，并记 `automation_fallback`（“… recently reported a provider limit; the … starts on its fallback model”）。Full access 同样作用于备用模型（§2）。
-- **与 rate-fallback 插件**：自动化 session 带 label `paseo-rate-fallback=off`，rate-fallback 不再为它们建备用 session 或原地换模型，避免同一次限额出现两个接手者在同一个 worktree 里工作。人自己开的卡片 session 不带这个 label，仍由 rate-fallback 处理。
+- **与 rate-fallback 插件**：自动化 session 带 label `paseo-rate-fallback=off`，rate-fallback 不再为它们建备用 session 或原地换模型，避免同一次限额出现两个接手者在同一个 worktree 里工作。人自己开的卡片 session 不带这个 label，仍由 rate-fallback 处理。Flowly 自己的临时 session（卡片摘要、外部 session insights、日报、记忆复盘、workflow insights，label `flowly=summarizer`）也带 `paseo-rate-fallback=off`（2026-10-23，合并上游 #37 时）：它们按 [SUMMARY-MODELS-SPEC](SUMMARY-MODELS-SPEC.md) 自己按顺序换模型，rate-fallback 再为它们建备用 session 会留下无人删除、按卡片 session 显示的高价 session。
 
 插件 SDK 只在 RPC/钩子上下文里提供 Paseo 连接；dispatcher 用最近一次拿到的连接。daemon 重启后在第一次 RPC 或钩子到来前不派发（看板打开即会到来）。
 
@@ -165,6 +169,7 @@ AutomationJob {
   - `approve`：job `delivered`、`verdict=approved`，卡片留在 In review，记 `automation_review_approved`（附摘要）。
   - `changes`：卡片回到 `resumeStage`（通常 Development，`rule="REVIEW"`），job 回到实现者 `working`，把摘要与发现以 `[Flowly automation] The reviewer requested changes …` 发给实现者，记 `automation_changes_requested`。评审者回合仍在进行时这条消息暂扣，回合一结束就送出（§4.2）。
 - 评审者回合结束没给结论：提醒（同 §4.2）；满了或失败到上限 → job `delivered`、`verdict=incomplete`，卡片留在 In review 给人。
+- **评审者不做卡片的工作**（2026-10-23，合并上游 #35/#39 时）：上游的回合清单要求每回合设阶段（核验前设 test）、写 workpad 结果并交付，而评审者也读 `flowly_get_task`。评审者自己的 `flowly_update_status`（任何状态）不会触发 `cardMoved`，会把卡片留在 Test、job 停在 `reviewing`，之后 `submitReview` 只能得到 `REVIEW_CLOSED`。所以：卡片的评审 session（`reviewerId` 或 `reviewers` 中、且不是 `implementerId`）调用 `flowly_update_status`、`flowly_update_workpad`、`flowly_set_type`、`flowly_set_tags`、`flowly_add_artifact`、`flowly_remove_artifact`、`flowly_update_idea`、`flowly_remove_idea` 或 `flowly_report_progress kind=result` 时返回 `REVIEWER_ONLY`，什么都不记录；`kind=question`/`progress`/`blocker`、`flowly_submit_review` 不受影响。它读到的 `turnChecklist` 是评审者清单（读卡与评论、只检查不改动、用 `flowly_submit_review` 或 `kind=question` 结束），见 §7。
 
 ### 5.1 小组评审（按复杂度升级）
 
@@ -195,7 +200,13 @@ AutomationJob {
 
 ## 7. Skill
 
-`skills/flowly/SKILL.md` 新增 “Automated runs”：首条指令以 `[Flowly automation]` 开头时无人值守，一次做到交付；每回合以交付、提问或 blocked 结束；按 `[Flowly automation]` 消息行事；评审者只评审，用 `flowly_submit_review` 结束本轮。实现者与评审者之间的交接由 daemon 做。原有 “不要自行分派或完成” 已按 [SUB-CARDS-SPEC](SUB-CARDS-SPEC.md) 放宽：agent 可以建卡与子卡片，并启动、验收（In review → Done）、取消**自己的直接子卡片**；agent 自己那张顶层卡片的 Done/Cancelled 仍由人决定。
+`skills/flowly/SKILL.md` 新增 “Automated runs”：首条指令以 `[Flowly automation]` 开头时无人值守，一次做到交付；每回合以交付、提问或 blocked 结束；按 `[Flowly automation]` 消息行事；评审者只评审，用 `flowly_submit_review` 结束本轮。实现者与评审者之间的交接由 daemon 做。
+
+合并上游 #35/#39 后（2026-10-23）：skill 开头的 “Start of every turn” 由 `shared/turn-checklist.ts` 的六条规则生成，`flowly_get_task` 每次也返回 `turnChecklist`，所以长期复用的实现者 session 也能读到最新规则。fork 的调整：
+- 第 1 条保留 “Handle unread inputs and unread comments first”，并说明 setup.missing 包括 metadata；“Small cards also need…” 一行补上 task.brief 的 `flowly_update_metadata`。
+- 第 5 条加一句：`[Flowly automation]` 下结果不结束回合，先提交，再以 in_review、提问或 blocked 结束。上游第 5 条的 “even if uncommitted” 只适用于普通 session：父卡和依赖卡合并的是分支，未提交的工作到不了它们，所以开工说明要求交付前在卡片分支上提交。
+- 评审者 session 读到的 `turnChecklist` 是 `reviewerChecklist`（三条），“Automated runs” 也写明评审者跳过清单的阶段、workpad 与交付步骤；服务端用 `REVIEWER_ONLY` 兜底（§5）。
+- 评论规则的 “end the turn as usual (a delivery, a question or a result)” 在自动化下改为交付、提问或 blocked。原有 “不要自行分派或完成” 已按 [SUB-CARDS-SPEC](SUB-CARDS-SPEC.md) 放宽：agent 可以建卡与子卡片，并启动、验收（In review → Done）、取消**自己的直接子卡片**；agent 自己那张顶层卡片的 Done/Cancelled 仍由人决定。
 
 ## 8. 验收
 

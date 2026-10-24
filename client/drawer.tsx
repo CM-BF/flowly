@@ -1199,7 +1199,7 @@ function SubagentToggle({ id, summary, open, onPress }: { id: string; summary: s
         borderTopWidth: 1,
         borderColor: colors.border,
         // Focus shows as the row's background, not a browser outline the bordered list would clip into a line.
-        backgroundColor: state.pressed || (state as typeof state & { hovered?: boolean; focused?: boolean }).hovered || (state as typeof state & { focused?: boolean }).focused ? colors.surface1 : colors.surface0,
+        backgroundColor: state.pressed || (state as typeof state & { hovered?: boolean; focused?: boolean }).hovered ? colors.surface1 : colors.surface0,
       })}
     >
       <Icon name="CornerDownRight" size={13} color={colors.foregroundMuted} />
@@ -1256,7 +1256,7 @@ function Property({
       }}
       style={(state) => {
         const { pressed, hovered: hover, focused } = state as typeof state & { hovered?: boolean; focused?: boolean };
-        const hovered = hover || focused;
+        const hovered = hover;
         return {
           ...noFocusRing,
           flexDirection: "row",
@@ -1293,6 +1293,8 @@ const activityText: Record<string, string> = localizedLabels({
   sessions_restored: msg("Restored the sessions"),
   progress_reported: msg("Reported progress"),
   commented: msg("Commented"),
+  idea_edited: msg("Edited the idea"),
+  idea_removed: msg("Removed the idea"),
   "agent.turn_started": msg("Started a turn"),
   "agent.turn_ended": msg("Finished a turn"),
   automation_queued: msg("Queued the card for agent automation"),

@@ -157,7 +157,7 @@ export function Button({
       hitSlop={small && touch ? { top: (control - smallControl) / 2, bottom: (control - smallControl) / 2 } : undefined}
       style={(state) => {
         const { pressed, hovered: hover, focused } = state as typeof state & { hovered?: boolean; focused?: boolean };
-        const hovered = hover || focused;
+        const hovered = hover;
         return {
           ...noFocusRing,
           paddingHorizontal: hasText ? (small ? space[2] + 2 : space[3]) : 0,
@@ -236,7 +236,7 @@ export function IconButton({
       hitSlop={touch ? undefined : 4}
       style={(state) => {
         const { pressed, hovered: hover, focused } = state as typeof state & { hovered?: boolean; focused?: boolean };
-        const hovered = hover || focused;
+        const hovered = hover;
         return {
           ...noFocusRing,
           width: size,
@@ -455,7 +455,7 @@ export function Choices<T extends string>({
               onPress={() => onChange(option.value)}
               style={(state) => {
                 const { hovered: hover, focused } = state as Hoverable & { focused?: boolean };
-        const hovered = hover || focused;
+        const hovered = hover;
                 return {
                   ...noFocusRing,
                   paddingHorizontal: space[3],
@@ -644,7 +644,7 @@ export function Row({
       {...(menu || {})}
       style={(state) => {
         const { pressed, hovered: hover, focused } = state as typeof state & { hovered?: boolean; focused?: boolean };
-        const hovered = hover || focused;
+        const hovered = hover;
         return {
           ...noFocusRing,
           flexDirection: "row",
@@ -682,6 +682,21 @@ export function Row({
       {/* Never squeezed by a long title or detail ("just now", counts): the text truncates instead. */}
       {!!trailing && <View style={{ flexShrink: 0 }}>{trailing}</View>}
     </Pressable>
+  );
+}
+
+/**
+ * An accent ring drawn over its parent's edge (`inset` points outside it), fading in while `on`.
+ * The welcome tour's autoplay uses it to show which control it is about to press.
+ */
+export function CueRing({ on, radius: round, inset = 0 }: { on: boolean; radius: number; inset?: number }) {
+  const { colors } = useTheme();
+  const opacity = useMotionValue(on ? 1 : 0, motionDuration.forward);
+  return (
+    <Animated.View
+      pointerEvents="none"
+      style={{ position: "absolute", top: -inset, left: -inset, right: -inset, bottom: -inset, borderRadius: round + inset, borderWidth: 2, borderColor: colors.accent, opacity }}
+    />
   );
 }
 

@@ -438,7 +438,7 @@ export const receiptSchema = z.object({
   agentId: z.string(),
   taskId: z.string(),
   payloadHash: z.string(),
-  action: z.enum(["status", "progress", "idea", "remember", "artifact", "artifact_remove", "tags", "type", "metadata", "next_moves", "workpad", "create_card", "update_card"]),
+  action: z.enum(["status", "progress", "idea", "idea_update", "idea_remove", "remember", "artifact", "artifact_remove", "tags", "type", "metadata", "next_moves", "workpad", "create_card", "update_card"]),
   cardId: z.string().optional(),
   /** Immutable provisioning intent, saved before calling Paseo so a retry cannot choose a new base branch. */
   workspacePlan: z.discriminatedUnion("mode", [
@@ -448,8 +448,12 @@ export const receiptSchema = z.object({
   queued: z.boolean().optional(),
   /** Empty when an artifact write changed nothing (same target already recorded). */
   eventId: z.string(),
+  /** Stable result identity for idea writes, even after the idea is removed or pruned. */
+  ideaId: z.string().optional(),
   /** The artifact an artifact write added, updated or removed. */
   artifactId: z.string().optional(),
+  /** Output artifacts recorded atomically with a delivery; [] is an explicit declaration of none. */
+  artifactIds: z.array(z.string()).max(20).optional(),
   /** Why an artifact write did not apply what was asked (an agent can't change an entry the user added); shown in the tool result. */
   notice: z.string().optional(),
   /** The workpad revision a workpad write committed. */

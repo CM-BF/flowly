@@ -12,10 +12,11 @@ import { ideaTitleKey } from "../shared/ideas";
 import { nextMovesAction, noMovesNote } from "../shared/next-moves";
 import { isResolved, linksOf } from "../shared/links";
 import { absoluteTarget, artifactsOf } from "../shared/artifacts";
+import { reviewerChecklist, turnChecklist } from "../shared/turn-checklist";
 import { changeTags, normalizeTags, projectTagStats, tagChangeNote } from "../shared/tags";
 import { setTags } from "./store";
 import { fingerprintChanged } from "./connectors/fingerprint";
-import { artifactRoots, dropArtifact, externalArtifact, missingArtifacts, normalizeTarget, putArtifact } from "./artifacts";
+import { artifactRoots, dropArtifact, externalArtifact, missingArtifacts, normalizeTarget, putArtifact, type NewArtifact } from "./artifacts";
 import { ArtifactReadStore } from "./artifact-reads";
 import { ExternalError } from "./connectors/http";
 import { ExternalReadStore, refKey, type ConnectorService } from "./connectors/service";
@@ -26,11 +27,14 @@ import type { Artifact, GitHead, NextMove, Workpad } from "../shared/model";
 import { projectScripts } from "./workflow-insights";
 import { mergeWorkpad, openItemLines, openItems, plansOf, validationFreshness, workpadEnabled, workpadNote, workpadOf, workpadUpdatedAction } from "../shared/workpad";
 import { defaultGit, readHead, resolveCommit, type Git } from "./workpad";
-import { deliveryReminders, type DeliveryCall } from "./reminders";
+import { deliveryReminders, outputsReminder, type DeliveryCall } from "./reminders";
+import { DeliveryGate } from "./delivery-gate";
 import { setupContext, setupIncompleteMessage, setupMissing, setupReminder, type SetupItem } from "../shared/card-setup";
 import {
   agentStatuses,
   ideaInputSchema,
+  ideaRemovalSchema,
+  ideaUpdateInputSchema,
   rememberInputSchema,
   recallInputSchema,
   artifactInputSchema,
@@ -49,6 +53,8 @@ import {
   type StatusInput,
   type ProgressInput,
   type IdeaInput,
+  type IdeaRemovalInput,
+  type IdeaUpdateInput,
   type RememberInput,
   type RecallInput,
   type ArtifactToolInput,
@@ -69,7 +75,7 @@ import { isLegacyScope } from "../shared/scope";
 import { MemoryError, type MemoryService } from "./memory";
 import type { AutomationService } from "./automation";
 import type { ReviewInput } from "../shared/automation-schema";
-import { automationAllowed, automationOf, isLive, jobOf, reviewsFor } from "../shared/automation";
+import { automationAllowed, automationOf, isLive, jobOf, reviewerOfCard, reviewsFor } from "../shared/automation";
 import { parentOf } from "../shared/links";
 import { createCardInputSchema, updateCardInputSchema, type CreateCardInput, type CreateCardResult, type UpdateCardInput } from "../shared/tools";
 import { taskInput, type Task, type TaskInput } from "../shared/model";
@@ -84,8 +90,16 @@ function memoryToolError(e: unknown): unknown {
 const requestReused = () =>
   new ToolError("REQUEST_REUSED", "Request already committed with different parameters. Each card needs its own request: call flowly_get_task again before the next flowly_create_card.");
 
+/** Writes a reviewer session may not make (progress only with kind=result); metadata has its own guard. */
+const reviewerWrites = new Set<string>(["status", "progress", "workpad", "type", "tags", "artifact", "artifact_remove", "idea_update", "idea_remove"]);
+
 export class AgentService {
   private paseo?: PaseoApi;
+  private deliveryGate = new DeliveryGate();
+  /** Lifecycle reset, independent of the board's truncated event history. */
+  turnStarted(identity: ToolIdentity) {
+    this.deliveryGate.clear(`${identity.agentId}:${identity.taskId}:${identity.workspaceId}`);
+  }
   readonly accesses = new Map<string, { at: string; action: string }>();
   /** The Ideas setting; off refuses new proposals (IDEAS-INBOX-SPEC §10). Set by the plugin entry. */
   ideasOn: () => Promise<boolean> = async () => true;
@@ -475,7 +489,7 @@ export class AgentService {
         "WORKSPACE_INCOMPATIBLE",
         "Workspace is outside the board project's repositories.",
       );
-    return { paseo, task, project, workspace, context };
+    return { paseo, task, project, workspace, context, board };
   }
   /**
    * `markArtifacts`: this call is the session reading its card (flowly_get_task),
@@ -526,6 +540,8 @@ export class AgentService {
     let setup: ToolContext["setup"];
     const built: ToolContext = {
       identity,
+      // A reviewer session gets its own rules: the implementer's stage, workpad and delivery steps are not its job (AUTOMATION-SPEC §7).
+      turnChecklist: [...(reviewerOfCard(r.board, r.task.id, identity.agentId) ? reviewerChecklist : turnChecklist)],
       task: r.task,
       project: r.project,
       revision,
@@ -655,16 +671,20 @@ export class AgentService {
   }
   async write(
     identity: ToolIdentity,
-    action: "status" | "progress" | "idea" | "remember" | "artifact" | "artifact_remove" | "tags" | "type" | "metadata" | "next_moves" | "workpad",
+    action: "status" | "progress" | "idea" | "idea_update" | "idea_remove" | "remember" | "artifact" | "artifact_remove" | "tags" | "type" | "metadata" | "next_moves" | "workpad",
     raw: unknown,
   ): Promise<ToolResult> {
-    const input: MetadataInput | StatusInput | ProgressInput | IdeaInput | RememberInput | ArtifactToolInput | ArtifactRemovalInput | TagsToolInput | TypeToolInput | NextMovesInput | WorkpadInput =
+    const input: MetadataInput | StatusInput | ProgressInput | IdeaInput | IdeaUpdateInput | IdeaRemovalInput | RememberInput | ArtifactToolInput | ArtifactRemovalInput | TagsToolInput | TypeToolInput | NextMovesInput | WorkpadInput =
       action === "metadata" ? metadataInputSchema.parse(raw) : action === "status"
         ? statusInputSchema.parse(raw)
         : action === "remember"
           ? rememberInputSchema.parse(raw)
           : action === "idea"
           ? ideaInputSchema.parse(raw)
+          : action === "idea_update"
+          ? ideaUpdateInputSchema.parse(raw)
+          : action === "idea_remove"
+          ? ideaRemovalSchema.parse(raw)
           : action === "artifact"
             ? artifactInputSchema.parse(raw)
             : action === "artifact_remove"
@@ -684,11 +704,57 @@ export class AgentService {
       input.expectedRevision,
     );
     const resources = await this.resources(identity);
-    // Read for a proposal, and for a delivery whose result may remind of ideas (IDEAS-SPEC §4.1).
+    // Reviewer sessions report findings; they never work the card (AUTOMATION-SPEC §7). Refused before anything is recorded.
+    if (
+      reviewerWrites.has(action) &&
+      !(action === "progress" && (input as ProgressInput).kind !== "result") &&
+      reviewerOfCard(resources.board, resources.task.id, identity.agentId)
+    )
+      throw new ToolError(
+        "REVIEWER_ONLY",
+        "A reviewer reports findings with flowly_submit_review or kind=question; it does not change the card's status, workpad, type, tags, ideas or artifacts, or report results.",
+      );
+    // Read for the idea tools, and for a delivery whose result may remind of ideas (IDEAS-SPEC §4.1).
+    const ideaWrite = action === "idea" || action === "idea_update" || action === "idea_remove";
     const ideasOn =
-      action === "idea" || (action === "status" && (input as StatusInput).status === "in_review") ? await this.ideasOn() : true;
+      ideaWrite || (action === "status" && (input as StatusInput).status === "in_review") ? await this.ideasOn() : true;
+    const outputDelivery =
+      (action === "status" && (input as StatusInput).status === "in_review") ||
+      (action === "progress" && (input as ProgressInput).kind === "result");
+    const outputs = action === "status" || action === "progress" ? (input as StatusInput | ProgressInput).outputs : undefined;
+    if (outputs !== undefined && !outputDelivery)
+      throw new ToolError("INVALID_INPUT", "outputs is only valid for status=in_review or kind=result.");
     const artifactWrite = action === "artifact" || action === "artifact_remove";
-    const artifactsOn = artifactWrite ? await this.artifactsOn() : true;
+    const artifactsOn = artifactWrite || outputDelivery ? await this.artifactsOn() : true;
+    const key = `${identity.agentId}:${digest(input.request.id)}`,
+      payloadHash = digest(JSON.stringify({ action, input }));
+    // Exact replays must survive a missing file, disconnected connector or a changed artifacts setting.
+    const priorReceipt = outputs?.length ? (await this.store.read()).agentReceipts.find((r) => r.key === key) : undefined;
+    if (priorReceipt && priorReceipt.payloadHash !== payloadHash)
+      throw new ToolError("REQUEST_REUSED", "Request already committed with different parameters.");
+    const outputTargets: (Omit<NewArtifact, "taskId" | "role" | "createdBy" | "agentId"> & { notice?: string })[] = [];
+    if (outputs?.length && !priorReceipt) {
+      if (!artifactsOn)
+        throw new ToolError("ARTIFACTS_DISABLED", "Agent artifacts are turned off in Flowly settings. List your deliverables in your reply and deliver with outputs=[] instead.");
+      for (const output of outputs) {
+        try {
+          let external;
+          let notice: string | undefined;
+          try {
+            external = await externalArtifact(this.connectors, output.target);
+          } catch (e) {
+            // Saving an explicit link does not require permission to read its private metadata.
+            // Bare keys still require recognition; invalid URLs and programmer errors still refuse.
+            if (!(e instanceof ExternalError) || !/^https?:\/\//i.test(output.target)) throw e;
+            notice = "External details could not be read; no external status or content was verified.";
+          }
+          const target = external ?? await normalizeTarget(output.target, artifactRoots(resources.task, resources.project, resources.workspace.workspaceDirectory));
+          outputTargets.push({ ...output, ...target, title: output.title || external?.title, ...(notice ? { notice } : {}) });
+        } catch (e) {
+          throw new ToolError("ARTIFACT_INVALID", e instanceof Error ? e.message : String(e));
+        }
+      }
+    }
     // Paths are checked before the write; the transaction only records the result.
     // An item link or key of a configured connection becomes an external input (CONNECTORS-SPEC §3.1).
     const externalTarget =
@@ -717,7 +783,10 @@ export class AgentService {
         : undefined;
     const commits = action === "workpad" ? await this.commits(input as WorkpadInput, resources.workspace.workspaceDirectory, head ?? null) : undefined;
     // Tags are normalized before the write; one invalid value refuses the whole call (CARD-TAGS-SPEC §4.1).
-    const tagEdit = action === "tags" || action === "idea" ? normalizeToolTags(action, input as TagsToolInput | IdeaInput) : undefined;
+    const tagEdit =
+      action === "tags" || action === "idea" || (action === "idea_update" && (input as IdeaUpdateInput).tags)
+        ? normalizeToolTags(action === "tags" ? "tags" : "idea", input as TagsToolInput | IdeaInput)
+        : undefined;
     // A memory candidate (PROJECT-MEMORY-SPEC §4.1): its refusals come before the card write, so they leave no receipt.
     const memoryInput =
       action === "remember"
@@ -739,8 +808,6 @@ export class AgentService {
           throw memoryToolError(e);
         });
     }
-    const key = `${identity.agentId}:${digest(input.request.id)}`,
-      payloadHash = digest(JSON.stringify({ action, input }));
     // What this call left out (NEXT-MOVES-SPEC §9): read from the board as it is after the write, also on a replay
     // (the first response may have been lost), and only while the card still takes writes.
     const call: DeliveryCall | undefined =
@@ -756,6 +823,7 @@ export class AgentService {
       const project = board.projects.find((p) => p.id === task.projectId);
       if (project?.archivedAt) return [];
       const out = call ? deliveryReminders(board, { taskId: task.id, agentId: identity.agentId }, call, ideasOn) : [];
+      if (outputDelivery && outputs === undefined && artifactsOn) out.push(outputsReminder);
       const missing = setupMissing(task, workpadOf(board.workpads, task.id), workpadEnabled(project));
       if (missing.length) out.push(setupReminder(missing));
       return out;
@@ -769,8 +837,9 @@ export class AgentService {
             "Request already committed with different parameters.",
           );
         const idea = existing.eventId ? board.ideas.find((i) => i.eventId === existing.eventId) : undefined;
+        const managed = action === "idea_update" || action === "idea_remove" ? (input as IdeaUpdateInput).id : undefined;
         return {
-          value: { receipt: existing, replayed: true, ideaId: idea?.id, artifactId: existing.artifactId, reminders: reminders(board) },
+          value: { receipt: existing, replayed: true, ideaId: existing.ideaId ?? managed ?? idea?.id, artifactId: existing.artifactId, reminders: reminders(board) },
           changed: false,
         };
       }
@@ -817,7 +886,7 @@ export class AgentService {
           "Agent receipt capacity is full; no unexpired receipt was removed. Try after expiry or use the human board UI.",
           true,
         );
-      if (action === "idea" && !ideasOn)
+      if (ideaWrite && !ideasOn)
         throw new ToolError("IDEAS_DISABLED", "Ideas are turned off in Flowly settings. Mention follow-up suggestions in your reply instead.");
       if (action === "idea") checkIdea(board, task.id, (input as IdeaInput).title);
       if (artifactWrite && !artifactsOn)
@@ -848,11 +917,20 @@ export class AgentService {
       // Missing card setup is part of the same soft gate (CARD-SETUP-SPEC §3.4): one refusal lists everything.
       const setupGap: SetupItem[] =
         next === "in_review" && next !== previous ? setupMissing(task, workpadOf(board.workpads, task.id), workpadEnabled(project)) : [];
-      const acknowledged = !!(input as StatusInput).acknowledgeOpen;
+      const binding = `${identity.agentId}:${identity.taskId}:${identity.workspaceId}`;
+      const hasOpen = !!delivered?.total || setupGap.length > 0;
+      const fingerprint = digest(JSON.stringify({
+        revision: input.expectedRevision,
+        pad: deliveryPad?.revision,
+        open: delivered,
+        setupGap,
+        head: head ? { sha: head.sha, branch: head.branch, dirty: head.dirty } : null,
+      }));
+      const acknowledged = hasOpen && this.deliveryGate.acknowledge(binding, fingerprint, !!(input as StatusInput).acknowledgeOpen, this.clock());
       if (deliveryPad && delivered!.total > 0 && !acknowledged)
         throw new ToolError(
           "WORKPAD_OPEN",
-          `${setupGap.length ? `${setupIncompleteMessage(setupGap)}\n` : ""}${delivered!.total} workpad item${delivered!.total === 1 ? " is" : "s are"} still open:\n${openItemLines(deliveryPad).join("\n")}\nRerun out-of-date checks and finish what you can. Deliver anyway only with acknowledgeOpen=true and a note that explains every open item (failed, not run, out of date or not met).`,
+          `${setupGap.length ? `${setupIncompleteMessage(setupGap)}\n` : ""}${delivered!.total} workpad item${delivered!.total === 1 ? " is" : "s are"} still open:\n${openItemLines(deliveryPad).join("\n")}\nThe first attempt is always refused, even with acknowledgeOpen=true. Review this list, rerun out-of-date checks and finish what you can. Then retry with acknowledgeOpen=true and a note explaining every remaining item. A changed card/workpad/HEAD or a new turn requires a new refusal.`,
         );
       if (setupGap.length && !acknowledged) throw new ToolError("SETUP_INCOMPLETE", setupIncompleteMessage(setupGap));
       if (next !== previous) {
@@ -862,6 +940,21 @@ export class AgentService {
       }
       let artifactId: string | undefined;
       let notice: string | undefined;
+      const artifactIds: string[] = [];
+      for (const output of outputTargets) {
+        try {
+          const put = putArtifact(this.store, board, {
+            taskId: task.id, role: "output", kind: output.kind, target: output.target,
+            title: output.title, note: output.note, createdBy: "agent", agentId: identity.agentId,
+            ...("external" in output ? { external: output.external } : {}),
+          }, new Date(this.clock()).toISOString());
+          if (!artifactIds.includes(put.artifact.id)) artifactIds.push(put.artifact.id);
+          if (output.notice) notice = [notice, `${output.target}: ${output.notice}`].filter(Boolean).join("\n");
+          if (put.notice) notice = [notice, `${output.target}: ${put.notice}`].filter(Boolean).join("\n");
+        } catch (e) {
+          throw new ToolError("ARTIFACT_INVALID", e instanceof Error ? e.message : String(e));
+        }
+      }
       const artifactEvent = artifactWrite
         ? (() => {
             try {
@@ -1025,7 +1118,15 @@ export class AgentService {
           moves: [...moves],
         });
       const movesEvent = action === "next_moves" ? recordMoves((input as NextMovesInput).moves) : undefined;
+      // Managing an idea of this card (IDEAS-SPEC §3.1).
+      const ideaEvent =
+        action === "idea_update" || action === "idea_remove"
+          ? manageIdea(board, task.id, action, input as IdeaUpdateInput | IdeaRemovalInput, tagEdit?.add, new Date(this.clock()).toISOString(), (e) =>
+              this.store.event(board, { taskId: task.id, agentId: identity.agentId, actor: "agent", ...e }),
+            )
+          : undefined;
       const event =
+        ideaEvent ??
         artifactEvent ??
         tagsEvent ??
         typeEvent ??
@@ -1055,7 +1156,7 @@ export class AgentService {
       if (deliveryPad) deliveryPad.delivery = { ...delivered!, revision: deliveryPad.revision, eventId: event.id, at: event.at };
       // The suggestion follows the status change or report it rode on, in the same write (NEXT-MOVES-SPEC §8.3).
       if (carried) recordMoves(carried);
-      let ideaId: string | undefined;
+      let ideaId = action === "idea_update" || action === "idea_remove" ? (input as IdeaUpdateInput).id : undefined;
       if (action === "idea") {
         const idea = input as IdeaInput;
         ideaId = randomUUID();
@@ -1086,7 +1187,9 @@ export class AgentService {
         payloadHash,
         action,
         eventId: event.id,
+        ...(ideaId ? { ideaId } : {}),
         ...(artifactId ? { artifactId } : {}),
+        ...(outputs !== undefined ? { artifactIds } : {}),
         ...(notice ? { notice } : {}),
         ...(workpadRevision ? { workpadRevision } : {}),
         taskRevision: task.revision,
@@ -1098,6 +1201,7 @@ export class AgentService {
       board.agentReceipts.push(receipt);
       return { value: { receipt, replayed: false, ideaId, artifactId, reminders: reminders(board) }, changed: true };
     });
+    if (delivering && !result.replayed) this.deliveryGate.clear(`${identity.agentId}:${identity.taskId}:${identity.workspaceId}`);
     const {
       key: _key,
       payloadHash: _hash,
@@ -1192,6 +1296,52 @@ export function checkIdea(board: Board, taskId: string, title: string) {
       "IDEA_LIMIT",
       `This card already has ${ideaLimits.openPerTask} open ideas. Stop proposing until the user accepts or dismisses some.`,
     );
+}
+
+const ideaFields = ["title", "detail", "rationale", "context", "type", "priority", "scope"] as const;
+
+/**
+ * An agent edits, dismisses or removes an idea of its own card (IDEAS-SPEC §3.1). Accepted ideas are final;
+ * a dismissed one can only be removed (only the user restores it). Returns the event, or an empty one when
+ * nothing changed.
+ */
+export function manageIdea(
+  board: Board,
+  taskId: string,
+  action: "idea_update" | "idea_remove",
+  input: IdeaUpdateInput | IdeaRemovalInput,
+  tags: string[] | undefined,
+  at: string,
+  record: (e: { action: string; note: string }) => { id: string; at: string },
+) {
+  const idea = board.ideas.find((i) => i.id === input.id && i.taskId === taskId);
+  if (!idea) throw new ToolError("IDEA_NOT_FOUND", `No idea ${input.id} on this card. Use an id from get_task ideas.`);
+  if (idea.status === "accepted")
+    throw new ToolError("IDEA_CLOSED", "This idea was already accepted by the user; it can no longer be changed or removed.");
+  if (action === "idea_remove") {
+    board.ideas = board.ideas.filter((i) => i !== idea);
+    return record({ action: "idea_removed", note: idea.title });
+  }
+  const edit = input as IdeaUpdateInput;
+  const changes: Partial<Idea> = {};
+  for (const k of ideaFields) if (edit[k] !== undefined && edit[k] !== idea[k]) Object.assign(changes, { [k]: edit[k] });
+  if (tags && JSON.stringify(tags) !== JSON.stringify(idea.tags ?? [])) changes.tags = tags;
+  const dismiss = edit.status === "dismissed" && idea.status !== "dismissed";
+  if (!Object.keys(changes).length && !dismiss) {
+    if (edit.status === undefined && !ideaFields.some((k) => edit[k] !== undefined) && !edit.tags)
+      throw new ToolError("INVALID_INPUT", "Give at least one field to change, or status=dismissed.");
+    return { id: "", at };
+  }
+  if (Object.keys(changes).length && idea.status !== "open")
+    throw new ToolError("IDEA_CLOSED", "Only open ideas can be edited. The user can restore a dismissed idea.");
+  if (changes.title && board.ideas.some((i) => i !== idea && i.taskId === taskId && i.status === "open" && ideaTitleKey(i.title) === ideaTitleKey(changes.title!)))
+    throw new ToolError("IDEA_DUPLICATE", "This card already has another open idea with that title.");
+  Object.assign(idea, changes);
+  if (changes.tags && !changes.tags.length) delete idea.tags;
+  if (dismiss) idea.status = "dismissed";
+  idea.updatedAt = at;
+  const edited = Object.keys(changes).length ? record({ action: "idea_edited", note: idea.title }) : undefined;
+  return dismiss ? record({ action: "idea_dismissed", note: idea.title }) : edited!;
 }
 
 /** Keeps at most `keptPerTask` ideas per card, dropping the oldest closed ones first. */

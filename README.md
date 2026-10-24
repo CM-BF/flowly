@@ -46,7 +46,7 @@ When an agent needs a decision it asks one clear question and stops. The card li
 
 When a turn ends, the agent can leave its **suggested next steps** ("Verify with Luna", "Commit and push") above the session's message box. Tapping one only fills the box; you edit it or send it yourself. Once the work is committed and pushed, an agent can also offer **Move to Done**: that one doesn't fill the box, tapping it moves the card (Done stays your decision). They disappear once your next message starts a new turn.
 
-**Comments** go right on the card, as on a Multica issue: ask how far it got, give an opinion or request changes in the card's **Comments**, without first finding the right session. A comment stays on the card (it shows in Activity, and agents see the latest ones in `flowly_get_task`) and its exact text goes to the card's agent through the same path as the session's message box, with the same *When running* choice: by default the automation implementer, otherwise the most recently active session that is not a reviewer; **To:** picks another one. A card without a session keeps the comment until an agent starts; a failed send keeps it too and offers **Resend**. Comments never move the card, and Done stays yours.
+**Comments** go right on the card, as on a Multica issue: ask how far it got, give an opinion or request changes in the card's **Comments**, without first finding the right session. A comment stays on the card (it shows in Activity, and agents see the latest ones in `flowly_get_task`) and its exact text goes to the card's agent through the same path as the session's message box, with the same *When a session is running* choice (Settings → General → Sending messages): by default the automation implementer, otherwise the most recently active session that is not a reviewer; **To:** picks another one. A card without a session keeps the comment until an agent starts; a failed send keeps it too and offers **Resend**. Comments never move the card, and Done stays yours.
 
 The same features follow a Flowly session into **Paseo's own session view**: each progress summary appears as a **Progress** row in the conversation, the suggested next steps appear as a card under the agent's last reply: tapping one fills in Paseo's message box on web and desktop (or copies it; you choose in Settings → AI features), and nothing is sent until you send it. An **Ideas** chip next to Paseo's message box lets you continue an idea in this session, start a new task from it, or dismiss it. Optionally (off by default; Settings → AI features), sessions Flowly does not manage get the same progress row, next steps and ideas, kept with the session rather than in a project; their ideas can continue there or start in a new session or workspace.
 
@@ -116,6 +116,8 @@ The interface follows your device language, or pick one in **Flowly settings →
 
 ## Quick start
 
+The first time you open Flowly, a short welcome tour explains projects, cards and sessions and sets the basics: interface and AI output language, the progress model, whether progress, next steps and ideas also apply to sessions outside Flowly (on by default; each of their turns then runs the summary model once), and whether Project memory and Insights are on. Skip keeps the defaults. Change any of it later from the gear at the bottom left.
+
 1. **New project**: pick a directory (or several repositories) to register as a native Paseo project.
 2. **New task**: describe the work; optionally start an agent together with the card.
 3. Watch the card move. Answer **Needs you** cards, review **In review** cards, accept or dismiss **Ideas**, and open **Insights** at the end of the day.
@@ -131,6 +133,8 @@ The interface follows your device language, or pick one in **Flowly settings →
 ### Models
 
 Pick the model new sessions start with under **Settings → Models**. A project can set its own default in its settings, which wins over the global one; with neither, new sessions start from the latest session's settings.
+
+Summary models are an ordered fallback list in Settings → Models: add models and move them up or down to set priority; the default is Haiku → Luna.
 
 ![Settings → Models: default model and summary model](docs/promo/screenshots/settings/models.png)
 

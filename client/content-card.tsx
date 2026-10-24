@@ -4,6 +4,8 @@ import { Icon } from "@getpaseo/plugin/client/react-native";
 import { useMotionHeight, useMotionValue } from "./motion";
 import { Label, font, noFocusRing, radius, space, tint, touch, useTheme } from "./ui";
 import { t } from "../shared/i18n";
+import type { Status, Task } from "../shared/model";
+import { StatusIcon } from "./status";
 
 /** The bordered surface every content card sits on; the native timeline cards share it. */
 export const cardFrameStyle = (colors: { border: string; surface1: string }) =>
@@ -17,12 +19,23 @@ export const cardFrameStyle = (colors: { border: string; surface1: string }) =>
  * card's actions) on the right. `after` renders below the padded area, full
  * width (e.g. the Ideas page's source line).
  */
-export function ContentCard({ footer, after, children }: { footer?: ReactNode; after?: ReactNode; children: ReactNode }) {
+export function ContentCard({
+  footer,
+  after,
+  defaultOpen = false,
+  children,
+}: {
+  footer?: ReactNode;
+  after?: ReactNode;
+  /** Start expanded (the welcome tour shows every field); Show less still collapses it. */
+  defaultOpen?: boolean;
+  children: ReactNode;
+}) {
   const { colors } = useTheme();
   return (
     <View style={cardFrameStyle(colors)}>
-      <View style={{ padding: space[3], paddingBottom: after ? space[1] : space[3] }}>
-        <Clamped background={colors.surface1} footer={footer}>
+      <View style={{ padding: space[3], paddingBottom: space[3] }}>
+        <Clamped background={colors.surface1} footer={footer} defaultOpen={defaultOpen}>
           {children}
         </Clamped>
       </View>
@@ -101,9 +114,9 @@ const CLAMP_HEIGHT = 104;
  * bottom-left corner and `footer` on the right of the same row.
  * `background` is the surface the fade blends into.
  */
-function Clamped({ background, footer, children }: { background: string; footer?: ReactNode; children: ReactNode }) {
+function Clamped({ background, footer, defaultOpen = false, children }: { background: string; footer?: ReactNode; defaultOpen?: boolean; children: ReactNode }) {
   const [natural, setNatural] = useState(0);
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(defaultOpen);
   const overflows = natural > CLAMP_HEIGHT + 8;
   const target = natural ? (open || !overflows ? natural : CLAMP_HEIGHT) : null;
   const height = useMotionHeight(target);
@@ -160,12 +173,51 @@ function Toggle({ open, onPress }: { open: boolean; onPress(): void }) {
           paddingHorizontal: space[1.5],
           marginLeft: -space[1.5],
           borderRadius: radius.md,
-          backgroundColor: pressed || hovered || focused ? colors.surface2 : "transparent",
+          backgroundColor: pressed || hovered ? colors.surface2 : "transparent",
         };
       }}
     >
       <Icon name={open ? "ChevronUp" : "ChevronDown"} size={14} color={colors.foreground} />
       <Label medium size={font.md} selectable={false}>{label}</Label>
+    </Pressable>
+  );
+}
+
+/** "From <card> · <lane>" under a memory or an idea; also the welcome tour's demo. */
+export function SourceLine({ task, nameOf, onOpenTask }: { task: Task | undefined; nameOf(status: Status): string; onOpenTask(id: string): void }) {
+  const { colors } = useTheme();
+  if (!task)
+    return (
+      <View style={{ marginHorizontal: space[3], marginBottom: space[1.5], paddingHorizontal: space[2], minHeight: touch ? 36 : 28, justifyContent: "center" }}>
+        <Label muted size={font.xs}>{t("From a deleted card")}</Label>
+      </View>
+    );
+  return (
+    <Pressable
+      accessibilityRole="link"
+      accessibilityLabel={t("From card {title}, {state}. Open it", { title: task.title, state: task.archivedAt ? t("archived") : nameOf(task.status) })}
+      onPress={() => onOpenTask(task.id)}
+      style={({ pressed, hovered }: { pressed: boolean; hovered?: boolean }) => ({
+        ...noFocusRing,
+        flexDirection: "row",
+        alignItems: "center",
+        gap: space[1.5],
+        marginHorizontal: space[3],
+        marginBottom: space[1.5],
+        paddingHorizontal: space[2],
+        minHeight: touch ? 36 : 28,
+        borderRadius: radius.md,
+        backgroundColor: pressed || hovered ? colors.surface2 : tint(colors.foreground, 0.03),
+      })}
+    >
+      <Label muted size={font.xs} selectable={false}>{t("From")}</Label>
+      <StatusIcon status={task.status} size={12} />
+      <View style={{ flexShrink: 1, minWidth: 0 }}>
+        <Label size={font.sm} lines={1} selectable={false}>{task.title}</Label>
+      </View>
+      <Label muted size={font.xs} selectable={false}>· {task.archivedAt ? t("Archived") : nameOf(task.status)}</Label>
+      <View style={{ flex: 1 }} />
+      <Icon name="ChevronRight" size={13} color={colors.foregroundMuted} />
     </Pressable>
   );
 }

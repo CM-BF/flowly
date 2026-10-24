@@ -20,6 +20,8 @@ import {
 } from "@modelcontextprotocol/node";
 import {
   ideaInputSchema,
+  ideaRemovalSchema,
+  ideaUpdateInputSchema,
   rememberInputSchema,
   recallInputSchema,
   recallResultSchema,
@@ -189,7 +191,7 @@ export class ToolServer {
           "flowly_get_task",
           {
             description:
-              "Read this session's current Kanban card, effective repo/worktree directories, both revisions and signed request. Read before work or any write, and at the start of every turn: artifacts with unread=true were added or edited since your last read. Then check setup.missing and fix it (flowly_set_type, flowly_set_tags, flowly_update_workpad) before other work. comments lists what people wrote on the card (questions about progress, opinions, requested changes), oldest first; those with unread=true were written since your last read: treat each of them like a message from the user and answer it or do what it asks. Comments you read before stay listed as context and are shortened when long.",
+              "Read this session's current Kanban card, latest turnChecklist, effective repo/worktree directories, both revisions and signed request. Read at the start of every turn, including commit/merge-only follow-ups, and before any write. Handle unread inputs (artifacts with unread=true were added or edited since your last read) and fix setup.missing (flowly_set_type, flowly_set_tags, flowly_update_workpad, flowly_update_metadata) before work. comments lists what people wrote on the card (questions about progress, opinions, requested changes), oldest first; those with unread=true were written since your last read: treat each of them like a message from the user and answer it or do what it asks. Comments you read before stay listed as context and are shortened when long.",
             inputSchema: z.strictObject({}),
             outputSchema: toolContextSchema,
             annotations: { readOnlyHint: true, openWorldHint: false },
@@ -200,7 +202,7 @@ export class ToolServer {
           "flowly_update_status",
           {
             description:
-              "Move this card to one of allowedStatuses from get_task (design, development, test, blocked or in_review when they are lanes of this project; lanes lists the names the user sees). Use the work stage that matches what you are doing now: design for plans/specs/research, development for implementation, test for verification; you decide where to start and may skip or go back. Keep it current: switch when the work changes, and at the start of each turn correct the stage the card was automatically resumed in if it does not match the work. Copy revisions and request from get_task, include a note. Your own card's Done/cancelled are human decisions; direct sub-cards are accepted or cancelled only through flowly_update_card. Delivering to in_review with open workpad items returns WORKPAD_OPEN, and with missing card setup (no type, no tags or no workpad) SETUP_INCOMPLETE; both change nothing. Deliver anyway only with acknowledgeOpen=true and a note that explains every open item and why each setup item is missing. When you deliver (in_review), pass nextMoves: the 1-3 messages the user is most likely to send you next (same items as flowly_suggest_next_moves, recommended first; a moveTo=\"done\" move is only accepted together with in_review), or [] when nothing needs the user. Leave it out on mid-work stage changes. A delivery (in_review or blocked) that leaves this turn without next moves, or without any idea on the card, gets a reminders list in its result, and so does any write while the card setup is missing: text only, the write succeeded. A refused call records nothing: resend it with the same nextMoves. Retry identical uncertain requests only.",
+              "Move this card to one of allowedStatuses from get_task (design, development, test, blocked or in_review when they are lanes of this project; lanes lists the names the user sees). Use the work stage that matches what you are doing now: design for plans/specs/research, development for implementation, test for verification; you decide where to start and may skip or go back. Keep it current: switch when the work changes, and at the start of each turn correct the stage the card was automatically resumed in if it does not match the work. Copy revisions and request from get_task, include a note. Your own card's Done/cancelled are human decisions; direct sub-cards are accepted or cancelled only through flowly_update_card. Delivering to in_review with open workpad items returns WORKPAD_OPEN, and with missing card setup (no type, no tags or no workpad) SETUP_INCOMPLETE; both change nothing. The first attempt is always refused, even with acknowledgeOpen=true. Review that refusal, finish what you can, then retry with acknowledgeOpen=true and a note explaining every remaining item. Changed card/workpad/HEAD or a new turn requires a new refusal. When you deliver (in_review), pass outputs=[{target,title,note}] for the PR/MR links, reports and evidence from this call, or outputs=[] if none; omission returns a reminder. Outputs are registered atomically with this write. Also pass nextMoves: the 1-3 messages the user is most likely to send you next (same items as flowly_suggest_next_moves, recommended first; a moveTo=\"done\" move is only accepted together with in_review), or [] when nothing needs the user. Leave it out on mid-work stage changes. A delivery (in_review or blocked) that leaves this turn without next moves, or without any idea on the card, gets a reminders list in its result, and so does any write while the card setup is missing: text only, the write succeeded. A refused call records nothing: resend it with the same nextMoves. Retry identical uncertain requests only.",
             inputSchema: statusInputSchema,
             outputSchema: toolResultSchema,
             annotations: {
@@ -216,7 +218,7 @@ export class ToolServer {
           "flowly_report_progress",
           {
             description:
-              "Append this session's checkpoint/blocker/result/question without changing card status or task revision. kind=question asks the user something and marks the card Needs you until they reply; it is the fallback when you have no question tool of your own (such as AskUserQuestion) or the question is open-ended. Never report a question you already asked through that tool. Copy revisions/request from get_task. Partial contribution does not complete the card. When you ask (kind=question; the moves are the likely answers), report a blocker or give a result, pass nextMoves (same items as flowly_suggest_next_moves, 1-3 recommended first, or [] when nothing needs the user). A question or result that leaves this turn without next moves gets a reminders list in its result: text only, the write succeeded.",
+              "Append this session's checkpoint/blocker/result/question without changing card status or task revision. kind=question asks the user something and marks the card Needs you until they reply; it is the fallback when you have no question tool of your own (such as AskUserQuestion) or the question is open-ended. Never report a question you already asked through that tool. Copy revisions/request from get_task. Partial contribution does not complete the card. When you ask (kind=question; the moves are the likely answers), report a blocker or give a result, pass nextMoves (same items as flowly_suggest_next_moves, 1-3 recommended first, or [] when nothing needs the user). For kind=result, pass outputs=[{target,title,note}] for the PR/MR links, reports and evidence from this call, or outputs=[] if none; omission returns a reminder. Outputs are registered atomically with this write and are invalid for other kinds. A question or result that leaves this turn without next moves gets a reminders list in its result: text only, the write succeeded.",
             inputSchema: progressInputSchema,
             outputSchema: toolResultSchema,
             annotations: {
@@ -243,6 +245,28 @@ export class ToolServer {
             },
           },
           (input) => wrap(() => this.agents.write(identity, "idea", input)),
+        );
+        mcp.registerTool(
+          "flowly_update_idea",
+          {
+            description:
+              "Edit or dismiss an idea on this card (id from get_task ideas). Pass only the fields to change: title, detail, rationale, context, type, priority, scope or tags (tags replace the suggested ones). status=dismissed closes it: use it when the user rejected the idea in conversation or it no longer applies (for example this card already did it), instead of leaving it open. A dismissed idea stays under Closed, where only the user can restore it. Only open ideas can be edited; an accepted idea is final (IDEA_CLOSED). Does not change card status or task revision. Copy revisions/request from get_task.",
+            inputSchema: ideaUpdateInputSchema,
+            outputSchema: toolResultSchema,
+            annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+          },
+          (input) => wrap(() => this.agents.write(identity, "idea_update", input)),
+        );
+        mcp.registerTool(
+          "flowly_remove_idea",
+          {
+            description:
+              "Delete an idea on this card that should never have been proposed: a duplicate, a mistake, or work this card already requires. For an idea the user rejected, prefer flowly_update_idea status=dismissed, which keeps it visible. An accepted idea cannot be removed (IDEA_CLOSED). Does not change card status or task revision. Copy revisions/request from get_task.",
+            inputSchema: ideaRemovalSchema,
+            outputSchema: toolResultSchema,
+            annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
+          },
+          (input) => wrap(() => this.agents.write(identity, "idea_remove", input)),
         );
         mcp.registerTool(
           "flowly_remember",
@@ -474,7 +498,7 @@ export class ToolServer {
     }
     const body = z
       .strictObject({
-        action: z.enum(["get", "status", "progress", "idea", "remember", "recall", "artifact", "artifact_remove", "tags", "type", "metadata", "next_moves", "workpad", "external", "ticket", "review", "create_card", "update_card"]),
+        action: z.enum(["get", "status", "progress", "idea", "idea_update", "idea_remove", "remember", "recall", "artifact", "artifact_remove", "tags", "type", "metadata", "next_moves", "workpad", "external", "ticket", "review", "create_card", "update_card"]),
         input: z.unknown(),
       })
       .parse(JSON.parse(Buffer.concat(chunks).toString("utf8")));

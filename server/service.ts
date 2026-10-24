@@ -28,6 +28,7 @@ import { normalizeTags } from "../shared/tags";
 import { tagLimits } from "../shared/model";
 import { repoMatcher } from "./repos";
 import { memoryContext } from "./memory";
+import { backgroundWorkspaces } from "./background-workspace";
 import type { z } from "zod";
 import type { removeProject as removeProjectRpc, restoreProjectCheck as restoreProjectCheckRpc } from "../shared/rpc";
 
@@ -180,6 +181,9 @@ export class BoardService {
       workspaces.push(...page.entries);
       cursor = page.pageInfo.nextCursor ?? undefined;
     } while (cursor);
+    // Flowly's own background workspaces are archived after each run, so they are never offered for a card.
+    const background = await backgroundWorkspaces(this.store.directory).ids().catch(() => new Set<string>());
+    const offered = workspaces.filter((w) => !background.has(w.id));
     return {
       projects: projects.map((p) => ({
         id: p.projectId,
@@ -187,7 +191,7 @@ export class BoardService {
         path: p.projectRootPath,
       })),
       workspaces: await Promise.all(
-        workspaces.map(async (w) => ({
+        offered.map(async (w) => ({
           id: w.id,
           projectId: w.projectId,
           name: w.name || w.id,

@@ -46,7 +46,7 @@ agent 需要你拍板时，会提出一个明确的问题并停下。卡片亮�
 
 回合结束时，agent 可以在 session 输入框上方留下**建议的下一步**（如“用 Luna 验证”“提交并推送”）。点一下只会把内容填进输入框，由你修改或自行发送。工作提交并推送后，agent 还可以给出 **Move to Done**：它不填输入框，点击即移动卡片（Done 仍由你决定）。你发出下一条消息、开始新一轮后，这些建议就会消失。
 
-**评论**直接写在卡片上，像 Multica 的 issue 评论：在卡片的 **Comments** 里问进度、提意见或要求修改，不必先找到对应的 session。评论保存在卡片上（出现在 Activity 里，agent 在 `flowly_get_task` 中能看到最近的评论），原文通过与 session 输入框相同的路径、按同一个 *When running* 偏好发给卡片的 agent：默认发给自动化的执行者，否则发给最近活跃、不是评审者的 session；**To:** 可以改选。还没有 session 的卡片先保存评论，agent 启动后会读到；发送失败时评论也已保存，可以 **Resend**。评论不会移动卡片，Done 仍由你决定。
+**评论**直接写在卡片上，像 Multica 的 issue 评论：在卡片的 **Comments** 里问进度、提意见或要求修改，不必先找到对应的 session。评论保存在卡片上（出现在 Activity 里，agent 在 `flowly_get_task` 中能看到最近的评论），原文通过与 session 输入框相同的路径、按同一个 *When a session is running* 偏好（Settings → General → Sending messages）发给卡片的 agent：默认发给自动化的执行者，否则发给最近活跃、不是评审者的 session；**To:** 可以改选。还没有 session 的卡片先保存评论，agent 启动后会读到；发送失败时评论也已保存，可以 **Resend**。评论不会移动卡片，Done 仍由你决定。
 
 ![会话输入框上方的下一步建议：Verify with Luna、Commit and push、Add 429 tests](docs/promo/screenshots/06-next-moves.png)
 
@@ -114,6 +114,8 @@ agent 理解任务后会自己补全卡片元数据：卡片没有**任务类型
 
 ## 快速上手
 
+第一次打开 Flowly 时，一个简短的欢迎导览会讲清 project、卡片和 session，并完成基础设置：界面语言和 AI 输出语言、进展模型、进展 / 下一步 / 想法是否也用于 Flowly 之外的 session（默认开；这些 session 每完成一轮会运行一次摘要模型），以及项目记忆和 Insights 是否开启。Skip 即保留默认值。之后可以在左下角的齿轮里随时修改。
+
 1. **New project**：选择一个目录（或多个仓库），把它注册为原生 Paseo project。
 2. **New task**：描述要做的事，可以同时启动第一个 agent。
 3. 看卡片自己移动。回答 **Needs you** 的问题，验收 **In review** 的卡片，处理 **Ideas**，一天结束时打开 **Insights**。
@@ -129,6 +131,8 @@ agent 理解任务后会自己补全卡片元数据：卡片没有**任务类型
 ### 模型
 
 在 **设置 → Models** 里选择新会话默认使用的模型。每个 project 可以在自己的设置里单独指定，优先于全局；两者都没设时，新会话沿用最近一个会话的设置。
+
+设置 → 模型可选择多个摘要模型，通过上移/下移调整自动回退优先级，默认仍是 Haiku → Luna。
 
 ![设置 → Models：默认模型和摘要模型](docs/promo/screenshots/settings/models.png)
 

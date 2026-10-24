@@ -17,6 +17,7 @@
 - 支持继承、明确 Standard/off、Fast/on。Claude 使用 `fast_mode`，Codex 使用返回的 `service_tier` 选项。切 provider 清空旧 provider 的配置；更换模型时不发送该模型不支持的特性。
 - 自动化角色明确设置优先于同 provider 的项目默认。权限例外（用户决定，2026-10-23）：自动化的 **Full access** 开着时，执行者与评审者一律用 provider 的免审批模式，覆盖角色和项目默认的 Permissions；关着时才按 角色 → 项目默认 → provider 默认。New task 表单的默认值与此一致，单张卡在表单里改过的权限仍按该卡的选择。
 - 这些是新 session 的启动默认，不静默重配已经运行的 session。全局及摘要模型选择器不展示尚不能保存的执行设置。
+- 合并上游 #40（2026-10-23）：全局默认模型（Settings → Models）现在可以保存 Permissions（`defaultMode`，映射为 `modeId`），只提供“Same as latest session”（继承）和 provider 的各个模式；不提供显式 “Provider default” 和 Speed（扁平设置存不下）。它只在全局默认模型就是实际所用模型时生效：项目默认模型存在时被整体替换；自动化下角色 → 同 provider 项目默认 → 全局默认（仅当全局默认是所用模型）→ provider 默认，Full access 开着时仍被免审批模式覆盖。New task 不启用自动化时，录入 agent 由 `startingAgent(最近 session, effectiveAgentModel(项目, 全局))` 预填，所以全局 Permissions 会出现在表单里。摘要模型选择器仍不展示执行设置。
 
 ## 数据与授权
 
