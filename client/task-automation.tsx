@@ -8,8 +8,6 @@ import * as rpc from "../shared/rpc";
 import type { Project, Task } from "../shared/model";
 import { activeAgent, automationOf, isLive, panelChoice, panelDefaults, panelOutOfReach, readiness, reviewersFor, type AutomationJob, type AutomationSettings } from "../shared/automation";
 import { automationReason, automationSignal, type AutomationActions, type AutomationSignal } from "./automation-view";
-
-export type { AutomationSignal };
 import type { AgentModel } from "../shared/agent-defaults";
 import { boardKey, useBoardQuery } from "./queries";
 import { PulseDot } from "./motion";

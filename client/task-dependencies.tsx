@@ -132,7 +132,7 @@ export const TaskDependencies = memo(function TaskDependencies({
           <Label muted size={font.xs} bold selectable={false}>{t("Sub-cards")}</Label>
           <View style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "center", columnGap: 4, rowGap: 4 }}>
             {view.strip.map((item, i) => (
-              <StripChip key={item.id} id={item.id} step={item.step} title={titleOf(item.id)} status={tasksById.get(item.id)?.status} arrow={i > 0 && item.step > view.strip[i - 1].step} onOpen={onOpenTask} />
+              <StripChip key={item.id} id={item.id} step={item.step} steps={view.strip[view.strip.length - 1].step} title={titleOf(item.id)} status={tasksById.get(item.id)?.status} arrow={i > 0 && item.step > view.strip[i - 1].step} onOpen={onOpenTask} />
             ))}
           </View>
         </View>
@@ -171,7 +171,7 @@ function PathPart({ id, title, last, onOpen }: { id: string; title: string; last
   );
 }
 
-function StripChip({ id, step, title, status, arrow, onOpen }: { id: string; step: number; title: string; status?: Task["status"]; arrow: boolean; onOpen(id: string): void }) {
+function StripChip({ id, step, steps, title, status, arrow, onOpen }: { id: string; step: number; steps: number; title: string; status?: Task["status"]; arrow: boolean; onOpen(id: string): void }) {
   const { colors } = useTheme();
   const press = useCallback(() => onOpen(id), [onOpen, id]);
   return (
@@ -179,7 +179,7 @@ function StripChip({ id, step, title, status, arrow, onOpen }: { id: string; ste
       {arrow && <Icon name="ArrowRight" size={11} color={colors.foregroundMuted} />}
       <Pressable
         accessibilityRole="link"
-        accessibilityLabel={`${t("Step {step} of {total}", { step, total: step })}, ${t("Open task {title}", { title })}`}
+        accessibilityLabel={`${t("Step {step} of {total}", { step, total: steps })}, ${t("Open task {title}", { title })}`}
         onPress={press}
         style={(state) => ({
           ...noFocusRing,

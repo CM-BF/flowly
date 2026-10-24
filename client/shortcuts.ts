@@ -40,7 +40,6 @@ export const shortcutLevel: Record<"level-1" | "level-2" | "level-3" | "level-al
   "level-3": 3,
   "level-all": null,
 };
-export const isLevelAction = (action: ShortcutAction): action is keyof typeof shortcutLevel => action in shortcutLevel;
 
 export const shortcutHelp: readonly { keys: string[]; title: string }[] = [
   { keys: ["N"], title: msg("New task") },

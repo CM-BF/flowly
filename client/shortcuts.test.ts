@@ -130,13 +130,11 @@ test("navigation follows the board sort; ⇧H/⇧L target the adjacent shown col
 
 describe("card tree shortcuts (CARD-TREE-SPEC §2.2, §2.3)", () => {
   test("T opens the tree; 1 2 3 0 set Levels; modifiers, repeats and IME input are ignored", async () => {
-    const { isLevelAction, shortcutLevel } = await import("./shortcuts");
+    const { shortcutLevel } = await import("./shortcuts");
     expect(resolveShortcut({ key: "t" }, true)).toBe("tree");
     expect(resolveShortcut({ key: "T" }, true)).toBe("tree");
     expect(["1", "2", "3", "0"].map((key) => resolveShortcut({ key }, true))).toEqual(["level-1", "level-2", "level-3", "level-all"]);
     expect(["level-1", "level-2", "level-3", "level-all"].map((a) => shortcutLevel[a as keyof typeof shortcutLevel])).toEqual([1, 2, 3, null]);
-    expect(isLevelAction("level-2")).toBe(true);
-    expect(isLevelAction("tree")).toBe(false);
     for (const mod of ["metaKey", "ctrlKey", "altKey"] as const) expect(resolveShortcut({ key: "1", [mod]: true }, true)).toBeNull();
     expect(resolveShortcut({ key: "1", repeat: true }, true)).toBeNull();
     expect(resolveShortcut({ key: "t", isComposing: true }, true)).toBeNull();

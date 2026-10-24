@@ -65,7 +65,17 @@ export function useBoardView() {
     // A function patch shows at once as built on what is on screen; the stored write rebuilds it on the fresh values.
     const shown = typeof patch === "function" ? patch(values ?? boardViewValues(undefined)) : patch;
     setOverlay((current) => ({ ...current, ...shown }));
-    if (await saveMerged(() => latest.current, patch)) return true;
+    if (await saveMerged(() => latest.current, patch)) {
+      // A function patch was rebuilt on the fresh values, so what was stored may differ from what was shown:
+      // the stored document is the truth now (unless a newer optimistic write replaced these fields meanwhile).
+      if (typeof patch === "function")
+        setOverlay((current) => {
+          const copy = { ...current };
+          for (const key of Object.keys(shown) as (keyof BoardView)[]) if (copy[key] === shown[key]) delete copy[key];
+          return copy;
+        });
+      return true;
+    }
     // Give up visibly rather than show a value that was not stored.
     setOverlay((current) => {
       const copy = { ...current };

@@ -147,10 +147,15 @@ export const CardTreePage = memo(function CardTreePage({
   useEffect(() => {
     if (!target || !settled) return;
     const index = rows.findIndex((r) => r.id === target.id);
-    if (index < 0) return;
+    if (index < 0) {
+      // A card the outline never shows (archived with Show archived off, or gone): drop the request.
+      if (!tree.ids.includes(target.id) || !inScope(target.id)) setTarget(null);
+      return;
+    }
     setTarget(null);
     if (virtualized) list.current?.scrollToIndex({ index, viewPosition: 0.3, animated: !reduced });
-    else scroll.current?.scrollTo({ y: Math.max(0, (offsets.current.get(target.id) ?? 0) - 80), animated: !reduced });
+    // The plain list knows a row's offset only after its layout, which comes after this commit for newly opened rows.
+    else later(() => scroll.current?.scrollTo({ y: Math.max(0, (offsets.current.get(target.id) ?? 0) - 80), animated: !reduced }), 60);
     if (!reduced) {
       setFlash(target.id);
       later(() => setFlash((current) => (current === target.id ? "" : current)), 1600);

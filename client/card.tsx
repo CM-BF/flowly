@@ -15,7 +15,8 @@ import type { WorkpadSignal } from "../shared/workpad";
 import { activityLines, defaultCardDisplay, type CardDisplay } from "../shared/card-display";
 import { BrandIcon } from "./brand-icons";
 import type { ConnectorFamily } from "../shared/connectors";
-import { SignalMark, type AutomationSignal } from "./task-automation";
+import { SignalMark } from "./task-automation";
+import type { AutomationSignal } from "./automation-view";
 import type { Below } from "../shared/card-tree";
 import { belowLabel, belowSignals } from "./board-levels";
 

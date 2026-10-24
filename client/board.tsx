@@ -834,6 +834,8 @@ function BoardContent(
   };
   const move = (input: { id: string; revision: number; status: Status }) => {
     const from = data.data?.tasks.find((t) => t.id === input.id)?.status;
+    // A sub-card shown by its lane footer stays on the board in the lane it moves to.
+    if (levels?.hidden.has(input.id)) setDroppedCard(input.id);
     void doAction(
       () => updateTask(input),
       t("Moved to {name}", { name: nameOf(input.status) }),
@@ -1533,7 +1535,7 @@ function BoardContent(
   };
   const attentionDetail = (item: AttentionItem) =>
     `${attentionParent(item)}${item.project.title} · ${laneName(item.project, item.task.status)} · ${[
-      item.automation && (automationSignal(automationIndex.get(item.task.id), item.task)?.text ?? t("Agent waiting for you")),
+      item.automation && (automationSignal(automationIndex.get(item.task.id), item.task, blockers.get(item.task.id))?.text ?? t("Agent waiting for you")),
       item.questions && tn(item.questions, "{n} question", "{n} questions"),
       item.permissions && tn(item.permissions, "{n} approval", "{n} approvals"),
       item.errors && tn(item.errors, "{n} error", "{n} errors"),
