@@ -133,7 +133,7 @@ import {
   type BoardIntent,
 } from "./shortcuts";
 import { ConceptStrip, GuideBanner, WelcomeTour, useOnboarding } from "./onboarding";
-import { cardTreeTipDue, nextTip, settingsHintDue, welcomeDecision, type TipId } from "./onboarding-logic";
+import { cardTreeTipDue, nextTip, reviewRisksTipDue, settingsHintDue, welcomeDecision, type TipId } from "./onboarding-logic";
 import { t, tn } from "../shared/i18n";
 import { workpadEnabled, workpadSignal } from "../shared/workpad";
 import { cardDisplay } from "../shared/card-display";
@@ -168,6 +168,7 @@ const tipText: Record<TipId, () => string> = {
   "sidebar-order": () => t("Arrange an open card your way: reorder its sections and choose which start open in Settings → Cards → Card sidebar."),
   "session-history": () => t("A session's output now starts at the beginning of its current turn. Press Load earlier at the top to read further back."),
   "card-comments": () => t("Ask about progress or request changes right on the card: comments are saved here and sent to the card's agent."),
+  "review-risks": () => t("A reviewer noted risks the acceptance criteria don't cover. The card shows how many; open it and read them under Agent automation before you accept the work."),
   "settings-entry": () => t("Turn features on or off and change settings here."),
   "first-workpad": () => t("This card has a workpad: the agent's acceptance criteria and checks. The card shows how many checks passed; open it to see which ran on which commit, and tick items yourself."),
 };
@@ -1257,6 +1258,7 @@ function BoardContent(
           automationCandidate: !task && projectTasks.some((x) => !x.archivedAt && (x.status === "todo" || x.status === "backlog")),
           hasSubCards: !task && projectTasks.some((x) => subCardIndex.has(x.id)),
           hasCardTree: !task && deepTree,
+          reviewRisks: !task && reviewRisksTipDue(projectTasks, board.automation),
         },
         blocked: !onboarding.values || welcomeOpen || welcome === "show" || dialogOpen || settingsHint,
       });

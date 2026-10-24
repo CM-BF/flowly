@@ -1,8 +1,8 @@
 import type { Project, Task } from "../shared/model";
-import { automationOf, isLive, type AutomationCode, type AutomationJob } from "../shared/automation";
+import { automationOf, isLive, type AutomationCode, type AutomationJob, type LevelReason, type ReviewLevel, type ReviewPlan } from "../shared/automation";
 import type { BlockerInfo } from "../shared/card-tree";
 import type { Tone } from "./ui";
-import { localizedLabels, msg, t } from "../shared/i18n";
+import { localizedLabels, msg, t, tn } from "../shared/i18n";
 
 /** Queue / stop a card's automation (client/task-automation.tsx `useAutomationActions`). */
 export type AutomationActions = { pending: boolean; queue(taskId: string): Promise<void>; stop(taskId: string): Promise<void> };
@@ -62,6 +62,44 @@ export function automationMenu(project: Project | undefined, task: Task, job: Au
   return [{ id: "automation-run", label: t("Run with agent"), icon: "Bot", disabled: locked || runUnavailable || actions.pending, onPress: () => void actions.queue(task.id) }];
 }
 
+/** Review levels (AUTOMATION-SPEC §5.2) as people read them; Auto is a card without a level. */
+export const reviewLevelLabels: Record<ReviewLevel | "auto", string> = localizedLabels({
+  auto: msg("Auto"),
+  light: msg("Light"),
+  standard: msg("Standard"),
+  deep: msg("Deep"),
+});
+
+/** Why a card has its level, for the card editor and the drawer. */
+export function levelReasonText(reason: LevelReason): string {
+  switch (reason.kind) {
+    case "card":
+      return t("set on the card");
+    case "tag":
+      return t("the card has the tag {tag}", { tag: reason.tag });
+    case "ancestor_tag":
+      return t("the card above it, {title}, has the tag {tag}", { title: reason.title, tag: reason.tag });
+    case "keyword":
+      return reason.field === "title"
+        ? t("its title mentions {keyword}", { keyword: reason.keyword })
+        : reason.field === "description"
+          ? t("its description mentions {keyword}", { keyword: reason.keyword })
+          : t("its acceptance criteria mention {keyword}", { keyword: reason.keyword });
+    case "light_tag":
+      return t("the card has the tag {tag}", { tag: "light-review" });
+    case "default":
+      return t("nothing calls for a deeper or lighter review");
+  }
+}
+
+/** A review round with its level (§5.2.5): "Deep review round 1 of 3 (panel of 3 reviewers)". */
+export function reviewRoundText(round: number, plan: Pick<ReviewPlan, "level" | "max" | "size">): string {
+  const values = { n: round, max: plan.max, k: plan.size };
+  if (plan.level === "light") return t("Light review round {n} of {max}", values);
+  if (plan.level === "deep") return t("Deep review round {n} of {max} (panel of {k} reviewers)", values);
+  return plan.size > 1 ? t("Standard review round {n} of {max} (panel of {k} reviewers)", values) : t("Standard review round {n} of {max}", values);
+}
+
 /** How a job reads on the card (AUTOMATION-SPEC §6.1). */
 export type AutomationSignal = { text: string; icon?: string; tone: Tone | "active" };
 
@@ -82,17 +120,25 @@ export function automationSignal(job: AutomationJob | undefined, task: Pick<Task
     case "working":
       return { text: t("Agent working"), tone: "active" };
     case "reviewing":
-      return { text: t("Agent reviewing"), tone: "active" };
+      // Jobs recorded before review levels have no plan (§5.2.6).
+      return { text: job.review ? reviewRoundText(job.reviewRounds, job.review) : t("Agent reviewing"), tone: "active" };
     case "retry_wait":
       return { text: t("Agent retrying"), icon: "RotateCw", tone: "warning" };
     case "needs_human":
       return { text: job.code === "permission" ? t("Agent needs permission") : t("Agent waiting for you"), icon: "Hand", tone: "warning" };
     case "waiting":
       return { text: t("Waiting on sub-cards"), icon: "ListTree", tone: "info" };
-    case "delivered":
+    case "delivered": {
       if (task.status !== "in_review") return null;
-      if (job.verdict === "approved") return { text: t("Agent review passed"), icon: "BadgeCheck", tone: "success" };
-      return job.verdict ? { text: t("Review needs you"), icon: "TriangleAlert", tone: "warning" } : null;
+      // Risks beyond the criteria never block approval, so the card says they are there (§5.2.4).
+      const risks = job.risks?.length ?? 0;
+      if (job.verdict === "approved")
+        return risks
+          ? { text: tn(risks, "Agent review passed · {n} risk", "Agent review passed · {n} risks"), icon: "ShieldAlert", tone: "warning" }
+          : { text: t("Agent review passed"), icon: "BadgeCheck", tone: "success" };
+      if (!job.verdict) return null;
+      return { text: risks ? tn(risks, "Review needs you · {n} risk", "Review needs you · {n} risks") : t("Review needs you"), icon: "TriangleAlert", tone: "warning" };
+    }
     case "failed":
       return { text: t("Automation stopped"), icon: "OctagonX", tone: "danger" };
     case "stopped":

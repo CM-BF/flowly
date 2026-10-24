@@ -226,7 +226,7 @@ AutomationJob {
 祖先显式设的级别和 `light-review` 标签不向下传。深度关键词是 `shared/review-levels.ts` 的 `deepKeywords`，界面、daemon 和测试共用一份。英文不区分大小写、按词边界匹配，允许复数 -s/-es，短语里的空格也匹配连字符；中文按子串匹配。列表只收具体的技术词：
 
 - 英文：storage format、storage layer、storage engine、on-disk format、wire format、serialization format、persistence、persistent storage、persistent state、journal、write-ahead log、database、schema、migration、protocol、API contract、public API、external interface、backward compatibility、backwards compatibility、breaking change、authentication、authorization、access control、permission、OAuth、encryption、decryption、credential、security、vulnerability、concurrency、concurrent writes、concurrent access、race condition、deadlock、crash recovery、crash safety、crash-safe、data loss、data corruption、durability、fsync。
-- 中文：存储、持久化、数据库、数据迁移、表结构、协议、鉴权、认证、授权、权限、加密、解密、凭据、安全漏洞、并发、竞态、死锁、崩溃恢复、数据丢失、数据损坏、向后兼容。
+- 中文：存储、持久化、数据库、数据迁移、表结构、协议、鉴权、认证、授权、权限、加密、解密、凭据、安全漏洞、并发、竞态、死锁、崩溃恢复、数据丢失、数据损坏、向后兼容。繁体中文的写法与用语也收（儲存、資料庫、資料遷移、協定、權限、並發、崩潰復原、資料遺失、向後相容……），因为 zh-TW 用户写的“資料庫”不会匹配“数据库”。
 
 刻意不收单独的 log、format、lock、storage、state、cache、file、token、日志、格式、锁、模式、安全：它们在界面卡里太常见（“login”“date format”“lock icon”“localStorage”“日志格式”“锁屏”都不是深度卡）。已知的误报：“协议”也出现在“用户协议页面”这类界面卡里，“权限”也出现在权限提示的界面卡里；这种卡由人在编辑里，或由父卡用 `review_level=standard` 设成 Standard。
 

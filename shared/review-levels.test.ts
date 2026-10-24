@@ -104,6 +104,8 @@ describe("Auto resolution", () => {
     ["鉴权中间件", "鉴权"],
     ["修复并发写入", "并发"],
     ["数据丢失问题", "数据丢失"],
+    ["新增資料庫索引", "資料庫"],
+    ["權限檢查", "權限"],
   ])("%j mentions %j", (text, keyword) => {
     expect(deepKeyword(text)).toBe(keyword);
   });

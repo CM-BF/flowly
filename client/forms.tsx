@@ -2,7 +2,7 @@ import { enabledStatuses, laneName, projectLanes } from "../shared/lanes";
 import { LaneEditor } from "./lane-editor";
 import { Disclosure } from "./disclosure";
 import { taskDraft } from "../shared/task-draft";
-import { automationExecution } from "../shared/automation";
+import { automationExecution, resolveReviewLevel, type ReviewLevel } from "../shared/automation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { View } from "react-native";
@@ -26,6 +26,7 @@ import { isLegacyScope } from "../shared/scope";
 import { AgentPicker, useAgentChoice, type AgentDefaults } from "./agent-choice";
 import { ModelDefaultGroup } from "./model-default";
 import { AutomationSettingsGroup } from "./task-automation";
+import { levelReasonText, reviewLevelLabels } from "./automation-view";
 import type { AutomationSettings } from "../shared/automation-schema";
 import { agentModelFromValues, startingAgent, type AgentModel } from "../shared/agent-defaults";
 import { modelSettings, modelSettingsValues } from "../shared/settings";
@@ -465,6 +466,7 @@ export function TaskForm({
     // What the form opened with: a save applies only the difference (CARD-TAGS-SPEC §2.5).
     [tagsBase] = useState(() => (task ? tagValues(task) : [])),
     [tags, setTags] = useState<string[]>(() => (task ? tagValues(task) : seed?.tags || [])),
+    [reviewLevel, setReviewLevel] = useState<ReviewLevel | "auto">(task?.reviewLevel ?? "auto"),
     [mode, setMode] = useState<"directory" | "worktree" | "existing">(
       "directory",
     ),
@@ -537,6 +539,11 @@ export function TaskForm({
     () => new Set((task?.tags || []).filter((x) => x.by === "agent").map((x) => x.tag)),
     [task],
   );
+  // What Auto resolves to with the form's current title, description and tags (AUTOMATION-SPEC §5.2.5).
+  const autoLevel = useMemo(
+    () => (task && board.data ? resolveReviewLevel(board.data, { id: task.id, title, description, tags }) : null),
+    [task, board.data, title, description, tags],
+  );
   const addTags = useStableCallback((values: string[]) => setTags((current) => [...current, ...values.filter((v) => !current.includes(v))]));
   const removeTag = useStableCallback((tag: string) => setTags((current) => current.filter((x) => x !== tag)));
   async function save() {
@@ -553,6 +560,7 @@ export function TaskForm({
             priority,
             type: type || null,
             ...(sameList(tags, tagsBase) ? {} : { tags, tagsBase }),
+            ...(reviewLevel === (task.reviewLevel ?? "auto") ? {} : { reviewLevel: reviewLevel === "auto" ? null : reviewLevel }),
           })
         : await create({
             projectId: project.id,
@@ -709,6 +717,19 @@ export function TaskForm({
             ]}
             onChange={setType}
           />
+          {task && (
+            <View style={{ gap: space[1.5] }}>
+              <Choices
+                title={t("Review level")}
+                value={reviewLevel}
+                options={(["auto", "light", "standard", "deep"] as const).map((value) => ({ value, label: reviewLevelLabels[value] }))}
+                onChange={setReviewLevel}
+              />
+              {reviewLevel === "auto" && autoLevel && (
+                <Label muted size={font.sm}>{t("Auto: {level}, because {why}.", { level: reviewLevelLabels[autoLevel.level], why: levelReasonText(autoLevel.reason) })}</Label>
+              )}
+            </View>
+          )}
           <View style={{ gap: space[1.5] }}>
             <Label medium size={font.sm} muted>
               {t("Tags")}

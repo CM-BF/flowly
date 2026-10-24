@@ -1328,6 +1328,8 @@ const activityText: Record<string, string> = localizedLabels({
   automation_review_started: msg("Started an agent review"),
   automation_review_approved: msg("Approved the delivery"),
   automation_changes_requested: msg("Requested changes"),
+  automation_review_risks: msg("Noted risks beyond the acceptance criteria"),
+  review_level_set: msg("Set the review level"),
   automation_waiting: msg("Waits for its sub-cards"),
   automation_woken: msg("Woke the agent: its sub-cards settled"),
   automation_fallback: msg("Switched to the fallback model"),
