@@ -130,6 +130,51 @@ describe("Auto resolution", () => {
     "原子化 CSS 工具类",
     "手写盘压感设置",
     "数据丢包率图表",
+    // Third review round: "data" or 数据 starting a compound noun (data table, data fetching, 数据看板) is not a data
+    // object, so the migrate and lose phrases do not count there (§5.2.2).
+    "Migrate data tables to the new Table component",
+    "Migrate data fetching to React Query",
+    "Migrate data-fetching hooks to SWR",
+    "Migrate data grid to AG Grid v31",
+    "Migrate data table columns to the new API of TanStack Table",
+    "Migrate the data table to the new design system",
+    "Migrate the data grid to AG Grid v30",
+    "Migrate data views to the new layout",
+    "Migrate existing data cards to the new Card component",
+    "Migrate old data charts to Recharts",
+    "Migrate data grid styles to the new tokens",
+    "Migrate data visualization charts to Recharts",
+    "Migrate data fetching to TanStack Query",
+    "Migrate data fetching hooks to Suspense",
+    "Migrate data-testid attributes to the new naming",
+    "Migrate mock data to MSW",
+    "Show a banner when the app loses data connection",
+    "Warn when the phone is losing data connection",
+    "迁移数据看板到新的设计系统",
+    "迁移数据可视化组件到 ECharts 5",
+    "迁移数据表格组件到新的 Table",
+    "迁移数据大屏页面到 Vue 3",
+    "迁移数据统计页面到新的路由",
+    "迁移数据看板页面到新的设计系统",
+    "迁移数据统计页面到新组件库",
+    "迁移数据表格组件到新的设计系统",
+    "迁移数据请求到 React Query",
+    "弱网下保证数据不丢包",
+    // Persistent state is the localStorage card's wording, like persist state; transactional updates are emails.
+    "Persistent state for the filter panel",
+    "Keep the sidebar collapse in persistent state",
+    "Send transactional updates to customers by email",
+    // 只追加 and 仅追加 are also plain "only add"; 保存到磁盘 and 儲存到磁碟 are Save buttons.
+    "工具栏只追加一个导出按钮",
+    "这次只追加一列状态，不改别的",
+    "表格仅追加一行合计",
+    "只追加到产生这次进展的那个 session",
+    "新增「儲存到磁碟」按鈕",
+    // Words between a verb and its data object or medium stop at a preposition or a clause word.
+    "Inputs lose focus when data reloads",
+    "Write docs on disk usage",
+    "输入框丢失焦点时数据不更新",
+    "页面迁移后刷新数据",
   ])("no deep keyword in %j", (title) => {
     expect(deepKeyword(title)).toBeNull();
     expect(level(board([card("a", { title })]), "a")).toEqual({ level: "standard", reason: { kind: "default" } });
@@ -188,14 +233,14 @@ describe("Auto resolution", () => {
     ["Move the boards to Postgres", "Postgres"],
     ["Write to disk on every change", "write to disk"],
     ["Writing to disk after each card move", "write to disk"],
-    ["Board changes are written to disk at once", "written to disk"],
+    ["Board changes are written to disk at once", "write to disk"],
     ["Flush to disk before replying", "flush to disk"],
     ["Change the on-disk layout of the cache", "on-disk layout"],
     ["Version the on disk format", "on-disk format"],
     ["Append-only event log for the board", "append-only"],
     ["Turn on write-ahead logging", "write-ahead logging"],
-    ["Migrate the data to the v6 layout", "migrate the data"],
-    ["Migrating old data from v5 boards", "migrate old data"],
+    ["Migrate the data to the v6 layout", "migrate data"],
+    ["Migrating old data from v5 boards", "migrate data"],
     ["Migrated data keeps its card ids", "migrate data"],
     ["Encrypt tokens at rest", "encrypt"],
     ["Tokens are encrypted before upload", "encrypt"],
@@ -211,9 +256,9 @@ describe("Auto resolution", () => {
     // Data loss as people write it: a verb more often than the noun.
     ["Never lose data if the process crashes mid-write", "lose data"],
     ["Losing data on a crash is not acceptable", "lose data"],
-    ["Restarts must not lose any data", "lose any data"],
-    ["Close the window without losing the data", "lose the data"],
-    ["Recover lost data after a crash", "lost data"],
+    ["Restarts must not lose any data", "lose data"],
+    ["Close the window without losing the data", "lose data"],
+    ["Recover lost data after a crash", "lose data"],
   ])("%j mentions %j", (text, keyword) => {
     expect(deepKeyword(text)).toBe(keyword);
   });
@@ -225,9 +270,11 @@ describe("Auto resolution", () => {
     ["定义导出看板的序列化格式", "序列化格式"],
     ["提升导出看板的文件格式版本", "文件格式版本"],
     ["看板的只追加事件日志", "只追加"],
+    ["状态只追加、从不删除", "只追加"],
+    ["事件仅追加的存放方式", "仅追加"],
     ["加一个预写日志", "预写日志"],
     ["把 v5 看板的数据迁移到 v6", "数据迁移"],
-    ["迁移旧数据", "迁移旧数据"],
+    ["迁移旧数据", "迁移数据"],
     ["编写 v6 的迁移脚本", "迁移脚本"],
     ["卡片移动改为事务性写入", "事务性写入"],
     ["原子地写文件，写到一半崩溃时保留旧文件", "原子地"],
@@ -244,12 +291,41 @@ describe("Auto resolution", () => {
     ["每次修改都把看板寫入磁碟", "寫入磁碟"],
     ["提升匯出看板的檔案格式版本", "檔案格式版本"],
     ["撰寫 v6 的遷移腳本", "遷移腳本"],
-    ["遷移舊資料", "遷移舊資料"],
+    ["遷移舊資料", "遷移資料"],
     ["程序崩潰後不能遺失資料", "遺失資料"],
     ["加一個預寫式日誌", "預寫式日誌"],
     ["匯出介面的存取控制", "存取控制"],
   ])("%j mentions %j", (text, keyword) => {
     expect(deepKeyword(text)).toBe(keyword);
+  });
+
+  // Third review round: the same card in English and in Chinese resolves Deep in both. English puts the object between
+  // the verb and the medium ("write the board file to disk"), Chinese before the verb; data loss is also passive.
+  test.each([
+    ["Persist board state to disk", "persist to disk", "把看板状态持久化到磁盘", "持久化"],
+    ["Persisting board state on disk", "persist to disk", "把看板状态持久化在磁盘上", "持久化"],
+    ["Write the board file to disk on every change", "write to disk", "每次修改都把看板文件写入磁盘", "写入磁盘"],
+    ["Persist the list of cards to disk", "persist to disk", "把卡片列表写到磁盘", "写到磁盘"],
+    ["Flush the buffer to disk before replying", "flush to disk", "回复前把缓冲区刷到磁盘", "刷到磁盘"],
+    ["The old code wrote the whole state to disk on every change", "write to disk", "旧代码每次修改都把整个状态存到磁盘", "存到磁盘"],
+    ["Migrate user data to v6", "migrate data", "把用户数据迁移到 v6", "数据迁移"],
+    ["Migrate user data to v6", "migrate data", "迁移用户数据到 v6", "迁移数据"],
+    ["Migrate board data to the new layout", "migrate data", "把看板数据迁移到新布局", "数据迁移"],
+    ["Migrate stored data to v6", "migrate data", "迁移已保存的数据到 v6", "迁移数据"],
+    ["Migrate all of the existing data to v6", "migrate data", "迁移 v5 的全部数据", "迁移数据"],
+    ["Make sure no data is lost when the process crashes", "data is lost", "进程崩溃时数据不会丢", "数据不会丢"],
+    ["Data will not be lost if the daemon restarts", "data is lost", "daemon 重启时数据不会丢", "数据不会丢"],
+    ["Data must not be lost on restart", "data is lost", "重启后数据不能丢", "数据不会丢"],
+    ["No data gets lost if the daemon dies mid-write", "data is lost", "daemon 写到一半退出时数据也不会丢失", "数据不会丢"],
+    ["Data lost after a restart", "data is lost", "重启后数据丢失", "数据丢失"],
+    ["Restarts must not lose any data", "lose data", "重启时不会丢失任何数据", "丢失数据"],
+    ["Never lose user data on a crash", "lose data", "保证任何时候都不丢失用户数据", "丢失数据"],
+    ["Restarts lose no data", "lose data", "重啟後資料不會遺失", "資料不會遺失"],
+  ])("%j (%s) and %j (%s) are both Deep", (en, enKeyword, zh, zhKeyword) => {
+    expect(deepKeyword(en)).toBe(enKeyword);
+    expect(level(board([card("a", { title: en })]), "a").level).toBe("deep");
+    expect(deepKeyword(zh)).toBe(zhKeyword);
+    expect(level(board([card("a", { title: zh })]), "a").level).toBe("deep");
   });
 
   test("a C1-style card written in Chinese resolves to Deep", () => {
