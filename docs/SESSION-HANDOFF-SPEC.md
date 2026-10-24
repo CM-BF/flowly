@@ -1,6 +1,15 @@
 # 会话轮换与卡片交接：混合会话模型（SESSION-HANDOFF-SPEC）
 
-状态：设计稿，待用户审阅（2026-10-24，分支 `feat/session-handoff`，基于 origin/main `ca58787`），未实现。三份方案（“零损失”“从简”“故障优先”）经两轮评审后的综合：以“零损失”为主体，并入另外两份的长处，修正评审指出的每一处缺陷（去向见 §20）。与评审级别（[AUTOMATION-SPEC](AUTOMATION-SPEC.md) §5.2，分支 `feat/review-levels`，已实现、未合并）的配合见 §15.3。待用户决定的事项见 §19。
+状态：第三版设计稿（2026-10-24，分支 `feat/session-handoff`，基于 origin/main `ca58787`），**未实现、未安装**。用户已经授权 hybrid 方向；本稿具体化该方向，不把常规设计取舍重新变成一串审批问题。保留 Claude 因额度中断前的第二版修订，核对两位评审的 48 条意见并补做一致性检查（§20）。实现须先合入评审级别改动，再按 §18 分阶段进行。
+
+读者先看：
+- **卡片负责记住任务，session 只负责眼前这一段。** 卡片要能说明做到哪、为什么这样做、什么不能重做、谁还在运行、下一步是什么。artifact 仍是证据和产物，不能替代这份记录。
+- 几分钟内的评审与返工通常沿用 session；Run again、新评审周期、上下文过长、冷且大的上下文等边界再换。文件有多大和模型记住了多少是两回事，分开测量（§2–§3）。
+- 健康的旧 session 需要时先写交接；新 session 先读卡、核实仓库与后台任务，再逐项确认。确认只证明规定的项目已被核对，不能证明模型已经理解全部含义。
+- 崩溃时不要求旧 session 起死回生：尽量用已经保存的输入、评审、叙述和文件状态恢复。拿不到的明确显示为缺口，关键指示不明时暂停询问，不能把“没记到”当成“没有”。
+- **不承诺零信息损失，也不承诺一个长回合不会撑大历史。** 未说出的意图、未保存的工具结果、无法读取的图片与 provider 内部压缩可能丢失；被动捕获也可能落后（§16.1）。
+- 第一阶段先把记录、可核实的接手和既有轮换路径做稳；自动按上下文、空闲和冷评论换 session 在第二阶段上线。历史检索、廉价问答、完整历代台账不阻塞第一阶段（§18）。
+- 默认不主动打断运行中的 agent。若以后要开启回合内的 steer，需要单独决定，因为本机 Paseo 的 steer 可能变成 interrupt（§19）。
 
 用户决定，2026-10-24：Flowly 改为**混合会话模型**，以 agent 到 agent 的交接为核心。原因：人不看 session 里面，卡片必须承载全部信息；设计要保证有意义的信息不丢。现状是每张卡的执行者从头到尾用一个 session（外加一个评审 session），只有 Run again、换备用模型、session 被归档、小组评审和历史过大（200 MB 轮换，AUTOMATION-SPEC §4.6）才换新 session。实际事故：C5b.3 的第一个 Codex 执行者在约两小时里长到 1.18 GB，daemon 崩溃循环；卡片上的 artifact 都是给人看的产出，不是交接；唯一的交接是崩溃之后人手写的（next-workspace `docs/handoff/2026-10-24-daemon-incident-and-review.md` §8 加一条接手评论），新 session 凭它约 20 分钟就结束了一个回合。
 
@@ -14,14 +23,14 @@
 
 | 提案 | 本 spec | 依据（§1 的证据） |
 | --- | --- | --- |
-| 1. 紧密循环不换 | 保留，并给出定义：同一评审周期内、该角色 session 上一回合结束 ≤ 20 分钟的修改要求与评审下一轮是**紧密边界**；提醒、普通重试、限额重试、宿主临时故障重试是**同一指令的后续**。紧密边界用更高的上限（70% / 300k），后续只受强制规则约束（§3.3）。 | 评审→修复间隔中位 2.8 分钟（最长 14.8），评审轮间 8.1 分钟，重试 0–1.3 分钟。19 个执行者里 15 个超过窗口的 50%，7 个在第一回合就超过：50% 会打断提案第 1 条要保护的循环。 |
+| 1. 紧密循环不换 | 保留，并给出定义：本周期的修改要求、评审下一轮和人的评论，距**本卡**上一回合结束（任一角色）≤ 20 分钟、且该 session 的缓存未冷，是**紧密边界**；提醒、普通重试、限额重试、宿主临时故障重试是**同一指令的后续**。紧密边界用更高的上限（70% / 300k），后续只受强制规则约束（§3.3）。 | 评审→修复间隔中位 2.8 分钟（最长 14.8），评审轮间 8.1 分钟，重试 0–1.3 分钟。19 个执行者里 15 个超过窗口的 50%，7 个在第一回合就超过：50% 会打断提案第 1 条要保护的循环。按角色自己的空闲计时会把对方的长回合算成空闲：C5b.3 的修复回合 27.5 和 38.4 分钟。 |
 | 2a. 软上限 ≈ 50% 窗口 | 50% 只用于非紧密边界：`L_cold = min(0.50·W, 250k)`；紧密边界 `L_tight = min(0.70·W, 300k)`。300k/250k 的绝对上限针对 1M 窗口的模型。 | Codex 在有效窗口的 66–95% 自动压缩，压缩结果加密不可读（Hermes 测得压缩后召回 36.7%）。sol 的 300k（63%）低于所有观测到的压缩点。新 session 光是读卡就到约 108k token，低于约 2 倍这个量的轮换省不下什么。 |
 | 2b. token 未知时 ≈ 30 MB | **不再把字节当 token 的替代**。token 从 Paseo 的 `lastUsage`、job 上保存的上次测量和 provider 文件读（§2）。字节是独立的**主机安全**上限：64 MiB 在任何边界轮换，128 MiB 回合内提醒，200 MiB 不读不发（今天的规则），300 MiB 严重警告。 | 1.18 GB 的 rollout 当时只占窗口 49.7%；纯文本会话约 2 MB / 10 万 token，所以 30 MB 已是好几个窗口。真实卡片上只有 3 个 session 超过 30 MB，其中两个是正常的长会话。 |
 | 2c. 空闲约 1 小时 | 按 provider 估计缓存寿命，且**只在上下文大时**才因空闲轮换（`C ≥ 100k`）。Claude 主会话按转录里实际的缓存写入档（1 小时或 5 分钟）判断；Codex 2 小时内视为热，2–6 小时不确定，6 小时以上冷。 | 本机 Codex 首个请求的缓存命中率：2 小时内中位 0.97–1.00，2–6 小时 0.92，6 小时以上 0.04。Claude 主会话（订阅，1 小时档）超过 60 分钟后全冷；API key 只有 5 分钟。新 session 本来也是冷的，小上下文因冷而轮换省不了钱。 |
 | 2d. 阶段变化 | 只认 Flowly 在回合之间看得见的边界：人的 Run again（默认新 session，§3.4）、新评审周期（总是新评审者）、父卡被唤醒、换模型、中毒失败、人点 “Continue in a fresh session”。**不认**泳道移动；实现→验证本来就是另一个评审 session；人在 session 里改方向看不到也改道不了，只能把原话记下来（§5.7）。 | 103 次 agent 改阶段全部发生在回合中；C5b.3 在 2.3 小时里改了 15 次。插件 SDK 没有用户消息之前的钩子（`agent.turn_started` 只有 `{agent, turnId}`）。 |
 | 2e. 失败与换模型 | 只在 session 级的失败上轮换：中毒失败（上下文溢出、400 invalid_request、历史无法恢复）、session 消失、换备用模型。provider 限额和宿主临时故障的重试**不**轮换。 | Multica 的“中毒 session”列表；重试约 1 分钟后发生，缓存 99% 仍热。 |
-| 3. 交接记录 | 保留并加固：(a) Flowly 派生的事实（人在 session 里说的原话、每一轮评审、git 状态、后台任务清单、session 台账、标识符锚点）；(b) 回合中途的检查点提醒和软的交付门 `HANDOFF_STALE`；(c) 计划内轮换前，热的旧 session 做一个**收尾回合**（只在热、已加载、记录确实过期时）；(d) 前任历史的有界只读检索；(e) 新 session 第一回合**确认接手**每个未决项。 | C5b.3 的卡片最后 23 分钟没有任何记录，验证结果落后两个提交；最要紧的事实（崩溃原因、新规则、安装状态）是 session 结束后由人产生的；摘要会丢一半具体事实（Hermes 45.8%，Factory 的产物轨迹 2.2/5）；能回到原始记录的指针多出 20–43 个百分点的召回。 |
-| 4. 评论路由与只读回答 | 自动化卡的评论改由 daemon 路由：热 session 收原文；冷且大时建新 session，**首条消息就是评论原文**；轮换进行中的评论成为待办输入，绝不发给旧 session。只读回答只作 To: 里的显式选项（“Quick answer from the card”），v1 不自动分类。 | 真实卡片上进度提问 0 次；评论 4 条，直接打进 session 的消息 22 条。误判路由（把修改要求当成提问）是最主要的丢失方式。用户选择收件 session（产品不变量）。 |
+| 3. 交接记录 | 保留并加固：(a) Flowly 派生的事实（人在 session 里说的原话、agent 提的问题和对应的回答、每一轮评审与交付说明、各仓库的 git 状态、后台任务清单、session 台账、每回合的最后一条 agent 消息、标识符锚点）；(b) **回合进行中的被动捕获**：Flowly 每分钟从 provider 文件读新增的部分，记下 agent 的最新消息、HEAD 变化、启动的后台和人的话，不需要 agent 调用 Flowly；(c) 回合中途的检查点提醒和软的交付门 `HANDOFF_STALE`；(d) 计划内轮换前，热的旧 session 做一个**收尾回合**（只在热且记录确实过期时）；没收尾时接班者拿到上次写入以来旧 session 自己的叙述；(e) 前任历史的有界只读检索；(f) 新 session 第一回合**确认接手**每个未决项。 | C5b.3 的卡片最后 23 分钟没有任何记录，其间也没有 Flowly 调用，所以只挂在工具结果上的提醒送不到；agent 消息一共只有 21 KB；验证结果落后两个提交；最要紧的事实（崩溃原因、新规则、安装状态）是 session 结束后由人产生的；摘要会丢一半具体事实（Hermes 45.8%，Factory 的产物轨迹 2.2/5）；能回到原始记录的指针多出 20–43 个百分点的召回。 |
+| 4. 评论路由与只读回答 | 自动化卡的评论改由 daemon 路由：热 session 收原文，与人在 session 里打字完全一样；冷且大时建新 session，**首条消息就是评论原文**；轮换进行中的评论成为待办输入，绝不发给旧 session；每个 job 状态有明确的转移，从不覆盖另一角色的指令（§10.1）。只读回答只作 To: 里的显式选项（“Quick answer from the card”），v1 不自动分类。 | 真实卡片上进度提问 0 次；评论 4 条，直接打进 session 的消息 22 条。误判路由（把修改要求当成提问）是最主要的丢失方式。用户选择收件 session（产品不变量）。 |
 
 前提更正（不改变决定）：
 - **Multica 并不每条评论开新 session。** 每条评论开一个新 *run*，但 run 在安全时恢复同一 agent 在该 issue 上的 provider session；只有手动 rerun、中毒失败、rollout 丢失或换运行时才全新开始（multica-ai/multica@3de79cb `server/internal/handler/daemon.go`、`066_force_fresh_session.up.sql`）。也就是默认热，记录兜底。本设计同形，外加 Multica 没有的结构化记录。
@@ -40,16 +49,16 @@
 
 ## 1.1 不变量
 
-新增（零损失）：
-- **Z1 不随 session 离开。** 轮换提交之前，原本只在旧 session 里的每类信息（§16.1 的损失分析）要么在记录里，要么由 Flowly 机械地捕获，要么能通过有界的只读检索拿到。
-- **Z2 人的话保留原文。** 人打进本卡任何 Flowly 管理的 session 的消息、评论、开工说明和能拿到的图片按原样保存（脱敏后），从不转述。
+新增（减少损失，并让缺口可见）：
+- **Z1 不把未知当成没有。** 轮换前检查 §16.1 的信息类别：已保存、可检索、未核实或不可恢复。捕获失败、视图裁剪、落后与无法恢复都给出可见标记；关键用户指示、目标或评审要求不明时，接手者记录问题并等待澄清。不能声称全部信息已保存，也不能用一次 ack 证明语义上零损失。
+- **Z2 人的话保留原文。** 人打进本卡任何 Flowly 管理的 session 的消息、评论、开工说明和能拿到的图片按原样完整保存（脱敏后；存储不截断，只有视图有上限），从不转述。别的 agent 发来的消息另行保存，从不标成人的话。
 - **Z3 能派生的不靠自报。** HEAD、分支、未提交文件、diffstat、评审轮次与结论、产物、测量值和能检测到的后台任务由 Flowly 读出。
 - **Z4 接手要验证。** 新 session 对每个未决项给出处置，并报告它看到的 HEAD；Flowly 机械核对。
-- **Z5 存储只增，视图有界。** agent 删掉的条目留墓碑；每次轮换封存一份快照；只有 agent 和手机收到的视图有上限。
-- **Z6 轮换是持久化的分阶段事务。** 任何时候不会有两个工作中的 session；每一步重启后幂等、按 rotation id 前滚或回滚。
-- **Z7 不加载过大的历史。** Flowly 从不通过 Paseo 读前任；agent 从不直接读 provider 文件。
+- **Z5 当前记录小，历史增量保留，视图有界。** 当前记录允许原子覆盖；移走与删除的条目按变化追加进归档，不为每次轮询或小修改追加全量副本。轮换才封存快照。视图裁剪必须有可继续读取的路径。
+- **Z6 Flowly 的轮换是持久化的分阶段事务。** Flowly 不主动向同卡两个工作 session 并行派发；每步按 rotation id 幂等前滚或回滚。宿主直接消息、已在运行的进程和后台通知不受该事务控制，不能保证物理上绝无并行（§9.2、§16）。
+- **Z7 不加载过大的历史。** Flowly 从不让 Paseo 加载前任的历史（唯一经 Paseo 的读取是已加载、B < 64 MiB 的 session 的内存 timeline 尾部，同今天的 `limitNotice`）；agent 从不直接读 provider 文件。
 
-保留的产品不变量：自动化不归档 session，也不主动打断（唯一例外是 §4 第 3 条、需用户决定的一次 steer；Paseo 0.12 的 steer 可能退化为 interrupt，见 AUTOMATION-SPEC §10）；daemon 的消息以 `[Flowly automation]` 开头；普通追问和评论发送用户原文；任务上下文在 session 创建时或经显式的 work-instructions 给出；一张卡一个 workspace；用户可以选择收件 session；顶层卡的 Done 由人决定。
+保留的产品不变量：自动化不归档 session，也不主动打断（唯一例外是 §4 第 5 条、需用户决定的一次 steer；Paseo 0.12 的 steer 可能退化为 interrupt，见 AUTOMATION-SPEC §10）；daemon 的消息以 `[Flowly automation]` 开头；普通追问和评论发送用户原文；任务上下文在 session 创建时或经显式的 work-instructions 给出；一张卡一个 workspace；用户可以选择收件 session；顶层卡的 Done 由人决定。
 
 AGENTS.md 随实现增加一行例外：“Agent automation may start a fresh Flowly-managed session of the card at the boundaries in docs/SESSION-HANDOFF-SPEC.md; the card's handoff record carries continuity.”（2026-10-24 用户决定）。
 
@@ -61,15 +70,17 @@ AGENTS.md 随实现增加一行例外：“Agent automation may start a fresh Fl
 | --- | --- | --- | --- | --- | --- |
 | **C** | 最后一个请求的上下文 token | ① `lastUsage.contextWindowUsedTokens`；② job 上保存的上次测量；③（P2）文件尾最后一条 `info` 非空的 `event_msg/token_count`：`last_token_usage.total_tokens` | ①②；③ 最后一条主链（`isSidechain:false`）assistant 记录的 `input + cache_creation + cache_read + output`，按 `message.id` 去重 | ①②；③ 最后一条记录的 `usage.totalTokens` | ①② |
 | **W** | 有效窗口 | `model_context_window`（已是 95% 有效值：sol 475,000，astra/luna 258,400） | `lastUsage.contextWindowMaxTokens`，否则模型清单（Opus 5.5 1,000,000，自动压缩约 967k；Haiku 4.5 200,000） | 仅实时 | 仅实时 |
-| **B** | 磁盘上的历史字节 | 父 rollout（今天的测量）；子代理线程（P3，`~/.codex/state_5.sqlite` 的 `thread_spawn_edges`，只读 `mode=ro`，失败退回只测父线程） | 主转录 + `<sessionId>/subagents/**` + `<sessionId>/workflows/*.json`（只 `stat`，最多遍历 5,000 项，超出按 ≥ 200 MiB 处理） | `persistence.nativeHandle` 文件 | 未知 |
-| **K** | 本 session 的 provider 压缩次数 | 回合结束钩子 timeline 里 `{type:"compaction", status:"completed"}` 的条数超过已存的数；或同一 session 两次回合结束之间 C 降到前一次的 60% 以下；（P2）文件里带 `latest_token_usage_record` 的 `compacted` 记录（不带的是子代理继承父历史，不算） | timeline（带 `preTokens`）；文件 `compact_boundary` | timeline | opencode：timeline |
+| **B** | 磁盘上的历史字节 | 父 rollout（今天的测量）；子代理线程（P3，`~/.codex/state_5.sqlite` 的 `thread_spawn_edges`，只读 `mode=ro`，失败退回只测父线程） | 主转录；子代理与 workflow 文件（`<sessionId>/subagents/**`、`workflows/*.json`）合计另记 **S**（只 `stat`，最多遍历 5,000 项，超出按 S ≥ 512 MiB 处理）。Paseo 逐个文件读它们，风险不同于 Codex 的单行读回，所以 S 有独立的观测线（§3.1，观察值，P2 用本机 Claude 数据校准） | `persistence.nativeHandle` 文件 | 未知 |
+| **C₀** | 起始上下文 | provider 文件里本 session 第一条 `token_count`（被动捕获顺带读到，§4）；否则仅用明确属于第一次请求的测量；没有则 unknown，不能把第一回合结束的高 C 当成起始值 | 同左（第一条主链 assistant 记录） | 第一次测量 | 第一次测量 |
+| **K** | 本 session 的 provider 压缩次数 | 回合结束钩子 timeline 里 `{type:"compaction", status:"completed"}` 的条数超过已存的数；或 C 降到前一次测量的 60% 以下（回合中每分钟测一次，只作疑似压缩并重给交接视图，不单独增加 K）；被动捕获读到带 `latest_token_usage_record` 的 `compacted` 记录（不带的是子代理继承父历史，不算） | timeline（带 `preTokens`）；被动捕获读到 `compact_boundary` | timeline | opencode：timeline |
 | **I** | 空闲时间 | now − max(`job.sessions[role].lastTurnEndAt`，文件里最后一个请求的时间，若已读) | 同左 | 同左 | 同左 |
-| **TTL** | 估计的缓存寿命 | 热 < 120 分钟；120–360 分钟只在 C < 200k 时算热；≥ 360 分钟冷 | 最后一次主链写入 `cache_creation.ephemeral_1h_input_tokens > 0` → 55 分钟后冷；`ephemeral_5m_input_tokens > 0` → 4 分钟后冷；读不到（P2 之前）→ 55 分钟 | 30 分钟 | 30 分钟 |
+| **TTL** | 估计的缓存寿命 | 热 < 120 分钟；120–360 分钟只在 C < 200k 时算热；≥ 360 分钟冷 | 最后一次主链写入 `cache_creation.ephemeral_1h_input_tokens > 0` → 55 分钟后冷；`ephemeral_5m_input_tokens > 0` → 4 分钟后冷；读不到 → unknown（不单因缓存触发 R4） | 未实测则 unknown | 未实测则 unknown |
+| **L** | 已加载（daemon 内存里有它的运行时） | `fetch_agent` 快照的 `status` 不是 `closed`（daemon 重启后恢复的 session 在被打开之前是 `closed`，`automation.ts:1389` 已据此判断）。P1 在真实 daemon 上核实；拿不准时按未加载 | 同左 | 同左 | 同左 |
 
 - **为什么不只用 `lastUsage`**：它只在 daemon 内存里，daemon 重启后恢复的 agent 没有它；压缩后它会下降，掩盖已经压缩过。所以每个受监督 session 的回合结束时 Flowly 做一次 `refresh()`，把 C、W、B、K、轮次和时间存到 job 的 `sessions[role]`（§6.1），重启后它是回退值。
 - **文件尾读取**（P2）：从文件末尾按 1 MiB 块向前读，预算 16 MiB（C5b.3 的 1.18 GB 文件里最后一条 `token_count` 在末尾前约 9.3 MB）；超过 256 KiB 的行按长度跳过，不缓冲；按子串匹配行类型，不整行 JSON 解析。只在决定确实需要 C 而 ① ② 都没有时才读。
-- **何时测量**：在每个边界、每个指令 id 测一次，决定缓存在指令上（session 忙而暂扣的发送不再重测）；回合结束时一次；运行中的 session 在已有的 60 秒 `watchHistory` 里测 B（一次 `stat`；Claude 的子代理目录每 5 分钟最多遍历一次，按目录 mtime 缓存），只在文件长了 1 MB 以上时才重测 C。
-- **新 session 的代价 F**：约 108k token 的定向读取（C5b.3 #2），首个请求按 1.25× 写入缓存，之后按 0.1× 读。
+- **何时测量**：软规则（R2–R4）在每个边界、每个指令 id 测一次，决定缓存在指令上；强制规则（R0、R1：字节、归档、消失、中毒）在**每次发送尝试**时重测，同今天的 `send()`（暂扣 40 分钟的发送期间 session 可能被人的回合撑大）；回合结束时一次；运行中的 session 在已有的 60 秒 `watchHistory` 里测 B（一次 `stat`；Claude 子代理每 5 分钟最多测一次；路径清单可缓存，但已知文件要重新 stat，不能把目录 mtime 不变当成子文件没增长）并做被动捕获（§4）；C 来自 `lastUsage`（一次 `refresh()`）或被动捕获读到的 `token_count`。
+- **新 session 的代价 F**：约 108k token 的定向读取（C5b.3 #2），首个请求的计费与后续缓存命中按实际 provider 记录，不统一套用一个倍率。
 
 ## 3. 轮换触发与阈值
 
@@ -78,12 +89,15 @@ AGENTS.md 随实现增加一行例外：“Agent automation may start a fresh Fl
 ```
 rotationLimits = {
   bytes:  { rotate: 64 MiB, checkpoint: 128 MiB, noRead: 200 MiB, critical: 300 MiB },
+  claudeSidecars: { observe: 512 MiB },                            // S（§2），只警示；测量与加载成本实测后才定自动动作
   fill:   { checkpoint: 0.60, tight: 0.70, cold: 0.50 },          // 占有效窗口
   tokens: { tightMax: 300_000, coldMax: 250_000, coldResume: 100_000, minGrowth: 30_000 },
-  tightGapMin: 20,                                                 // 上一回合结束 → 新指令
-  minTurnsForSoft: 2, softPerRun: 4, bytesPerRunBeforeHold: 3,
+  tightGapMin: 20,                                                 // 本卡上一回合结束（任一角色）→ 新指令
+  softPerRun: 4, bytesPerRunBeforeHold: 3,
   unknownProxy: { turns: 8, activeHours: 3 },                      // C 未知（opencode/ACP）
-  finalize: { maxBytes: 128 MiB, noTurnStartMin: 10, noteAfterMin: 20 },
+  staleTurnMin: 5, silentMin: 20,                                  // §5.5；§4 的沉默信号
+  live:   { pollMaxBytes: 64 MiB, skipLine: 256 KiB, messages: 8, gitEveryMin: 2 },
+  finalize: { maxBytesUnloaded: 64 MiB, maxBytesLoaded: 200 MiB, noTurnStartMin: 10, noteAfterMin: 20 },
 }
 L_tight = min(0.70·W, 300k)    L_cold = min(0.50·W, 250k)
 ```
@@ -102,59 +116,75 @@ L_tight = min(0.70·W, 300k)    L_cold = min(0.50·W, 250k)
 边界是 Flowly 正要给某个角色**空闲**的 session 发指令或为它创建 session 的时刻：`send()`、`begin()`、`wake()`、评论路由（§10）。`job.instruction` 增加可选的 `kind`：
 
 - **同一指令的后续**：`nudge`、`retry`、`cooldown`、`host_retry`。
-- **紧密**：`changes` 与评审者的 `round`，属于当前周期，且该角色 session 的上一回合结束 ≤ 20 分钟。
-- **其它**：`start`（agent 重新排队）、`again`、`wake`、`comment`、`requested`（人点 Continue in a fresh session），以及超过 20 分钟的 `changes` / `round`、新周期的第 1 轮。
+- **紧密**：当前周期的 `changes`、评审者的 `round` 和人的 `comment`，距本卡上一回合结束（任一角色）≤ 20 分钟，且该 session 未冷（I < TTL；Claude 5 分钟档不要求，见 §3.3）。按本卡而不是按角色计时：对方的长回合（C5b.3 的 27.5 / 38.4 分钟修复回合、Deep 或小组评审）不是这个 session 的空闲，Codex 的缓存那时仍热。
+- **其它**：`start`（agent 重新排队）、`again`、`wake`、`requested`（人点 Continue in a fresh session），以及超过 20 分钟的 `changes` / `round` / `comment`、新周期的第 1 轮。
 - **特殊**：`finalize`，只发给即将被换下的 session（§6.2）。
 
 ### 3.3 决策（纯函数 `rotationDecision`，第一条命中为准）
 
 | 规则 | 条件 | 结果 | 收尾回合 |
 | --- | --- | --- | --- |
-| R0 强制 | session 已归档或不存在；换备用模型（§4.5）；中毒：失败回合的错误是上下文溢出 / prompt too long / HTTP 400 `invalid_request_error` / 历史无法恢复，或 session 加载后处于 `error`；B ≥ 200 MiB（不读不发） | 轮换（任何指令种类，包括后续） | 无 |
-| R1 主机安全 | B ≥ 64 MiB | 轮换（任何指令种类） | 只在 B < 128 MiB 且满足 §6.2 的收尾条件 |
-| R2 已压缩 | K 自 session 创建后增加，且它的 C 峰值 ≥ L_cold；只在**其它**边界 | 轮换 | 满足收尾条件时 |
+| R0 强制 | 评审者的 session 已归档或不存在，或 `starting`（Run again）时执行者已归档或不存在；换备用模型（§4.5）；中毒：失败回合的错误是上下文溢出 / prompt too long / HTTP 400 `invalid_request_error` / 历史无法恢复，或 session 加载后处于 `error`；B ≥ 200 MiB（不读不发） | 轮换（任何指令种类，包括后续） | 无 |
+| R1 主机安全 | B ≥ 64 MiB（Claude 的 S ≥ 512 MiB 另行警示，不属于 R1 条件） | 轮换（任何指令种类） | 只在已加载（L）、B < 200 MiB 且满足 §6.2 的收尾条件时 |
+| R2 已压缩 | 经 provider 标记确认的 K 自 session 创建后增加，且它的 C 峰值 `peakC` ≥ L_cold；只在**其它**边界 | 轮换 | 满足收尾条件时 |
 | R3 上下文 | 紧密边界 C ≥ L_tight；其它边界 C ≥ L_cold；其它边界 C 未知时：≥ 8 个已完成回合或 ≥ 3 小时活动时间 | 轮换 | 满足收尾条件时 |
-| R4 冷且大 | 其它边界，I ≥ TTL 且 C ≥ 100k | 轮换 | 无（冷） |
+| R4 冷且大 | 其它边界，TTL 有已知估计、I ≥ TTL 且 C ≥ 100k | 轮换 | 无（冷） |
 | R5 阶段 | 人的 Run again（§3.4）；新评审周期 → 新评审者；人点 Continue in a fresh session | 轮换 | 执行者满足收尾条件时；评审者从不 |
 | R6 | 其它 | 保持 | — |
 
-软规则 R2–R4 另须：该 session 已完成 ≥ 2 个回合，且 C 比它第一回合结束时的值（`firstC`）多出 ≥ 30k；同一次运行（generation）里软轮换最多 4 次，之后软触发被忽略、强制规则照常（§3.5）。紧密边界上的 Claude 5 分钟档 session 即使已冷也保持：评审循环本来就在重读，`L_tight` 限住了代价。
+第一条命中为准。R0 与 R1 对所有指令种类生效，包括限额重试和宿主临时故障的重试；下面的“从不触发”指这些原因**本身**不引起轮换。job 运行中被归档或消失的执行者不在 R0 里：job 照 §6.3 失败，人的 Run again 再开新 session。
 
-**从不触发**：泳道移动；provider 限额与宿主临时故障的重试；普通失败（同 session 重试）；紧密边界上的已有压缩（刚压缩的 session 最近一回合的细节还在）。
+软规则 R2–R4 另须：从起始上下文 C₀（§2）算起的增长 `peakC − C₀` ≥ 30k（C₀ 未知时视为满足，并记录无法证明增长；不能用第一回合结束值制造一个永远触发不了的增长门槛）；同一次运行（generation）里软轮换最多 4 次，之后软触发被忽略、强制规则照常（§3.5）。不再要求最少回合数：19 个执行者里 7 个在第一回合就过了 50%，执行者中位只有 2 个回合，回合数门槛会让它们永远不轮换；抖动的标志是接班者没有进展，增长量正好量它。R2 用峰值而不是当前的 C：压缩后 C 很小，正是要轮换的时候。紧密边界上的 Claude 5 分钟档 session 即使已冷也保持：评审循环本来就在重读，`L_tight` 限住了代价。
+
+**从不触发**：泳道移动；provider 限额与宿主临时故障的重试；普通失败（同 session 重试）；紧密边界上的已有压缩（刚压缩的 session 最近一回合的细节还在；它的已读状态被重置，下一次 `get_task` 重新给完整的交接视图，§5.9）。
 
 ### 3.4 Run again
 
-- 人的 Run again 默认**新执行者、新评审者**（提案的阶段规则；Multica rerun 的理由“人刚判定之前的输出不好”；C5b.2 的冷恢复）。AUTOMATION-SPEC §4.1 的“沿用上一次的 implementer 与 reviewer session”、§4.5 的“实现者沿用原 session”对人的 Run again 不再成立。
+- 人的 Run again 默认**新执行者、新评审者**（提案的阶段规则；Multica rerun 的理由“人刚判定之前的输出不好”；C5b.2 的冷恢复）。AUTOMATION-SPEC §4.1 的“沿用上一次的 implementer 与 reviewer session”、§4.5 的“实现者沿用原 session”对人的 Run again 不再成立。`queueIn()` 在同一个事务里把旧执行者推入 `retired`（§6.1）。
 - 抽屉的 Run again 旁有 ⋯ → **Run again in session #n**：只在那个 session 活着、未因 R0/R1 被换下（不中毒、B < 64 MiB）时出现，旁边写测量的理由（例如 “236k tokens, idle 3 h: a fresh session is cheaper”）。人的选择优先，R0/R1 除外。
 - 父卡的 `flowly_update_card action=start`（SUB-CARDS-SPEC §4）不算人的 Run again：保留 session，走 §3.3 的“其它”边界。
-- Run again 之前若上一次运行异常结束（`failed`、`session_unavailable`、`taken_over`、`interrupted`、`cooldown`），对话框多一个可选的 “What should the next session know?” 文本框，写成人的交接便签（§5.4）。
+- 每次 Run again 的对话框都有一个可选的 “What should the next session know?” 文本框（不只在异常结束后：22 条打进 session 的人的话里约 9 条是方向或 Run again 说明）。写成人的输入（`via: run_again`，`open`），卡片有未答的问题（§5.2 `questions`）时框上方列出它们，可选择这段话回答哪一个或哪些问题；未选择时只作为候选，不能自动关闭全部问题。
+- 执行者接班者用卡片开工时选的模型（`job.launchModel`，§6.1），受备用模型与限额规则约束；今天它只用于第一个 session（`automation.ts:1061`），轮换会把模型悄悄换成项目或全局默认。
 
 ### 3.5 防抖
 
-- 软轮换的最少回合数与最小增长（§3.3），每次运行最多 4 次软轮换。
-- 一次运行里第 3 次 R1 字节轮换 → `needs_human` / `interrupted`（现有的 state/code），另记可选字段 `hold: "history_runaway"`；新版本显示 “History kept growing too large in 3 sessions; see the card's pitfalls”，旧版本显示 interrupted。
-- 每个角色每条指令最多轮换一次；决定缓存在指令 id 上。
-- 新 session 的定向读取（约 108k）低于 sol 的 `L_cold`；258k 窗口上 `L_cold`（129k）接近它，所以要求 `minGrowth`。
+- 软轮换的最小增长（§3.3），每次运行最多 4 次软轮换。
+- 一次运行里第 3 次字节轮换（R0 的 B ≥ 200 MiB 与 R1 的 B ≥ 64 MiB 都算；Claude 的 S 不触发轮换，子代理多的正常评审不该被挂起）→ `needs_human` / `interrupted`（现有的 state/code），另记可选字段 `hold: "history_runaway"`；新版本显示 “History kept growing too large in 3 sessions; see the card's pitfalls”，旧版本显示 interrupted。
+- 每个角色每条指令最多一次软轮换；软决定缓存在指令 id 上，强制规则每次发送都重判（§2）。回滚过的指令记在 `rotationAbandoned`，之后对它的软决定一律保持（§6.4）。
+- 新 session 的定向读取（约 108k）低于 sol 的 `L_cold`；258k 窗口上 `L_cold`（129k）接近它，所以要求 `minGrowth`，从 C₀ 算起。
 
 ### 3.6 用证据回放
 
-- **C5b.3 #1**：第 1 回合因容量失败（4.4 MB），重试是后续，保持。第 2 回合 50 分钟长 322 MB：约 19 分钟到 64 MiB，之后每次 Flowly 工具结果带检查点提醒（§4）；约 28 分钟到 128 MiB，卡片记一条体积提醒（用户批准时再加一次 steer）。第 1 轮修改要求（B ≈ 327 MB）是 R1，≥ 128 MiB 不收尾，直接封存并轮换；接班者的首条消息和卡片上有 Flowly 的体积构成提醒（截图与 patch 写文件的次数和 MB）。最大的 session 约 327 MB（有 steer 时约 150–170 MB）；实际 1.18 GB，今天的守卫约 583 MB。
+- **C5b.3 #1**：第 1 回合因容量失败（4.4 MB），重试是后续，保持。第 2 回合 50 分钟长 322 MB：约 19 分钟到 64 MiB，检查点提醒只在它调用 Flowly 工具时送达（§4）；被动捕获每分钟读新增的约 6 MB，记下 agent 的最新消息、HEAD 变化和启动的后台；约 28 分钟到 128 MiB，卡片记一条体积提醒（用户批准时再加一次 steer）。第 1 轮修改要求（B ≈ 327 MB）命中 R0（≥ 200 MiB，计入 hold 的字节轮换），不收尾，直接封存并轮换；接班者的首条消息有上次交接写入以来它自己的叙述（标为未核实）和 Flowly 的体积构成提醒（截图与 patch 写文件的次数和 MB）。按原有回合边界估算，第一个 session 约 327 MB 时会轮换；后续回合的行为会变，不能据此推断最大 session 大小，也不能预测 steer 能把它限制在某个 MB。实际历史为 1.18 GB，今天的守卫在同样边界的静态回放中约 583 MB。同样的回合在本设计下也可能出现在任何一个 session 里（真实那天的第 6 回合：5,034 条 shell 命令，最后 23 分钟没有 Flowly 调用，于是检查点提醒一次也没送达）：20 分钟时卡片显示 “Agent has not updated the card for 20 min”；验证 runner、轮询 relay 和浏览器标签在启动时就进了后台清单，崩溃后成为接班者必须处置的 `unknown` 条目；如果 agent 在可解析的消息里说过重跑结果、JSON 读取失败与原子 rename 的修复，且仍在捕获预算内，它们进入未核实叙述；只在工具输出里或早已被滚动窗口替换的部分不保证保留，并显示捕获范围。
+- **C5b.3 评审者**（astra，61%，158k）在 28 分钟的修复回合之后评审第 2 轮：本卡上一回合 1 分钟前结束，紧密，C < L_tight（180,880），保持；按旧的按角色计时它会是“其它”边界（≥ 129k）而在周期中途被换掉。
 - **C5b.2**：18 个回合 48.8 MB，R1 从不触发；416 分钟后的 Run again 默认新 session（也满足 R3/R4），冷而不收尾；新 session 从约 108k 开始，而不是 430k 未命中缓存再立刻压缩。
 - **普通卡**（C1–C4b、C5a.x，间隔 2.5–15 分钟，执行者峰值 44–80%）：只有 C ≥ 300k 的评审→修复边界轮换，此时 session 热，做收尾回合。估计约四分之一的执行者轮换一次（待测，§17.6）。“从简”方案用 62 个 Codex 卡片 session 模拟过相近的规则：50 个自动化边界里轮换 10 个（12 个评审→修复里 4 个），已接受提案的 50% / 30 MB / 1 小时是 21 个（12 个里 8 个）；模拟用每回合的峰值请求，压缩后的值偏高。
 
 ## 4. 回合内的保护（回合中途不能轮换）
 
-1. **检查点提醒**（总是开启，零风险）：满足任一条件时记 `job.checkpoint = {agentId, reason, at}`，该 session 之后的每个 Flowly 工具结果都带 `handoffDue: "<reason>: update the handoff now (state, next, running)"`（现有 `reminders` 通道，不进 system prompt），直到有一次交接写入：
+1. **检查点提醒**（总是开启；只对执行者和收尾中的 session，评审者不能写交接）：满足任一条件时记 `job.checkpoint = {agentId, reason, at}`，该 session 之后的每个 Flowly 工具结果都带 `handoffDue: "<reason>: update the handoff now (state, next, running)"`（现有 `reminders` 通道，不进 system prompt），直到有一次交接写入：
    - 填充 ≥ 60%（Codex 在 66–95% 压缩，压缩前记录要是新的）；
    - B ≥ 64 MiB 且按最近 3 次测量的增速 10 分钟内会到 200 MiB，或 B ≥ 128 MiB；
    - 回合活动 20 分钟没有交接写入；
-   - HEAD 或未提交文件指纹自上次写入后变了。
-2. **体积提醒**：B ≥ 128 MiB 时卡片记一次 `automation_history_large`（今天在 300 MB），自动化区显示 “Session history N MB: the next instruction goes to a fresh session”。B ≥ 300 MiB 仍在增长时显示严重信号 “Session history N MB, still growing: stop this session in Paseo”。`historyWarning` 加可选的 `level: "large" | "critical"`，每级每个 session 记一次。
-3. **一次检查点 steer（待用户决定，§19；决定前关闭）**：在 128 MiB 或上面的增速预测处，每个 session 一次，`activeTurnBehavior: "steer"`：
+   - HEAD 或未提交文件指纹自上次写入后变了；
+   - 检测到压缩（§2 的 K）。
+
+   它**只在 agent 调用 Flowly 工具时**送达。只跑 shell 或浏览器循环的回合（C5b.3 #1 的最后一回合：5,034 条 shell 命令，最后 23 分钟没有 Flowly 调用）一次也收不到，所以下面两条不依赖它。
+2. **被动捕获**（P1；Codex rollout 与 Claude 主转录，其它 provider 只有回合结束钩子）：`watchHistory` 每 60 秒对回合中的 session，从上次的偏移读到文件末尾（每次最多 64 MiB，没读完下次接着读；超过 256 KiB 的行按长度跳过不缓冲，按行前缀判断类型，同 §8.1）。偏移存在交接文件的台账条目里（`through`），插件重载或 daemon 重启后接着读。文件被替换、缩短、滚动、解析失败或积压时不能假定连续：保留最后成功位置，重新定位并记 coverage gap（§5.7）；补读只减少遗漏，不保证全部捕获。取出：
+   - agent 的消息 → 台账的滚动**实时叙述** `live`：最新 8 条，每条 ≤ 800、合计 ≤ 4,000 字符，脱敏（C5b.3 #1 的 agent 消息一共只有 21 KB）；
+   - 回合中途打进来的人的消息与别的 agent 的消息 → 输入（§5.7），与回合结束时的捕获按 messageId 去重；
+   - 启动或结束后台的工具调用（§5.7 的清单）→ 台账的后台条目，启动时就可见；
+   - 压缩标记 → K 加一、重置已读（§5.9）、检查点提醒；`token_count` → C；Claude 的缓存写入档 → TTL；
+   - 每一行（含跳过的长行）按类型与长度累计体积构成（`growth`），incident 与 hazard 便签不必再读一遍文件。
+
+   每 2 分钟最多一次读各仓库的 HEAD 与未提交文件指纹（§5.7 的 git 读取）：与上一次记录不同就写一条 Flowly 的 `checkpoint` 便签（“HEAD 50a7993 → dc26c13 (2 commits: …); 3 files uncommitted”），每个 session 最多每 5 分钟一条。只在有变化时写交接文件；如果首次变为过期，可同步更新一次小索引，之后不随轮询重写 `board.json`。
+3. **沉默信号**：Flowly 在内存里记每个回合中 session 最后一次 Flowly 工具调用的时间。回合已进行 20 分钟、且 20 分钟没有调用 → `job.silentSince`（一次看板写入），下一次调用或回合结束时清除（一次写入）；卡片自动化区显示 “Agent has not updated the card for N min”（N 由客户端算，§12）。
+4. **体积提醒**：B ≥ 128 MiB 时卡片记一次 `automation_history_large`（今天在 300 MB），自动化区显示 “Session history N MB: the next instruction goes to a fresh session”。B ≥ 300 MiB 仍在增长时显示严重信号 “Session history N MB, still growing: stop this session in Paseo”。`historyWarning` 加可选的 `level: "large" | "critical"`，每级每个 session 记一次。
+5. **一次检查点 steer（待用户决定，§19；决定前关闭）**：在 128 MiB 或上面的增速预测处，每个 session 一次，`activeTurnBehavior: "steer"`：
    > `[Flowly automation] Checkpoint: this session's history is 131 MB and grows ~12 MB/min; Paseo crashes when it loads histories near 500 MB. Update the handoff now (flowly_update_handoff: state, next, running), stop the loop that produces the bulk (screenshots, relayed commands, files written with your edit tool), and end this turn. Flowly continues in a fresh session.`
 
-   这是 Flowly 第一次有意往进行中的回合里发消息，而 steer 在 Paseo 0.12 可能退化为 interrupt。不开启时，单个回合仍可能超过 500 MB，只有 Paseo 自己的修复能补上。
-4. **Skill 卫生**（扩展 AUTOMATION-SPEC §4.6 的 Skill 一条）：截图、DOM 和日志写到文件；不通过自己的工具或 Codex 子代理转发浏览器命令；**批量文件（fixture、抓到的响应、生成的数据）用脚本或 shell 生成，绝不用编辑/patch 工具，包括 code-mode `exec` 里调用的 `apply_patch`**：Codex 会把它们的全文记进历史（C5b.3 的 519 MB）。
+   这是 Flowly 第一次有意往进行中的回合里发消息，而 steer 在 Paseo 0.12 可能退化为 interrupt。它是唯一不依赖 agent 调用 Flowly、又能让 agent 本人在回合中途更新记录的手段：第 2、3 条只是 Flowly 旁观和告诉人。不开启时，单个回合仍可能超过 500 MB，只有 Paseo 自己的修复能补上。
+6. **Skill 卫生**（扩展 AUTOMATION-SPEC §4.6 的 Skill 一条）：截图、DOM 和日志写到文件；不通过自己的工具或 Codex 子代理转发浏览器命令；**批量文件（fixture、抓到的响应、生成的数据）用脚本或 shell 生成，绝不用编辑/patch 工具，包括 code-mode `exec` 里调用的 `apply_patch`**：Codex 会把它们的全文记进历史（C5b.3 的 519 MB）。
 
 `watchHistory` 的范围扩大到：当前活动的 session、job 的评审者、本卡正在回合中的被换下 session。
 
@@ -163,10 +193,13 @@ L_tight = min(0.70·W, 300k)    L_cold = min(0.50·W, 250k)
 ### 5.1 存放位置
 
 - 每卡一个文件 `plugin-data/flowly/handoffs/<taskId>.json`，按卡串行写入，临时文件 + rename，0600；读不懂的文件保留、不重置（写入返回 `HANDOFF_UNAVAILABLE`）。同 `SummaryStore` 的做法。
-- 每卡一个目录 `plugin-data/flowly/handoffs/<taskId>/`：`images/`（开工图片、能拿到的 session 图片，每卡最多 20 个文件、20 MB）、`sealed/<rotationId>.json`（轮换时的封存快照）、`skeletons/<agentId>.jsonl`（§8）。
-- **不放进 `board.json`**：手机解码每一次看板读取（board.json 今天 1.5 MB）；旧版本重写 board.json 会丢掉不认识的字段，而独立文件不受影响，降级后记录仍在。`board.json` 只多一个小索引：顶层数组 `handoffIndex: { taskId, revision, updatedAt, fresh, open, sessions }[]`（约 150 字节/卡），随 etag/delta 读取到达客户端（`server/board-delta.ts` 的 keyed 集合加一项，按 `taskId`），卡面据此显示 “Handoff stale”。看板 schema 不严格，旧版本丢掉它，由文件重建。
-- 抽屉只在 Handoff 区展开时用 etag RPC `handoffs.read {taskId, etag?}` 读。人的写入：`handoffs.note`、`handoffs.input`（把一条人的话标为 done / superseded）、`handoffs.removeNote`。
-- 删卡、移除项目时删除文件和目录，记录本身（不含骨架和图片）随删除备份写入 `removed/`。wrap up 与归档保留。项目文件夹快照（[PROJECT-FOLDER-SPEC](PROJECT-FOLDER-SPEC.md)）**不**包含它（里面有人的原话；§19）。
+- 每卡一个目录 `plugin-data/flowly/handoffs/<taskId>/`：`images/`（开工图片、能拿到的 session 图片，每卡最多 20 个文件、20 MB）、`inputs/<id>.txt`（长输入或为当前 JSON 预算移出的输入正文）、`sealed/<rotationId>.json`（轮换时的封存快照）、`skeletons/<agentId>.jsonl`（§8）、`archive.jsonl`。
+- **写盘原则**：当前小记录用临时文件、flush/fsync、rename 及目录同步提交；归档只追加移走条目和变更，不在每次更新时抄整份记录。归档先按稳定 id 落盘，再从当前记录移走，崩溃后按 id 去重；封存快照只在实际交接时生成一次，不能每分钟生成。首次实现先有一个当前记录和增量归档，完整历代台账、骨架与图片恢复按 §18 后续增加。
+- **总预算也是约束**：列表各自的上限相加并不等于文件大小有界。当前 JSON 的 UTF-8 编码硬上限为 1 MiB；大文本正文放独立文件，较早的派生叙述、已结案条目和评审移入归档，只在当前 JSON 留 id、状态和读取引用。只有 open 条目时也可以移正文，不能丢掉当前待办索引。首版不设计自动删除历史；统计当前文件、归档、封存与图片的实际字节，超过 32 MiB/卡时给一次空间警告。后续清理必须有单独的保留政策，不能默默移除原话或证据。
+- **两个文件不是一个原子事务**：本稿提到问题/评审与看板“同一事务”，语义是同一次可恢复的服务操作，不能只异步 best effort 写交接。先校验权限并以稳定 operationId 写待确认的语义记录，再提交看板事件/job，成功后确认来源；中间崩溃以该 id 对账，重复追加按 id 去重。看板提交未被证实的条目标 `unconfirmed`，不能当成已接受的结论或新指令。未确认来源没有清理前不能裁掉对应恢复信息。磁盘写入失败则明确失败/待对账，不能回复“交接已保存”。实现须在每个落盘切点做故障测试，而不是用原子 rename 宣称两个文件原子一致。
+- **不放进 `board.json`**：手机解码每一次看板读取（board.json 今天 1.5 MB）；旧版本重写 board.json 会丢掉不认识的字段，而独立文件不受影响，降级后记录仍在。`board.json` 只多一个小索引：顶层数组 `handoffIndex: { taskId, fresh, staleSince?, open, sessions }[]`（约 100 字节/卡），随 etag/delta 读取到达客户端（`server/board-delta.ts` 的 keyed 集合加一项，按 `taskId`），卡面据此显示记录落后多久（§12）。它**只在这些值变化时**写：回合结束、轮换、记录变为过期或重新变新；agent 的每次交接写入、检查点和被动捕获都不写 `board.json`（十张卡在跑时不该每小时几十次重写 1.5 MB 的文件、给手机推 delta）。看板 schema 不严格，旧版本丢掉它，由文件重建。
+- 抽屉只在 Handoff 区展开时用 etag RPC `handoffs.read {taskId, etag?}` 读。人的写入：`handoffs.note`、`handoffs.input`（把一条输入标为 done / superseded / standing）、`handoffs.removeNote`。
+- 删卡、移除项目时删除文件和目录，记录及其归档、输入正文、封存快照（不含可重建的骨架，图片未备份时明确记缺口）随删除备份写入 `removed/`。wrap up 与归档保留。从项目文件夹恢复（[PROJECT-FOLDER-SPEC](PROJECT-FOLDER-SPEC.md) 的 `projects.restore`）时，恢复的每个 taskId 若在 `removed/` 里有交接备份就放回，否则卡片回来了而决定、坑、评审轮次和台账全没了。项目文件夹快照默认不带交接，跨机器恢复时明示缺口；本机备份与显式导出的区别见 §19。
 
 ### 5.2 结构（`shared/handoff.ts`，zod，有界）
 
@@ -175,7 +208,7 @@ CardHandoff {
   version: 1, taskId, projectId,
   revision: int,                         // 自己的 revision（同 workpad），不改 task revision
   updatedAt, updatedBy: { kind: agent|human|flowly, agentId? },
-  checkpoint?: { agentId, at, head?: sha12, dirtyHash?, turnStartedAt? },   // 上一次 agent 写入时的状态
+  checkpoint?: { agentId, at, heads?: { repo, sha12 }[], dirtyHash?, turnStartedAt? },   // 上一次 agent 写入时的状态
 
   // —— 当前执行者写（每个条目都有 id、by、agentId?、at、rev）——
   state?:    { text ≤1200 }                                   // 一段话：现在到哪了、正在跑什么
@@ -184,41 +217,52 @@ CardHandoff {
   ruledOut:  { id "ro-*", text ≤300, why ≤400（必填） }[] ≤20 // 试过并放弃的做法
   problems:  { id "op-*", text ≤400, status: open|resolved, note? ≤300 }[] ≤20
   next:      { id "nx-*", text ≤300, gate? ≤200 }[] ≤12        // 有序；gate：先要满足什么
-  pitfalls:  { id "pf-*", text ≤400 }[] ≤20                    // 硬规则与危险；人的长期指示加引号并注明谁、何时说的
+  pitfalls:  { id "pf-*", text ≤400 }[] ≤20                    // 硬规则与危险，agent 自己的话；人的长期指示标为 standing 输入，不抄进来
   running:   { id "rf-*", what ≤200, how ≤300, check ≤200, owner: agentId, startedAt, status: running|done|unknown, endedAt?, result? ≤300 }[] ≤12
   where:     { id "wh-*", ref ≤300（路径|artifact id|URL）, what ≤200 }[] ≤30
   env:       { id "ev-*", text ≤300 }[] ≤12                    // 安装、服务、版本、密钥放在哪（从不写密钥本身）
   // 以上合计 ≤ 16,000 字符（HANDOFF_TOO_LARGE 给出各段大小）；skill 建议通常 ≤ 4,000
 
   // —— 人、Flowly、被换下的 session 追加（带时间）——
-  notes: { id "nt-*", at, by: { kind: human|flowly|agent, agentId? }, kind: incident|direction|environment|hazard|background|checkpoint|other, text ≤2000 }[] ≤100
+  notes: { id "nt-*", at, by: { kind: human|flowly|agent, agentId? }, kind: incident|direction|environment|hazard|background|checkpoint|retired_turn|other, text ≤2000 }[] ≤100
   gaps:  { id "g-*", at, by: reviewer|successor|answerer|flowly, agentId?, text ≤300, status: open|closed }[] ≤40
 
-  // —— Flowly 派生，agent 不能写 ——
-  inputs: { id "d-*", at, via: session|comment|launch|composer|retired_session, agentId?, commentId?, messageId?,
-            text（原文，脱敏，≤10000）, images?: string[] ≤6, imagesLost?: int,
+  // —— Flowly 派生，agent 不能写（agent 只能改状态、standing 与问题的撤回）——
+  inputs: { id "d-*", at, atSource: typed|captured, via: session|comment|launch|run_again|composer|retired_session|agent,
+            agentId?, from?: { agentId?, title ≤120 }（via agent：发来消息的 agent）, commentId?, messageId?,
+            text?（原文，脱敏；预算允许时内联）, textRef?（全文在 inputs/<id>.txt）, characters, truncatedInView?, redacted?: true,
+            images?: string[] ≤6, imagesLost?: int, standing?: { by, at }, answers?: q-id[],
             status: open|received|done|answered|superseded|declined,
             handled?: { by: { kind, agentId? }, at, note? ≤300 } }[] ≤200
+  questions: { id "q-*", kind: question|blocker, text ≤1000, askedBy: agentId, at,
+               status: open|answered|withdrawn, answeredBy?: input id[] ≤5 }[] ≤40
   reviews: { cycle, round, level?, panel?, reviewerId, verdict: approve|changes|incomplete, summary ≤4000,
              findings: { id "c<cycle>.<round>-<k>", text ≤1000, status: open|done|obsolete }[] ≤20,
-             risks: string(≤500)[] ≤10, gaps: string(≤300)[] ≤5, deliveryEvent?, at }[] ≤30
-  ledger: { agentId, n, role, provider, model?, startedAt, endedAt?, reason, endReason?,       // session 台账
-              measured: { C?, W?, B?, K?, turns, peakC? }, finalized: boolean, handoffRevisionAtEnd?,
-              background: { id "b-*", kind: async_shell|exec_session|browser_tab|terminal|script|subagent|schedule, ref, label ≤120, startedAt, closed? }[] ≤40,
+             risks: string(≤500)[] ≤10, gaps: string(≤300)[] ≤5,
+             delivery?: { event?, text ≤1500 },              // 这一轮评审的那次交付的说明（同 cardHandoff 的上限）
+             at }[] ≤30
+  ledger: { agentId, n, role, provider, model?, startedAt, endedAt?, reason, endReason?, abandoned?: rotationId,   // session 台账
+              measured: { C?, C0?, W?, B?, S?, K?, turns, peakC? }, finalized: boolean, handoffRevisionAtEnd?,
+              turns: { n, startedAt, endedAt?, outcome, final? ≤2000, wroteHandoff }[] ≤10,   // final：回合最后一条 agent 消息，脱敏
+              capturedThrough?: n, through?: { path, identity, offset, size, at, lagBytes, gaps },                      // 已捕获到第几个回合、provider 文件读到哪
+              live?: { at, text ≤800, truncated?: true }[] ≤8,                                              // 实时叙述（§4），合计 ≤ 4,000
+              background: { id "b-*", kind: async_shell|exec_session|browser_tab|terminal|script|subagent|schedule|heartbeat,
+                            ref, label ≤120, startedAt, status: open|closed|unknown, source: hook|live|skeleton }[] ≤40,
               anchors?: string[] ≤60, growth?: { kind, calls, bytes }[] ≤12, nextMoves?: string[] ≤3,
               skeleton?: path, ack?: Ack, understanding? ≤800 }[] ≤200
-  git?:   { branch?, head?, dirty, dirtyFiles: path[] ≤50, diffstat? ≤1000, upstreamDiffers?, at }
-  lastWords?: { agentId, at, text ≤2000 }                    // 只用于异常结束的兜底（§5.8）
+  git: { repo: path, branch?, head?, dirty, dirtyCount, dirtyFiles: path[] ≤50, diffstat? ≤1000, upstreamDiffers?, at }[] ≤8
+  lastWords?: { agentId, at, since, text ≤2000 }             // 没收尾就封存、而记录落后时的叙述兜底（§5.8）
   tombstones: { section, item, removedBy, reason ≤200, at }[] ≤300
-  seen:  { [agentId]: revision }  ≤200                       // 这个 session 读到过的 revision（§5.9 的存根）
-  digests: { [agentId]: string[] ≤500 }                      // 已捕获的人的消息摘要（§5.7）
+  seen:  { [agentId]: revision }  ≤200                       // 这个 session 读到过的 revision（§5.9 的存根）；检测到压缩时删除
+  digests: { [agentId]: { [digest]: count } }  ≤500 项        // 没有 messageId 的消息按摘要计数去重（§5.7）
+  archivedOpen?: int                                         // 因溢出移入 archive 的 open 输入数
   ops: string[] ≤50                                          // 最近的 operationId（重放）
 }
 ```
 
-- 人的话在 `inputs` 里存原文：评论的事件只保留最近 50 条（CARD-COMMENTS-SPEC §7.2），记录不能依赖它。
-- 有上限的列表（`inputs`、`notes`、`ledger`、`reviews`、`tombstones`）满了时，最旧的、不是 open 的条目移入同目录的 `archive.jsonl`，不删除（Z5）；`handoff:"full"` 与抽屉的 Show earlier 读得到。open 的条目从不移出。
-- `reviews` 的长度与 `reviewInputSchema` 一致（摘要 4,000、每条发现 1,000、最多 20 条），不截断；最坏约 750 KB/卡，不在看板读取里。今天只有最近一次的 `job.changes` 留下，人的反馈开新周期时还会删掉它（`turnStarted`），更早的修改要求落出 100 条事件窗口后就没了。
+- 人的话在 `inputs` 里存原文全文：评论的事件只保留最近 50 条（CARD-COMMENTS-SPEC §7.2），记录不能依赖它。上限只在视图里（§5.9）。
+- 有上限的列表（`inputs`、`notes`、`ledger`、`reviews`、`questions`、`tombstones`）满了时，最旧的、不是 open 的条目移入同目录的 `archive.jsonl`，不删除（Z5）；`handoff:"full"` 的后续页与抽屉 Show earlier 可读。只有 open 的条目时，最旧的 open 正文也可移入，但当前待办索引保留 id、首行与读取引用，`archivedOpen` 加一，并记 gap。接手确认包括这些归档中的未决 id；不能因为正文不在第一页就从确认名单中消失。
+- `reviews` 的长度与 `reviewInputSchema` 一致（摘要 4,000、每条发现 1,000、最多 20 条），不截断；`delivery.text` 让后面的评审者能逐轮对照“要求了什么、交付时说怎样做了”；最坏约 800 KB/卡，不在看板读取里。今天只有最近一次的 `job.changes` 留下，人的反馈开新周期时还会删掉它（`turnStarted`），更早的修改要求和交付说明落出 100 条事件窗口后就没了。`cycle` 来自 job 的 `cycle` 计数（§6.1），不从事件推算（裁剪或重启后会重号）。
 - 另外，`store.event()` 给评审结论事件（`automation_changes_requested`、`automation_review_approved`、§5.2 的 `automation_review_risks`）一个单独的保留类：每卡最新 10 条在 100 条窗口之外（同评论），活动里看得到所有轮次。旧版本按 100 条裁剪它们，无害。
 
 ### 5.3 预算
@@ -226,32 +270,33 @@ CardHandoff {
 | 内容 | 上限 | 通常 | 理由 |
 | --- | --- | --- | --- |
 | agent 写的各段合计 | 16,000 字符（硬） | 2–6k | 管用的那份 §8 约 2,967 字符；Flowly 每条链接的 handoff 预算已是 6,000、总共 16,000 |
-| `get_task` 的默认交接视图 | 20,000 字符，按优先级截断并写明省略 | 3–8k | 每个修订只给一次（§5.9） |
-| `handoff:"full"` | 96 KB | — | 按需 |
-| 整个文件 | 约 1 MB 最坏 | 20–60 KB | 不在看板读取里 |
+| `get_task` 的默认交接视图 | 24,000 字符；人的话、未答的问题、最近一轮的发现和人与 Flowly 的要紧便签有保留预算，agent 的各段填剩下的（§5.9） | 3–8k | 每个 session 一次，压缩后再给一次（§5.9） |
+| 评审者的默认视图 | 40,000 字符（本周期优先；超出后沿游标取全文） | 5–15k | 评审要逐条核对更早的要求（§11.1） |
+| `handoff:"full"` | 每页 96 KiB；带总数、省略计数和下一页游标 | — | 按需读取当前记录、长输入及归档，不能把第一页称为全文 |
+| 当前 JSON | UTF-8 ≤ 1 MiB（硬） | 20–60 KB（待实测） | 仅展开抽屉或 agent 按需读取；不能靠各列表上限估算 |
 | 每个 session 的骨架 | 2 MB | 1.18 GB 的线程约 37 KB | §8 |
 
 ### 5.4 谁写、何时写
 
 | 写的人 | 写什么 | 何时 |
 | --- | --- | --- |
-| 当前执行者（`flowly_update_handoff`） | 各段、`note`、输入的处置、接手确认（`ack`） | 读完卡后（state、next）；**每次提交后**；**开始预计超过 5 分钟或在后台运行的事之前**（并写 `running`）；做出决定或放弃一个做法时；处理完人的一条话时；收到 `handoffDue` 时；每个工作回合结束前（清单第 5 条）；收尾回合里 |
-| 被换下的 session | 只能写 `note`（checkpoint / background）和更新自己的 `running` 条目 | 被唤醒时（§9.3） |
+| 当前执行者（`flowly_update_handoff`） | 各段、`note`、输入的处置与 `standing` 标记、撤回自己的问题、接手确认（`ack`） | 读完卡后（state、next）；**每次提交后**；**开始预计超过 5 分钟或在后台运行的事之前**（并写 `running`）；做出决定或放弃一个做法时；处理完人的一条话时；收到 `handoffDue` 时；每个工作回合结束前（清单第 5 条）；收尾回合里 |
+| 被换下的 session | 只能写 `note`（checkpoint / background）和更新自己的 `running` 条目；收尾指令开始的迟到回合可写全部各段（§6.2 1c） | 被唤醒时（§9.3） |
 | 评审者 | 不能写（`REVIEWER_ONLY`）；经 `flowly_submit_review` 报告 `handoff.gaps` | 每一轮 |
-| 人（抽屉） | `note`（direction / incident / environment / other）；把输入标为 done 或 superseded；删除自己的便签 | 任何时候；Run again 的 “What should the next session know?”（§3.4） |
-| Flowly | 派生字段；incident / hazard 便签（例如 “Session #1's history grew to 327 MB: browser_screenshot 1,346 calls 471 MB, apply_patch adds 9,870 files 519 MB”）；台账；gaps（answerer / flowly） | 回合结束钩子返回之后（同 `WorkpadService.recordTurn`，从不阻塞钩子）；轮换时；评审结论的同一事务里（`reviews`）；意外结束时 |
+| 人（抽屉） | `note`（direction / incident / environment / other）；把输入标为 done、superseded 或 standing；删除自己的便签 | 任何时候；每次 Run again 的 “What should the next session know?”（成为输入，§3.4） |
+| Flowly | 派生字段（含 `questions`、每回合的最后一条消息、实时叙述）；incident / hazard / checkpoint 便签（例如 “Session #1's history grew to 327 MB: browser_screenshot 1,346 calls 471 MB, apply_patch adds 9,870 files 519 MB”）；台账；gaps（answerer / flowly） | 回合结束钩子返回之后（同 `WorkpadService.recordTurn`，从不阻塞钩子）；回合进行中每分钟（被动捕获，§4）；`report_progress` 的同一事务里（`questions`）；轮换时；评审结论的同一事务里（`reviews`）；意外结束时 |
 
 ### 5.5 新鲜与过期
 
 记录**过期**指上次 agent 写入（`checkpoint`）之后发生了**实质变化**：
-- HEAD 或未提交文件指纹（`git status --porcelain` 的哈希）变了；
+- 任一仓库的 HEAD 或未提交文件指纹（`git status --porcelain` 加受影响文件的 mtime / size 指纹；仅状态文字不能发现同一个已修改文件继续被编辑）变了；
 - 出现了状态为 `open` 的人的输入、新的评审结论或新的交付；
 - Flowly 写了 incident / hazard 便签；
-- 一个活动时间 ≥ 15 分钟的回合结束了，而这个回合里没有交接写入。
+- 一个活动时间 ≥ 5 分钟的回合结束了，而这个回合里没有交接写入。只调查、不改文件的回合也算：排除了一个做法、发现一个环境怪癖时 HEAD 不变，知识却只在 session 里。
 
-“上一回合比记录晚结束”本身**不算**过期：agent 按清单在回合结束前写入，否则几乎每份记录都算过期，收尾回合就会在大多数轮换上触发。
+“上一回合比记录晚结束”本身**不算**过期：agent 按清单在回合结束前写入，这样的记录是新的；不到 5 分钟的回合（回答一句、一次提醒）也不算。
 
-**交付门 `HANDOFF_STALE`**（软的，与 `WORKPAD_OPEN` 同一套 `DeliveryGate` 机制，原因合并为一次拒绝）：开启自动化的项目里，执行者的 `flowly_update_status(in_review | blocked)` 与 `flowly_report_progress(kind=blocker)` 在记录过期、缺 `state` 或 `next`、或接班者还没确认接手（§7.5）时第一次被拒，列出变了什么；同一回合带 `acknowledgeOpen=true` 的重试通过。提问（`kind=question`）不受此门约束，只带提醒，因为问题常在工作中途。拒绝说明自己写明怎么做（“update the handoff with flowly_update_handoff, then retry with acknowledgeOpen=true”），所以清单第 6 条不必改（改了就超过 1,800 字符，§13）。
+**交付门 `HANDOFF_STALE`**（软的，与 `WORKPAD_OPEN` 同一套 `DeliveryGate` 机制，原因合并为一次拒绝）：开启自动化的项目里，执行者的 `flowly_update_status(in_review | blocked)` 与 `flowly_report_progress(kind=blocker | question)` 在记录过期、缺 `state` 或 `next`、或接班者还没确认接手（§7.5）时第一次被拒，列出变了什么；同一回合带 `acknowledgeOpen=true` 的重试通过。提问也受此门约束：自动化下提问就结束回合（C5b.3 #2 唯一的回合以提问结束），回答常常到达一个新 session。父卡派出子卡后结束回合进入 `waiting` 时没有可拒的调用，所以 `flowly_create_card` 与 `flowly_update_card action=start` 的结果在记录过期时带 `handoffDue`（不拒：拒绝建卡会打断编排）；什么都不调用就结束的回合由 §5.7 的最后一条消息与 §5.8 的叙述兜底。拒绝说明自己写明怎么做（“update the handoff with flowly_update_handoff, then retry with acknowledgeOpen=true”），所以清单第 6 条不必改（改了就超过 1,800 字符，§13）。
 
 ### 5.6 工具 `flowly_update_handoff`
 
@@ -265,71 +310,80 @@ MCP 与 CLI fallback（`handoff --handoff '<JSON>'`，不需要 request file）�
   remove?: { section, id, reason ≤200 }[] ≤30,  // 变成墓碑；agent 不能删人写的条目
   order?: { next: id[] },
   note?: { kind, text },
-  inputs?: { id, status: done|answered|superseded|declined|open, note? }[] ≤30,
+  inputs?: { id, status?: done|answered|superseded|declined|open, standing?: boolean, note? }[] ≤30,
+  questions?: { id, status: answered|withdrawn, answerInputIds?: string[], note? }[] ≤10, // 关联回答后才关闭，不靠任意新消息推断
   ack?: Ack }                                   // §7.5
-→ { ok, handoffRevision, replayed?, at, head, budget: { used, max },
-    open: { inputs, findings, running, gaps }, handoffDue: null | string, ackMissing?: id[] }   // ≤ 1 KB
+→ { ok, handoffRevision, replayed?, at, heads: { repo, sha | null }[], budget: { used, max },
+    open: { inputs, questions, findings, running, gaps }, handoffDue: null | string, ackMissing?: id[] }   // ≤ 1 KB
 ```
 
 - **合并**：`handoffRevision` 落后时，只要本次碰到的条目自那以后没变（每个条目有自己的 `rev`），照样应用；否则 `HANDOFF_CONFLICT`，给出这些 id 和 ≤ 2 KB 的差异。Flowly 频繁的派生写入和人的便签因此不会与 agent 的编辑冲突。
 - **小回执**：不回显 `current`。今天一次“读卡 + 写入”约 220 KB 的历史，交接写入约 1–3 KB。
 - 不写看板事件（不占 100 条事件窗口），只在 flow log 记 `handoff_updated`（同 `workpad_updated`）。
-- 被换下的 session 只能用 `note` 和更新自己 `owner` 的 `running` 条目，其它返回 `RETIRED_SESSION`；评审者返回 `REVIEWER_ONLY`；归档的卡 `ARCHIVED`；Done/Cancelled 的卡只接受 `note`，其它 `TASK_FINISHED`。项目关闭了 workpad 时仍可写交接。
+- 被换下的 session 只能用 `note` 和更新自己 `owner` 的 `running` 条目，其它返回 `RETIRED_SESSION`；例外是收尾指令开始的回合（按 messageId 认出），它在封存之后才开始时也可写全部各段（§6.2 1c）；评审者返回 `REVIEWER_ONLY`；归档的卡 `ARCHIVED`；Done/Cancelled 的卡只接受 `note`，其它 `TASK_FINISHED`。项目关闭了 workpad 时仍可写交接。
 
-### 5.7 Flowly 在每次回合结束时派生什么
+### 5.7 Flowly 派生什么（回合结束时，以及回合中的被动捕获）
 
-对本卡**每个** Flowly 管理的 session（人开的、不受监督的、被换下的都算），在已有规则之后、不阻塞钩子：
+对本卡**每个** Flowly 管理的 session（人开的、不受监督的、被换下的都算），在已有规则之后、不阻塞钩子。来源是回合结束钩子的 timeline，加上回合中的被动捕获（§4 第 2 条）。台账记已捕获到第几个回合（`capturedThrough`）和 provider 文件读到的偏移（`through`）。封存时若有未捕获的回合（回合中途插件重载或 daemon 重启而丢了钩子，现有的漏钩子恢复只恢复 job 状态）就补读：Codex 与 Claude 从偏移读到文件尾；其它 provider 在已加载且 B < 64 MiB 时读一次 timeline 尾部（同今天 `limitNotice` 的读法），否则记一条 gap（“turn 7 of session #2 was not captured”）。
 
-- **人的话**：钩子 timeline 里的 `user_message`，去掉以 `[Flowly automation]` 开头的、async-shell 通知（`[async-shell …`）和 `<paseo-system>` 通知、以及 Flowly 路由的评论原文（按发送时的 `messageId` 匹配）。每条成为一个输入（`via: session`，被换下的 session 为 `retired_session`），按每个 agent 的摘要集合（最近 500 条，存在交接文件的 `digests` 里）去重：钩子带的是 agent 的整个内存 timeline，而重启后 timeline 会重建，所以不用游标计数。状态：
-  - 打进**当前工作 session**、而接收它的回合**正常完成** → `received`（那个 session 已经据此行动；接班者看得到原文，不必逐条确认）；
-  - 回合失败或取消、session 被换下或不是工作 session、job 没有当前工作 session → `open`。
+- **人的话**：`user_message`，去掉以 `[Flowly automation]` 开头的、async-shell 通知（`[async-shell …`）和 Flowly 路由的评论原文（按发送时的 `messageId` 匹配）。每条成为一个输入（`via: session`，被换下的 session 为 `retired_session`）。去重先按 `messageId`，没有时按每个 agent 的摘要计数（同一句 “yes” 说三遍就是三条）：钩子带的是 agent 的整个内存 timeline，重启后会重建，所以不用游标计数。时间取 timeline 条目自己的时间，没有时取捕获时间并标 `atSource: captured`。
+- **别的 agent 的话**：Paseo 0.12 的 `<paseo-system>` 信封装着 agent 之间的消息、agent 通知（例如 `create_agent` 建的子 agent 结束）和 schedule / heartbeat 的触发。它们成为 `via: agent` 的输入，带发来消息的 agent 的标题，从不标成人的话；明确的完成或取消通知关闭对应条目；schedule / heartbeat 的一次触发只记发生时间，不能认定周期任务已关闭（§9.4），被换下的 session 收到时触发 §9.3 的唤醒。
+- **状态**：
+  - 接收它的回合**正常完成**，且那个 session 没有被换下、那个回合不是收尾回合、回合里没有写入被 `FINALIZING` 或 `RETIRED_SESSION` 拒绝 → `received`（只说明消息到达且回合完成，**不证明已照办**；接班者仍看得到原文。需要长期约束的内容标 standing，未履行要求应保留为 open）。有没有 job 都一样，所以手动卡和人自己开的 session 里的话不会永远是 open。
+  - 其余 → `open`：回合失败或取消、被换下的 session、收尾回合（它被告知不要动手）、经 `save` 只记录的评论、轮换前没来得及处理的。
   - 打招呼一类的短话因此不会变成一串要确认的待办。
-- **Flowly 自己输入框发出的消息**在发送时就记下（回合永远没结束也不丢），回合结束时按摘要去重。
+- **问题**：执行者的 `flowly_report_progress kind=question | blocker` 在同一事务里成为 `questions` 的一条（今天它只是一条看板事件：`get_task` 只给最近 20 条，卡片只留 100 条）。卡片有 open 的问题时，新输入先列为候选回答，仍保持问题 open。人在 Run again / 评论中明确选择回答哪个问题，或当前执行者用 `questions[{id, status: answered, answerInputIds}]` 核对关联，才记 answered；多个问题时不能把一句 “按第二个方案”自动当成全部问题的答案。候选写 “d-12 may answer q-3: <question>”；确认关联后才写 “answers”。agent 用自己的问题工具在回合内问答的，只在 timeline 与叙述里。
+- **每回合的最后一条 agent 消息**：`turns[].final`（脱敏，≤ 2,000）和这个回合有没有交接写入。Flowly 本来就拿着 timeline，不多花钱；没收尾的封存靠它（§5.8）。
+- **Flowly 自己输入框发出的消息**在发送时就记下（不依赖回合结束才能落盘），回合结束时按 messageId 去重。
 - **图片**：`user_message` 只有 `text`、`messageId`、`clientMessageId`（`@getpaseo/protocol` `agent-types.d.ts:308-311`），图片本身拿不到。粘贴的图片在部分 provider 的文本里是占位 `[Image: source: /path.png]`（`shared/images.ts` `extractImages`）：Flowly 把这些本机图片文件（图片扩展名、≤ 8 MB、每条 ≤ 6 个）复制进 `images/`；没有占位的图片记为 `imagesLost`，抽屉写 “image attached, not kept”。开工图片在 `AutomationLaunches.collect()` 删除 launch 文件**之前**复制进来；经 Flowly 输入框发送的图片同样保留。
-- **后台任务清单**：本回合里启动长期东西的工具调用：`register_async_shell` / `cancel_async_shell`、Codex `exec_command` 的 session、`browser_new_tab` 对 `close_tab`、`create_terminal`、`start_workspace_script`、`create_agent`、`create_schedule`、`create_heartbeat`。每个成为台账里的一条 `b-*`，带 closed 标记；标签脱敏，最多取命令前 120 个字符。`[async-shell finished|failed|timed_out <task>]` 通知把对应条目标为 closed，并给 `running` 条目写上结果。
-- **git**：HEAD、分支、未提交文件（≤ 50）、diffstat、是否与上游不同；参数数组、5 秒超时，复用 workpad 的 `env` 读取。
-- **台账**：回合数、C、W、B、K、模型。
+- **后台任务清单**：从整个 timeline（不只本回合）和被动捕获里取启动或结束长期东西的工具调用：`register_async_shell` / `cancel_async_shell`、Codex `exec_command` 的 session、`browser_new_tab` 对 `close_tab`、`create_terminal`、`start_workspace_script`、`create_agent`、`create_schedule`、`create_heartbeat`。只解析小的调用参数和结果里的句柄字段（如 task id / session_id），不保存结果正文。只有调用名而拿不到返回句柄、嵌套 code-mode 调用不可见或长行被跳过时，记 unknown 与缺口，不虚构一个可接管的进程。按 ref 去重，每个成为台账里的一条 `b-*`（`status`、`source`）；标签脱敏，最多取命令前 120 个字符。`[async-shell finished|failed|timed_out <task>]` 通知把对应条目标为 closed，并给 `running` 条目写上结果；明确的子 agent 完成通知可关闭该子 agent；schedule / heartbeat 只有取消或删除被证实时才关闭，一次触发不算。
+- **git**：卡片的每个仓库（`get_task` 给 agent 的 `scope.repoPaths`，为空时项目的仓库；新卡在项目根，根下可能有子仓库；默认最多 8 个，超过时列出总数与未检查路径并记 gap，接手者逐个核实，不把未测的当成干净）：HEAD、分支、未提交文件数与前 50 个（列表截断时写 “N more files”）、diffstat、是否与上游不同；不是 git 仓库的路径记 `head: null`。参数数组、5 秒超时，复用 workpad 的 `env` 读取。
+- **台账**：回合数、C、C₀、W、B、S、K、模型。
 - **锚点**：从 agent 消息里按正则取 SHA（7–40 位十六进制）、PR/issue URL、分支、路径和 `Error:` 行，每个 session ≤ 60 条。
-- `handoffIndex` 的 `fresh` 与 `open` 在此时更新。
+- `handoffIndex` 的 `fresh` 与 `open` 在此时更新（只在变化时写，§5.1）。
 
-### 5.8 意外结束时的确定性补记
+捕获的持久化顺序是“先保存提取结果，后推进偏移”，重试按源身份去重；否则崩溃可能留下已经越过、却没有保存的输入。`through` 的时间、积压字节、跳过的长行/未知类型与叙述裁剪计数组成 coverage，卡片与接手视图都能看到。超过 256 KiB 的行即使是人的长输入也可能被跳过；这种情况保留 id/时间/长度和缺口，不能声称拿到了原文。Flowly 自己输入框已直接保存的正文优先于这种降级来源。
 
-session 消失、被归档、崩溃（没有回合结束）、中毒或达到 200 MiB 时，Flowly 封存它的台账条目（`endReason: session_unavailable | crashed | poisoned | quarantined`），并写一条 incident 便签：
-- 交接上次写入的时间、卡片沉默了多少分钟；
-- 现在的 HEAD 对比它最后一个回合开始时的 HEAD；
-- 最后一条进度记录的时间；
-- 仍未关闭的后台条目；
-- 体积构成（一次流式读取，在后台低优先级运行，只对 B ≥ 64 MiB 或异常结束的 session 做，§8.1）。
+### 5.8 没收尾就封存时的确定性补记
 
-同时填 `lastWords`：前任最后 ≤ 3 条 agent 消息，≤ 2,000 字符，脱敏，标为 “unverified narration”；来自最后一次钩子 timeline，没有则来自骨架。骨架里在最后一次捕获之后的人的消息补成 `open` 输入（崩溃中途的回合里人说的话因此不丢）。
+三种情形：(a) session 消失、被归档、崩溃（没有回合结束）、中毒或达到 200 MiB；(b) 跟在一个没有正常完成的回合（限额、失败、沉默、中断）后面的任何轮换，包括备用模型切换和对一条后续的 R1 轮换；(c) 其它 `finalized: false` 的封存，而上次交接写入早于最后一个回合的结束（冷、未加载、收尾没发生）。
+
+- **叙述**（三种都做）：`lastWords` = 上次交接写入之后各回合的 `final`，加上未结束回合的实时叙述；取较新的来源（崩溃的回合没有回合结束，钩子 timeline 还是上一回合的），≤ 2,000 字符，脱敏，标为 “unverified narration since the last handoff write”。它进接班者的首条消息（§7.2），全文在交接视图里。
+- **incident 便签**（a、b）：交接上次写入的时间和卡片沉默了多少分钟；各仓库现在的 HEAD 对比最后一个回合开始时；那个回合何时开始、跑了多久、怎样结束；最后一条进度记录的时间；体积构成（被动捕获顺带累计的；没有时，B ≥ 64 MiB 的 session 做一次后台低优先级的流式读取，§8.1）。
+- **后台**：被动捕获、补读或骨架在最后一个已捕获回合之后看到的启动调用（`register_async_shell`、`exec_command` 的 session、没有 `close_tab` 的 `browser_new_tab`、`create_terminal` / `create_agent` / `create_schedule` / `create_heartbeat`），以及更早就没关闭的条目，都标 `unknown`，列进 incident 便签，接班者必须处置（§7.5）。什么清单都拿不到时（没有被动捕获的 provider，P2 之前也没有骨架），记一个必须处置的条目：“Session #1's turn started 01:12 and ran 38 min; no inventory available: check ps and lock files”。
+- **人的话**：最后一次捕获之后的人的消息补成 `open` 输入，覆盖到的原话因此保留；长行、不可解析内容或未读积压记缺口，不能声称全部已补回。
+- **骨架**（P2）：三种情形都建（执行者中位 8 MB，读一遍几秒；大的在后台低优先级读），接班者可用 `flowly_session_history` 检索。
+
+台账条目的 `endReason`：`session_unavailable | crashed | poisoned | quarantined | failed_turn | limit | rotated`。
 
 ### 5.9 `flowly_get_task` 里的交接
 
 - 输入增加可选的 `{ handoff?: "full" }`（工具输入今天是 `z.strictObject({})`，加一个可选字段）。
-- **`handoff`**：这个 session 第一次读（`seen` 里没有它）时给**默认视图**；之后给存根 `{ revision, updatedAt, by, unchanged, stale?, due?, open }`，外加自它上次读到的 revision 以来**别人**改动的条目（其它 session 的写入、人的便签与处置、Flowly 的 incident / hazard 便签、新的评审轮次、别的 session 收到的人的话），≤ 4,000 字符，超出时写明省略并指向 `handoff:"full"`。Flowly 从这个 session 自己的回合派生的改动（它自己收到的人的话、git、台账）不算，它已经知道。读到的 revision 记在交接文件的 `seen` 里（只在变化时写）。一个 session 一生约 23 次 `get_task`，不能每次都多带几 KB，Codex 还会把每个结果存两份。
-- **默认视图**（≤ 20,000 字符，按顺序，超出部分写 “N earlier … omitted; flowly_get_task handoff=full”）：
-  1. `you`：session 号、角色、为什么开始、前任；
-  2. `ack`：待确认 / 已确认；
-  3. `state`、`next`、`problems`（open）、`running`，以及还没关闭的后台条目（“detected from the previous session's tool calls; verify”）；
+- 完整读取另外接受 `handoffCursor?: string`：`handoff:"full"` 返回一页，含 `revision`、各类条目总数、`omitted` 与 `nextCursor`。游标只属于本卡、限定返回字节，不接受文件路径。长输入按同一 id 的连续片段返回；后续页可读归档，直到 `nextCursor` 为空才表示本次范围完整。读取期间版本变化要明确返回 `viewChanged`，重读当前未决清单，不把旧页面当成新版本。`handoff:"full"` 是完整读取的入口，**不是**一次把所有历史塞给模型。抽屉用同样的读取路径。
+- **`handoff`**：这个 session 第一次读（`seen` 里没有它）时给**默认视图**；之后给存根 `{ revision, updatedAt, by, unchanged, stale?, due?, open, headlines }`，外加自它上次读到的 revision 以来**别人**改动的条目（其它 session 的写入、人的便签与处置、Flowly 的 incident / hazard 便签、新的评审轮次、别的 session 收到的话），≤ 4,000 字符，超出时写明省略并指向 `handoff:"full"`。`headlines` 总在存根里：open 的输入与问题、standing 的输入和 pitfalls 的 id 与首行，≤ 1 KB（“and 6 more”）。Flowly 从这个 session 自己的回合派生的 git 与台账通常不重复；open、standing、缺口与外部输入仍按清单显示，不能仅因“来自它自己的回合”就认定它一定记得。读到的 revision 记在交接文件的 `seen` 里（只在变化时写）。一个 session 一生约 23 次 `get_task`，不能每次都多带几 KB，Codex 还会把每个结果存两份。
+- **压缩后重给**：检测到这个 session 被压缩（§2 的 K：被动捕获读到压缩记录、回合中 C 降到上一次测量的 60% 以下、或回合结束时 K 增加）就删除 `seen[agentId]`，下一次 `get_task` 重新给默认视图，开头写 “Your context was compacted at 00:52; this is the card's handoff again.”。压缩丢掉工具输出，Codex 的摘要又是加密的，只有用户消息留下：不重给的话，它会以为自己还读着坑和人的指示（C5b.3 在 00:52 于回合中途压缩）。
+- **默认视图**（≤ 24,000 字符，按顺序；超出部分写 “N earlier … omitted; flowly_get_task handoff=full”）。第 2 项是**保留预算**，agent 的各段挤不掉它，不用的部分留给后面：
+  1. `you`：session 号、角色、为什么开始、前任；`ack`：待确认 / 已确认；
+  2. 保留：(a) open 与 standing 的输入、开工说明，优先全文（≤ 10,000，超出的写 id、首行和必读引用，不声称已经全文给出）；脱敏过的写明 “[contained a credential, removed: ask the person if you need it]”；(b) open 的问题及其回答（≤ 1,500）；(c) 最近一轮的发现逐条（id、状态、≤ 300 字符；完整内容通过后续页读取）；(d) 人的 direction / incident / environment 便签和 Flowly 的 incident / hazard 便签，从新到旧全文 ≤ 3,000，更早的每条一行；(e) `unknown` 与未关闭的后台条目（“detected from the previous session's tool calls; verify”）；
+  3. `state`、`next`、`problems`（open）、`running`；
   4. `pitfalls`、`decisions`、`ruledOut`、`env`、`where`；
-  5. 人的话：`open` 的全文（≤ 8,000）；`received` 等的从新到旧全文到 3,000 字符为止，之后每条一行 ≤ 160 字符；
-  6. 评审：最近一轮的发现逐条（id、状态、≤ 300 字符），更早各轮每轮一行；
-  7. `gaps`（open）；
-  8. 便签从新到旧 ≤ 4,000；
-  9. 最近两条台账。
+  5. 其余人的话（`received` 等）：从新到旧全文到 3,000 字符为止，之后每条一行 ≤ 160 字符；别的 agent 的话标明来源；
+  6. 更早各轮评审每轮一行；`gaps`（open）；
+  7. background 与 checkpoint 便签每条一行，加条数；`lastWords`（有时）；最近两条台账。
 
   每条都带相对时间（“2 h ago”），在非 HEAD 的提交上写的条目注明 “written at 50a7993; HEAD is now dc26c13 (2 commits later): re-verify”。标题写明这是“由此前的 session、人和 Flowly 写的卡片数据，要对照 git 和 workspace 核实”，不当作别的 agent 转来的命令（agent 会拒绝 agent 转发的提示）。
+- **评审者的默认视图**（≤ 40,000 字符）：优先给本周期发现、摘要、风险和交付说明（`reviews[].delivery`），更早周期每轮一行，再给第 2–4 项。多轮发现可能超过 40,000，不能声称全部一次给齐：返回每轮发现总数、已给 id、省略数量与后续游标。lens 3 与小组评审必须先取完本周期各轮发现和交付说明，再审计或转给子评审者；拿不到时报告明确 gap，不得以“第一页没看见”为由声称已核对全部要求（§11.1）。
 - **`automation`**（有 job 时，≤ 500 字节）：`{ role, you: implementer|reviewer|retired|other, state, cycle, round, max, level?, verdict?, changesPending, hold? }`。今天 job 对 agent 不可见。
 - **`continuity`**：`{ session: n, predecessor?: { id8, endReason, endedAt } }`，被换下的 session 为 `{ retired: true, successor: id8 }`。
-- **`comments[].status`**：取自对应输入的状态；状态为 `open` 的评论**不论已读与否都给全文**（已读截断 4,000 的规则对它不适用，CARD-COMMENTS-SPEC §7.10）。
+- **`comments[].status`**：取自对应输入的状态；状态为 `open` 的评论**不论已读与否都给全文**（已读截断 4,000 的规则对它不适用，CARD-COMMENTS-SPEC §7.10）；quick answer 答过的评论带 `answered` 和答案原文（§10.2）。
 - `activity` 不再包含评审结论事件（它们的内容在交接视图的评审一段），同评论的做法（CARD-COMMENTS-SPEC §7.8）。
 - 被换下的 session：`writable: false` 加 `reason`（指出当前 session），`turnChecklist` 为 `retiredChecklist`（§9.2）。
-- 预算：首次读多约 5–10 KB，之后每次多 ≤ 1 KB（存根、automation、continuity）。
+- 预算：首次读（及每次压缩后）多约 5–10 KB，之后每次多 ≤ 1.5 KB（存根与 headlines、automation、continuity）。
 
 ### 5.10 脱敏、隐私与时效
 
 - 对 Flowly 写入或提取的所有文字（输入、便签、lastWords、锚点、骨架、检索结果）和 agent 的写入做一次脱敏：`Bearer …`、`sk-…`、`ghp_/gho_/github_pat_`、`xox[abp]-`、`AKIA…`、JWT、PEM 私钥、`Authorization:` 头、`token=`/`password=` 查询参数、URL 里的用户信息。改过的条目标 `redacted: true`。
-- 人的原话只给本卡的 session（含评审者，它们今天也看得到评论）和抽屉；**从不**进入别的卡的链接 handoff、子卡说明或导出。父卡只看到子卡的 `state` 和未决数（§11.5）。
+- 人的原话（含 standing 的长期指示）只给本卡的 session（含评审者，它们今天也看得到评论）和抽屉；**从不**进入别的卡的链接 handoff、子卡说明或导出。在卡片树里传递的是 agent 自己写的 `state`、`pitfalls` 和 Flowly 的 incident / hazard 便签（§11.5、§11.6）；skill 因此要求把人的长期指示标为 standing，而不是抄进 pitfalls（否则它要么被剥掉而丢失，要么破坏这条规则）。父卡的 standing 指示能否原文传给子卡不在本次扩大传播范围；父卡 agent 把相关约束明确写入子卡说明，并引用父卡指示来源。
 - 文件 0600，随卡删除。
 
 ## 6. 轮换过程（状态机的改动）
@@ -342,18 +396,23 @@ session 消失、被归档、崩溃（没有回合结束）、中毒或达到 20
 instruction.kind?: start|again|nudge|retry|cooldown|host_retry|changes|round|wake|comment|requested|finalize
 instruction.verbatim?: true                       // 人的原文（路由的评论）：不带 [Flowly automation] 前缀
 sessions?: { implementer?: SessionMeta, reviewer?: SessionMeta }
-  SessionMeta { agentId, n, since, reason, turns, firstC?, lastTurnStartAt?, lastTurnEndAt?, lastOutcome?,
-                measured?: { at, C?, W?, B?, K? }, ttl?: "1h"|"5m"|"openai"|"unknown", run?: string }   // run：插件进程的启动 id
+  SessionMeta { agentId, n, since, reason, turns, C0?, peakC?, lastTurnStartAt?, lastTurnEndAt?, lastOutcome?,
+                measured?: { at, C?, W?, B?, S?, K? }, ttl?: "1h"|"5m"|"openai"|"unknown" }
 rotation?: { id: "rot:<taskId>:<generation>:<role>:<n>", role, from, trigger, forced, boundary: tight|other|forced,
-             phase: finalizing|sealing|creating, carry: { kind, text, fresh, reviewDelivery?, verbatim? },
+             phase: finalizing|sealing|creating, carry: { id, kind, text, fresh, reviewDelivery?, verbatim? },   // id：被延后的指令自己的 id
+             prevMeta?: SessionMeta,                  // 回滚时还原 sessions[role]
              finalize?: { instructionId, sentAt?, turnStarted? }, facts: { C?, W?, B?, K?, idleMin?, ttl? }, at }
-retired?: { agentId, role, n, at, reason }[] ≤50  // 被换下的执行者与评审者（与板上事务原子写入）
-rotations?: { soft, forced, bytes }               // 本次运行
+rotationAbandoned?: { instructionId, at }         // 回滚过的指令：对它的软决定一律保持（§6.4）
+retired?: { agentId, role, n, at, reason }[] ≤50  // 被换下的执行者与评审者（与板上事务原子写入；queueIn 照带）
+rotations?: { soft, forced, bytes }               // 本次运行；bytes 含 R0 的 ≥ 200 MiB 与 R1
+cycle?: int                                       // 评审周期：新 generation 与 reopened 后的评审开始时加一（§5.2 reviews.cycle）
+launchModel?: { provider, model, mode?, thinking? } // 开工时人选的模型，消费 launch 文件时记下，所有执行者接班者都用（§3.4）
 rotateRequested?: { at }                          // 人点了 Continue in a fresh session
-retiredTurn?: { agentId, at }                     // 被换下的 session 正在回合中：Flowly 暂扣对本卡的发送
-checkpoint?: { agentId, reason, at, steered? }
+retiredTurn?: { agentId, at }                     // 被换下的 session 正在回合中：Flowly 暂扣对本卡的发送（提示性，§6.5）
+checkpoint?: { agentId, reason, at, steered? }    // 只对执行者与收尾中的 session
+silentSince?: { agentId, at }                     // §4 的沉默信号
 hold?: "history_runaway"
-pendingInputs?: string[] ≤20                      // 轮换期间到达的输入 id
+pendingInputs?: string[] ≤20                      // 等着随下一条指令送达的输入 id（§10.1）
 ackDue?: { agentId, since }
 historyWarning.level?: "large" | "critical"
 handoffGaps?: string[] ≤5
@@ -361,32 +420,40 @@ handoffGaps?: string[] ≤5
 
 `reviewers`（≤ 20）照旧写入，旧版本的行为不变。提高它的上限会让旧版本解析失败，所以另设 `retired`（≤ 50）；守卫同时读 `retired`、`reviewers`、交接台账和 label（§9.1），没有 20 条的断崖。
 
+`queueIn()` 新建 job 时只带选定的字段（`automation.ts:244-265`），所以要加上：`retired`（截到 50）、`cycle`、`launchModel`，以及执行者被保留时（Run again in session #n、父卡的 `action=start`）的 `sessions.implementer`（没有它，回合数、C₀、空闲时间和 TTL 都丢了，软规则判不了）。
+
 ### 6.2 阶段
 
 | 步骤 | 做什么 | 事件 |
 | --- | --- | --- |
-| 0 决定 | 在 `send()`、`begin()`、`wake()` 或评论路由里：刷新快照，测量（§2），`rotationDecision`，结果缓存在指令上。 | — |
+| 0 决定 | 在 `send()`、`begin()`、`wake()` 或评论路由里：刷新快照，测量（§2），`rotationDecision`。软决定缓存在指令上；R0、R1 每次发送尝试都重判。 | — |
 | 1a 收尾（满足条件时） | 一个事务里：`rotation = { phase: finalizing, carry: 当前指令 }`，`instruction = { kind: finalize, text: finalizePrompt }`。发送规则同任何指令：本 session 和对方角色都空闲，稳定的 messageId。 | `automation_handoff_requested`（“Asked session #2 to update the handoff before a fresh session takes over: context 68% of 475k”） |
-| 1b 收尾回合 | `from` 开始回合时：不适用 A1、不算接管、不重开。这个回合里除 `flowly_update_handoff`、`flowly_get_task`、`flowly_session_history`、`flowly_report_progress kind=progress` 之外的卡片写入返回 `FINALIZING`（“Only update the handoff in this turn; the card continues in a fresh session”），所以不会出现收尾回合里的交付。回合结束（任何结果）→ 封存；本回合里这个 agent 提高了交接 revision 就记 `finalized: true`。回合里 HEAD 或未提交文件变了 → Flowly 记一条便签，照常继续。不做 `turnDecision`（不提醒、不判交付）。 | — |
-| 1c 收尾没发生 | 发出 10 分钟后 session 空闲且没开始回合（经已有的漏钩子恢复判断）、或 session 消失 → 以 `finalized: false` 封存。收尾回合**正在跑**时从不打断；20 分钟时记一次便签 “The handoff turn is taking long”，继续等。接班者在 `from` 还在跑时永远不会被创建（步骤 3 的暂扣）。 | — |
-| 2 封存 | 先写交接文件（以 `rotation.id` 为键，重放不改变任何东西）：台账条目（`endReason`、测量值、`finalized`、`handoffRevisionAtEnd`、后台条目、未用的 next moves 标签）、封存快照、`git`。**然后一个看板事务**：`from` 推入 `retired`（评审者同时用 `retireReviewer` 记入 `reviewers`），删除 `implementerId`（或 `reviewerId`），`phase: creating`，`instruction = successorMessage(carry, …)`（§7.2），先记 `pendingOp` / `pendingRole`（同今天），执行者设 `ackDue`。 | — |
-| 3 创建 | 已有的 `create()` 路径：prepared op → 稳定的 agentId、idempotencyKey、`exists()`、Full access、labels；preparation 带连续性说明（§7.1）。本卡任一被换下的 session（最新 5 个）在跑、初始化、回合中或等权限时暂扣，指令留着，15 秒的派发再试。 | — |
-| 4 提交 | 接班者被确认（第一个回合开始或创建确认）：删除 `rotation`；`sessions[role] = { n+1, reason }`；播种已读（§7.4）；把 `from` 在 Flowly 输入框队列里的条目改到新 agentId；`from` 未用的 next moves 在卡面上隐藏（标签已在台账）；只在异常结束或 B ≥ 64 MiB 时排队建骨架（其它情况按需）。 | `automation_rotated`（note：原因、测量值、“handoff updated in a handover turn” 或 “handoff not updated: <why>”） |
+| 1b 收尾回合 | `from` 开始回合时：不适用 A1、不算接管、不重开。这个回合里允许 `flowly_update_handoff`、`flowly_get_task`、`flowly_session_history`、`flowly_report_progress kind=progress`、workpad 的验证与验收项（`flowly_update_workpad`，不改 plan）和 `flowly_add_artifact`：这些是记账，不是交付，最后一刻的测试结果要能带着 SHA 进 workpad。status、type、tags、idea、卡片管理返回 `FINALIZING`（“Only record in this turn; the card continues in a fresh session”），所以不会出现收尾回合里的交付。`from` 的每个回合结束（钩子或对账恢复的，任何结果）都在 `judgeTurnEnd` 里先于 `turnDecision` 交给封存：不提醒、不判交付；本回合里这个 agent 提高了交接 revision 就记 `finalized: true`。回合以 provider 限额结束 → 封存，接班者用备用模型（§6.3）。回合里 HEAD 或未提交文件变了 → Flowly 记一条便签，照常继续。 | — |
+| 1c 收尾没发生 | 发出 10 分钟后 session 空闲且没开始回合（经已有的漏钩子恢复判断，封存前再 `refresh()` 一次：在初始化或回合开始中就继续等）、或 session 消失 → 以 `finalized: false` 封存，按 §5.8 (c) 补叙述。收尾回合**正在跑**时从不打断；20 分钟时记一次便签 “The handoff turn is taking long”，继续等。封存之后才开始的收尾回合（按 messageId 认出）仍可写交接的全部各段，条目注明 “late handover from session #2”；它在跑时照样暂扣接班者（步骤 3），Flowly 再派发前会复查它是否仍在跑；宿主迟到消息仍可能在接班者启动后唤醒它，因此这不是进程互斥锁。 | — |
+| 2 封存 | 先写交接文件（以 `rotation.id` 为键，重放不改变任何东西）：台账条目（`endReason`、测量值、`finalized`、`handoffRevisionAtEnd`、后台条目、未用的 next moves 标签）、封存快照、`git`。**然后一个看板事务**：`from` 推入 `retired`（评审者同时用 `retireReviewer` 记入 `reviewers`），删除 `implementerId`（或 `reviewerId`），`rotation.prevMeta = sessions[role]`，`phase: creating`，`instruction = successorMessage(carry, …)`（§7.2），先记 `pendingOp` / `pendingRole`（同今天），执行者设 `ackDue`。`nudges`、`failures`、`cooldowns` 清零（同 `switchToFallback`，`automation.ts:637-639`；今天的 `rotate()` 不清）：接班者从没经历过那些回合，带着计数它一次普通失败就会用完预算、让卡片进 Blocked。 | — |
+| 3 创建 | 已有的 `create()` 路径：prepared op → 稳定的 agentId、idempotencyKey、`exists()`、Full access、labels；preparation 带连续性说明（§7.1）；执行者用 `launchModel`（§3.4）。本卡任一被换下的 session（最新 5 个）在跑、初始化、回合中或等权限时暂扣，指令留着，15 秒的派发再试。 | — |
+| 4 提交 | 接班者被确认（第一个回合开始或创建确认）：删除 `rotation`；`sessions[role] = { n+1, reason }`；播种已读（§7.4）；把 `from` 在 Flowly 输入框队列里的条目改到新 agentId；`from` 未用的 next moves 在卡面上隐藏（标签已在台账）；按 §5.8 排队建骨架（其它情况按需）。 | `automation_rotated`（note：原因、测量值、“handoff updated in a handover turn” 或 “handoff not updated: <why>”） |
 | 5 确认 | 接班者的第一个回合，每个 Flowly 工具结果都提醒确认接手，直到确认（§7.5）。 | `handoff_acknowledged`（“Session #3 acknowledged: 6 items, 1 question”） |
 
-**收尾条件**（全部满足）：软触发（R1 < 128 MiB、R2、R3、执行者的 R5），不是评论边界（有人在等）；session 热（I < TTL）；已加载（它最后一个回合在本插件进程运行期间结束：`sessions[role].run` 等于当前运行 id；daemon 重启后给它发消息会让 Paseo 整个加载历史）；最后一个回合正常完成；记录过期（§5.5）；B < 128 MiB。
+**收尾条件**（全部满足）：触发是 R1、R2、R3 或执行者的 R5（R4 已冷，R0 不收尾）；session 热（I < TTL）；B < 64 MiB，或已加载（§2 的 L）且 B < 200 MiB：只有实测证实该路径不会重新加载历史时才可向 64–200 MiB 的已加载 session 收尾；能力未证实时仍按 64 MiB 上限，不能仅靠快照状态推断安全；最后一个回合不是中毒失败，provider 不在限额或冷却中；记录过期（§5.5）。评论边界也按相同条件收尾：紧密评论也可能因 R1 或 L_tight 触发，非紧密评论可能因 L_cold 触发；预计多等 1–3 分钟，客户端写 “Session #2 is updating the handoff; your comment goes to the fresh session next”。插件的运行 id 不再用作“已加载”：每次 `paseo plugin reload` 都会让所有 session 看起来未加载，而 daemon 其实还在内存里拿着它们。
+
+不收尾的轮换（冷、未加载的大 session、中毒、限额）由 §5.8 的叙述、后台清单和骨架补；冷 session 不收尾是用信息换钱，列在 §16.1 与 §19。
 
 收尾说明（daemon 英文）：
-> `[Flowly automation] Before a fresh session continues this card (<reason>), bring the card's handoff up to date with flowly_update_handoff: state, next (ordered), decisions and ruled-out approaches with reasons, open problems, pitfalls, what is still running (async shells, exec sessions, browser tabs, scripts, sub-agents: how to check or stop each; stop only those whose result is already on disk), where things are, and environment facts. Do not change files or the card's status and do not start new work; end your turn after the write. If a notification wakes you later, record what it said with flowly_update_handoff (note) and end your turn.`
+> `[Flowly automation] Before a fresh session continues this card (<reason>), bring the card's handoff up to date with flowly_update_handoff: state, next (ordered), decisions and ruled-out approaches with reasons, open problems, pitfalls, what is still running (async shells, exec sessions, browser tabs, scripts, sub-agents: how to check or stop each; stop only those whose result is already on disk), where things are, and environment facts. You may also record validation results in the workpad and register output files as artifacts. Do not change files or the card's status and do not start new work; end your turn after the write. The fresh session's first instruction will be: «{carry, first 1,500 characters}». Note in next how to approach it; do not start it here. If a notification wakes you later, record what it said with flowly_update_handoff (note) and end your turn.`
+
+收尾说明带上被延后指令的开头，让旧 session 能在 `next` 里写怎样做它；这也是降级时的退路（§15.1）。
 
 ### 6.3 强制轮换
 
 - 备用模型、中毒、≥ 200 MiB 跳过步骤 1，直接封存。`switchToFallback`（AUTOMATION-SPEC §4.5）和今天的 `rotate()`（§4.6）都改为调用同一个 `beginRotation(job, role, reason, { finalize })`；`takeoverNote` 与 `rotationNote` 缩成指向连续性说明的一句。
-- 被归档的执行者仍是 `failed` / `session_unavailable`，加上封存和 incident 便签；不自动继续，因为崩溃需要人。人的 Run again 再用记录开新 session。
+- **后续指令不原样带过去**：提醒、重试、冷却与宿主重试的文字（“The last turn failed … (attempt 2 of 2)”、“reminder 1 of 2”）说的是接班者没经历过的回合。carry 改为 `startPrompt(again:true)`，加上那条后续所跟的指令还没完成的内容（`job.changes`、唤醒列表、本轮的 `reviewPrompt`）和待办输入。
+- **创建中再遇到限额**：`creating` 阶段的创建被 provider 限额拒绝时（`create()` 在 RPC 之前已把 `implementerId` 设成准备好的 agentId，`automation.ts:1057`），这是同一次轮换换了模型：保留 `rotation.id` 与 carry，不为从没建成的 agent 写台账或 `retired`（今天 `switchToFallback` 的 `keep: !!pendingOp`），计为强制。不嵌套第二次轮换，successorMessage 也不会套一层。
+- job 运行中被归档的执行者仍是 `failed` / `session_unavailable`，加上封存和 incident 便签；不自动继续，因为崩溃需要人。人的 Run again 再用记录开新 session（R0 只对评审者和 `starting` 生效，§3.3）。
 
 ### 6.4 回滚
 
-- **软触发**的创建明确失败（不是未知结果）、启动重试预算用完时（今天 `start_failed` 会让 job 失败）：重新采用 `from`：角色 id 改回 `from`，从 `retired` 移除，`instruction = carry` 作为 `text` 发给它；删除 `rotation`，记 `automation_rotation_abandoned`（“The new session could not be started; the implementer continues in its previous session”）。旧 session 是健康的，job 不必失败。
+- **软触发**的创建明确失败（不是未知结果）、启动重试预算用完时（今天 `start_failed` 会让 job 失败）：重新采用 `from`，一个事务里：角色 id 改回 `from`，从 `retired` 移除，`sessions[role] = rotation.prevMeta`，删除 `ackDue`，`instruction` 用 carry **原来的 id**（`carry.id`）恢复，记 `rotationAbandoned = { instructionId }`，所以下一次 `send()` 对它的软决定是保持，不会再轮换、再失败地循环；删除 `rotation`。交接文件里撤销封存：台账条目清掉 `endedAt` / `endReason` 并记 `abandoned: rotation.id`，封存快照标为 abandoned。记 `automation_rotation_abandoned`（“The new session could not be started; the implementer continues in its previous session”）。旧 session 是健康的，job 不必失败。
 - **强制触发**不回滚，走今天的失败处理；**未知结果**不回滚（接班者可能已存在），照今天进入 `needs_human`，`rotation` 保留。
 
 ### 6.5 幂等与对账（补充 AUTOMATION-SPEC §4.4）
@@ -396,10 +463,11 @@ handoffGaps?: string[] ≤5
 | `finalizing`，指令还没发出 | 用同一个指令 id 发出。 |
 | `finalizing`，已发出，3 分钟没有回合开始，session 空闲 | 已有的恢复（session 的 error / attention 状态）判断是否有回合结束；没有则按 1c。 |
 | `finalizing`，回合在跑 | 等。 |
+| `finalizing`，回合开始过，快照显示 session 空闲，没有收到回合结束 | 当作回合结束：封存（`finalized` 看它有没有提高交接 revision）。不交给 `turnDecision`，否则会提醒收尾中的 session 或把 job 设为 `needs_human`，轮换卡在 finalizing。 |
 | `finalizing`，session 归档、消失或 ≥ 200 MiB | 不收尾，直接封存。 |
 | `sealing` | 台账里已有 `rotation.id` 就只做看板事务，否则先封存。 |
 | `creating` | 已有的 `pendingOp` 路径：同一个 op、同一个 agentId；未知结果 → `unconfirmedStart` 与 `needs_human`（今天的做法）；`rotation.carry` 一直保留，不丢、不盲发。 |
-| `retiredTurn` 超过 6 小时没有回合结束 | 清除（同 `subCardActive` 的 6 小时上限）。 |
+| `retiredTurn` | 只是提示：每次据它暂扣之前用 `refresh()` 核实（running、activeTurn、pendingPermissions，同对方忙检查），快照显示空闲就清除。插件重载丢了被换下 session 的回合结束钩子时，不会把本卡的发送暂扣 6 小时。 |
 | `starting` 的 job 带着 `rotation`（Run again 时先收尾） | 今天“`starting` 超过 2 分钟没进展就重新 prepare”的过期启动恢复不适用，按上面各行处理。 |
 
 - 每个事务都以 `current()` 为门：同一 generation、角色、指令 id、job 活着、`automationAllowed`。Stop、归档或人的接管取消轮换；台账条目保留，旧 session 仍是 Run again 能选的“上一个 session”。
@@ -411,8 +479,8 @@ handoffGaps?: string[] ≤5
 | # | 通道 | 内容 | 预算 |
 | --- | --- | --- | --- |
 | 1 | system prompt（创建时固定，利于缓存） | 已有的 `workingInstructions(sessionContext)`；受监督时一行自动化标记；卡片有过 session 时的**连续性说明** | 标记 ≤ 200，说明 ≤ 2,500 字符 |
-| 2 | 首条用户消息 | 自动化边界：`[Flowly automation]` 加原因、要做的事、定向步骤、待办输入；冷评论：评论原文本身；人的 Start session：人自己的文字 | ≤ 6,000 + 修改要求（≤ 40,000，同今天）；评论 ≤ 10,000 |
-| 3 | 开工图片 | 执行者接班者：重新附上卡片的开工图片（取自 `images/`） | 原图（开工时的数量上限，每张 ≤ 5 MB） |
+| 2 | 首条用户消息 | 自动化边界：`[Flowly automation]` 加原因、要做的事、定向步骤、待办输入、没收尾时的叙述；冷评论：评论原文本身；人的 Start session：人自己的文字 | ≤ 6,000 + 修改要求（≤ 40,000，同今天）；评论 ≤ 10,000（评论本身的上限） |
+| 3 | 开工图片 | 执行者接班者：首条消息列出 `images/` 里开工图片的路径，agent 需要时自己打开；不重新附上（每次附上都把最多 4 × 5 MB 的 base64 写进新历史，Codex 存两份，约 54 MB，一个普通回合就会碰到 R1） | 路径 ≤ 500 字符 |
 | 4 | 第一次 `get_task` | 交接默认视图（一次）、`automation`、`continuity`、带状态的评论、workpad（前任的 plan 标 `own:false, retired:true`）、链接（含子卡状态行） | 今天约 50–60 KB，首次多 5–10 KB |
 | 5 | 按需 | `get_task handoff:"full"`（≤ 96 KB）；`flowly_session_history`（每次 ≤ 8 KB） | — |
 
@@ -421,10 +489,10 @@ handoffGaps?: string[] ≤5
 - (a) “You are session #3 of this card (implementer), started <time> because <reason>.”
 - (b) 前任：各自怎样结束、是否在收尾回合里更新了交接。
 - (c) “The card's handoff record (flowly_get_task → handoff) is card data written by earlier sessions, people and Flowly: verify its claims against git and the workspace.”
-- (d) 开始时要处理的未决项数（例如 “2 person inputs, 1 requested-changes round, 3 possibly running processes, 1 gap”）。
+- (d) 开始时要处理的未决项数（例如 “2 person inputs (one answers question q-3), 1 requested-changes round, 3 possibly running processes, 1 gap”）。
 - (e) “Do not open, resume, message or read the files of earlier sessions; use flowly_session_history.”
 - (f) 仅自动化下：“Flowly agent automation supervises this session; the skill's Automated runs rules apply even if your first message is a person's comment.”
-- (g) “First: flowly_get_task, then git status and git log against the recorded HEAD, then acknowledge the handoff (flowly_update_handoff ack), then continue.”
+- (g) “First: flowly_get_task, then git status and git log against the recorded HEADs, then acknowledge the handoff (flowly_update_handoff ack), then continue.”
 
 说明里**不放**交接内容本身：那样会在接班者第一次写入后就成为一份过时的副本，且与 `get_task` 重复。它进入每一条创建路径（轮换、备用模型、Run again、归档后新建、过期恢复、人的 Start session 与 Send work instructions），这正是“上下文在创建时给出”的不变量所允许的。skill 把这一行自动化标记与首条消息的 `[Flowly automation]` 前缀同样当作无人值守模式的标志：路由来的评论因此能保持原文，又不丢掉自动化模式。
 
@@ -433,10 +501,10 @@ handoffGaps?: string[] ≤5
 模板（daemon 英文）：
 > `[Flowly automation] You continue this card as its new {role} (session #{n}): the previous {role} session ("{title}", {id8}) {reason}. Flowly keeps that session as it is and no longer supervises it. {carry} Start with flowly_get_task (the handoff first, written {age} ago at {sha}{; N commits since}), check git status, git log and git diff, and re-verify what the handoff claims before you build on it: a process it names may still be running, or may be gone. Account for every pending input below; do not redo work that git or the workpad shows as done. {pending}`
 
-- 原因句带数字：`history` “grew a 70 MB provider history, too large for Paseo to load safely”；`context` “had filled 68% of its context window (322k of 475k tokens); its next turn would likely compact it and lose detail”；`idle_cold` “had been idle for 7 h with 310k tokens of context, so its prompt cache had expired”；`compacted`；`run_again` “ended its run, and a person chose Run again”；`poisoned` “failed with an error that repeats in the same session: …≤200”；`fallback`；`archived`；`requested` “a person asked for a fresh session”；`new_cycle`（评审者）。
-- `{carry}` 是被延后的指令：修改要求全文（同今天的 `job.changes`）；唤醒列表；评审者本轮的 `reviewPrompt`（绑定 `reviewDelivery`）；Run again 的继续说明（`startPrompt(again:true)`）；外加父卡反馈、依赖 handoff 和父卡集成分支（`begin()` 的追加，不变）。主动的指令放在前面：只有背景、没有指令时模型会闲着或只叙述（Hermes #100818）。
-- `{pending}`：未处理输入的 id 和首行，≤ 2,000（全文在 `get_task` 里）。
-- 只在 §5.8 的兜底情形：“Last words of the previous session (unverified): …” ≤ 2,000。
+- 原因句带数字：`history` “grew a 70 MB provider history, past Flowly's conservative rotation threshold”；`context` “had filled 68% of its context window (322k of 475k tokens); its next turn would likely compact it and lose detail”；`idle_cold` “had been idle for 7 h with 310k tokens of context, so its prompt cache is estimated to be cold”；`compacted`；`run_again` “ended its run, and a person chose Run again”；`poisoned` “failed with an error that repeats in the same session: …≤200”；`fallback`；`archived`；`requested` “a person asked for a fresh session”；`new_cycle`（评审者）。
+- `{carry}` 是被延后的指令：修改要求全文（同今天的 `job.changes`）；唤醒列表；评审者本轮的 `reviewPrompt`（绑定 `reviewDelivery`）；Run again 的继续说明（`startPrompt(again:true)`）；外加父卡反馈、依赖 handoff 和父卡集成分支（`begin()` 的追加，不变）。后续指令换成继续说明（§6.3）。主动的指令放在前面：只有背景、没有指令时模型会闲着或只叙述（Hermes #100818）。
+- `{pending}`：未处理输入的 id 和首行，回答问题的写 “d-12 answers q-3: <question>”；未答的问题；≤ 2,000（全文在 `get_task` 里）。
+- §5.8 的情形（没收尾就封存而记录落后，或跟在异常回合之后）：“What session #2 said since its last handoff write (unverified narration): …” ≤ 2,000。
 - `begin()` 的从头开始的 `fresh` 只用于卡片没有台账、没有更早 job 的情形（修复 `automation.ts:835`：今天 Run again 遇到已归档的执行者时，新 session 被告知“从头到尾”做，没有交接）。
 
 ### 7.3 冷评论与人开的 session
@@ -453,14 +521,14 @@ handoffGaps?: string[] ≤5
 在接班者的第一次交接写入里：
 
 ```
-ack: { handoffRevision, head: { sha, dirty },        // git rev-parse --short=12 HEAD / git status
+ack: { handoffRevision, heads: { repo, sha, dirty }[],   // 每个仓库：git rev-parse --short=12 HEAD / git status
        understanding: ≤800,                           // 用自己的话说现状和第一件要做的事
        items: { id, disposition: doing|done|obsolete|ask, note? ≤300 }[],
        questions?: string(≤300)[] ≤5 }
 ```
 
-- 要处置的只有：状态为 `open` 的输入、最近一次修改要求里未完成的发现、未结束的 `running` 和未关闭的后台条目、open 的 gaps。`received` 的人的话、`problems` 等不要求逐条处置，避免把确认变成清单负担。
-- 机械核对：`head.sha` 与 Flowly 自己读的不一致 → `ACK_MISMATCH`（给出 Flowly 的值，本次写入不记录，改了重发即可）；漏掉的 id → 已给的照常记录，回执的 `ackMissing` 列出其余，确认在全部处置后才算完成；`done` 与 `obsolete` 需要 `note`。
+- 要处置的只有：状态为 `open` 的输入、open 的问题、最近一次修改要求里未完成的发现、未结束的 `running`、未关闭与 `unknown` 的后台条目（含 §5.8 的 “no inventory available” 条目）、open 的 gaps。`received` 的人的话、`problems` 等不要求逐条处置，避免把确认变成清单负担。
+- 机械核对：每个仓库的 `sha` 与 Flowly 自己读的不一致 → `ACK_MISMATCH`（给出 Flowly 的值，本次写入不记录，重新检查仓库并读实际值后重发；不能只照抄错误提示）；Flowly 读不到 HEAD 的路径（不是 git 仓库）不核对，所以不在 git 里的项目根不会每次都被拒；漏掉的 id → 已给的照常记录，回执的 `ackMissing` 列出其余，确认在全部处置后才算完成；`done` 与 `obsolete` 需要 `note`。
 - 效果：处置更新对应条目（记下 note 与 session）；`ask` 加提醒“问人（question）”；`questions` 成为 gaps（by successor），卡片上看得到；`understanding` 显示在抽屉里，人一眼能看出新 session 理解得对不对。记录指标：确认用时、首次完整与否、第一次提交的用时。
 - 交付门是软的（§5.5）：没确认就交付第一次被拒，带 `acknowledgeOpen=true` 的重试通过，不会卡死在循环里。不用 LLM 打分。
 
@@ -468,12 +536,12 @@ ack: { handoffRevision, head: { sha, dirty },        // git rev-parse --short=12
 
 ### 8.1 骨架（`server/session-history.ts`，P2）
 
-- 从不使用：`fetch_agent_timeline`、Paseo 的聊天搜索、发送、刷新历史、恢复、`syncNative` 清 attention、session 预览。它们都会让 Paseo 整个加载历史（Codex `thread/read includeTurns:true` 作为一行读回；Claude `readFileSync` 主转录和全部子代理文件）。
-- 何时建：按需（第一次检索时）；异常结束（§5.8）或 B ≥ 64 MiB 的 session 在被换下时建，因为那时需要体积构成和崩溃中途的人的话。其它情形不建，避免为不常用的恢复路径在 daemon 主机上做 IO。
+- 从不使用：`fetch_agent_timeline`、Paseo 的聊天搜索、发送、刷新历史、恢复、`syncNative` 清 attention、session 预览（§5.7 的补读只对已加载、B < 64 MiB 的 session 读内存 timeline 的尾部）。它们都会让 Paseo 整个加载历史（Codex `thread/read includeTurns:true` 作为一行读回；Claude `readFileSync` 主转录和全部子代理文件）。
+- 何时建：按需（第一次检索时）；以及 §5.8 的三种情形在被换下时（普通 session 几 MB，读一遍几秒）。收尾过、记录新的轮换不建，避免为不常用的恢复路径在 daemon 主机上做 IO。
 - 怎么读：自己的分块读取器，一次一个、低优先级、块之间让出事件循环；**超过 256 KiB 的行不缓冲直接丢弃**，只看每行前 512 字节判断类型，所以每行仍计入体积构成。1.18 GB 文件约 10–30 秒，内存峰值约 74 MB（研究时实测）。
 - 保留什么：Codex 的 `response_item` 用户与助手消息、工具名和截到 300 字符的参数、≤ 300 字符的错误；丢掉工具输出（`*_output`）、重复的 `event_msg item_completed`、图片和 `fileChange` 内容。Claude：主链文本块和可读的 `isCompactSummary` 文本；子代理文件只取文本，每个 ≤ 200 KB。
 - 产出：`{ordinal, at, role, text ≤2000, tool?}` 的 jsonl（脱敏，≤ 2 MB），以及锚点和体积构成。
-- 可选的快路径（P3，§19）：Codex 的 `thread_history_1.sqlite` `thread_items WHERE item_type IN ('userMessage','agentMessage')`，只读打开，读不了就退回流式。
+- 可选的快路径（P3，§19 的技术核实）：Codex 的 `thread_history_1.sqlite` `thread_items WHERE item_type IN ('userMessage','agentMessage')`，只读打开，读不了就退回流式。
 
 ### 8.2 工具 `flowly_session_history`（只读）
 
@@ -481,13 +549,13 @@ ack: { handoffRevision, head: { sha, dirty },        // git rev-parse --short=12
 
 ### 8.3 拿不回的
 
-Codex 的推理和压缩摘要是加密的；工具输出和图片有意不留。
+Codex 的推理和压缩摘要是加密的；工具输出和图片有意不留。被跳过的长行、被滚动窗口替换的叙述和骨架容量之外的消息同样可能拿不回：保留时间范围、跳过条数和容量裁剪计数，不把骨架叫作完整转录。
 
 ## 9. 被换下的 session
 
 ### 9.1 名单与识别
 
-一个 session 对卡 X 是**被换下的**：它在 X 的 job 的 `retired` 或 `reviewers` 里，或在 X 的交接台账里，或带 label `flowly-task=X` 和任一 `flowly-automation` 角色（`automation.ts:1104` 创建时设）；并且不是当前的 `implementerId` / `reviewerId`；并且 job 活着或 `delivered`。
+一个 session 对卡 X 是**被换下的**：它在 X 的 job 的 `retired` 或 `reviewers` 里，或在 X 的交接台账里且条目的 `role` 是 implementer / reviewer、`reason` 是自动化的原因，或带 label `flowly-task=X` 和任一 `flowly-automation` 角色（`automation.ts:1104` 创建时设）；并且不是当前的 `implementerId` / `reviewerId`；并且 job 活着或 `delivered`。人自己开的 session（抽屉的 Start session 等）也在台账里，但不算被换下：人在里面打字仍是今天的接管（`taken_over`）。
 
 - `retired` 与删除角色 id 在同一个看板事务里写入，所以崩溃不会留下“已换下但没记名”的 session（不依赖单独的注册文件）。
 - label 兜住升级之前被替换的 session（备用模型、历史过大的轮换）和超出名单上限的。回合钩子的 agent 只有 `{id, workspaceId, parentAgentId, provider, cwd, title}`，没有 labels；所以只在**少见的接管路径**上、在事务**之前**做一次 `refresh()` 读 label，再把结果带进事务（事务回调是同步的，不能在里面等 RPC）。label 不可变，按 agentId 缓存。回合开始钩子在 `store.mutate` 之前取得同一个结果，用于 A1 豁免。
@@ -503,18 +571,19 @@ Codex 的推理和压缩摘要是加密的；工具输出和图片有意不留�
 | next moves | 留着，点一个就唤醒它 | 卡面隐藏；session 视图里显示 “This session was replaced; send to session #3 instead” |
 | 第 21 个以后的评审者 | 失去保护 | `retired`、台账与 label 继续保护 |
 
-Stop automation 之后（job `stopped` 或 `failed`）守卫解除，它又是普通的管理 session：人要有意在旧 session 里接着做，就先 Stop。
+Stop automation 之后（job `stopped` 或 `failed`）守卫解除，它又是普通的管理 session。Stop 只对活着的 job 有（`automation.ts:284`、`client/automation-view.ts:60`），`delivered` 的 job 没有，所以被换下 session 的横幅和抽屉都有 **Continue in this session**（job 活着或 `delivered` 时）：关闭 job（`stopped` / `taken_over`，正是今天人在别的 session 里打字的结果），守卫随之解除；之后的 Run again 照常用记录。
 
 `retiredChecklist`（被换下的 session 读到的 `turnChecklist`，3 条）：
 1. “This session was replaced by session #3 (<id8>) on <time> (<reason>); the card's work continues there. Read flowly_get_task only for context.”
 2. “Do not change files, the card or its sub-cards. If you know something the new session needs (a background task's result, a fact), add it with flowly_update_handoff note, then end your turn.”
-3. “If a person here asks you to work on the card, tell them it continues in session #3 and that working here runs two sessions at once; follow their decision.”
+3. “If a person here asks you to work on the card, tell them it continues in session #3. Do not change files here until they choose Continue in this session on the card (that ends the automation run and lifts these limits); until then, record what they asked with flowly_update_handoff note.”
 
 ### 9.3 被换下的 session 的回合结束
 
-- 照 §5.7 捕获：人的话成为 `open` 输入（`via: retired_session`）；后台通知关闭对应条目并加一条 background 便签（首行、退出状态、≤ 600 字符的尾部，脱敏）。
+- 照 §5.7 捕获：人的话成为 `open` 输入（`via: retired_session`），别的 agent 的消息成为 `via: agent` 的输入；后台通知与 agent 通知关闭对应条目并加一条 background 便签（首行、退出状态、≤ 600 字符的尾部，脱敏）。
+- 每个回合另记一条 `retired_turn` 便签：它的最后一条 agent 消息（≤ 600）和这个回合里各仓库的 git 变化（HEAD 前后、未提交文件的 diffstat）。被换下的 session 可能照人的话回答了什么、改了文件，当前 session 必须知道，免得重做或覆盖；若它已经在运行，不能承诺通知会先于它的下一次文件写入到达。
 - 清除 `retiredTurn`。然后：
-  - job `working`、当前 session 空闲、没有待发指令 → 发 `[Flowly automation] Since your last turn: <the replaced session's background task finished | a person wrote in the replaced session>; see the handoff (inputs d-12, notes nt-4).`，`kind: wake`，走 §3.3；
+  - job `working`、当前 session 空闲、没有待发指令 → 发 `[Flowly automation] Since your last turn, replaced session #1 <ran a turn: its background task finished | a person wrote to it | another agent messaged it>; it said: "…≤600"; files changed: <diffstat | none>. See the handoff (inputs d-12, notes nt-4).`，`kind: wake`，走 §3.3；
   - job `delivered` 或 `needs_human` → 只记录，抽屉显示 “A person wrote in replaced session #1 (not handled)”，带 **Send to session #3**（发送原文，按 AUTOMATION-SPEC §4.2 重开）和 **Mark handled**。Flowly 不替人判断那是不是反馈。
 
 ### 9.4 后台任务
@@ -522,7 +591,7 @@ Stop automation 之后（job `stopped` 或 `failed`）守卫解除，它又是�
 Async shell 和 exec/PTY session 属于注册它的 session：`list_async_shells` 只列“你的”，通知只发给注册者，Flowly 不能改投。所以：
 1. **预防**（skill）：自动化下注册 async shell 必须同时写 `running` 条目（是什么、句柄、完成后做什么）；父卡不为子卡注册等待者（Flowly 会唤醒它，SUB-CARDS-SPEC §5）；收尾回合里停掉结果已落盘的，其余列出来。
 2. **机械捕获**：timeline 里的注册与取消自动更新台账（§5.7）。
-3. **通知捕获**：§9.3，加上被换下 session 自己的便签。
+3. **通知捕获**：§9.3（async-shell 通知与 `<paseo-system>` 的 agent 通知；子 agent 完成可关闭，schedule / heartbeat 的一次触发不关闭周期任务），加上被换下 session 自己的便签。
 4. 接班者的确认要求处置每个未结束条目：检查、自己重新注册一个，或标为 obsolete。
 
 Flowly 看不到的进程（裸 `nohup`、浏览器标签以外的东西）只有 agent 写了才保留，是已知缺口；接班者被要求用 `ps`、锁文件核实。被换下 session 的显示：Flowly 的 session 视图有横幅 “Replaced: handed over to session #3 at 05:00; messages here are recorded on the card”；若 SDK 允许改标题，加 “(replaced)” 前缀（§19）。
@@ -533,10 +602,22 @@ Flowly 看不到的进程（裸 `nohup`、浏览器标签以外的东西）只�
 
 ### 10.1 自动化卡（job 活着、`delivered` 或 `needs_human`），`auto`（默认 To: “Card's agent (Flowly picks warm or fresh)”）
 
-1. **轮换或创建进行中**（有 `rotation`、`pendingOp`，或该角色有未发出的指令）：不发送，记入 `pendingInputs`。接班者正是为这条评论建的 → 它就是首条消息；其余在接班者首条消息里按 id 和首行列出，`get_task` 里未读全文。客户端提示 “Session #3 is starting: your comment is part of its first instructions.” 之后不再发送（不会执行两次），也从不发给 `from`。
-2. **执行者在跑**：按人的 When running 偏好（steer / queue / interrupt），同今天。
-3. **执行者空闲**：`rotationDecision`（`kind: comment`，其它边界）。保持 → 发原文。轮换 → **不收尾**（有人在等）；建新 session，**首条消息就是评论原文**，自动化标记在 system prompt；`delivered` 的 job 先设为 `working` 并 `reopened`（与今天 `turnStarted` 的效果相同）。发送失败不算回合失败：job 回到原状态，客户端显示 “Saved on the card; not delivered” 与 Resend。
-4. **已停止或失败的 job**：同今天，发给活着、未被换下的执行者，否则只记录；不重启自动化。
+评论发给执行者。今天的 `send()` 只在 `starting`、`working`、`reviewing` 时发（`automation.ts:979`），`current()` 还要求 `job.role` 等于指令的角色（`:950`），`apply()` 在评审者回合结束时删掉 `job.instruction`（`:479`）：把评论塞进 `job.instruction` 会在 `needs_human`、`reviewing` 等状态里悄悄丢掉。所以评论有自己的转移，三条原则：
+
+- **保持 → 直接发送**：原文直接发给执行者 session，与人在 session 里打字完全一样：不经 `job.instruction`、不改 job，messageId 记下供 §5.7 过滤。状态转移由 `turnStarted` 照今天做：`needs_human` / `retry_wait` / `waiting` → `working`；`reviewing` → `reviewPause`（需要时）加 `reopened`；`delivered` → `reopened`。
+- **轮换 → 路由事务先做同样的转移**：旧 session 不会开回合，`turnStarted` 不会发生，所以事务自己做它对这个状态会做的转移，再设执行者的 `comment` 指令（`verbatim`）。从不覆盖另一角色的指令。
+- **待办随下一条指令走**：`pendingInputs` 里的评论在这个执行者的下一条指令发出时（发给原 session，或作为接班者的首条消息）原文附上：“A person commented on the card meanwhile: …”。评审轮结束后若没有执行者的指令（批准 → `delivered`），它们作为一条 `comment` 指令按本节重新路由。
+
+| job | 做什么 |
+| --- | --- |
+| 有 `rotation`、`pendingOp` 或 `unconfirmed` | 记入 `pendingInputs`。接班者正是为它建的 → 它就是首条消息；否则随首条消息或下一条指令（按 id 和首行列出，`get_task` 里全文）。客户端 “Session #3 is starting: your comment is part of its first instructions.” 从不发给 `from`，也不发两次。 |
+| 执行者在跑 | 按人的 When running 偏好（steer / queue / interrupt），同今天。 |
+| 执行者空闲；`working`、`needs_human`（含提问后）、`retry_wait`、`waiting`、`delivered` | `rotationDecision(kind: comment)`，距本卡上一回合 ≤ 20 分钟是紧密边界。保持 → 直接发送。轮换 → 事务里设为 `working`（`delivered` 加 `reopened`；`retry_wait` 清掉 `retryAt`，同 `turnStarted`），槽里已有的执行者指令（提醒、重试、唤醒）并入 carry；满足条件时收尾（§6.2），再建新 session，首条消息是评论原文。 |
+| 执行者空闲；`reviewing`，槽空或是已派出的评审回合 | 保持 → 直接发送（同今天人在执行者里打字：评审暂停、`reopened`）。轮换 → 事务里做同样的转移（`role = implementer`、`reopened`、删 `verdict`、需要时 `reviewPause`），再设 `comment` 指令；评审者还在跑时，对方忙检查让发送等它的回合结束，而 `apply()` 因 `activeAgent` 已是执行者，不会删掉这条指令。 |
+| 执行者空闲；槽里是评审者**未派出或被暂扣**的指令（含评审中途重开、暂扣着本轮 `reviewPrompt` 的 job） | 保持 → 直接发送。轮换 → 不覆盖（否则这一轮再也发不出去，之后的结论都是 `REVIEW_CLOSED`）：记入 `pendingInputs`，客户端 “Saved; the implementer gets it after this review round. Choose a session in To: to send it now.” |
+| 已停止或失败 | 同今天：发给活着、未被换下的执行者，否则只记录；不重启自动化。 |
+
+发送失败不算回合失败：job 回到原状态，客户端显示 “Saved on the card; not delivered” 与 Resend。
 
 ### 10.2 显式选择（所有卡）
 
@@ -546,8 +627,9 @@ Flowly 看不到的进程（裸 `nohup`、浏览器标签以外的东西）只�
 - `quick`（P3，“Quick answer from the card: does not reach the agent”）：
   - 一个**不受管理**的临时子 session（同卡片摘要：label `flowly=summarizer`、`paseo-rate-fallback=off`、没有 context file、用完硬删除，模型按 [SUMMARY-MODELS-SPEC](SUMMARY-MODELS-SPEC.md) 的顺序取最便宜的）。它不触发 A1、不算接管、不占目录，也没有卡片工具。
   - 输入（≤ 24,000 字符）：问题原文；标题、泳道、`automation` 摘要；交接默认视图（≤ 12,000）；未完成的 workpad 项（≤ 3,000）；最近 10 条活动；最近的交付说明；记录的年龄。
-  - 输出 `{ answer ≤1200, asOf, result: answered | partial | not_in_record }`，记为事件 `comment_answered`（system，链接 `commentId`），输入标为 `answered`。
-  - `partial`：显示答案和 **Send to agent**。`not_in_record`、失败或 2 分钟没结果：**按 `auto` 发给 agent**（误判时偏向工作 session），附说明 “Flowly could not answer from the card; sent to the agent”，并记一个 gap（by answerer）：记录答不上来的问题就是交接的一次演练失败。
+  - 输出 `{ answer ≤1200, asOf, result: answered | partial | not_in_record | contains_request }`，记为事件 `comment_answered`（system，链接 `commentId`）。`answered` 与 `partial`：输入标为 `answered`，工作 session 的 `get_task` 里这条评论带着答案（§5.9），所以它看得到人问过什么、得到了什么回答；只读回答不能把语义上尚未完成的请求证明成已办。
+  - `contains_request`（问题里夹着要求，例如 “Did the migration run? If not, rerun it with --dry-run first”）：先显示答案，评论**同时按 `auto` 发给 agent**，输入保持 `open`。
+  - `partial`：显示答案和 **Send to agent**。`not_in_record`、失败或 2 分钟没结果：**按 `auto` 发给 agent**（误判时偏向工作 session），附说明 “Flowly could not answer from the card; sent to the agent”，并记一个 gap（by answerer）：记录答不上来的问题就是一个可见的交接缺口；是否真的失败还要区分卡片本应记住的事实和新的任务。
   - 不自动分类：v1 只在人选它时运行。
 
 客户端的默认收件人逻辑（`client/card-comments.ts` `commentTargets`）排除 `job.retired` 和 label 识别出的被换下 session。没有活着的 job 的手动卡：今天的规则（CARD-COMMENTS-SPEC §1），加上 `fresh`、`save`、`quick` 三个选项。
@@ -557,8 +639,9 @@ Flowly 看不到的进程（裸 `nohup`、浏览器标签以外的东西）只�
 ### 11.1 评审 session
 
 - 一个周期内保留（它记得自己的发现）；R0–R4 用它自己的 C、B、K 和空闲时间；从不收尾（它不能写交接，发现都在 `reviews` 里）。
-- **新周期总是新评审者**（人的反馈或 Run again 开始的周期）。这改变今天跨周期复用一个评审 session 的做法：新上下文评审更好，上一周期的发现在 `reviews` 里一条不少（§19）。Run again 也不沿用评审者，这比 §5.2.3 的“只沿用 Standard 轮、不在小组或级别槽上的评审 session”更进一步，两条测试都仍然成立。
-- 一轮中途因体积或上下文换评审者：重做**同一轮**（轮次不加），`reviewDelivery` 重新绑定，**沿用 job 上记录的本轮计划**（§5.2 的 `review`：级别、原因、上限、人数）以及 `seat` / `panel`，不重新解析；标题取 `reviewTitle(job)`（`Deep review:` / `Light review:` / `Panel review:` / `Review:`）。§5.2.3 已要求“同一轮的重发（备用模型、历史过大的轮换、重试、对账恢复）用 job 上记录的本轮计划”。更早各轮来自 `reviews`；更早的风险由 §5.2.4 照常附在每一轮的说明里。被换下评审者的迟到结论 `NOT_REVIEWER`。
+- **新周期总是新评审者**（人的反馈或 Run again 开始的周期；`job.cycle` 加一）。这改变今天跨周期复用一个评审 session 的做法：新上下文评审更好，上一周期的发现通过 `reviews` 与归档可取（§19）。Run again 也不沿用评审者，这比 §5.2.3 的“只沿用 Standard 轮、不在小组或级别槽上的评审 session”更进一步，两条测试都仍然成立。
+- 一轮中途因体积或上下文换评审者：重做**同一轮**（轮次不加），`reviewDelivery` 重新绑定，**沿用 job 上记录的本轮计划**（§5.2 的 `review`：级别、原因、上限、人数）以及 `seat` / `panel`，不重新解析；标题取 `reviewTitle(job)`（`Deep review:` / `Light review:` / `Panel review:` / `Review:`）。§5.2.3 已要求“同一轮的重发（备用模型、历史过大的轮换、重试、对账恢复）用 job 上记录的本轮计划”。更早各轮来自 `reviews`；更早的风险由 §5.2.4 照常附在每一轮的说明里。被换下评审者的迟到结论 `NOT_REVIEWER`。被换下的评审者可能已经在消息里写完了发现、只是没提交（R1 对后续也生效，Deep 与小组评审最可能过 64 MiB）：它最后一个回合的 `final`（§5.7）放进接替者的 `reviewPrompt`，“Previous reviewer's unsubmitted notes (unverified): …” ≤ 2,000，新评审者不必从零重做这一轮。
+- `reviewPrompt` 加一句：“Read every finding and delivery note of this cycle in flowly_get_task → handoff.reviews, following nextCursor if any. Report missing evidence explicitly; do not treat an omitted page as an empty round.” 默认视图优先给本周期发现；超出时必须按游标读完全部发现与交付说明（§5.9）。
 
 ### 11.2 交接检查（`reviewPrompt` 的公共尾部，在 §5.2.4 风险一段之后，所有级别，约 450 字符）
 
@@ -574,35 +657,37 @@ Flowly 看不到的进程（裸 `nohup`、浏览器标签以外的东西）只�
 
 ### 11.4 小组评审
 
-状态机不变（AUTOMATION-SPEC §5.1）。B 计入 Claude 子代理文件和（P3）Codex 子线程，小组子代理就在那里；Deep（§5.2：从第 1 轮起小组评审）最可能超过 64 MiB，下一轮就是新的小组 session。小组说明里“交给每个子评审者”的内容不变（交接检查只归牵头者）。
+状态机不变（AUTOMATION-SPEC §5.1）。B 是 Claude 主转录，子代理另记 S；Codex 子线程在 P3 单列测量，不把主线程阈值直接套到子代理总量。Deep 小组的主转录超过 64 MiB 才按 R1 在边界轮换，S 先观察警示，不据此自动停止正常的小组评审。小组说明里“交给每个子评审者”的内容不变（交接检查只归牵头者）。
 
 ### 11.5 父卡
 
 - 父卡 session 最长寿（21–23 小时、13–36 个回合、唤醒前空闲中位 36–99 分钟）。唤醒是“其它”边界，R2–R4 常让它轮换；Codex 2 小时内仍热，所以多数能收尾。
 - 父卡的记录最重要：编排决定、子卡的验收与合并状态、集成分支、等待者。轮换后的父卡收到已有的唤醒列表（`childrenPrompt`）和自己的交接。
-- 子卡交给父卡：唤醒消息和 `get_task` 链接里每张子卡加一行交接 `state`（≤ 300）和 “problems: n”，放在 §5.2.4 的风险之后、证据之前，共用 SUB-CARDS-SPEC §8 的 16,000 字符总预算与每条 6,000。子卡的人的原话从不传给父卡。
-- `supervised` 跟随 `implementerId`（`agent-service.ts:233`），不受影响。被换下的父卡 session 对 `flowly_create_card` / `flowly_update_card` 得到 `RETIRED_SESSION`，不会出现两个管子卡的人。
+- 子卡交给父卡：唤醒消息和 `get_task` 链接里每张子卡加一行交接 `state`（≤ 300）、“problems: n”，以及它的 Flowly incident / hazard 便签和 pitfalls 各一行（每张子卡合计 ≤ 600），放在 §5.2.4 的风险之后、证据之前，共用 SUB-CARDS-SPEC §8 的 16,000 字符总预算与每条 6,000。例如 C5b.3 的 “history grew to 327 MB from browser screenshots and patch-written relay files” 应当让兄弟卡 C5b.2 的下一个 session 看到。子卡的人的原话从不传给父卡（§5.10）。
+- 父卡交给子卡：子卡的开工说明和链接里带父卡的 pitfalls 各一行（≤ 1,000）。父卡里人的 standing 指示（例如 “keep the install frozen”）默认不直接传原话，由父卡 agent 明确写入相关子卡说明并引用来源（§19）。
+- `supervised` 跟随 `implementerId`（`agent-service.ts:233`），不受影响。被换下的父卡 session 对 `flowly_create_card` / `flowly_update_card` 得到 `RETIRED_SESSION`，不会让两个 session 都获得 Flowly 的子卡管理权限；文件系统和其它外部工具仍不受该守卫控制。
 - `subCardActive`（SUB-CARDS-SPEC §5）本来就把“任一管理 session 在回合中”算作推进，被换下的子卡 session 被 async shell 唤醒时父卡会等，这是对的。
 
 ### 11.6 依赖卡
 
-`cardHandoff`（`server/automation-handoff.ts`）给每个 blocker 加上它交接的 `state`、`pitfalls` 和 `env`（合计 ≤ 1,500），在每条链接 6,000 的预算内，排在风险（§5.2.4）与交付说明之后、检查之前。
+`cardHandoff`（`server/automation-handoff.ts`）给每个 blocker 加上它交接的 `state`、`pitfalls`、`env` 和 Flowly 的 hazard 便签（合计 ≤ 1,500），在每条链接 6,000 的预算内，排在风险（§5.2.4）与交付说明之后、检查之前。pitfalls 是 agent 自己的话（§5.10），所以不带人的原话。
 
 ## 12. 界面
 
-- **卡面**：正常时没有新芯片。`rotation.phase = finalizing` 时自动化信号为 “Agent handing over”（脉冲点）；`creating` 时 “Starting a fresh session…”；`hold = history_runaway` 时 “History keeps growing too large”（需要人）；严重体积时 “Session history N MB, still growing”（warning）；job `delivered` 或 `needs_human` 且 `handoffIndex.fresh = false` 时加 “Handoff stale”（warning 色）。
+- **卡面**：正常时没有新芯片。`rotation.phase = finalizing` 时自动化信号为 “Agent handing over”（脉冲点）；`creating` 时 “Starting a fresh session…”；`hold = history_runaway` 时 “History keeps growing too large”（需要人）；严重体积时 “Session history N MB, still growing”（warning）。记录的新旧在 job `working` 时也看得到：`job.silentSince` 有值时 “Agent has not updated the card for N min”，否则 `handoffIndex.fresh = false` 时 “Handoff N min behind”（N 从 `staleSince` 算，warning 色，`delivered` 与 `needs_human` 同样显示）。人不打开 session 也能知道卡片上的记录是不是新的。
 - **抽屉，Agent automation 区**：
   - “Session #3 of this run · fresh after Run again · acknowledged 05:01”，下一行是它的 understanding；
-  - “Handoff updated 6 min ago at dc26c13 (= HEAD)”或 “Handoff 41 min old; HEAD moved 2 commits”；
+  - “Handoff updated 6 min ago at dc26c13 (= HEAD)”或 “Handoff 41 min old; HEAD moved 2 commits; checkpoint requested 18 min ago, not answered”；
   - “Earlier sessions (2)”：标题 · 角色 · 原因 · 时间；
   - 被换下的 session 暂扣当前 session 时：“Waiting for an earlier session to finish its turn”；
   - Run again 与 ⋯ Run again in session #n（§3.4）；job 活着时的 **Continue in a fresh session**（设 `rotateRequested`）；
-  - 失败后的 “Add what the next session should know”；
+  - 每次 Run again 的 “What should the next session know?”（§3.4）；被换下 session 的 **Continue in this session**（§9.2）；
   - 评审者的交接缺口、quick answer 答不上来的次数。
 - **抽屉，新的可移动分区 Handoff**（默认在 Workpad 之后，DRAWER-SPEC 的分区顺序；只在展开时按 etag 读）：
   - 标题行：revision、上次更新（session 号与相对时间）、新鲜或过期（以及变了什么）；
   - agent 的各段：State、Next、Open problems、Running / background（所属 session、年龄、结束与结果）、Pitfalls、Decisions、Ruled out、Where、Environment；
-  - **Person's directions**：原文，状态（open / received / done / answered / superseded）和处理者；人可标 done 或 superseded；
+  - **Person's directions**：原文，状态（open / received / done / answered / superseded）和处理者；人可标 done、superseded 或 **standing**（以后接手必读，超预算时沿引用取全文）；脱敏过的标出；别的 agent 发来的消息另列，标明来源；
+  - **Questions**：agent 问过的问题、状态和回答它的输入；
   - Notes（作者徽标：人 / agent / Flowly）与 **Add note**；Gaps；Review rounds；
   - Sessions：台账，例如 “#1 implementer gpt-6.1-sol 23:54–02:11, ended: session unavailable (history 1.18 GB), handoff not updated in the last 23 min”，及每个接班者的 understanding；被隔离的显示 “Too large to open (1.18 GB)”；
   - Show removed（墓碑）。
@@ -615,7 +700,7 @@ Flowly 看不到的进程（裸 `nohup`、浏览器标签以外的东西）只�
 
 - **回合清单第 5 条**：“update workpad, then obtain” → “update workpad and handoff, then obtain”，并把 “or the user's requested handoff” 改为 “or one the user asked for”，让 “handoff” 只有一个意思。六条合计 **1,790 字符**（今天 1,784，测试要求 < 1,800、正好 6 条，`server/skill-source.test.ts:10-11`，已按 `shared/turn-checklist.ts` 实算）。第 6 条不改：加上 `HANDOFF_STALE` 会到 1,811 字符，拒绝说明本身写明了做法。skill 的生成文本逐字跟随。
 - `reviewerChecklist` 第 1 条加 “and its handoff”。新增 `retiredChecklist`（§9.2）。
-- **SKILL.md 新增一节 “Handoff and fresh sessions”**：各段写什么；检查点的时机（§5.4）；通常 ≤ 4,000 字符、指向文件而不是复制、从不写密钥；把人的长期指示加引号、注明谁何时说的写进 pitfalls；描述与卡片有关的、人给的图片；按 `handoffDue` 行事；第一回合确认接手；从不打开前任，只用 `flowly_session_history`；批量文件用脚本生成。
+- **SKILL.md 新增一节 “Handoff and fresh sessions”**：各段写什么；检查点的时机（§5.4）；通常 ≤ 4,000 字符、指向文件而不是复制、从不写密钥；人的长期指示（“from now on never push to origin/main”）用 `inputs: [{id, standing: true}]` 标出，不抄进 pitfalls，pitfalls 用自己的话；描述与卡片有关的、人给的图片；按 `handoffDue` 行事；“after compaction, read the card handoff again; fetch any omitted standing directions, open inputs and review findings through handoff=full and nextCursor before acting”；第一回合确认接手；从不打开前任，只用 `flowly_session_history`；批量文件用脚本生成。
 - **“Automated runs”**：无人值守模式的标志是首条消息的 `[Flowly automation]` 前缀**或** system prompt 的自动化标记；收尾回合只写交接然后结束；被换下的 session 怎么做；后台任务规则（§9.4）；卫生规则（§4）。
 - 工具说明：`flowly_update_handoff`、`flowly_session_history`、`flowly_get_task` 的 `handoff` 输入、`flowly_submit_review` 的 `handoff.gaps`。
 
@@ -623,14 +708,14 @@ Flowly 看不到的进程（裸 `nohup`、浏览器标签以外的东西）只�
 
 | 码 | 何时 | 记录了什么 |
 | --- | --- | --- |
-| `HANDOFF_STALE` | §5.5 的交付门：记录过期、缺 state/next、或接手未确认 | 无；同回合带 `acknowledgeOpen=true` 重试通过 |
+| `HANDOFF_STALE` | §5.5 的交付门（交付、blocked、blocker、提问）：记录过期、缺 state/next、或接手未确认 | 无；同回合带 `acknowledgeOpen=true` 重试通过 |
 | `HANDOFF_INVALID` | 结构不对（指出字段） | 无 |
 | `HANDOFF_TOO_LARGE` | agent 各段合计超过 16,000（给出各段大小） | 无 |
 | `HANDOFF_CONFLICT` | 碰到的条目自 `handoffRevision` 后变了（给出 id 与差异） | 无 |
-| `HANDOFF_UNAVAILABLE` | 交接文件读不懂（已保留） | 无；轮换照常，用派生的连续性说明并记一条警告事件 |
-| `ACK_MISMATCH` | 确认里的 HEAD 与 Flowly 读的不同（给出 Flowly 的值） | 无 |
-| `RETIRED_SESSION` | 被换下的 session 的卡片写入（指出当前 session） | 无 |
-| `FINALIZING` | 收尾回合里交接之外的卡片写入 | 无 |
+| `HANDOFF_UNAVAILABLE` | 交接文件读不懂（已保留） | 不覆盖；计划内软轮换暂缓。强制安全轮换只能用独立恢复记录携带可得原指令与缺口，关键输入或评审要求不明则 needs_human，不带着空白记录继续工作 |
+| `ACK_MISMATCH` | 确认里某个仓库的 HEAD 与 Flowly 读的不同（给出 Flowly 的值；读不到 HEAD 的路径不核对） | 无 |
+| `RETIRED_SESSION` | 被换下的 session 的卡片写入（指出当前 session 和 Continue in this session） | 无 |
+| `FINALIZING` | 收尾回合里 status、type、tags、idea 与卡片管理的写入（交接、workpad 验证与验收、artifact 允许） | 无 |
 | `REVIEWER_ONLY`、`NOT_REVIEWER`、`REVIEW_CLOSED`、`ARCHIVED`、`TASK_FINISHED` | 同今天 | 无 |
 
 ## 15. 兼容与迁移
@@ -639,14 +724,14 @@ Flowly 看不到的进程（裸 `nohup`、浏览器标签以外的东西）只�
 
 - 只加可选的 job 字段、一个顶层数组 `handoffIndex`、事件上可选的字段和新的事件 action；**没有**新的 `state` / `code` 值，**没有**新的项目设置，**没有**新的回执 action。旧版本丢掉这些字段，照常读取 `board.json`。
 - 旧版本忽略 `handoffs/`。它的接管规则会在被换下 session 开回合时停止 job，就是今天的行为，安全。
-- 旧版本遇到 `rotation.phase = creating`：看到的是普通的 `instruction` + `pendingOp`，用连续性文字创建接班者，没问题。遇到 `finalizing`：看到一条发给旧 session 的指令，按 `turnDecision` 判断它的回合结束，“静默”的收尾回合会收到一次提醒：可以接受的退化，写进发布说明。
-- 降级前最好备份 `plugin-data/flowly/`。
+- 旧版本遇到 `rotation.phase = creating` 时仍可能沿普通 `instruction` + `pendingOp` 路径创建接班者，但不会保留新版本完整轮换状态，因此不能声称热降级无损。遇到 `finalizing`：看到一条发给旧 session 的指令，丢掉 `rotation`（carry 的唯一副本），按 `turnDecision` 判断它的回合结束，“静默”的收尾回合会收到一次 “If work remains, continue it” 的提醒。旧 session 仍能接着做，因为收尾说明里带着被延后指令的开头（§6.2），修改要求也一直留在 `job.changes`；剩下的退化（评论或唤醒的全文只在 carry 里）写进发布说明。
+- 降级前必须备份 `plugin-data/flowly/`，并先停止派发、解决或结束 pending rotation / unconfirmed；新旧版本不同时运行。未经此步骤的中途降级不在“交接不丢指令”的保证范围内。
 
 ### 15.2 已有看板
 
 - 不迁移。没有交接文件的卡读作空记录；第一次捕获时创建。
 - 已有卡片的第一次轮换**引导**记录：Flowly 用最近 20 条事件说明、workpad、`job.changes` 和评论写一条便签（“built from the card's activity”）；旧 session 满足收尾条件时收尾回合照常（记录必然“过期”）。
-- 升级时活着的 session 在下一次回合结束时补上台账；`job.reviewers` 里的 id 照旧受保护；升级前被替换的执行者靠 label 识别（§9.1）。
+- 升级时活着的 session 在下一次回合结束时补上台账（C₀ 未知，软规则的增长条件视为满足）；`job.reviewers` 里的 id 照旧受保护；升级前被替换的执行者靠 label 识别（§9.1）；已有的 job 没有 `cycle` 与 `launchModel`，从 1 开始计、用项目的模型。
 - 64 MiB 的字节轮换比今天的 200 MB 早；不读不发的 200 MiB 不变。
 
 ### 15.3 与评审级别（AUTOMATION-SPEC §5.2，`feat/review-levels`）的配合
@@ -657,7 +742,7 @@ Flowly 看不到的进程（裸 `nohup`、浏览器标签以外的东西）只�
 | --- | --- | --- | --- |
 | `reviewPrompt` | 级别、Deep 视角、风险一段、更早的风险 | 交接检查一段 | 交接检查放在风险一段之后 |
 | `reviewInputSchema`（严格） | `risks` | `handoff.gaps` | 都是可选字段，一处校验 |
-| job schema | `review`、`seat`、`risks`、`risksFrom` | `sessions`、`rotation`、`retired` 等 | 互不重叠 |
+| job schema 与 `queueIn()` 的照带字段 | `review`、`seat`、`risks`、`risksFrom` | `sessions`、`rotation`、`retired`、`cycle`、`launchModel` 等 | 互不重叠；两边的照带字段并在一处 |
 | 评审 session 的选择 | 级别或槽变了就新建；Run again 只沿用 Standard 轮的 | 新周期和 Run again 总是新建；一轮中途轮换沿用 `job.review` 与 `seat` | 本 spec 的规则是 §5.2 的超集；§5.2 的测试仍成立 |
 | 链接 handoff 预算 | 风险先扣，再扣证据 | 子卡交接状态行 | 顺序：风险 → 交接状态 → 证据 |
 | 唤醒消息 | 风险一行 | 交接状态一行 | 并列 |
@@ -670,6 +755,7 @@ Flowly 看不到的进程（裸 `nohup`、浏览器标签以外的东西）只�
 - AGENTS.md：§1.1 的例外一行。
 - AUTOMATION-SPEC：§3（新字段）、§4.1（Run again 不再沿用 session、`fresh` 文字）、§4.3（接管不含被换下的 session）、§4.4（轮换阶段的对账）、§4.5（经 `beginRotation`）、§4.6（缩为指向本 spec，阈值 64 / 128 / 200 / 300 MiB）、§5（新周期新评审者、交接检查）、§6、§7、§8。
 - CARD-COMMENTS-SPEC §1–§3：daemon 路由、`deliver` 选项、评论状态。
+- PROJECT-FOLDER-SPEC：恢复时放回 `removed/` 里的交接备份（§5.1）。
 - WORKPAD-SPEC §1：“不做 Notes 段（progress note 已覆盖）”的决定被交接记录取代（2026-10-24 用户决定；证据：每卡 100 条事件、agent 只看 20 条、C5b.2 已到上限、C5b.3 最后 23 分钟无记录）。workpad 本身不变。
 - TURN-CHECKLIST-SPEC §2：第 5 条的新措辞（1,790 字符）。
 - SUB-CARDS-SPEC §5：唤醒时的轮换与子卡交接状态行。
@@ -677,29 +763,29 @@ Flowly 看不到的进程（裸 `nohup`、浏览器标签以外的东西）只�
 
 ### 15.5 代码布局
 
-`server/automation.ts` 已 1,521 行，不能再长很多：轮换放进同级文件。新模块：`shared/handoff.ts`、`shared/session-rotation.ts`、`server/handoff-store.ts`、`server/handoff-capture.ts`、`server/provider-usage.ts`、`server/session-history.ts`、`server/automation-rotation.ts`、`server/comment-routing.ts`、`client/task-handoff.tsx`。
+`server/automation.ts` 已 1,521 行，不能再长很多：轮换放进同级文件。新模块：`shared/handoff.ts`、`shared/session-rotation.ts`、`server/handoff-store.ts`、`server/handoff-capture.ts`、`server/provider-usage.ts`、`server/session-history.ts`、`server/automation-rotation.ts`、`server/comment-routing.ts`、`server/live-capture.ts`（§4 的被动捕获与沉默信号）、`client/task-handoff.tsx`。
 
 ## 16. 故障模式
 
 | # | 故障 | 处理 | 仍会丢的 |
 | --- | --- | --- | --- |
-| 1 | 一个回合里长了 466 MB | 检查点提醒、128 MiB 便签、可选的 steer、卫生规则；下一个边界 R1 | 用户不开 steer 时，单回合仍可能超过 500 MB |
-| 2 | 崩溃时记录过期（沉默 23 分钟） | 检查点提醒；Flowly 的 incident 便签；骨架、lastWords、锚点；Run again 时人的便签 | 最后一次检查点之后、不在 git 或骨架里的工作 |
-| 3 | 收尾回合不结束或做了工作 | 从不打断；20 分钟便签；交接之外的写入 `FINALIZING`；工作区变化记便签；从不同时有两个 session | — |
+| 1 | 一个回合里长了 466 MB | 检查点提醒、128 MiB 便签、可选的 steer、卫生规则；下一个边界 R0 / R1 | 用户不开 steer 时，单回合仍可能超过 500 MB |
+| 2 | 崩溃时记录过期（沉默 23 分钟，没有 Flowly 调用） | 被动捕获（实时叙述、HEAD 便签、后台清单、人的话）；沉默信号；Flowly 的 incident 便签；`unknown` 后台条目必须处置；lastWords、骨架、锚点；Run again 时人的说明 | agent 没说出来的意图、工具输出、尚未读取或无法解析的部分；通常是一轮轮询的延迟，积压或故障时没有固定上限 |
+| 3 | 收尾回合不结束或做了工作 | 从不打断；20 分钟便签；交接之外的写入 `FINALIZING`；工作区变化记便签；Flowly 不并行派发 | 宿主迟到消息或后台任务仍可能与当前回合重叠 |
 | 4 | 封存与创建之间重启 | `rotation.phase` 加以 `rotation.id` 为键的台账；`carry` 保住指令 | — |
 | 5 | 创建结果未知 | 今天的 `unconfirmedStart` 与 `needs_human`；不盲发 | — |
 | 6 | 软触发的创建明确失败 | 回滚到旧 session（§6.4） | — |
-| 7 | 人、等待者或队列唤醒被换下的 session | 不算接管；暂扣；捕获并记录；队列改投；`RETIRED_SESSION` | 当前 session 正在回合中时，人自己的操作会让两个 session 同时运行 |
-| 8 | 一个 workspace 两个 session | occupancy 与对方忙检查包含被换下的 session；封存和创建前都重新取快照 | — |
+| 7 | 人、等待者、别的 agent 或队列唤醒被换下的 session | 不算接管；暂扣；捕获并记录（含它的回复与文件变化，§9.3）；队列改投；`RETIRED_SESSION`；Continue in this session | 当前 session 正在回合中时，人自己的操作会让两个 session 同时运行 |
+| 8 | 一个 workspace 两个 session | occupancy 与对方忙检查包含被换下的 session；封存和创建前都重新取快照 | 无法原子阻止宿主在快照后直接启动旧 session；工具守卫加提示只能减轻风险 |
 | 9 | 接班者重做已完成的工作或重复死路 | `done` 与 `ruledOut`（带理由）；确认要求逐项处置；输入状态；已读播种 | — |
 | 10 | 过时的说法被当成事实 | 相对时间；`ACK_MISMATCH`；workpad 的 sha 新鲜度；“card data: verify” | — |
-| 11 | 修改要求被路由给只读回答 | `quick` 只在人选时运行；答不上或失败就发给 agent；评论保持为 open 输入 | — |
-| 12 | 人的话超出 20 条评论窗口，或打在 session 里 | 单独保存 ≤ 200 条原文与状态，更早的进 `archive.jsonl` | — |
+| 11 | 修改要求被路由给只读回答 | `quick` 只在人选时运行；夹着要求（`contains_request`）、答不上或失败就发给 agent，输入保持 open；答过的评论连答案一起给工作 session | — |
+| 12 | 人的话超出 20 条评论窗口，或打在 session 里 | 单独保存 ≤ 200 条原文与状态，更早的进 `archive.jsonl`；全是 open 时也移入并计数、记 gap | — |
 | 13 | 更早的评审轮次丢失 | `reviews` 30 轮、每条发现有状态；结论事件单独保留 10 条 | — |
 | 14 | 轮换抖动 | §3.5 | — |
 | 15 | 记录膨胀、读不全 | agent 各段 16k 上限；视图写明省略并指向 `handoff:"full"`；墓碑而不是重写 | — |
 | 16 | agent 覆盖或删除条目 | 补丁操作、墓碑、封存快照；agent 不能删人写的条目 | — |
-| 17 | 交接文件损坏 | 保留文件；写入 `HANDOFF_UNAVAILABLE`；轮换用派生的说明并记警告；从不重置 | 损坏之后到修复之前的写入 |
+| 17 | 交接文件损坏 | 保留文件；`HANDOFF_UNAVAILABLE`；计划内轮换暂缓，强制轮换用独立恢复记录，关键要求不明则等待人；从不重置 | 损坏之后到修复之前的写入 |
 | 18 | provider 升级让解析器失效 | 返回 `unknown` → `lastUsage` → 保存的测量 → 代理规则；B 仍守着 | 只是精度 |
 | 19 | 读历史时加载了巨大的 session | 从不经 Paseo；流式读取跳过长行；≥ 200 MiB 不发 | — |
 | 20 | 接班者去 grep provider 文件 | skill 与连续性说明禁止；`flowly_session_history` 是唯一途径 | 模型不遵守时（无法强制） |
@@ -708,6 +794,9 @@ Flowly 看不到的进程（裸 `nohup`、浏览器标签以外的东西）只�
 | 23 | 评论作首条消息丢了自动化标志 | system prompt 的自动化标记与 skill 的识别 | — |
 | 24 | 1M 窗口的成本 | 250k / 300k 的绝对上限 | — |
 | 25 | 已有的过大 session 让 daemon 重启后崩溃循环 | Flowly 管不到（`before("agent.session_open")` 抛错否决加载未经测试，§19） | 主机可用性 |
+| 26 | 回合中途压缩，agent 忘了坑和人的指示 | 重置已读，下一次 `get_task` 重给完整视图；存根总带 open 输入、standing 与 pitfalls 的首行；skill 一行 | 压缩之后、下一次 `get_task` 之前的动作 |
+| 27 | 评论到达时 job 在 `reviewing`、`needs_human`、`waiting` 等状态 | 按状态的转移（§10.1）；保持时与人打字相同；不覆盖另一角色的指令；待办随下一条指令 | — |
+| 28 | 回合中途插件重载或 daemon 重启，丢了回合结束钩子 | 偏移持久化的被动捕获接着读；`capturedThrough` 与封存前补读 | 没有被动捕获的 provider 上，未加载的大 session 的那一回合（记 gap） |
 
 ## 16.1 信息损失分析：今天只在 session 里的信息
 
@@ -715,67 +804,74 @@ Flowly 看不到的进程（裸 `nohup`、浏览器标签以外的东西）只�
 | --- | --- | --- |
 | 决定及理由 | `decisions`（理由必填），检查点与回合结束前写；计划内轮换时热 session 收尾；评审者的交接检查；兜底：骨架里的 agent 消息可检索 | 从没写下也没说出的细微考虑；Codex 加密的推理与压缩摘要 |
 | 试过的死路 | `ruledOut`（理由必填）、收尾说明；Flowly 的体积构成写成 hazard 便签；骨架保留 ≤ 300 字符的错误 | 只在工具输出里的细节（工具输出有意不留） |
-| 当前步骤、在跑的进程与锁 | `state`、`running`；回合中途的检查点提醒（20 分钟、HEAD 变化、60% 填充、体积）；兜底：lastWords（标为未核实） | 崩溃发生在两次检查点之间时最多约 20 分钟的进行中状态 |
-| 人打进 session 的话（真实卡片上 22 次，评论 4 次） | 每次回合结束原文捕获（脱敏），带状态；崩溃中途的回合从骨架补回；Flowly 输入框发的在发送时就记 | 不经 Flowly 管理的 session（工作区里原生开的） |
-| 图片 | 开工图片在删除前复制并重新附给接班者；Flowly 输入框的图片保留；`[Image: source: …]` 占位指向的本机文件复制 | 没有占位、只在 provider 里的图片（`user_message` 不带图片） |
+| 当前步骤、在跑的进程与锁 | `state`、`running`（agent 写，检查点提醒只在它调用 Flowly 时送达）；Flowly 的被动捕获：实时叙述、HEAD / 未提交文件的 checkpoint 便签、启动时就入清单的后台（目标每 60 秒，不需要 agent 配合）；没收尾时的 lastWords（标为未核实） | agent 记录的部分：从它最后一次 Flowly 调用起，**没有时间上限**（C5b.3 的回合跑了 38 和 50 分钟）。Flowly 旁观的部分：没说出口的意图、工具输出、尚未读取或无法解析的部分（轮询正常且无积压时约一轮延迟，不能承诺 ≤ 60 秒）；没有被动捕获的 provider（opencode、ACP、pi）只有回合结束时的捕获 |
+| 人打进 session 的话（真实卡片上 22 次，评论 4 次） | 原文全文捕获（脱敏），回合中与回合结束时，带状态；standing 的长期指示必须完整可取，超预算时沿引用读取；崩溃中途的回合从被动捕获或骨架补回；Flowly 输入框发的在发送时就记 | 不经 Flowly 管理的 session（工作区里原生开的） |
+| agent 问的问题与回答 | `questions`，回答按输入链接；open 的问题要处置；每次 Run again 可写说明 | agent 自己的问题工具里的问答，只在叙述里 |
+| 别的 agent 发来的消息、子 agent / schedule / heartbeat 的结果 | `via: agent` 的输入；通知关闭后台条目；被换下的 session 收到时唤醒当前 session | — |
+| 图片 | 开工图片在删除前复制，接班者拿到路径；Flowly 输入框的图片保留；`[Image: source: …]` 占位指向的本机文件复制 | 没有占位、只在 provider 里的图片（`user_message` 不带图片） |
 | 评论与哪些已处理 | 每条成为输入（原文，不受 50 / 20 名额影响），状态由 agent、人或只读回答设；已读按安全时间播种；open 的给全文；确认逐条处置 open 的 | — |
-| 更早各轮的修改要求、风险与缺口 | `reviews` 30 轮全文、每条发现有状态；结论事件单独保留 10 条 | — |
+| 更早各轮的修改要求、交付说明、风险与缺口 | `reviews` 30 轮全文、每条发现有状态、每轮的交付说明；评审者的视图给本周期全文；被换下评审者没提交的发现进接替者的说明；结论事件单独保留 10 条 | — |
 | job 状态 | `get_task.automation`；接班者首条消息 | — |
 | 环境与外部状态（安装、服务、版本） | `env`；人和 Flowly 的带时间便签；`git` 由 Flowly 读 | 没人写下的 |
 | 旧 session 的后台任务 | 工具调用自动入台账；收尾时要求停掉或列出；被唤醒时捕获通知并告诉当前 session；确认时逐条处置 | 不能把等待者转给接班者；输出只留 600 字符尾部（全文在 shell 日志里） |
 | 外部标识（SHA、分支、PR、fixture 账本） | Flowly 读的 git；PR 作为 output artifact（已有规则）；`where`；锚点索引 | 标签页与 exec session 的 id 只作清单标签 |
-| 未提交的修改 | 文件留在磁盘；`git.dirtyFiles` 与 diffstat | 半成品的用意，除非检查点或骨架里有 |
+| 未提交的修改 | 文件留在磁盘；每个仓库的 `git`（文件数、前 50 个、diffstat）与 HEAD 核对 | 半成品的用意，除非记录、叙述或骨架里有 |
 | 测量与验证结果 | workpad（带 sha 与过期判断，不变）；`done` 指向证据 | 最后几分钟没记录的数字（接班者重新测） |
 | session 自己不知道的危险、session 结束后才有的事实 | Flowly 的 hazard / incident 便签；人的便签（Run again 时提示） | 没有人写的事实 Flowly 无从得知 |
 | Plan | 每个 session 的 plan 快照保留，`get_task` 给前任的（标明） | 只在中断回合里存在的 plan（快照在回合结束时取） |
 | 旧 session 未用的 next moves | 标签进台账 | 建议本身（接班者的 `next` 取代） |
 | 按 session 的门与提醒（交付门、ideas 提醒） | — | 重新开始：最多多一次拒绝或提醒 |
-| provider 自己压缩掉的内容 | 60% 时提醒写记录（Codex 在 66–95% 压缩）；`L_tight` 低于观测到的压缩点；压缩后在其它边界轮换 | 单个回合在下一个边界之前就越过压缩点时 |
+| provider 自己压缩掉的内容 | 60% 时提醒写记录（Codex 在 66–95% 压缩）；`L_tight` 低于观测到的压缩点；压缩后重置已读、重给交接视图；压缩后在其它边界轮换（R2 用峰值） | 单个回合在下一个边界之前就越过压缩点时，压缩前没写进记录的 |
 | 热缓存与隐含的工作记忆 | — | 每次轮换都丢；规则只在更便宜或更安全时轮换（§16.2） |
-| 记录本身 | 墓碑、封存快照、坏文件保留不重置；删卡先备份到 `removed/` | — |
+| 记录本身 | 墓碑、封存快照、坏文件保留不重置；删卡先备份到 `removed/`，从项目文件夹恢复时放回 | 换机器恢复时（快照里没有交接，恢复时明示缺口，§19） |
+
+**冷恢复的取舍**（不自动花一次冷重读来写形式化记录；关键缺口仍暂停确认，§19）：冷的 session 通常不收尾（至少要重新付出约 C 的未命中输入，实际缓存写入倍率取决于 provider 与计费方式），接班者拿到叙述、骨架和派生的事实，拿不到旧 session 没写下的理解；未加载的 64–200 MiB session 不收尾（发消息会让 Paseo 整个加载它）；不到 5 分钟、没有交接写入的回合不算过期。
 
 ## 16.2 代价
 
-估算，单位是基础输入 token 当量，不计输出与质量，数字来自本机证据。
+以下是本机样本和工程预算，不是 provider 的统一计费承诺或延迟保证；实现时按实际 provider/billing 记录输入、缓存命中与输出再比较。新 session 的 108k 定向读取来自一个接手案例，不应当作所有任务的固定开销。
 
-- **一次轮换**：新 session 定向约 108k，首个请求 1.25× 写入，约 135k，之后按 0.1× 读。对比：热的 330k session 每个请求约 33k，新 session 在 3–5 个请求后就更便宜（一个回合有几十个请求，C5b.3 #2 是 79 个）；冷恢复从第一个请求起就更贵（C5b.2：430k 未命中再立刻压缩）。C < 100k 时规则保持 session，不增加代价。
-- **收尾回合**：只在热时，约 3–6 个请求 × 0.1 × C 加 1–3k 输出，C = 300k 时约 100–200k；记录不过期时跳过。人多等 1–3 分钟。
+- **一次轮换**：C5b.3 的新 session 定向读取约 108k；原 session 的 330k 若仍大量命中缓存，开头可能更便宜。是否会在 3–5 个请求后回本取决于 provider 的读写倍率、重读范围和后续工作量，不能按所有 provider 都 1.25×/0.1×计算。C < 100k 时不为缓存冷而轮换。
+- **收尾回合**：预计多几个请求和 1–3k 输出；只在健康、热且记录落后时运行。常见 1–3 分钟只是待验证的预算；耗时长时明示等待、不创建第二个工作 session。关键缺口不能因为冷重读贵就隐藏。
 - **维护记录**：每回合一两次补丁写入，每次约 1–3 KB 历史；对比今天一次“读卡 + 写入”约 220 KB。交付门最多多一次被拒的调用。
-- **`get_task`**：首次多 5–10 KB，之后每次 ≤ 1 KB。
+- **`get_task`**：首次（及每次压缩后）多 5–10 KB，之后每次 ≤ 1.5 KB。
 - **只读回答**（P3，只在人选时）：最便宜的模型，≤ 24,000 字符的输入，用完删除；本机需求为 0。
-- **daemon**：回合结束时一次 `refresh()`；60 秒的 `stat`（Claude 子代理目录每 5 分钟一次）；文件尾读取最多 16 MiB，只在需要时；骨架只按需或对异常 / 大 session，1.18 GB 约 10–30 秒、约 74 MB 内存。
-- **存储**：交接文件通常 20–60 KB/卡，最坏约 1 MB；骨架 ≤ 2 MB/session；图片 ≤ 20 MB/卡；`board.json` 多约 150 字节/卡（索引）和约 0.5 KB/job，手机的看板读取基本不变。
+- **daemon**：回合结束时一次 `refresh()`；60 秒的 `stat` 与一次 `refresh()`（Claude 子代理每 5 分钟最多测一次并重新 stat 文件）；被动捕获每分钟读新增的字节（普通回合每分钟几十 KB，C5b.3 最坏约 12 MB/分钟，长行跳过不缓冲）；每 2 分钟最多一次 git 读取（≤ 8 个仓库，5 秒超时）；文件尾读取最多 16 MiB，只在需要时；骨架按 §5.8 或按需，1.18 GB 约 10–30 秒、约 74 MB 内存，普通 session 几秒。
+- **存储**：交接文件通常 20–60 KB/卡，最坏约 1 MB；骨架 ≤ 2 MB/session；图片 ≤ 20 MB/卡；`board.json` 多约 100 字节/卡（索引，只在变化时写）和约 0.5 KB/job，手机的看板读取基本不变。
 - **实现**：约 4–6k 行（含测试），分三期；风险集中在轮换阶段和被换下 session 的守卫，新代码放在同级文件（§15.5）。
 
 ## 17. 验收
 
 ### 17.1 纯函数（`shared/session-rotation.test.ts`、`shared/handoff.test.ts`）
 
-- `rotationDecision` 表：R0–R6 在每类边界上；各模型的 `L_cold` / `L_tight`；C 未知时的代理；紧密边界 2.8 分钟、55% → 保持，72% → 轮换并收尾；提醒或重试在 90% → 保持，在 70 MB → 强制；Codex 唤醒 3 小时、214k（sol）→ R4，90 分钟 → 保持；Opus 1 小时档空闲 70 分钟、200k → R4 轮换，30 分钟 → 保持；Opus 5 分钟档空闲 10 分钟、150k、其它边界 → R4 轮换，同样的数在紧密边界 → 保持；Opus 260k 在其它边界 → R3；210 MB → 强制不收尾；少于 2 个回合或增长 < 30k → 不软轮换；第 5 次软轮换 → 忽略；第 3 次字节轮换 → `hold`；紧密边界上的压缩 → 保持，其它边界 → 轮换；人的 Run again → 新；父卡的 `action=start` → 按规则。
-- 收尾条件：冷、未加载（插件运行 id 不同）、≥ 128 MiB、上一回合失败、评论边界、记录不过期 → 不收尾。
-- 过期判定：只有 §5.5 的实质变化算；agent 在回合结束前写过的不算。
-- 交接：上限、按条目合并与冲突、墓碑、视图预算与省略计数、相对时间与 SHA 漂移、脱敏规则、存根与 `seen`、确认的校验（漏 id、HEAD 不符、需 note）。
-- 输入提取：过滤 Flowly 前缀、async-shell 与 `<paseo-system>` 通知、路由评论的 messageId；摘要去重在 timeline 重建后不重复；`received` 与 `open` 的判定；`[Image: source: …]` 的图片引用。
+- `rotationDecision` 表：R0–R6 在每类边界上；各模型的 `L_cold` / `L_tight`；C 未知时的代理；紧密边界 2.8 分钟、55% → 保持，72% → 轮换并收尾；提醒或重试在 90% → 保持，在 70 MB → 强制；Codex 唤醒 3 小时、214k（sol）→ R4，90 分钟 → 保持；Opus 1 小时档空闲 70 分钟、200k → R4 轮换，30 分钟 → 保持；Opus 5 分钟档空闲 10 分钟、150k、其它边界 → R4 轮换，同样的数在紧密边界 → 保持；Opus 260k 在其它边界 → R3；210 MB → 强制不收尾；增长（`peakC − C₀`）< 30k → 不软轮换；sol 第一回合结束就到 380k、3 分钟后的修改要求 → 紧密边界 R3 轮换（不再被回合数挡住）；回合中压缩到 50k 之后的其它边界 → R2（用峰值）；只有一个回合、300k、空闲 7 小时 → R4；28 分钟、38 分钟修复回合后评审者的下一轮 → 紧密；人的评论在上一回合后 3 分钟 → 紧密，40 分钟 → 其它；第 5 次软轮换 → 忽略；连续三次 R0 的 ≥ 200 MiB → 第 3 次 `hold`；Claude 子代理 S 只警示，不轮换也不计入 hold；紧密边界上的压缩 → 保持，其它边界 → 轮换；回滚过的指令 → 保持；暂扣期间涨过 200 MiB 的 session 在下一次发送尝试时 → R0；归档的执行者在 `working` → 不轮换（失败），在 `starting` → R0；人的 Run again → 新；父卡的 `action=start` → 按规则。
+- 收尾条件：冷、未加载且 ≥ 64 MiB、≥ 200 MiB、中毒、provider 在限额中、记录不过期 → 不收尾；插件重载之后已加载的 session、评论边界、上一回合普通失败 → 照常收尾。
+- 过期判定：只有 §5.5 的实质变化算（含 ≥ 5 分钟、没有写入的回合）；agent 在回合结束前写过的不算。
+- 交接：上限、按条目合并与冲突、墓碑、视图预算与省略计数、保留预算不被 12k 的 agent 各段挤掉、background 便签折成一行、评审者视图经后续页可取完本周期全文、相对时间与 SHA 漂移、脱敏规则与视图里的标注、存根与 headlines、压缩后 `seen` 被删、全是 open 时的溢出与计数、确认的校验（漏 id、某个仓库 HEAD 不符、非 git 路径不核对、需 note）。
+- 输入提取：过滤 Flowly 前缀、async-shell 通知、路由评论的 messageId；`<paseo-system>` 成为 `via: agent`、不标成人的话，通知关闭子 agent 条目；messageId 去重，没有时摘要计数（三句 “yes” 三条）；`received` 与 `open` 的判定（手动卡、人自己的 session、收尾回合、被拒写入的回合、被换下的 session）；问题与回答的链接；`[Image: source: …]` 的图片引用。
 - 清单仍 6 条且 < 1,800 字符，skill 逐字一致。
 
 ### 17.2 解析器（`server/provider-usage.test.ts`、`server/session-history.test.ts`，合成文件）
 
 - Codex rollout：末尾前 9.3 MB 的 `token_count`、2.3 MB 的长行、`info:null`、带与不带 `latest_token_usage_record` 的 `compacted`；Claude 1M 转录带 `compact_boundary` 与子代理文件，缓存写入档。
 - 超过 256 KiB 的行不缓冲跳过，内存峰值有上限；脱敏、锚点、体积构成。
+- 被动捕获：从持久化的偏移接着读、每次 ≤ 64 MiB、半行留到下次；取 agent 消息、人的消息、启动后台的调用、压缩记录、`token_count`；模拟插件重载后幂等补读；覆盖不到、超预算或版本变化时返回 gap。
 - **一个桩断言没有发生任何 Paseo timeline、refresh-history、发送或恢复调用。**
 
 ### 17.3 服务（假 SDK，`server/automation-rotation*.test.ts`、`server/comment-routing.test.ts`、`server/handoff-*.test.ts`）
 
-- **C5b.3 回放**：字节在回合中越过 128 MiB → 下一个工具结果带 `handoffDue`；steer 只在开启时、每个 session 一次；下一条指令 → 强制轮换不收尾；接班者的 system prompt 有标记与连续性说明；首条消息有原因、要做的事、定向步骤与待办 id；incident 便签有体积构成。
-- 收尾 → 封存 → 创建 → 确认，待发的修改要求原子带过去；收尾失败、超时、长时间收尾（不出现第二个 session）、收尾回合里的交付被 `FINALIZING` 拒绝；在每个阶段模拟重启都只得到一个、同一个 agentId 的接班者。
-- 回滚：软触发的创建明确失败到预算用完 → 旧 session 收到延后的指令；未知结果 → `needs_human`，不回滚。
-- 强制轮换（备用模型、中毒、过大）不收尾；Run again 在 `session_unavailable` 之后用继续说明而不是从头开始；过期恢复不发裸 `startPrompt`。
-- 被换下的 session：后台通知的回合不算 `taken_over`、不触发 A1、暂扣发送、关闭 `running`、加便签、告诉当前 session；人的话的回合捕获原文、`delivered` 时只记录并提供 Send；写入 `RETIRED_SESSION`、`kind=progress` 通过、`get_task` `writable:false`；只靠 label 识别的被换下 session 同样处理；队列在提交和 `drainAll` 时改投；25 个被换下的评审者全部保留 `REVIEWER_ONLY` 与接管豁免。
-- 评论：热 → 原文；冷且大 → 新 session 首条就是原文、system prompt 有标记、`delivered` 的 job 重开；轮换期间 → 待办，出现在首条消息，不发给旧 session、不发两次；`save` 不唤醒；`quick` → 不受管理的子 session、用完删除、`comment_answered`、job 和泳道不变、答不上就发给 agent 并记 gap。
+- **C5b.3 回放**：字节在回合中越过 128 MiB → 下一个工具结果带 `handoffDue`；一个只跑 shell、23 分钟没有 Flowly 调用的回合 → 实时叙述、HEAD 便签、后台条目都在记录里，20 分钟时 `silentSince`；回合崩溃 → 后台条目 `unknown`、incident 便签、接班者必须处置；steer 只在开启时、每个 session 一次；下一条指令 → 强制轮换不收尾；接班者的 system prompt 有标记与连续性说明；首条消息有原因、要做的事、定向步骤与待办 id；incident 便签有体积构成。
+- 收尾 → 封存 → 创建 → 确认，待发的修改要求原子带过去；收尾失败、超时、长时间收尾（不出现第二个 session）、收尾回合里的交付被 `FINALIZING` 拒绝而 workpad 验证与 artifact 通过；收尾回合里人打的话是 `open`；收尾回合的回合结束丢了（重启）→ 对账封存而不是提醒或 `needs_human`；收尾回合以限额结束 → 接班者在备用模型上；第 11 分钟才开始的收尾回合的写入被接受；在每个阶段模拟重启都只得到一个、同一个 agentId 的接班者。
+- 回滚：软触发的创建明确失败到预算用完 → 旧 session 收到**同一个 id** 的延后指令且不再轮换；台账、`ackDue`、`sessions` 还原；未知结果 → `needs_human`，不回滚。`creating` 时创建遇到限额 → 同一次轮换换模型，没有为未建成的 agent 写台账。
+- 强制轮换（备用模型、中毒、过大）不收尾、`nudges` / `failures` / `cooldowns` 清零、首条消息是继续说明而不是 “attempt 2 of 2”；Run again 在 `session_unavailable` 之后用继续说明而不是从头开始；过期恢复不发裸 `startPrompt`；轮换与 Run again 的接班者用开工时选的模型；`queueIn` 照带 `retired`、`cycle`、`launchModel` 与被保留执行者的 `sessions`；没收尾就封存而记录落后 → 首条消息有叙述。
+- 被换下的 session：后台通知的回合不算 `taken_over`、不触发 A1、暂扣发送、关闭 `running`、加便签、告诉当前 session；人的话的回合捕获原文、`delivered` 时只记录并提供 Send；写入 `RETIRED_SESSION`、`kind=progress` 通过、`get_task` `writable:false`；只靠 label 识别的被换下 session 同样处理；队列在提交和 `drainAll` 时改投；25 个被换下的评审者全部保留 `REVIEWER_ONLY` 与接管豁免；人自己开的 session 仍按接管处理；`delivered` 的 job 上人在被换下 session 里要求改东西 → Continue in this session 关闭 job、解除守卫；被换下 session 的回合留下 `retired_turn` 便签并唤醒当前 session；`retiredTurn` 在钩子丢失后由快照清除。
+- 评论，每个 job 状态各一组（`working`、`reviewing`、`needs_human` 含提问后、`waiting`、`retry_wait`、`unconfirmed`、评审中途重开、`delivered`）× 保持 / 轮换：热 → 与人打字相同的直接发送；冷且大 → 新 session 首条就是原文、system prompt 有标记、状态转移同 `turnStarted`；评审者在跑时设的执行者指令不被它的回合结束删掉；槽里是评审者暂扣的指令时不覆盖、待办在评审轮之后送达；暂扣的修改要求发给原 session 时附上待办评论；轮换期间 → 待办，出现在首条消息，不发给旧 session、不发两次；`save` 不唤醒；`quick` → 不受管理的子 session、用完删除、`comment_answered`、job 和泳道不变、`contains_request` 与答不上都发给 agent，答过的评论带答案。
 - 已读播种：完成回合里处理过的评论不重做；只在崩溃回合里读过的评论对接班者未读；`open` 的评论给全文。
-- 评审者：新周期新评审者；一轮中途轮换保留轮次、`job.review`、`seat`、`panel` 与标题，绑定 `reviewDelivery`；旧评审者 `NOT_REVIEWER`；`handoff.gaps` 与 `changes` / `approve`。
-- 父卡与子卡：唤醒时轮换的父卡拿到子卡的交接状态行且在预算内；被换下的父卡不能接受子卡。
-- 开工图片在删除前复制、重新附给执行者接班者；`handoffIndex` 在旧 schema 下被丢弃而看板仍可读；带全部新字段的看板能被上一版 `automationJobSchema` 解析；`state` / `code` 与冻结列表比对，没有新值；回执 action 列表不变。
+- 评审者：新周期新评审者、`cycle` 加一，重启或事件裁剪后发现 id 不重号；一轮中途轮换保留轮次、`job.review`、`seat`、`panel` 与标题，绑定 `reviewDelivery`，带上被换下评审者没提交的发现；第 3 轮的评审者看得到前两轮的全文与交付说明；旧评审者 `NOT_REVIEWER`；评审者不收到 `handoffDue`；`handoff.gaps` 与 `changes` / `approve`。
+- 父卡与子卡：唤醒时轮换的父卡拿到子卡的交接状态行、hazard 便签与 pitfalls 且在预算内；子卡拿到父卡的 pitfalls；人的原话不跨卡；被换下的父卡不能接受子卡；父卡在记录过期时建子卡得到 `handoffDue`。
+- 多仓库与非 git 的工作区：每个仓库的 git 与 HEAD 核对，根不是 git 仓库时确认不被拒。
+- 从项目文件夹恢复后交接回来。
+- 开工图片在删除前复制、接班者的首条消息给出路径而不重新附上；`handoffIndex` 在旧 schema 下被丢弃而看板仍可读；带全部新字段的看板能被上一版 `automationJobSchema` 解析；`state` / `code` 与冻结列表比对，没有新值；回执 action 列表不变。
 - 单元测试绝不能碰到真实 daemon（open-paseo-plugins/AGENTS.md）：改动 CLI、SDK 或子进程调用后确认桩仍然拦截，跑完用 `paseo project ls` 等检查有没有多出来的资源。
 
 ### 17.4 真实 daemon 与 Web UI
@@ -784,51 +880,74 @@ Flowly 看不到的进程（裸 `nohup`、浏览器标签以外的东西）只�
 
 ### 17.5 交接演练（可重复）
 
-从一份封存快照开一个只有卡片的廉价新 session，用固定的五个探针（召回、产物、继续、决定、坑）对照 fixture 的标准答案打分，每个探针一次廉价调用。目标：≥ 80% 的运行第一次确认就完整；首个有效动作的用时不差于 C5b.3 的基线（约 20 分钟完成一个回合）。同一演练决定 `flowly_session_history` 值不值得用。
+固定的 fixture：一张合成卡，带一份封存快照（交接、台账、评审轮次）和一个 git 仓库，标准答案是一份事实清单（HEAD SHA、下一步的 id、每条 pitfall 与 ruled-out 的 id、仍在跑的后台条目、open 的输入与问题的 id）。每次演练从快照开一个最便宜模型的新 session，只给它卡片。判定全部是机械的，不用 LLM 打分（同 §7.5）：(1) 它的 `ack` 是否第一次就完整（每个必须处置的 id 都有处置、每个仓库的 HEAD 正确）；(2) 五个探针（召回、产物、继续、决定、坑）的回答写成结构化字段，按 id 与 SHA 与标准答案做精确匹配，得分 = 匹配的事实数 / 总数；(3) 一个指标：从 session 开始到确认完成的分钟数。跑 5 次，通过线：至少 4 次 (1) 完整，(2) 的平均分 ≥ 0.8，(3) 的中位数 ≤ 5 分钟（C5b.3 #2 读完卡片与交接文档用了约 70 秒）。同一演练、对照有无 `flowly_session_history`，决定它值不值得用。
 
 ### 17.6 上线后的指标
 
-按原因统计的每卡轮换数；收尾成功率；首次确认完整率；轮换后第一次提交的用时；重做工作的迹象（重复的 PR URL、重开的发现）；`flowly_session_history` 的使用；每卡 token（取自用量数据）；轮换的 session 与保留的 session 首个请求的缓存命中率（只在本机记录，用来校准 TTL，§19）。
+按原因统计的每卡轮换数；收尾成功率；首次确认完整率；轮换后第一次提交的用时；重做工作的迹象（重复的 PR URL、重开的发现）；`flowly_session_history` 的使用；每卡 token（取自用量数据）；轮换的 session 与保留的 session 首个请求的缓存命中率（只在本机记录，用来校准 TTL，§19）；Claude 子代理文件合计 S 的分布（512 MiB 仅是观察线，§19）；沉默信号的次数与时长。
 
-## 18. 分期
+## 18. 分期：先交付可靠接手，再扩大自动轮换
 
-- **P1 核心**：job 新字段与轮换阶段（`beginRotation`、收尾、封存、创建、提交、回滚、防抖）；测量（`lastUsage`、回合结束时保存、Codex 与 Claude 的字节）；阈值与决策表；回合内的提醒与便签；交接存储、工具、`get_task` 视图与存根、交付门、确认；派生捕获（人的话、图片占位、开工图片、后台清单、git、台账、锚点）；不带骨架的意外结束便签；被换下的 session 的名单、守卫、label 兜底、队列改投；连续性说明与接班者首条消息；Run again 默认新 session 与可选的同 session；新周期新评审者；已读播种；评论的 `save` 选项、轮换期间的待办、默认收件人排除被换下的；抽屉 Handoff 区；清单、skill 与 spec 修改；测试。
-- **P2**：provider 文件尾读取（重启后的 token、Claude 缓存档、压缩标记）；骨架、`flowly_session_history`、体积构成、lastWords、崩溃中途的人的话；评审者交接检查与 gaps；父卡与依赖卡的交接状态行；daemon 侧的评论 `auto` 路由（热 / 冷）与 `fresh`。
-- **P3**：`quick` 只读回答；steer（用户决定后）；Codex 子线程字节与 `thread_history_1.sqlite` 快路径；其它写入工具的小回执与 `get_task` 增量视图（Flowly 工具结果占普通历史 32.5%）；按观测到的缓存命中率自动校准 TTL。
+本稿覆盖最终行为，不要求一次实现所有字段和十个模块。实现计划先拆成可单独审查、测试和交付的三个里程碑；某个里程碑不宣称已获得后续能力。先合 review-levels，再开始代码工作（§15.3）。
 
-## 18.1 不做
+### P1：卡片记录与可靠接手（第一阶段）
 
-- 打断或归档旧 session；在严重体积时自动停止它（人用 Paseo 自己停）。
-- 每条评论开一个新 session（Multica 也不这样，§0）。
-- 自动把评论分类为进度提问。
-- 批准之后再派收尾回合（“批准后的尾声”）：它要 A1、重开和接管的例外，可能让批准失效，也违背 `delivered` 的含义 “the user decides what happens next”（`shared/automation-schema.ts` 的 `automationStates`）。
-- 因泳道移动、限额重试、宿主临时故障或紧密边界上的压缩而轮换。
-- 经 Paseo 读前任；让 agent 自己读 provider 文件。
-- 把等待者或 exec session 转给接班者（Paseo 不支持）。
-- 把交接放进 `board.json` 或项目文件夹快照。
-- 阈值做成项目设置。
-- “把这个旧 session 设为工作 session”的按钮：Stop automation 后在旧 session 里继续即可，再 Run again 时记录已捕获人的话。
-- 用 LLM 给确认打分；用 LLM 把转录摘要进交接（Flowly 派生的只做确定性的事）。
-- 给 `artifact-reads.json` 加逐条的已读模型。
+只交付核心闭环：
+1. 一份紧凑的当前交接记录、增量归档与完整读取路径。内容先有 `state / next / decisions / ruledOut / problems / pitfalls / running / where / env`；人的输入、问题与明确关联的回答；当前周期评审要求、交付说明；每仓库 git 状态；当前与前任的最小 session 元数据。完整的 200 个 session 台账、广泛锚点索引和骨架都不必首期完成。
+2. 现有工具与 Flowly 输入框的消息在写入或发送时就落盘；回合结束捕获最后消息、git、可识别后台句柄，并做 Codex / Claude 主转录的有界增量捕获与 coverage gap。不能只等 agent 主动写交接，否则事故中断前的沉默回合仍旧没有记录。其它 provider 明确标仅有回合结束捕获。
+3. 把**既有**备用模型切换、200 MiB 轮换，以及人请求的新 session / Run again 接到同一条可恢复的交接路径。健康且记录落后的旧 session 按 §6.2 收尾；异常或不安全时不用它收尾，带缺口接手。携带原指令、所选模型、未决输入和评审要求；未知创建结果不再建第二个。回滚、重启、迟到钩子和旧 session 的工具守卫是本阶段的一部分，不能省成“换个 id”。
+4. 新 session 读卡和完整未决内容，核实仓库与后台，做 ack；缺关键指示时提问。卡面/抽屉显示现状、记录年龄、当前/前任、缺口及接手结果；不要求人打开聊天才能知道出了什么问题。首期不启用新的冷评论路由，只保证轮换期间的评论与输入不丢、之后送达。
+5. 更新 skill、清单、相关 spec 与全部语言；交接软门、压缩后重给、同卡旧 session 写入限制，以及人为接回旧 session 的明确动作随核心一起交付。
 
-## 19. 待用户决定
+**第一阶段通过线**：在假 SDK 上完成正常接手、收尾、崩溃/漏钩子、创建未知、模型保留、未决评论和旧 session 写入场景；用小 fixture 做真实 Web UI 接手演练。验证“下一位拿得到规定信息、会检查并能继续”，不只验证文件存在。详见 §17；P2/P3 独有测试此时记 unrun，不写成已完成。原有 200 MiB 守卫保留；64 MiB、R2–R4、缓存阈值只记影子决策，不自动触发。
 
-1. **回合中途的 steer**（§4 第 3 条）：128 MiB 或预测 10 分钟内到 200 MiB 时，每个 session 一次 `[Flowly automation]` steer。Paseo 0.12 的 steer 可能退化为 interrupt，与“不主动打断”冲突。推荐开启（崩溃循环会断开主机上所有 session，更糟）；决定之前实现为关闭。
-2. **被换下 session 的回合**：推荐不再算接管（job 继续，暂扣发送，捕获原话；`delivered` 时由人决定是否转给当前 session）。还是保留今天的 `taken_over`？
-3. **Run again** 默认新执行者与新评审者，⋯ 里可选在原 session 继续：确认？
-4. **新评审周期总是新评审者**（改变今天跨周期复用）：确认？
-5. **隐私**：人打进本卡任何 session 的消息按原文（脱敏）保存在交接文件，抽屉、评审者和接班者看得到，不进链接 handoff、子卡说明、导出与项目文件夹快照。可以吗？只限自动化卡，还是所有管理 session？
-6. **只读回答**只作 To: 的显式选项（P3），不自动分类：确认？
-7. **交付门与确认**只在开启自动化的项目里生效（推荐，不需要新设置），还是对所有 Flowly 管理的执行者 session？
-8. **Codex 缓存阈值**用本机实测（2 小时内热、2–6 小时看大小、6 小时冷），而不是 OpenAI 文档的 30 分钟下限；以后按观测自动校准？
-9. **64 MiB 的主机安全轮换**在紧密循环里也生效？真实卡片上的正常 session 从没到过（C5b.2 合计 54.6 MB）。
-10. 清单第 5 条的新措辞（1,790 字符）与 WORKPAD-SPEC “不做 Notes” 被取代：确认。
-11. SDK 能力：插件能否改 session 标题或 label 以标出 “(replaced)”；能否在 timeline 里拿到图片本身；Codex 的 `state_5.sqlite` / `thread_history_1.sqlite`（未公开、带版本号）能否作为尽力而为的只读来源。
-12. 在 `before("agent.session_open")` 里抛错，否决对 ≥ 200 MiB session 的加载，能否止住重启后的崩溃循环？未测试，也可能挡住人有意的打开、影响其它客户端。
-13. Claude 在 API key 或用量额度上只有 5 分钟缓存：P2 之前按 55 分钟处理（偶尔多一次冷恢复，只花钱不丢信息），可以吗？
-14. 合并顺序：先合 `feat/review-levels`，本分支再 rebase：确认。
+### P2：按证据自动选择换人边界
+
+P1 通过并安装验证后再启用：§3 的 64 MiB、上下文和空闲决策（紧密循环例外与防抖）；文件尾测量、骨架与只读检索；评论 `auto / fresh / save` 按 job 状态路由；新评审周期新评审者与交接检查/gaps；父卡、子卡和依赖的交接摘要；按需逐步扩充历史台账、图片引用恢复。
+
+启用更早轮换前要验证被动捕获无积压的普通路径、缺口显示和强制接手，不把 60 秒轮询当成实时保证。Claude 子代理 S 先只观察；是否值得加独立阈值由本机测量决定。旧的 200 MiB 不读不发保护全程保留。不同 provider 的不读不发条件要以实际加载成本验证，不能把 Codex 父线程的风险直接套到所有 provider。
+
+### P3：可选优化
+
+显式 `quick` 只读回答；用户另行同意后的 steer；Codex 子线程字节和只读 SQLite 快路径；其它写入工具的小回执；按真实缓存命中率校准阈值。这些都不是第一阶段可靠交接的前提，不额外自动启动隐藏的评分模型。
+
+### 18.1 不做
+
+- 自动中断、停止或归档旧 session；不在本任务中否决宿主打开历史。
+- 每条评论强制新 session，或自动把评论分类为进度提问。
+- 批准之后再派收尾回合：会让 A1、重开与批准含义变复杂；缺口在卡片上保留，到下一次明确启动时处理。
+- 因泳道移动、限额重试或宿主临时故障本身换 session；R0 的安全与中毒条件仍优先。
+- 经 Paseo 加载过大的前任，或让 agent 自己读 provider 文件。
+- 接管旧 session 的 exec/PTY、等待者、schedule 或浏览器；只能核实、记录，必要时由接手者建立自己的监测。
+- 把整份交接塞进 `board.json`、每次轮询复制一遍全量历史、默认导出人的 session 原文，或自动清理语义记录。
+- 用 LLM 给 ack 打分、把未核实叙述当事实，或声称一个长回合不会膨胀和零信息损失。
+
+## 19. 已定默认、额外授权范围与技术核实
+
+用户已经授权 hybrid 与认真设计交接；以下取舍由本设计落实，**不再要求逐条确认**：
+
+| 事项 | 默认与理由 |
+| --- | --- |
+| Run again / 新评审周期 | Run again 默认新执行者；新周期新评审者，同周期紧密循环尽量复用。按 §18 分步上线；人仍可明确选健康的原 session。 |
+| 旧 session 被通知唤醒 | 不自动当作人的接管；限制 Flowly 卡片写入、捕获通知并暂扣下一次派发。人明确点 Continue in this session 才关闭自动化并接回，`delivered` 同样有此动作。不能借此保证文件系统绝无并发。 |
+| 记录与隐私范围 | 本卡 Flowly 管理 session 的任务输入原文脱敏后留在本卡，供本卡执行者、评审者和抽屉读取；不抓原生无关 session。人的原话默认不跨卡、不进文件夹快照；父卡通过明确子卡说明传达相关约束，引用来源并保留原始指示在父卡。 |
+| 恢复与导出 | 本机 remove/restore 恢复交接备份，包括增量归档与输入正文。默认不把人的话、叙述、便签或完整交接导出进项目目录；跨机器恢复因此存在缺口，必须在恢复 UI 明示。未来可另做显式导出，不在此扩大数据传播范围。 |
+| 交付门 / ack | 在开启自动化的项目对受监督执行者生效；手动 session 可用记录但不强加自动化交付协议。 |
+| 缓存估计 | 采用本机观测作为估计，不把它说成 provider 保证。Claude 写入档未知、其它 provider 未实测时不只因缓存触发 R4；上下文与字节规则仍工作。不采用固定 1 小时或 30 MB 猜测。 |
+| 不收尾的例外 | 冷且记录新的 session 不为形式多跑一回合；冷而记录落后时带叙述与缺口接手，不能称其完整。未加载的大 session 或中毒/限额 session 不冒险恢复。关键内容无法确认则暂停问人，不为了省钱越过。 |
+| 首期范围 / 合并顺序 | 先合 review-levels；第一阶段只上线 §18 P1，后续自动决策先观察再启用。SDK 与 provider 文件结构的能力验证由实现者完成，不交给用户做技术选择。 |
+
+**唯一需要额外决定的运行干预**：是否开启 §4 第 5 条的回合内 steer。当前保持关闭，既不发送试验性的 steer，也不自动停止。理由是 Paseo 0.12 的 steer 可能退化为 interrupt，超出了当前“不主动打断”的约束。这不阻塞 P1/P2 的记录、交接和边界轮换。
+
+实现前/启用前由开发者核实（不是用户审批项）：
+- `fetch_agent.status` 只能作已加载的候选信号。必须实测同一 daemon 上发送是否会重新读大历史；不能证明时，收尾上限按 64 MiB，不用 200 MiB 的“已加载例外”。
+- 解析器与真实 provider 版本、compaction marker、半行/长行、文件滚动、子代理结构；有界读取、缺口与版本降级路径要有测试。SQLite 只能是可撤掉的只读快路径。
+- 改标题/label 若 SDK 不支持，只做 Flowly 横幅；图片拿不到就标缺口。不能为了装饰或补缺口去调用未经测试的宿主能力。
+- 不测试或启用 `before("agent.session_open")` 抛错来阻止宿主加载；那是 Paseo 主机修复的独立范围。
 
 ## 20. 评审意见的处理
+
+### 20.1 第一版（三份方案的评审）
 
 两轮评审选出“零损失”为主体（一轮选“故障优先”、一轮选“从简”），并指出以下缺陷。逐条去向：
 
@@ -839,7 +958,7 @@ Flowly 看不到的进程（裸 `nohup`、浏览器标签以外的东西）只�
 | 说 session 图片“timeline 暴露时”能捕获，而 `user_message` 只有文字 | 只捕获 `[Image: source: …]` 占位指向的本机文件，其余明确记为丢失（§5.7） |
 | 清单长度算错（1,781） | 实算 1,790（§13） |
 | 每条人的话都要逐条确认、闲聊变待办 | 回合正常完成的工作 session 收到的话为 `received`，不要求处置；确认只覆盖 open 项（§5.7、§7.5） |
-| 冷 session 也收尾（约 C×1.25）、给 ≤ 200 MB 的 session 发收尾 | 只在热、已加载、记录确实过期、< 128 MiB 时收尾（§6.2） |
+| 冷 session 也收尾（约 C×1.25）、给 ≤ 200 MB 的 session 发收尾 | 只在记录过期、健康且热、满足可验证加载预算时收尾（§6.2）；64–200 MiB 的例外未经实测不启用 |
 | “过期”几乎总成立，收尾在多数轮换上触发 | 过期只认实质变化（§5.5） |
 | 收尾 10 分钟后封存，晚开始的收尾回合与接班者并行；收尾回合里的交付语义未定义 | 收尾回合在跑时从不创建接班者；收尾回合里的交付返回 `FINALIZING`（§6.2） |
 | 批准后的尾声 | 不做（§18.1） |
@@ -856,5 +975,91 @@ Flowly 看不到的进程（裸 `nohup`、浏览器标签以外的东西）只�
 | 继承前任已读时间而不管崩溃的回合 | min 规则（§7.4） |
 | 冷评论仍直达冷而大的 session（C5b.2 的模式） | daemon 路由，冷且大时新 session 首条原文（§10.1） |
 | 清单上限要从 1,800 提到 2,000 | 不提，1,790（§13） |
-| 每分钟 stat 上万个 Claude 子代理文件；每次换下都流式读 GB 级 rollout | 子代理目录每 5 分钟最多一次、按 mtime 缓存；骨架只按需或在异常 / 大 session 时建（§2、§8.1） |
+| 每分钟 stat 上万个 Claude 子代理文件；每次换下都流式读 GB 级 rollout | 子代理最多每 5 分钟测一次，复用路径清单但重新 stat 文件；骨架只按需或在异常 / 大 session 时建（§2、§8.1） |
 | 回合内增长靠轮换挡不住 | 提醒、便签、卫生规则；steer 交给用户决定（§4、§19） |
+
+### 20.2 第二版（信息损失、状态机两位评审，48 条）
+
+48 条都给出处理，不等于每种建议照单全收；大多沿用评审给的修法，散在各节（主要是 §2–§7、§9–§11、§16、§17）。下面只列改了修法或只部分采纳的：
+
+| 意见 | 处理 | 理由 |
+| --- | --- | --- |
+| 评审者的后续在 64–200 MiB 时保留已加载的 session（两个修法之一） | 不采纳；采纳另一个：被换下评审者没提交的发现进接替者的说明（§11.1） | R1 是主机安全界限，不该因角色而异；未提交叙述提供线索；截断与未说出的发现仍可能丢，不能保证全部带过 |
+| 降级时把 carry 写进 `job.changes`，或附在收尾说明后 | 收尾说明附 carry 的前 1,500 字符（§6.2）；`job.changes` 本来就留着修改要求 | 评论与唤醒不是修改要求，写进 `job.changes` 会被旧版本当成评审的要求；附全文会诱使收尾回合动手 |
+| 恢复时读 `removed/`，或快照带上 agent 写的各段 | 前者采纳；后者默认不做，见 §19 | 快照随文件夹被带到别处，属于隐私决定 |
+| 人的长期指示跨卡传递 | 分出 standing 输入；默认不跨卡，见 §19 | 默认范围保持在本卡；父卡通过明确子卡说明传递相关约束并引用来源 |
+| 最少回合数只用于轮换出来的 session | 去掉最少回合数，只留从 C₀ 算起的增长 | 增长量已能区分抖动；接班者的第一个边界本来就在它第一回合之后，回合数门槛对它也没有作用 |
+| 等子卡和普通结束的回合也加门或提醒 | 提问加门；建子卡与启动子卡的结果带 `handoffDue`；什么都不调用的回合靠最后一条消息与叙述 | 拒绝建卡会打断编排；不调用 Flowly 的回合没有可拒的调用 |
+| 评论边界不收尾（列为一项损失） | 改为评论边界也收尾 | 无论由紧密边界的较高上限还是非紧密边界触发，符合收尾条件就先记录；不是所有评论轮换都已空闲 20 分钟 |
+| “已加载”改用 daemon 身份与启动时间 | 改用 `fetch_agent` 快照的 `status`（`closed` 即未加载），P1 在真实 daemon 上核实 | 快照是关于这个 session 的事实；daemon 的启动时间说明不了某个 session 是否已被打开 |
+| 卡面显示记录的年龄，同时只在变化时写索引 | 两者都采纳：索引存 `staleSince`，年龄由客户端算 | 每次写入都更新 `updatedAt` 会让 `board.json` 频繁重写 |
+| 默认视图给保留预算 | 采纳，并把视图上限从 20,000 提到 24,000 | 保留部分的上限加起来超过 20,000；平常它们几乎是空的，空出的预算还给 agent 的各段 |
+| 交接演练的单一指标 | 定为“开始到确认完成的分钟数”，不用“到第一次提交” | 确认由 Flowly 机械检测；第一次提交的早晚取决于任务大小 |
+| 开工图片只附给第一个接班者 | 一律只给路径 | 第一个接班者同样会把约 54 MB 写进新历史 |
+
+### 20.3 两份 critique 的逐条去向
+
+编号与已完成 workflow 输出的顺序一致：L 为信息损失评审（20 条），M 为状态机评审（28 条）。这里只记录处理结果，不重抄整份意见；“解决”指设计已规定行为，**不表示实现或测试已通过**。
+
+| 编号 | 问题 | 设计处理 |
+| --- | --- | --- |
+| L1 | 不调 Flowly 时收不到提醒、20 分钟损失界限失实 | §4 被动捕获与沉默信号；§16.1 明示无固定损失上限。 |
+| L2 | 崩溃回合启动的后台任务没有入账 | §5.7 回合中捕获，§5.8 unknown 清单；取不到句柄时给 no-inventory 缺口。 |
+| L3 | 压缩后 `seen` 仍让交接只剩存根 | §2/§5.9 检测后重给视图，存根常带重要首行与引用。 |
+| L4 | 跳过收尾与知识型回合过期判定遗漏 | §5.5 含知识型长回合；§5.8 叙述补记；§6.2 评论也按同样条件收尾；冷时例外明确。 |
+| L5 | 问题与回答不能对应 | §5.2 questions；§5.7 明确关联才关闭，任意新话仅作候选；每次 Run again 有说明框。 |
+| L6 | 手动 session 的输入永远 open、溢出无定义 | §5.7 定义 received 的传输语义；§5.2 归档正文但保留未决索引。 |
+| L7 | 收尾期间收到的话被误算已处理 | §5.7 收尾/被拒写入的输入仍 open，§7.5 必须处置。 |
+| L8 | agent 正文把人的指示与危险便签挤出预算 | §5.9 保留预算、裁剪计数及完整读取游标。 |
+| L9 | `<paseo-system>` 与旧 session 做过的事被丢掉 | §5.7 来源区分；§9.3 记录通知、回复和 git 变化；周期触发不等于任务关闭。 |
+| L10 | 限额/后续轮换没补记且 R1 优先级不清 | §3.3 强制优先，§5.8 覆盖异常后轮换；§6.3 重新构造继续指令。 |
+| L11 | 漏钩子、重复原话和捕获时间不准确 | §4 持久偏移与 coverage，§5.7 源 messageId / 摘要计数、原时间与捕获时间区分。 |
+| L12 | 只核对一个仓库，未提交列表被截断 | §5.2/§5.7 每仓库记录；超过 8 仓库/50 文件明示未检查范围，§7.5 分别核对。 |
+| L13 | 项目移除后恢复会丢交接 | §5.1/§19 本机 removed 备份包含归档与输入正文；跨机器缺口明确。 |
+| L14 | 危险与长期指示不随卡片树传递 | §11.5–11.6 传 agent pitfalls 与 Flowly hazard；人原话留本卡，相关约束由父卡明确写入子卡说明并引用来源。 |
+| L15 | 原话被截断、长期指示和脱敏提示不完整 | §5.2 正文保存与引用，§5.9 省略计数/必读引用、standing、脱敏标记。不能承诺一次响应全给完。 |
+| L16 | quick 的 answered 与 open 语义矛盾 | §10.2 显式选择；contains_request 转 auto；答案也保留给工作 session。P3。 |
+| L17 | 收尾不能补 workpad 验证与 artifact | §6.2 允许记账，仍禁止交付与新工作。 |
+| L18 | 评审者没提交的发现随轮换丢失 | §11.1 未提交叙述给接替者，标未核实。摘要裁剪后的细节仍是已知损失，不称完整保留。 |
+| L19 | 早轮次的交付说明被活动裁剪 | §5.2 reviews.delivery 与归档；§5.9 评审完整读取路径。 |
+| L20 | working 卡面看不到沉默与过期 | §4/§12 卡面记录年龄、沉默、checkpoint 与缺口。 |
+| M1 | 各 job 状态下评论可能丢失/覆盖另一角色指令 | §10.1 明确状态转移、pendingInputs 及下一条指令送达；冷路由在 P2。 |
+| M2 | 第一回合填满与压缩后增长门槛永不触发 | §2 起始请求 C₀、未知不假造；§3.3 peakC、去掉最少回合门槛；§17 回放。 |
+| M3 | 开工模型只在第一次有效 | §3.4/§6.1 持久 launchModel，轮换和 Run again 受原有 fallback 规则约束。 |
+| M4 | 人开的 session 被误判 retired | §9.1 只认自动化角色/原因，人开的仍走接管。 |
+| M5 | delivered 上 Stop 不存在，旧 session 无法接回 | §9.2 Continue in this session；解除前禁止工作。 |
+| M6 | 无 Flowly 调用时提醒失效 | 同 L1；§16.1 不承诺 20 分钟上界。 |
+| M7 | 缓存轮换决定绕过最新字节强制检查 | §2/§3.5/§6.2 每次发送尝试重判 R0/R1，只缓存软决定。 |
+| M8 | 回滚重建指令导致反复轮换、封存状态没还原 | §6.1 carry.id / prevMeta，§6.4 rotationAbandoned 与撤销封存。 |
+| M9 | 创建中 fallback 嵌套轮换 | §6.3 保留 rotation id/carry，不给未创建 session 写 retired/台账。 |
+| M10 | 收尾与 retired 回合漏钩子会卡死 | §6.5 先于普通 turnDecision 处理收尾；hold 每次用快照核实。 |
+| M11 | 收尾收到的新话被记 received | 同 L7。 |
+| M12 | 对方角色长回合被当成本角色空闲 | §3.2 以本卡最近回合划紧密边界，另看目标 session 缓存估计。 |
+| M13 | 后轮评审只看到前轮摘要，无法逐项核对 | §5.9/§11.1 给完整读取页、总数与遗漏 id；必须取完本周期要求再宣称完成审计。 |
+| M14 | 200 MiB 的 R0 不计字节失控次数 | §3.5 R0/R1 主历史都计入，S 不触发。 |
+| M15 | 前任失败/提醒计数与后续文本误带给接班者 | §6.2 清计数；§6.3 用继续说明与未完原指令替换后续文字。 |
+| M16 | queueIn 丢 session 元数据与 retired | §6.1 明确照带项；fresh 时在事务里 retired 旧执行者。 |
+| M17 | Claude 子代理总量被 Codex 单线程阈值误伤 | §2/§3/§11.4 分开 B 与 S；S 先观察不自动轮换，校准后再议动作。 |
+| M18 | 开工图片反复内联造成每个接班者膨胀 | §7 只给文件路径，按需打开；不反复附 base64。 |
+| M19 | 非 git 根/多仓库使 ack 永远不符 | 同 L12；§7.5 读不到 HEAD 的路径不做 SHA 比较。 |
+| M20 | reviewer 收到自己不能执行的 handoffDue | §4 只对执行者/收尾回合；§11 reviewer 报 gaps。 |
+| M21 | 归档执行者 R0 与 failed 行为矛盾 | §3.3/§6.3 区分 starting 与工作中消失。 |
+| M22 | 崩溃的 lastWords 误取上一个回合 | §5.8 取较新可用来源、明确时间与覆盖范围。 |
+| M23 | 迟到收尾写入被 retired 拒绝 | §6.2/§5.6 按收尾 messageId 识别迟到记录；不夸大其为文件系统互斥。 |
+| M24 | 热降级丢掉 rotation carry | §6.2 留指令开头、job.changes；§15.1 不承诺热降级无损，降级前解决 pending/unknown 并备份。 |
+| M25 | cycle 无持久计数导致发现 id 碰撞 | §6.1 cycle 与 queueIn 照带，按新周期更新，不从裁剪事件推算。 |
+| M26 | plugin reload 被当作 session 未加载 | §2 候选快照与 §19 实测；不再用 plugin 进程 id，不证明加载安全就不启用大 session 收尾。 |
+| M27 | handoffIndex 频繁重写 board.json | §5.1 只在可见 fresh/open/session 值变化时写；时长由客户端计算。 |
+| M28 | 接手演练指标与判分不可重现 | §17.5 固定 fixture、事实 id/SHA 与统一起止定义；ack 是结构核对，不等于语义全懂。 |
+
+### 20.4 接续自查补上的一致性问题
+
+- 去掉“零损失”“任何时候绝不双 session”“最多丢 60 秒”和回放推导最大 MB 的保证；列出模型、宿主与捕获不能控制的部分。
+- 完整读取由单次 96 KB 改为有预算、有省略计数的连续读取；评审也不能把 40k 第一页当成所有轮次。当前 JSON 的 1 MiB 是实际编码硬限，不是各列表上限相加的猜测。
+- 问题只有明确关联回答才关闭；完成一个回合仅说明 received，不证明已照办。schedule / heartbeat 的一次触发不等于已结束。
+- 当前记录原子覆盖、历史仅记变更，先落盘内容再推进捕获偏移；跨 handoff/board 的操作必须可恢复，不声称 rename 让两个文件原子。
+- 文件缩短/替换、长行、嵌套工具不可见、叙述滚动、读取积压、超过仓库预算都有 coverage/gap；坏文件不重置，关键要求不明则等待。
+- 去掉统一的缓存计费倍率与“冷了所以一定更便宜”；缓存未知不单独触发冷恢复，Claude 子代理先观测。本文的阈值是待验证策略，不是模型服务保证。
+- 取消 15 项重复确认，保留已获授权的 hybrid 默认；首期收紧到可靠接手，主动打断仍默认关闭，技术核实由开发者完成。
+
+验证状态：只修订设计并做 Markdown、交叉引用、预算/状态转移与 critique 对照自查。未改代码，未运行运行时测试，未 push，未 install/reload，未触碰用户看板或 session。
