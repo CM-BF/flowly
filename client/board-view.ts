@@ -12,11 +12,15 @@ type Settings = {
   reload(): Promise<void>;
 };
 
+/** A patch, or a function building it from the freshly read values (records such as `subCardLevels` that must merge with another device's write). */
+export type BoardViewPatch = Partial<BoardView> | ((base: BoardView) => Partial<BoardView>);
+
 /**
  * Saves `patch` on top of the latest stored values; on a revision conflict
- * reloads and merges again (a few attempts). Returns whether it was stored.
+ * reloads and merges again (a few attempts), calling a function patch again
+ * on the reloaded values. Returns whether it was stored.
  */
-export async function saveMerged(read: () => Settings, patch: Partial<BoardView>, pause = wait) {
+export async function saveMerged(read: () => Settings, patch: BoardViewPatch, pause = wait) {
   for (let attempt = 0; attempt < 4; attempt++) {
     const current = read();
     if (current.status !== "ready" || current.revision === undefined) {
@@ -24,7 +28,7 @@ export async function saveMerged(read: () => Settings, patch: Partial<BoardView>
       continue;
     }
     const base = boardViewValues(current.values);
-    const next = { ...base, ...patch };
+    const next = { ...base, ...(typeof patch === "function" ? patch(base) : patch) };
     if (JSON.stringify(next) === JSON.stringify(base)) return true;
     if (await current.save(next, current.revision)) return true;
     // Someone else saved first: pick up their revision and merge again.
@@ -57,13 +61,25 @@ export function useBoardView() {
     });
   }, [settings.status === "ready" ? settings.revision : ""]);
   const values: BoardView | null = stored ? { ...stored, ...overlay } : null;
-  async function update(patch: Partial<BoardView>) {
-    setOverlay((current) => ({ ...current, ...patch }));
-    if (await saveMerged(() => latest.current, patch)) return true;
+  async function update(patch: BoardViewPatch) {
+    // A function patch shows at once as built on what is on screen; the stored write rebuilds it on the fresh values.
+    const shown = typeof patch === "function" ? patch(values ?? boardViewValues(undefined)) : patch;
+    setOverlay((current) => ({ ...current, ...shown }));
+    if (await saveMerged(() => latest.current, patch)) {
+      // A function patch was rebuilt on the fresh values, so what was stored may differ from what was shown:
+      // the stored document is the truth now (unless a newer optimistic write replaced these fields meanwhile).
+      if (typeof patch === "function")
+        setOverlay((current) => {
+          const copy = { ...current };
+          for (const key of Object.keys(shown) as (keyof BoardView)[]) if (copy[key] === shown[key]) delete copy[key];
+          return copy;
+        });
+      return true;
+    }
     // Give up visibly rather than show a value that was not stored.
     setOverlay((current) => {
       const copy = { ...current };
-      for (const key of Object.keys(patch)) delete copy[key as keyof BoardView];
+      for (const key of Object.keys(shown)) delete copy[key as keyof BoardView];
       return copy;
     });
     return false;

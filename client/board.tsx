@@ -1,4 +1,4 @@
-import { useEffect, useId, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { Animated, Platform, Pressable, View, useWindowDimensions, type GestureResponderEvent } from "react-native";
 import { Icon, ScrollView, useToast } from "@getpaseo/plugin/client/react-native";
 import { Modal, useAfterModalClose } from "./modal";
@@ -59,7 +59,11 @@ import { IdeaRow, useExitList, useHeld } from "./task-ideas";
 import { currentWrapup } from "../shared/wrapup-state";
 import { ProjectForm, TaskForm, type TaskSeed } from "./forms";
 import { ideaDescription } from "../shared/ideas";
-import { waitingOn } from "../shared/links";
+import { parentOf as parentCardOf } from "../shared/links";
+import { blockerIndex, cardTreeOf, rollupBelow, type Below, type Level } from "../shared/card-tree";
+import { levelOf, withSubCardLevel } from "../shared/card-levels";
+import { boardLevels, hiddenAncestors, levelChipText, levelChoiceText } from "./board-levels";
+import { cardFlags } from "./card-flags";
 import { LinkPicker } from "./task-links";
 import { TaskDrawer } from "./drawer";
 import { DeleteTaskDialog } from "./task-delete";
@@ -67,11 +71,11 @@ import { useBoardQuery, useLiveAgents, useMemoryCountsQuery, useResourcesQuery, 
 import { useStableCallback, useStableTheme } from "./stable";
 import { isLegacyScope } from "../shared/scope";
 import { LaneList } from "./lane-list";
-import { perfConfigure, perfMark, usePerfRender } from "./perf";
+import { perfConfigure, perfEnd, perfLap, perfMark, perfStart, usePerfRender } from "./perf";
 import { laneRows, sameRows } from "./lane-rows";
 import { LiveTaskCard, type CardDrag, type LiveTaskCardProps } from "./card";
-import { automationSignal, useAutomationActions } from "./task-automation";
-import { automationMenu, workspaceKnownMissing } from "./automation-view";
+import { useAutomationActions } from "./task-automation";
+import { automationMenu, automationSignal, workspaceKnownMissing } from "./automation-view";
 import { useConnections } from "./connectors";
 import { faceKey, familyOf } from "../shared/connectors";
 import { cardProgress, useSummaries } from "./task-progress";
@@ -88,7 +92,7 @@ import { hasOpenNextMoves } from "../shared/next-moves";
 import { statusChanges } from "./changes";
 import { Popover, type PopoverPlace } from "./popover";
 import { ContextMenuProvider, eventPoint, menuHandlers, suppressNativeMenu, useMenuOpener, type MenuEntry } from "./context-menu";
-import { DesktopColumns, OlderToggle, type Placement } from "./columns";
+import { DesktopColumns, LevelsToggle, OlderToggle, levelsEmptyText, type Placement } from "./columns";
 import { olderFinished } from "./finished-cards";
 import { ResizeGrip } from "./resize";
 import { drawerWidth, isCompactLayout } from "./geometry";
@@ -101,6 +105,7 @@ import { OverviewBar } from "./overview-bar";
 import { InsightsPage } from "./insights";
 import { IdeasPage } from "./ideas-page";
 import { MemoryPage } from "./memory";
+import { CardTreePage, type TreeFocus } from "./card-tree-page";
 import { lastViewedProject, pickProject, rememberViewedProject } from "./project-memory";
 import { ProjectTabs } from "./project-tabs";
 import { RemoveProjectDialog } from "./project-remove";
@@ -123,11 +128,12 @@ import {
   shortcutsBlocked,
   taskGrid,
   adjacentStatus,
+  shortcutLevel,
   type ShortcutAction,
   type BoardIntent,
 } from "./shortcuts";
 import { ConceptStrip, GuideBanner, WelcomeTour, useOnboarding } from "./onboarding";
-import { nextTip, settingsHintDue, welcomeDecision, type TipId } from "./onboarding-logic";
+import { cardTreeTipDue, nextTip, settingsHintDue, welcomeDecision, type TipId } from "./onboarding-logic";
 import { t, tn } from "../shared/i18n";
 import { workpadEnabled, workpadSignal } from "../shared/workpad";
 import { cardDisplay } from "../shared/card-display";
@@ -153,6 +159,7 @@ const tipText: Record<TipId, () => string> = {
   "summary-models": () => t("Choose summary models and their fallback order in Settings → Models. The default is Haiku, then Luna."),
   "ai-language": () => t("AI-written text follows Settings → AI features → AI output language. It starts as your interface language."),
   "sub-cards": () => t("Agents can split a card into sub-cards, each with its own workspace. The parent card shows Sub-cards 2/3, waits while they run and is woken to accept them and finish. New sub-card is in every card's menu."),
+  "card-tree": () => t("Open Tree in the bar above to see each item from the whole to its parts, with its steps in order. Levels hides deeper sub-cards on the board."),
   "agent-automation": () => t("Agents can now pick up cards on their own: turn on Agent automation in Edit project, then choose Run with agent on a card. The agent works it to In review, gets reminded or retried when it stalls, and an optional reviewer agent checks the delivery first."),
   "first-memory-candidate": () => t("An agent suggested something to remember. Confirm it in Memory and new sessions on this project will know it; you can edit or delete it any time."),
   "first-workflow-insight": () => t("Workflow insights found repeated work worth keeping. Open Insights to turn a suggestion into a card."),
@@ -180,6 +187,11 @@ type WebKeyEvent = {
 
 const noEvents: BoardEvent[] = [];
 const noAgents: PaseoAgent[] = [];
+const noIds: ReadonlySet<string> = new Set();
+const noBlockers: ReturnType<typeof blockerIndex> = new Map();
+const noFlags: ReadonlyMap<string, number> = new Map();
+const noBelow: ReadonlyMap<string, Below> = new Map();
+const noChoices: { level: Level; hides: number }[] = [];
 
 // Module scope: a remounted board must not reopen a modal for a token it already handled.
 const appliedAttentionTokens = new Set<string>();
@@ -315,7 +327,10 @@ function BoardContent(
     [movedToFinished, setMovedToFinished] = useState(false),
     [escapeRequest, setEscapeRequest] = useState<{ taskId: string; key: string } | null>(null),
     // Project-level page over the board area: Insights or Ideas (IDEAS-INBOX-SPEC §3.3).
-    [page, setPage] = useState<"insights" | "ideas" | "memory" | null>(null),
+    [page, setPage] = useState<"insights" | "ideas" | "memory" | "tree" | null>(null),
+    // Card tree: the highlighted chain (Esc clears it before leaving the page) and the latest Show in tree request.
+    [treeChain, setTreeChain] = useState<string | null>(null),
+    [treeFocus, setTreeFocus] = useState<TreeFocus | null>(null),
     // Ideas page: only this card's ideas ("All ideas" from a card).
     [ideaCard, setIdeaCard] = useState(""),
     // `idea`: Start session prefilled from an idea on the Ideas page (IDEAS-SPEC §6.3).
@@ -517,19 +532,73 @@ function BoardContent(
     task, project, events: board?.events.filter((e) => e.taskId === task.id) || [],
   } : undefined, [task, project, board?.events]);
   const drawer = useMotionPresence(drawerTarget, drawerTarget ? `${drawerTarget.project.id}|${drawerTarget.task.id}` : "");
-  const tasks = (board?.tasks || []).filter(
+  // Memoized so the Levels step below recomputes only when the cards or the filters change.
+  const tasks = useMemo(() => (board?.tasks || []).filter(
     (t) => t.projectId === project?.id && (archived || !t.archivedAt),
-  );
-  const visible = tasks.filter(
+  ), [board?.tasks, project?.id, archived]);
+  const visible = useMemo(() => tasks.filter(
     (t) =>
       taskMatchesSearch(t, search) &&
       (priority === "all" || t.priority === priority) &&
       (taskType === "all" || t.type === taskType) &&
       taskMatchesTagFilter(t, tagFilter),
+  ), [tasks, search, priority, taskType, tagFilter]);
+  // Card tree (CARD-TREE-SPEC): sub-cards, blocks links and the board's Levels. Display only.
+  const tree = useMemo(() => {
+    if (!board || !project) return null;
+    const start = perfStart();
+    const built = cardTreeOf(board, project.id);
+    perfEnd("tree.build", start);
+    return built;
+  }, [board?.tasks, board?.links, project?.id]);
+  const projectTasksById = useMemo(() => new Map((board?.tasks || []).filter((t) => t.projectId === project?.id).map((t) => [t.id, t] as const)), [board?.tasks, project?.id]);
+  const hasTree = !!tree && (tree.parent.size > 0 || tree.blockers.size > 0);
+  const deepTree = useMemo(() => cardTreeTipDue(tree), [tree]);
+  const storedLevel: Level = project ? levelOf(view.values, project.id) : null;
+  // For this visit only (CARD-TREE-SPEC §2.3): cards whose sub-cards are shown, lanes whose footer shows them, the card just dropped.
+  const [revealedCards, setRevealedCards] = useState<ReadonlySet<string>>(() => new Set());
+  const [levelLanes, setLevelLanes] = useState<Status[]>([]);
+  const [droppedCard, setDroppedCard] = useState("");
+  useEffect(() => {
+    setRevealedCards(new Set());
+    setLevelLanes([]);
+    setDroppedCard("");
+  }, [project?.id, storedLevel]);
+  const keepKey = `${taskId}\n${droppedCard}`;
+  const keep = useMemo(() => new Set([taskId, droppedCard].filter(Boolean)), [keepKey]);
+  const searching = !!search.trim();
+  const levels = useMemo(
+    () => (tree ? boardLevels({ tree, level: storedLevel, showArchived: archived, searching, revealed: revealedCards, keep, visible, lanesShown: levelLanes }) : null),
+    [tree, storedLevel, archived, searching, revealedCards, keep, visible, levelLanes],
   );
+  // The filtered cards Levels leaves on the board: lane counts, the lane chooser and navigation follow it.
+  const visibleLevel = levels?.shown ?? visible;
+  // The filtered cards Levels hides, as the chip counts them: a filtered-out or footer-shown sub-card offers nothing to show.
+  const levelAncestors = useMemo(() => (tree && levels?.folded.size ? hiddenAncestors(tree, levels.folded) : noIds), [tree, levels]);
+  const subCardsFoldOf = (id: string): "show" | "hide" | null =>
+    levels?.level == null ? null : revealedCards.has(id) ? "hide" : levelAncestors.has(id) ? "show" : null;
+  const toggleSubCards = useStableCallback((card: Task) =>
+    setRevealedCards((current) => {
+      const next = new Set(current);
+      if (next.has(card.id)) next.delete(card.id);
+      else next.add(card.id);
+      return next;
+    }),
+  );
+  const toggleLevelLane = (status: Status) =>
+    setLevelLanes((shown) => (shown.includes(status) ? shown.filter((s) => s !== status) : [...shown, status]));
+  // Timing log: a Levels choice to the board rendered with it.
+  useEffect(() => perfLap("levels.change", "levels.change", true), [levels?.level]);
+  const setLevel = (level: Level) => {
+    if (!project || !board) return;
+    perfMark("levels.change");
+    const live = new Set(board.projects.map((p) => p.id));
+    void view.update((base) => ({ subCardLevels: withSubCardLevel(base.subCardLevels, project.id, level, live) }));
+  };
   // The project's lanes are its workflow: enabled lanes in their configured order.
   const shownStatuses = enabledStatuses(project);
-  const nameOf = (status: Status) => laneName(project, status);
+  // Stable per project: it is a prop of the memoized pages (CardTreePage, InsightsPage).
+  const nameOf = useCallback((status: Status) => laneName(project, status), [project]);
   const wrapPromptTask = wrapPrompt
     ? board?.tasks.find((t) => t.id === wrapPrompt && !t.archivedAt)
     : undefined;
@@ -540,7 +609,7 @@ function BoardContent(
     if (!board || !project || autoLane.current === project.id) return;
     autoLane.current = project.id;
     if (taskId) return;
-    const first = shownStatuses.find((s) => visible.some((t) => t.status === s));
+    const first = shownStatuses.find((s) => visibleLevel.some((t) => t.status === s));
     if (first) setMobileStatus(first);
   }, [board, project?.id]);
   useEffect(() => {
@@ -578,17 +647,18 @@ function BoardContent(
   useEffect(() => setOlderShown([]), [project?.id]);
   const toggleOlder = (status: Status) =>
     setOlderShown((shown) => (shown.includes(status) ? shown.filter((s) => s !== status) : [...shown, status]));
-  const onScreen = visible.filter((t) => !older.has(t.id) || olderShown.includes(t.status));
+  const onScreen = visibleLevel.filter((t) => !older.has(t.id) || olderShown.includes(t.status));
   // Within a lane the older cards always come last, under their toggle.
   const sortColumn = (column: Task[]) => {
     const sorted = sortTasks(column, boardSort, taskActivity);
     return older.size ? [...sorted.filter((t) => !older.has(t.id)), ...sorted.filter((t) => older.has(t.id))] : sorted;
   };
-  const laneAll = sortColumn(visible.filter((t) => t.status === mobileStatus));
+  const laneAll = sortColumn(visibleLevel.filter((t) => t.status === mobileStatus));
   const list = laneAll.filter((t) => !older.has(t.id));
   const listOlder = laneAll.filter((t) => older.has(t.id));
+  const laneLevels = { count: levels?.byLane.get(mobileStatus) ?? 0, shown: levelLanes.includes(mobileStatus) };
   const laneRowsRef = useRef<ReturnType<typeof laneRows<Task>> | undefined>(undefined);
-  const laneRowList = (laneRowsRef.current = sameRows(laneRowsRef.current, laneRows(list, listOlder, olderShown.includes(mobileStatus))));
+  const laneRowList = (laneRowsRef.current = sameRows(laneRowsRef.current, laneRows(list, listOlder, olderShown.includes(mobileStatus), laneLevels)));
   // Status-change flash: remember the last snapshot, emphasize cards that moved.
   const statusMemory = useRef<Map<string, string> | null>(null);
   const [flashing, setFlashing] = useState<ReadonlySet<string>>(new Set());
@@ -756,8 +826,17 @@ function BoardContent(
         : { id: "attention-dismiss", label: t("Dismiss from Attention"), icon: "BellOff", disabled: pending, onPress: () => dismissFromAttention(item) },
     ];
   };
+  // Show / Hide its sub-cards (Levels) for the card menu and the phone sheet (CARD-TREE-SPEC §2.3).
+  const treeMenuEntries = (card: Task): { id: string; label: string; icon: string; disabled?: boolean; onPress(): void }[] => {
+    const fold = subCardsFoldOf(card.id);
+    return fold
+      ? [{ id: "sub-cards-fold", label: fold === "show" ? t("Show its sub-cards") : t("Hide its sub-cards"), icon: fold === "show" ? "ChevronsUpDown" : "ChevronsDownUp", onPress: () => toggleSubCards(card) }]
+      : [];
+  };
   const move = (input: { id: string; revision: number; status: Status }) => {
     const from = data.data?.tasks.find((t) => t.id === input.id)?.status;
+    // A sub-card shown by its lane footer stays on the board in the lane it moves to.
+    if (levels?.hidden.has(input.id)) setDroppedCard(input.id);
     void doAction(
       () => updateTask(input),
       t("Moved to {name}", { name: nameOf(input.status) }),
@@ -766,6 +845,8 @@ function BoardContent(
   };
   const place = (input: Placement) => {
     const from = data.data?.tasks.find((t) => t.id === input.id)?.status;
+    // A sub-card shown by its lane footer stays on the board in the lane it was dropped in.
+    if (levels?.hidden.has(input.id)) setDroppedCard(input.id);
     void doAction(
       () => placeTask(input),
       from === input.status ? "" : t("Moved to {name}", { name: nameOf(input.status) }),
@@ -791,6 +872,9 @@ function BoardContent(
       { id: "link", label: t("Link to a card…"), icon: "Link", disabled: locked, onPress: () => setLinking(card) },
       { id: "follow-up", label: t("New follow-up task"), icon: "CornerDownRight", disabled: locked, onPress: () => followUp(card) },
       { id: "sub-card", label: t("New sub-card"), icon: "ListTree", disabled: locked, onPress: () => subCard(card) },
+      // Not on the tree page: its rows follow its own Levels and chevrons, so these would change only the hidden board.
+      ...(page !== "tree" ? treeMenuEntries(card) : []),
+      ...(hasTree && page !== "tree" ? [{ id: "show-in-tree", label: t("Show in tree"), icon: "Workflow", onPress: () => showInTree(card.id) }] : []),
       ...attentionMenuEntry(card),
       { kind: "separator", id: "s1" },
       { kind: "label", id: "move", label: t("Move to") },
@@ -878,16 +962,6 @@ function BoardContent(
   }, [board?.artifacts]);
   // Each card's workpad, for its checks signal (WORKPAD-SPEC §6.1).
   const workpadIndex = useMemo(() => new Map((board?.workpads || []).map((w) => [w.taskId, w])), [board?.workpads]);
-  // Unresolved blockers per card, for the "Waiting on" signal (CARD-LINKS-SPEC §5.1).
-  const waitingIndex = useMemo(() => {
-    const index = new Map<string, { count: number; titles: string }>();
-    if (!board?.links.length) return index;
-    for (const t of board.tasks) {
-      const blockers = waitingOn(board, t.id);
-      if (blockers.length) index.set(t.id, { count: blockers.length, titles: blockers.map((b) => b.title).join(", ") });
-    }
-    return index;
-  }, [board?.links, board?.tasks]);
   // Sub-card progress of parent cards: Done (or Cancelled) of all (SUB-CARDS-SPEC §6).
   const subCardIndex = useMemo(() => {
     const index = new Map<string, { done: number; total: number }>();
@@ -905,6 +979,21 @@ function BoardContent(
   }, [board?.links, board?.tasks]);
   // Agent automation jobs by card (AUTOMATION-SPEC §6.1).
   const automationIndex = useMemo(() => new Map((board?.automation || []).map((j) => [j.taskId, j] as const)), [board?.automation]);
+  // Open and stuck blockers per card in one pass: "Waiting on", Held and the queue chip (CARD-LINKS-SPEC §5.1, CARD-TREE-SPEC §2.5).
+  const blockers = useMemo(() => (tree ? blockerIndex(tree, projectTasksById, automationIndex) : noBlockers), [tree, projectTasksById, automationIndex]);
+  // Per-card flags and the roll-up of what Levels hides onto the nearest card on screen (CARD-TREE-SPEC §2.4).
+  const flags = useMemo(() => {
+    if (!tree) return noFlags;
+    const start = perfStart();
+    const built = cardFlags({ tree, tasksById: projectTasksById, jobsById: automationIndex, attention: allAttention, agents: agents.data || noAgents });
+    perfEnd("tree.flags", start);
+    return built;
+  }, [tree, projectTasksById, automationIndex, allAttention, agents.data]);
+  const below = useMemo(() => {
+    if (!tree || !levels?.folded.size) return noBelow;
+    const shown = new Set(onScreen.map((t) => t.id));
+    return rollupBelow(tree, levels.folded, shown, flags);
+  }, [tree, levels, flags, older, olderShown]);
   const automationActions = useAutomationActions();
   // Stable for every card (memoized cards; PERFORMANCE-SPEC §3).
   const openCard = useStableCallback((t: Task) => {
@@ -1006,10 +1095,46 @@ function BoardContent(
   );
   const linkFrom = useStableCallback((source: Task) => setLinking(source));
   const openTaskById = useStableCallback((id: string) => setTask(id));
-  const togglePage = (next: "insights" | "ideas" | "memory") => {
+  const togglePage = (next: "insights" | "ideas" | "memory" | "tree") => {
     setPage((current) => (current === next ? null : next));
   };
   const closePage = useStableCallback(() => setPage(null));
+  // "Show in tree" (CARD-TREE-SPEC §2.2): the page opens the card's ancestors, scrolls to it, flashes it and highlights its chain.
+  const showInTree = useStableCallback((id: string) => {
+    setPage("tree");
+    setTreeChain(id);
+    setTreeFocus({ id, key: `focus-${Date.now()}` });
+    // Phones: the card overlay would cover the page.
+    if (compact) setTask("");
+  });
+  const treeMenuFor = useStableCallback((id: string) => {
+    const card = projectTasksById.get(id);
+    return card ? cardMenu(card) : [];
+  });
+  const openLevelsMenu = useStableCallback((event: GestureResponderEvent) => {
+    if (!levels) return;
+    openMenu?.(
+      eventPoint(event),
+      t("Levels"),
+      levels.choices.map((choice) => ({
+        id: `level-${choice.level ?? "all"}`,
+        label: choice.hides ? `${levelChoiceText(choice.level)} · ${tn(choice.hides, "hides {n}", "hides {n}")}` : levelChoiceText(choice.level),
+        checked: choice.level === levels.level,
+        onPress: () => setLevel(choice.level),
+      })),
+    );
+  });
+  const setLevelStable = useStableCallback((level: Level) => setLevel(level));
+  // A chain highlight lasts while the page is open; another project or leaving the page drops it.
+  useEffect(() => {
+    if (page === "tree") return;
+    setTreeChain(null);
+    setTreeFocus(null);
+  }, [page]);
+  useEffect(() => {
+    setTreeChain(null);
+    setTreeFocus(null);
+  }, [project?.id]);
   const openMemoryPage = useStableCallback(() => setPage("memory"));
   // Turning Ideas off closes its page.
   useEffect(() => {
@@ -1131,6 +1256,7 @@ function BoardContent(
           taskIntake: !task && !!project,
           automationCandidate: !task && projectTasks.some((x) => !x.archivedAt && (x.status === "todo" || x.status === "backlog")),
           hasSubCards: !task && projectTasks.some((x) => subCardIndex.has(x.id)),
+          hasCardTree: !task && deepTree,
         },
         blocked: !onboarding.values || welcomeOpen || welcome === "show" || dialogOpen || settingsHint,
       });
@@ -1173,7 +1299,7 @@ function BoardContent(
   // card of the lane in the same frame as its animation.
   const cardDerived = useMemo(
     () => new WeakMap<Task, Omit<LiveTaskCardProps, "selected" | "flash" | "drag" | "dragging" | "disabled" | "display" | "onOpen" | "onActions" | "menuFor">>(),
-    [cardIndex, receipts, summaryState, attentionByTask, managedIds, summaries.data, !!board, openIdeaCount, externalKeys, project, workpadIndex, waitingIndex, automationIndex, subCardIndex],
+    [cardIndex, receipts, summaryState, attentionByTask, managedIds, summaries.data, !!board, openIdeaCount, externalKeys, project, workpadIndex, blockers, automationIndex, subCardIndex],
   );
   const derivedFor = (t: Task) => {
     let derived = cardDerived.get(t);
@@ -1197,18 +1323,32 @@ function BoardContent(
       externalKey: externalKeys.get(t.id)?.text,
       externalFamily: externalKeys.get(t.id)?.family,
       workpad: project && workpadEnabled(project) ? workpadSignal(t, workpadIndex.get(t.id), events) : null,
-      waiting: waitingIndex.get(t.id)?.count || 0,
-      waitingTitles: waitingIndex.get(t.id)?.titles || "",
-      automation: automationSignal(automationIndex.get(t.id), t),
+      waiting: blockers.get(t.id)?.open || 0,
+      waitingTitles: blockers.get(t.id)?.titles || "",
+      heldBy: blockers.get(t.id)?.held ? blockers.get(t.id)!.stuckTitles[0] : "",
+      heldMore: blockers.get(t.id)?.held ? blockers.get(t.id)!.stuckTitles.length - 1 : 0,
+      automation: automationSignal(automationIndex.get(t.id), t, blockers.get(t.id)),
       subCards: subCardIndex.get(t.id) ?? null,
     };
     cardDerived.set(t, derived);
     return derived;
   };
+  // A sub-card's parent for its breadcrumb: the title, and the whole path for its label (CARD-TREE-SPEC §2.5).
+  const parentTitleOf = (id: string) => {
+    const parent = tree?.parent.get(id);
+    return parent ? projectTasksById.get(parent)?.title ?? "" : "";
+  };
+  const parentPathOf = (id: string) =>
+    tree?.parent.has(id) ? tree.chain(id).slice(0, -1).map((x) => projectTasksById.get(x)?.title ?? "").join(" › ") : "";
   const renderCard = (t: Task, drag?: CardDrag, dragging = false) => (
     <LiveTaskCard
       key={t.id}
       {...derivedFor(t)}
+      parentTitle={parentTitleOf(t.id)}
+      parentPath={parentPathOf(t.id)}
+      below={below.get(t.id) ?? null}
+      subCardsFold={subCardsFoldOf(t.id)}
+      onSubCards={toggleSubCards}
       selected={taskId === t.id}
       display={display}
       flash={flashing.has(t.id)}
@@ -1255,6 +1395,7 @@ function BoardContent(
         ? [{ id: "ideas", label: t("Ideas"), icon: "Lightbulb", onPress: () => openIn(() => { setIdeaCard(""); setPage("ideas"); }) }]
         : []),
       ...(features.memory && p.memory !== false ? [{ id: "memory", label: t("Memory"), icon: "BookMarked", onPress: () => openIn(() => setPage("memory")) }] : []),
+      { id: "tree", label: t("Card tree"), icon: "Workflow", onPress: () => openIn(() => setPage("tree")) },
       { kind: "separator", id: "order" },
       { id: "left", label: t("Move left"), icon: "ChevronLeft", disabled: index === 0 || pending, onPress: () => reorderProject(p.id, { direction: "up" }) },
       { id: "right", label: t("Move right"), icon: "ChevronRight", disabled: index === projects.length - 1 || pending, onPress: () => reorderProject(p.id, { direction: "down" }) },
@@ -1306,7 +1447,26 @@ function BoardContent(
         if (!project || !features.memory) return false;
         togglePage("memory");
         return true;
+      case "level-1":
+      case "level-2":
+      case "level-3":
+      case "level-all": {
+        const level = shortcutLevel[intent];
+        // Only the levels this project offers (CARD-TREE-SPEC §2.3).
+        if (!levels?.choices.some((c) => c.level === level)) return false;
+        setLevel(level);
+        return true;
+      }
+      case "tree":
+        if (!project) return false;
+        togglePage("tree");
+        return true;
       case "escape":
+        // Esc order on the Card tree: session, sidebar, the chain highlight, then the page (CARD-TREE-SPEC §4.1).
+        if (!task && page === "tree" && treeChain) {
+          setTreeChain(null);
+          return true;
+        }
         if (!task && page) {
           setPage(null);
           return true;
@@ -1362,11 +1522,22 @@ function BoardContent(
     const parsed = parseBoardIntent(props.params);
     if (!parsed || consumedIntents.has(parsed.key)) return;
     consumedIntents.add(parsed.key);
+    // "Flowly: Open card tree" opens the page; only the T key toggles it.
+    if (parsed.intent === "tree") {
+      if (project) setPage("tree");
+      return;
+    }
     runIntent(parsed.intent);
   }, [props.params?.intent, props.params?.at, data.isPending]);
+  // A sub-card's row says which card it belongs to (CARD-TREE-SPEC §2.4).
+  const attentionParent = (item: AttentionItem) => {
+    const parent = board ? parentCardOf(board.links, item.task.id) : undefined;
+    const title = parent ? board?.tasks.find((x) => x.id === parent)?.title : undefined;
+    return title ? `${t("in {title}", { title })} · ` : "";
+  };
   const attentionDetail = (item: AttentionItem) =>
-    `${item.project.title} · ${laneName(item.project, item.task.status)} · ${[
-      item.automation && (automationSignal(automationIndex.get(item.task.id), item.task)?.text ?? t("Agent waiting for you")),
+    `${attentionParent(item)}${item.project.title} · ${laneName(item.project, item.task.status)} · ${[
+      item.automation && (automationSignal(automationIndex.get(item.task.id), item.task, blockers.get(item.task.id))?.text ?? t("Agent waiting for you")),
       item.questions && tn(item.questions, "{n} question", "{n} questions"),
       item.permissions && tn(item.permissions, "{n} approval", "{n} approvals"),
       item.errors && tn(item.errors, "{n} error", "{n} errors"),
@@ -1508,6 +1679,7 @@ function BoardContent(
         onFollowUp={followUp}
         onSubCard={subCard}
         onOpenTask={openTaskById}
+        onShowInTree={showInTree}
         onStatusChanged={drawerStatusChanged}
         refresh={stableRefresh}
         sessionDefaults={sessionDefaults}
@@ -1575,10 +1747,10 @@ function BoardContent(
                 reorderDisabled={pending}
               />
             )}
-            {!compact && !!project && filterCount > 0 && (
-              // The overview counts the whole project; with filters on, say how many are shown.
+            {!compact && !!project && (filterCount > 0 || !!levels?.hiddenCount) && (
+              // The overview counts the whole project; with filters or Levels hiding cards, say how many are shown.
               <Label muted size={font.sm} selectable={false}>
-                {t("{n} shown", { n: visible.length })}
+                {t("{n} shown", { n: visibleLevel.length })}
               </Label>
             )}
             {!!project && (
@@ -1673,6 +1845,10 @@ function BoardContent(
             memoryCandidates={memoryCandidates}
             onMemory={() => togglePage("memory")}
             memoryShortcut={shortcutsOn ? "M" : ""}
+            levels={levels?.choices.length ? { text: levelChipText(levels), limited: levels.level !== null && !levels.paused } : null}
+            onLevels={openLevelsMenu}
+            onTree={hasTree ? () => togglePage("tree") : undefined}
+            treeShortcut={shortcutsOn ? "T" : ""}
             onLane={(status) => {
               setPage(null);
               if (compact) setMobileStatus(status);
@@ -1797,6 +1973,31 @@ function BoardContent(
                     onNewSession={ideaInNewSession}
                     onBack={closePage}
                   />
+                ) : page === "tree" && board && tree ? (
+                  <CardTreePage
+                    project={project}
+                    tree={tree}
+                    tasksById={projectTasksById}
+                    flags={flags}
+                    blockers={blockers}
+                    jobs={automationIndex}
+                    showArchived={archived}
+                    level={levels?.level ?? null}
+                    choices={levels?.choices ?? noChoices}
+                    levelText={levelChipText({ level: levels?.level ?? null, paused: false, hiddenCount: 0 })}
+                    onLevel={setLevelStable}
+                    onLevelsMenu={openLevelsMenu}
+                    compact={compact}
+                    active={!(compact && drawer.active)}
+                    selectedId={taskId}
+                    chain={treeChain}
+                    onChain={setTreeChain}
+                    focus={treeFocus}
+                    nameOf={nameOf}
+                    onOpenTask={openTaskById}
+                    onBack={closePage}
+                    menuFor={treeMenuFor}
+                  />
                 ) : page === "memory" && board ? (
                   <MemoryPage project={project} tasks={projectTasks} compact={compact} nameOf={nameOf} onOpenTask={openTaskById} onBack={closePage} />
                 ) : compact ? (
@@ -1824,6 +2025,12 @@ function BoardContent(
                           renderCard(row.task)
                         ) : row.kind === "older" ? (
                           <OlderToggle count={listOlder.length} shown={olderShown.includes(mobileStatus)} onPress={() => toggleOlder(mobileStatus)} />
+                        ) : row.kind === "levels" ? (
+                          <LevelsToggle count={row.count} shown={row.shown} onPress={() => toggleLevelLane(mobileStatus)} />
+                        ) : row.hidden ? (
+                          <View style={{ paddingVertical: space[4], alignItems: "center" }}>
+                            <Label muted selectable={false}>{levelsEmptyText(row.hidden)}</Label>
+                          </View>
                         ) : row.hasOlder ? (
                           <View style={{ paddingVertical: space[4], alignItems: "center" }}>
                             <Label muted selectable={false}>{t("No recent tasks")}</Label>
@@ -1851,15 +2058,18 @@ function BoardContent(
                 ) : (
                   <DesktopColumns
                     statuses={shownStatuses}
-                    tasks={visible}
+                    tasks={visibleLevel}
                     disabled={pending || !!project.archivedAt}
-                    cancelKey={`${project.id}|${search}|${priority}|${taskType}|${tagFilter.join(",")}|${archived}|${shownStatuses.join(",")}|${taskId}|${menu}|${actionTask?.id}|${projectForm}|${!!taskForm}`}
+                    cancelKey={`${project.id}|${search}|${priority}|${taskType}|${tagFilter.join(",")}|${archived}|${shownStatuses.join(",")}|${taskId}|${menu}|${actionTask?.id}|${projectForm}|${!!taskForm}|${levels?.level}|${levels?.paused}|${[...revealedCards].join(",")}|${levelLanes.join(",")}`}
                     sortColumn={sortColumn}
                     manualOrder={boardSort === "manual"}
                     collapsed={collapsedColumns}
                     older={older}
                     olderShown={olderShown}
                     onToggleOlder={toggleOlder}
+                    levelsHidden={levels?.byLane}
+                    levelsShown={levelLanes}
+                    onToggleLevels={toggleLevelLane}
                     reveal={reveal}
                     onRevealed={revealed}
                     nameOf={nameOf}
@@ -2110,7 +2320,7 @@ function BoardContent(
                   selected={s === mobileStatus}
                   trailing={
                     <Label muted size={font.md} selectable={false}>
-                      {visible.filter((t) => t.status === s).length}
+                      {visibleLevel.filter((t) => t.status === s).length}
                     </Label>
                   }
                   onPress={() => {
@@ -2178,7 +2388,7 @@ function BoardContent(
                       setActionTask(null);
                     }}
                   />
-                  {[...automationMenu(project ?? undefined, actionTask, automationIndex.get(actionTask.id), !!project?.archivedAt || !!actionTask.archivedAt, automationActions, runUnavailable(actionTask)), ...attentionMenuEntry(actionTask)].map((entry) => (
+                  {[...automationMenu(project ?? undefined, actionTask, automationIndex.get(actionTask.id), !!project?.archivedAt || !!actionTask.archivedAt, automationActions, runUnavailable(actionTask)), ...(page !== "tree" ? treeMenuEntries(actionTask) : []), ...(hasTree && page !== "tree" ? [{ id: "show-in-tree", label: t("Show in tree"), icon: "Workflow", onPress: () => showInTree(actionTask.id) }] : []), ...attentionMenuEntry(actionTask)].map((entry) => (
                     <Row
                       key={entry.id}
                       title={entry.label}

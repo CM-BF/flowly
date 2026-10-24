@@ -1,5 +1,7 @@
 # F4 桌面快捷键 — 增量 spec（2026-10-15）
 
+修订：2026-10-24 按当前代码（`client/shortcuts.ts`、`index.client.tsx`）补齐后来加入的 I/B/M/E/⇧H/⇧L、Welcome tour 条目与 5 秒的 intent 有效期；并加入卡片树的 `T` 与 Levels 的 `1` `2` `3` `0`（[CARD-TREE-SPEC](CARD-TREE-SPEC.md)，2026-10-24 已实现；Command Center 条目打开卡片树，`T` 切换）。Command Center 条目的前缀随改名为 `Flowly:`。
+
 ## 1. 调研结论（Paseo 0.11.2）
 
 | 能力 | 结论 |
@@ -25,14 +27,19 @@
 | `/` 或 `F` | 打开筛选/搜索弹层 | 存在当前项目 |
 | `A` | 打开 Needs attention 弹层 | — |
 | `?` | 打开快捷键帮助弹层 | — |
-| `Esc` | 侧栏在 session 预览中 → 返回卡片详情；侧栏在详情 → 关闭侧栏 | 侧栏已打开 |
+| `I` / `B` / `M` | 打开或关闭项目 Insights / Ideas / Memory 页 | 存在当前项目且对应功能开启 |
+| `T` | 打开或关闭项目 Card tree 页（2026-10-24） | 存在当前项目 |
+| `1` / `2` / `3` / `0` | Levels：只显示顶层卡片 / 到第 2 层 / 到第 3 层 / 全部层级（2026-10-24，CARD-TREE-SPEC §2.3） | 项目有子卡片；选项超过本项目深度时不做任何事 |
+| `E` | 编辑打开的卡片 | 有打开的卡片，卡片与项目未归档 |
+| `⇧H` / `⇧L` | 把打开的卡片移到左 / 右侧相邻的泳道 | 同上，且没有进行中的写操作 |
+| `Esc` | 侧栏在 session 预览中 → 返回卡片详情；侧栏在详情 → 关闭侧栏；没有打开的卡片时：Card tree 有链路高亮 → 清除；否则离开 Insights / Ideas / Memory / Card tree 页 | 侧栏已打开或有项目页 |
 | `J` / `K` | 当前列下一张 / 上一张卡片（打开其侧栏）；没有选中卡片时选中第一列第一张 | 有可见卡片 |
 | `H` / `L` | 左 / 右侧最近的非空列，同一行号（越界取最后一张） | 有可见卡片 |
 
-- 大写字母（`CapsLock`）与小写等价；带 `Cmd/Ctrl/Alt` 的组合一律不处理，留给宿主快捷键。按住 `Shift` 的字母（如 `Shift+N`）不处理；`?` 这类本身需要 Shift 的字符照常处理。
+- 大写字母（`CapsLock`）与小写等价；带 `Cmd/Ctrl/Alt` 的组合一律不处理，留给宿主快捷键。按住 `Shift` 的字母（如 `Shift+N`）不处理，`⇧H`/`⇧L` 除外；`?` 这类本身需要 Shift 的字符照常处理。数字键只认不带 Shift 的 `0`–`3`。
 - 自动重复（按住）和 IME 组合中（`isComposing`）的事件忽略。
 - 处理了的按键调用 `preventDefault` + `stopPropagation`；未处理的原样冒泡给宿主。
-- 卡片导航按桌面列显示顺序（`position`，再按 `createdAt`）且只在当前筛选结果中移动；导航选中即打开侧栏（与点击卡片一致），不会自动滚动列。
+- 卡片导航按桌面列显示顺序（当前排序）且只在屏幕上的卡片中移动（筛选之后，跳过折叠的旧完成卡和被 Levels 隐藏的子卡片）；导航选中即打开侧栏（与点击卡片一致），不会自动滚动列。项目页（Insights、Ideas、Memory、Card tree）打开时 J/K/H/L 不生效。
 
 ### 2.2 屏蔽条件（任一满足即不触发）
 
@@ -53,19 +60,21 @@
 
 | 条目 | 行为 |
 | --- | --- |
-| `Open Ultra Kanban`（已有） | 打开看板 |
-| `Ultra Kanban: New task` | 打开看板并打开新建任务表单 |
-| `Ultra Kanban: Switch project` | 打开看板并打开项目切换 |
-| `Ultra Kanban: Search and filter tasks` | 打开看板并打开筛选/搜索 |
-| `Ultra Kanban: Needs attention` | 打开看板并打开 Attention |
-| `Ultra Kanban: Keyboard shortcuts` | 打开看板并打开快捷键帮助 |
+| `Open Flowly`（已有） | 打开看板 |
+| `Flowly: New task` | 打开看板并打开新建任务表单 |
+| `Flowly: Switch project` | 打开看板并打开项目切换 |
+| `Flowly: Search and filter tasks` | 打开看板并打开筛选/搜索 |
+| `Flowly: Needs attention` | 打开看板并打开 Attention |
+| `Flowly: Keyboard shortcuts` | 打开看板并打开快捷键帮助 |
+| `Flowly: Welcome tour` | 打开看板并打开欢迎导览 |
+| `Flowly: Open card tree`（2026-10-24） | 打开看板并打开当前项目的 Card tree 页 |
 
 数据契约：`openScreen({ screenId: "board", params: { intent, at } })`。
 
-- `intent ∈ {"new-task","projects","filters","attention","shortcuts"}`；`at` 为 `Date.now()` 的十进制字符串。
-- 看板对每个 `(intent, at)` 只消费一次；`at` 距当前超过 30 秒（例如刷新页面后 URL 里残留）或格式无效、未知 intent 时忽略，不报错。
+- `intent ∈ {"new-task","projects","filters","attention","shortcuts","welcome","tree"}`；`at` 为 `Date.now()` 的十进制字符串。
+- 看板对每个 `(intent, at)` 只消费一次；`at` 距当前超过 5 秒（`intentMaxAgeMs`，例如刷新页面后 URL 里残留）或格式无效、未知 intent 时忽略，不报错。
 - 与 session chip 链接参数（`taskId/sessionId/workspaceId/requestId`）互不冲突；intent 参数不进入 `parseSessionLink`。
-- `new-task` 在没有项目或项目已归档时不打开表单（与按钮的禁用状态一致）；其余 intent 在数据加载完成后执行。
+- `new-task` 在没有项目或项目已归档时不打开表单（与按钮的禁用状态一致）；`tree` 在没有项目时不做任何事；其余 intent 在数据加载完成后执行。
 
 ## 3. 错误
 
@@ -73,6 +82,6 @@
 
 ## 4. 验收
 
-1. 纯逻辑单测：按键解析（大小写、修饰键、repeat、IME、屏蔽、紧凑）、卡片网格导航（空板、首次选中、列内上下、跨列/跳过空列/行号截断）、intent 参数解析（新鲜度、未知值、重复消费）。
+1. 纯逻辑单测：按键解析（大小写、修饰键、repeat、IME、屏蔽、紧凑；2026-10-24 起含 `T` 与 `0`–`3`）、卡片网格导航（空板、首次选中、列内上下、跨列/跳过空列/行号截断）、intent 参数解析（新鲜度、未知值、重复消费）。
 2. `npm run typecheck`、`npm test` 通过。
 3. UNRUN（需要真实宿主窗口）：桌面实际按键触发、焦点进入看板的方式、宿主 Command Center 条目显示与跳转、帮助弹层外观。

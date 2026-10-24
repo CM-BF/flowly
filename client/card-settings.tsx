@@ -36,6 +36,7 @@ const fieldText: Record<CardField, { title: string; detail: string }> = {
   type: { title: msg("Type"), detail: msg("Feature, Bug fix, Research and the other card types.") },
   external: { title: msg("Ticket or issue"), detail: msg("The key of the ticket, issue or pull request the card works from.") },
   tags: { title: msg("Tags"), detail: msg("The first two tags, then how many more.") },
+  parent: { title: msg("Parent card"), detail: msg("Show which card a sub-card belongs to") },
   sessions: { title: msg("Session activity"), detail: msg("Running and unread sessions. Approvals and errors always show.") },
   workpad: { title: msg("Workpad checks"), detail: msg("How many of the agent's checks passed.") },
   ideas: { title: msg("Ideas"), detail: msg("How many ideas agents proposed on the card.") },
@@ -48,6 +49,7 @@ const sectionText: Record<AnyDrawerSection, string> = {
   artifacts: msg("Artifacts"),
   sessions: msg("Sessions"),
   ideas: msg("Ideas"),
+  dependencies: msg("Dependencies"),
   links: msg("Links"),
   details: msg("Details & workspace"),
   usage: msg("Usage"),
@@ -253,6 +255,7 @@ function CardPreview({ display }: { display: ReturnType<typeof cardDisplay> }) {
           progress={sample.progress}
           ideas={1}
           externalKey="SHOP-142"
+          parentTitle={t("Checkout redesign")}
           workpad={{ kind: "checks", done: 2, total: 3, count: 0 }}
           display={display}
           onOpen={noop}

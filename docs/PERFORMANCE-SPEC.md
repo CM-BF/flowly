@@ -141,6 +141,18 @@ Findings:
 
 Checked and left as is: `board.read.same` (200–700 ms on the phone, mostly the relay round trip; the response is tiny, so it does not load the JS thread) and `board.render` (about 80 ms per board change, also for a two-card lane). A per-card derivation cache keyed by each card's own events and sessions was tried and reverted: no measurable change, so the cost is elsewhere (candidates: the O(events) passes over the 2840 events per board change, the header counts); it needs a profiler run, not a guess.
 
+### Follow-up: card tree budget (CARD-TREE-SPEC, implemented 2026-10-24; phone timings not measured yet)
+
+The Card tree page, board Levels and the drawer's Dependencies section ([CARD-TREE-SPEC](CARD-TREE-SPEC.md) §5) add no RPC, poll, dependency or static table. Budget and rules:
+
+- One tree per project (`cardTreeOf` in `shared/card-tree.ts`), cached on the identity of `board.links` plus a project shape key (card ids, archived, createdAt), so status, title and live-agent changes reuse it. Estimated (node, not a device) 0.15 ms for 19 cards and under about 11 ms jitless for 300.
+- Per-card flags and the roll-up are memoized on [tree, board.tasks, allAttention, agents.data, board.automation], O(n·d) with d ≤ 4. The card gets a small `below` object compared by content (`contentProps` in `client/card.tsx`, and a `cardDerived` dependency), so only cards whose counts change re-render. `blockerIndex` replaces the board's per-card `waitingOn` scan (O(n·e)).
+- Card tree page: a host `FlatList` (initialNumToRender 12, windowSize 7) of primitive-prop rows (about 12–16 Views each, about 200 Views on the first screen); first mount after the page transition (`useSettled`); `sameRowList` keeps row identity so the 3 s poll re-renders nothing that did not change; the chain highlight changes two booleans per row and dims with native-driver opacity. On phones the page stays mounted under an open card.
+- Drawer Dependencies: at most about 20 nodes and 80 Views, mounted after the open transition into a height reserved at once from `neighbourhoodLayout()`.
+- Levels 1 or 2 mount fewer cards, so lanes get cheaper.
+- Timing-log names: `tree.build`, `tree.flags`, `tree.rows`, `tree.mount`, `drawer.deps.mount`, `levels.change`. No numbers are written until measured on the SM-S911B; an optimisation with no measurable gain on the phone is reverted.
+- Cold start: estimated at about 1,100 lines and 40 KB unminified; measured (2026-10-24, the esbuild 0.25.12 inside Paseo.app with the client options of the daemon's `compiler.js`, in memory, CommonJS wrapper included) at **+87,309 bytes (+6.8%) and +1,685 lines**: 1,287,613 bytes / 25,170 lines at `2b00cf6`, 1,374,922 / 26,855 on `sw/card-tree`. The largest parts are `client/card-tree-page.tsx` 23.7 KB, `client/task-dependencies.tsx` 19.9 KB, `shared/card-tree.ts` 17.2 KB and `client/board.tsx` +9.8 KB. V8 compile on the Mac (`vm.Script`, median of 25) 10.2 → 10.9 ms; the phone's `plugin.load` difference is not measured. Nothing runs at plugin load, and the bundle's metafile has no `shared/i18n-all.ts` or catalog.
+
 ## 4. Constraints kept
 
 - No second Paseo connection: the subscription uses the supplied SDK. No new dependency, no DOM, no private host import.

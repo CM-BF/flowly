@@ -1,5 +1,6 @@
 import { describe, expect, test } from "vitest";
-import { TIPS_SEEN_MAX, firstRunOutside, loopAutoStep, memoryAutoStep, nextTip, outsidePatch, outsideShown, settingsHintDue, stepPage, tipIds, tourKey, welcomeDecision, welcomePageCount, withTipSeen, type TipFacts } from "./onboarding-logic";
+import { TIPS_SEEN_MAX, cardTreeTipDue, firstRunOutside, loopAutoStep, memoryAutoStep, nextTip, outsidePatch, outsideShown, settingsHintDue, stepPage, tipIds, tourKey, welcomeDecision, welcomePageCount, withTipSeen, type TipFacts } from "./onboarding-logic";
+import { buildCardTree } from "../shared/card-tree";
 import { featureSettingsValues, nativeSessionSettingsValues, onboardingSettingsValues } from "../shared/settings";
 
 const base = { settingsStatus: "ready", welcomeSeen: false, boardLoaded: true, projectCount: 0, blocked: false };
@@ -187,6 +188,28 @@ test("agent automation is introduced on a board with a card an agent could pick 
   expect(nextTip({ tipsSeen: [], facts: { ...none, automationCandidate: false }, blocked: false })).toBeNull();
 });
 
+test("the card tree is announced once the project nests or chains cards, right after sub-cards (CARD-TREE-SPEC §6)", () => {
+  const none: TipFacts = { hasCard: false, needsYou: false, openIdea: false, movedToFinished: false, hasArtifact: false, hasAgentTag: false, agentQuestion: false, olderHidden: false, nextMove: false, hasTicket: false, noConnection: false, projectTabs: false, hasWorkpad: false, busyBoard: false, hasSubagent: false, workflowSuggestion: false, crowdedAttention: false, fullSidebar: false, cardOpen: false, cardWithSession: false, hasSummary: false, memoryCandidate: false, automationCandidate: false, hasSubCards: false, cardCommentable: false };
+  expect(nextTip({ tipsSeen: [], facts: { ...none, hasSubCards: true, hasCardTree: true, hasSubagent: true }, blocked: false })).toBe("sub-cards");
+  // Existing users saw sub-cards long ago: the new id still reaches them once.
+  expect(nextTip({ tipsSeen: ["sub-cards"], facts: { ...none, hasSubCards: true, hasCardTree: true, hasSubagent: true }, blocked: false })).toBe("card-tree");
+  expect(nextTip({ tipsSeen: ["sub-cards", "card-tree"], facts: { ...none, hasCardTree: true }, blocked: false })).toBeNull();
+  expect(nextTip({ tipsSeen: [], facts: { ...none, hasCardTree: true }, blocked: true })).toBeNull();
+  expect(nextTip({ tipsSeen: [], facts: none, blocked: false })).toBeNull();
+});
+
+test("the card tree tip waits for a sub-card's sub-card or a second blocks link (CARD-TREE-SPEC §6)", () => {
+  const cards = ["a", "b", "c", "d"].map((id, i) => ({ id, createdAt: `2026-10-24T00:00:0${i}.000Z` }));
+  const sub = (from: string, to: string) => ({ id: `${from}-sub-${to}`, kind: "subtask" as const, from, to });
+  const blocks = (from: string, to: string) => ({ id: `${from}-blocks-${to}`, kind: "blocks" as const, from, to });
+  expect(cardTreeTipDue(null)).toBe(false);
+  expect(cardTreeTipDue(buildCardTree(cards, []))).toBe(false);
+  // One level of sub-cards is the sub-cards tip's business; one blocks link is a plain card link.
+  expect(cardTreeTipDue(buildCardTree(cards, [sub("b", "a"), sub("c", "a"), blocks("b", "c")]))).toBe(false);
+  expect(cardTreeTipDue(buildCardTree(cards, [sub("b", "a"), sub("c", "b")]))).toBe(true);
+  expect(cardTreeTipDue(buildCardTree(cards, [blocks("a", "b"), blocks("c", "d")]))).toBe(true);
+});
+
 test("sub-cards are explained once a card of the project has them, before Paseo subagents", () => {
   const none: TipFacts = { hasCard: false, needsYou: false, openIdea: false, movedToFinished: false, hasArtifact: false, hasAgentTag: false, agentQuestion: false, olderHidden: false, nextMove: false, hasTicket: false, noConnection: false, projectTabs: false, hasWorkpad: false, busyBoard: false, hasSubagent: false, workflowSuggestion: false, crowdedAttention: false, fullSidebar: false, cardOpen: false, cardWithSession: false, hasSummary: false, memoryCandidate: false, automationCandidate: false, hasSubCards: false, cardCommentable: false };
   expect(nextTip({ tipsSeen: [], facts: { ...none, hasSubCards: true, hasSubagent: true }, blocked: false })).toBe("sub-cards");
@@ -243,7 +266,7 @@ describe("tour setup (ONBOARDING-SETUP-SPEC)", () => {
     expect(settingsHintDue({ tipsSeen: ["settings-entry"], tourClosed: true, blocked: false })).toBe(false);
   });
   test("the settings callout is never a banner tip", () => {
-    const facts: Array<keyof TipFacts> = ["hasCard", "needsYou", "openIdea", "movedToFinished", "hasArtifact", "hasAgentTag", "agentQuestion", "olderHidden", "nextMove", "hasTicket", "noConnection", "projectTabs", "hasWorkpad", "busyBoard", "hasSubagent", "workflowSuggestion", "crowdedAttention", "fullSidebar", "cardOpen", "cardWithSession", "hasSummary", "memoryCandidate", "taskIntake", "automationCandidate", "hasSubCards", "cardCommentable"];
+    const facts: Array<keyof TipFacts> = ["hasCard", "needsYou", "openIdea", "movedToFinished", "hasArtifact", "hasAgentTag", "agentQuestion", "olderHidden", "nextMove", "hasTicket", "noConnection", "projectTabs", "hasWorkpad", "busyBoard", "hasSubagent", "workflowSuggestion", "crowdedAttention", "fullSidebar", "cardOpen", "cardWithSession", "hasSummary", "memoryCandidate", "taskIntake", "automationCandidate", "hasSubCards", "hasCardTree", "cardCommentable"];
     const all = Object.fromEntries(facts.map((k) => [k, true])) as unknown as TipFacts;
     const seen: string[] = [];
     for (let tip = nextTip({ tipsSeen: seen, facts: all, blocked: false }); tip; tip = nextTip({ tipsSeen: seen, facts: all, blocked: false })) seen.push(tip);

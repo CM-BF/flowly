@@ -1,7 +1,7 @@
 /** Layout of the card sidebar: section order and which sections start open (DRAWER-SPEC, Section order). Pure; the values live in the host-scoped board-view settings. */
 
-/** Sections the user can move. Description stays first; Details, Usage and Activity stay last. Comments sit under Progress by default (CARD-COMMENTS-SPEC §1). */
-export const drawerSections = ["progress", "comments", "sessions", "workpad", "artifacts", "ideas", "links"] as const;
+/** Sections the user can move. Description stays first; Details, Usage and Activity stay last. Comments sit under Progress by default (CARD-COMMENTS-SPEC §1); Dependencies before Links (CARD-TREE-SPEC §2.6). */
+export const drawerSections = ["progress", "comments", "sessions", "workpad", "artifacts", "ideas", "dependencies", "links"] as const;
 export type DrawerSection = (typeof drawerSections)[number];
 
 /** Sections that always sit at the bottom, in this order; they can only start open or closed. */
@@ -17,6 +17,7 @@ export const defaultSectionOpen: Record<AnyDrawerSection, boolean> = {
   artifacts: true,
   sessions: true,
   ideas: true,
+  dependencies: true,
   links: false,
   details: false,
   usage: false,

@@ -15,7 +15,10 @@ import type { WorkpadSignal } from "../shared/workpad";
 import { activityLines, defaultCardDisplay, type CardDisplay } from "../shared/card-display";
 import { BrandIcon } from "./brand-icons";
 import type { ConnectorFamily } from "../shared/connectors";
-import { SignalMark, type AutomationSignal } from "./task-automation";
+import { SignalMark } from "./task-automation";
+import type { AutomationSignal } from "./automation-view";
+import type { Below } from "../shared/card-tree";
+import { belowLabel, belowSignals } from "./board-levels";
 
 export type CardDrag = {
   start(task: Task, point: Point): void;
@@ -26,16 +29,18 @@ export type CardDrag = {
 
 type TaskCardProps = Parameters<typeof TaskCard>[0];
 
-export type LiveTaskCardProps = Omit<TaskCardProps, "output" | "menu" | "onOpen" | "onActions"> & {
+export type LiveTaskCardProps = Omit<TaskCardProps, "output" | "menu" | "onOpen" | "onActions" | "onSubCards"> & {
   outputSession?: OutputSession | null;
   /** Stable handlers shared by all cards; they receive the card's task (PERFORMANCE-SPEC §3). */
   onOpen(task: Task): void;
   onActions(task: Task): void;
   menuFor?(task: Task): MenuEntry[];
+  /** Show or hide the sub-cards Levels hides under this card (CARD-TREE-SPEC §2.3), for `subCardsFold`. */
+  onSubCards?(task: Task): void;
 };
 
 /** Derived props arrive as fresh objects each board render; compare their content. */
-const contentProps = new Set(["summary", "progress", "outputSession", "workpad", "display", "automation", "subCards"]);
+const contentProps = new Set(["summary", "progress", "outputSession", "workpad", "display", "automation", "subCards", "below"]);
 function sameLiveCard(a: LiveTaskCardProps, b: LiveTaskCardProps) {
   const keys = new Set([...Object.keys(a), ...Object.keys(b)]) as Set<keyof LiveTaskCardProps>;
   for (const key of keys) {
@@ -56,6 +61,7 @@ export const LiveTaskCard = memo(function LiveTaskCard({
   onOpen: openTask,
   onActions: taskActions,
   menuFor,
+  onSubCards: toggleSubCards,
   ...props
 }: LiveTaskCardProps) {
   const { task } = props;
@@ -69,7 +75,8 @@ export const LiveTaskCard = memo(function LiveTaskCard({
   );
   const onOpen = useCallback(() => openTask(task), [openTask, task]);
   const onActions = useCallback(() => taskActions(task), [taskActions, task]);
-  return <TaskCard {...props} output={output} menu={menu} onOpen={onOpen} onActions={onActions} />;
+  const onSubCards = useCallback(() => toggleSubCards?.(task), [toggleSubCards, task]);
+  return <TaskCard {...props} output={output} menu={menu} onOpen={onOpen} onActions={onActions} onSubCards={toggleSubCards ? onSubCards : undefined} />;
 }, sameLiveCard);
 
 export function TaskCard({
@@ -94,6 +101,13 @@ export function TaskCard({
   attentionDismissed = false,
   automation = null,
   subCards = null,
+  parentTitle = "",
+  parentPath = "",
+  heldBy = "",
+  heldMore = 0,
+  below = null,
+  subCardsFold = null,
+  onSubCards,
   display = defaultCardDisplay,
   flash = false,
   dragging,
@@ -135,6 +149,17 @@ export function TaskCard({
   automation?: AutomationSignal | null;
   /** Its sub-cards: how many are finished of all (SUB-CARDS-SPEC §6). */
   subCards?: { done: number; total: number } | null;
+  /** A sub-card's parent: its title for the breadcrumb, and the whole path ("Main › C5") for the label (CARD-TREE-SPEC §2.5). */
+  parentTitle?: string;
+  parentPath?: string;
+  /** A queued card a Cancelled or archived blocker holds: the first such blocker's title, and how many more. */
+  heldBy?: string;
+  heldMore?: number;
+  /** What Levels hides under this card, rolled up (CARD-TREE-SPEC §2.4). */
+  below?: Below | null;
+  /** Levels hides sub-cards under it ("show") or they are shown for this visit ("hide"); with `onSubCards`. */
+  subCardsFold?: "show" | "hide" | null;
+  onSubCards?(): void;
   /** Which fields show (CARD-DISPLAY-SPEC); the accessibility label always lists everything. */
   display?: CardDisplay;
   /** Briefly emphasize a card whose status just changed (often an automatic move). */
@@ -268,8 +293,11 @@ export function TaskCard({
           questions ? tn(questions, "Needs you: {n} open question", "Needs you: {n} open questions") : "",
           ideas ? tn(ideas, "{n} idea", "{n} ideas") : "",
           waiting ? tn(waiting, "Waiting on {n} card: {waitingTitles}", "Waiting on {n} cards: {waitingTitles}", { waitingTitles }) : "",
+          parentPath ? t("Sub-card of {title}", { title: parentPath }) : "",
+          heldBy ? t("Held by {title}", { title: heldMore ? `${heldBy} +${heldMore}` : heldBy }) : "",
           automation?.text ?? "",
           subCards ? t("Sub-cards {done}/{total}", subCards) : "",
+          belowLabel(below),
           progress ? t("Progress: {state}", { state: progress.state }) : "",
           workpad ? workpadText(workpad) : "",
           attentionDismissed ? t("Dismissed from Attention") : "",
@@ -282,6 +310,14 @@ export function TaskCard({
           .filter(Boolean)
           .join(". ") + "."}
         {...(menu || {})}
+        {...(subCardsFold && onSubCards
+          ? {
+              accessibilityActions: [{ name: "sub-cards", label: subCardsFold === "show" ? t("Show its sub-cards") : t("Hide its sub-cards") }],
+              onAccessibilityAction: (event: { nativeEvent: { actionName: string } }) => {
+                if (event.nativeEvent.actionName === "sub-cards") onSubCards();
+              },
+            }
+          : null)}
         accessibilityHint={
           drag
             ? t("Drag this card with the mouse or open task actions to change status.")
@@ -303,7 +339,7 @@ export function TaskCard({
           outlineStyle: "none",
         }) as never}
       >
-        <CardMeta task={task} externalKey={externalKey} externalFamily={externalFamily} display={display} />
+        <CardMeta task={task} externalKey={externalKey} externalFamily={externalFamily} parentTitle={display.parent ? parentTitle : ""} display={display} />
         <Label medium size={font.base} lines={3} selectable={false}>
           {task.title}
         </Label>
@@ -324,6 +360,9 @@ export function TaskCard({
           waiting={waiting}
           automation={automation}
           subCards={subCards}
+          heldBy={heldBy}
+          heldMore={heldMore}
+          below={below}
           attentionDismissed={attentionDismissed}
           display={display}
         />
@@ -454,6 +493,9 @@ function CardSignals({
   waiting,
   automation,
   subCards,
+  heldBy,
+  heldMore,
+  below,
   attentionDismissed,
   display,
 }: {
@@ -471,6 +513,9 @@ function CardSignals({
   waiting: number;
   automation: AutomationSignal | null;
   subCards: { done: number; total: number } | null;
+  heldBy: string;
+  heldMore: number;
+  below: Below | null;
   attentionDismissed: boolean;
   display: CardDisplay;
 }) {
@@ -479,9 +524,22 @@ function CardSignals({
   const items: ReactNode[] = [];
   if (questions || (available && summary?.questions))
     items.push(<Signal key="question" icon="MessageCircleQuestion" color={colors.statusWarning} text={t("Needs you")} />);
+  // Held is act-now: only a person removing the link releases it (CARD-TREE-SPEC §2.5).
+  if (heldBy) items.push(<Signal key="held" icon="CirclePause" color={colors.statusWarning} text={t("Held by {title}", { title: heldMore ? `${heldBy} +${heldMore}` : heldBy })} />);
   if (waiting) items.push(<Signal key="waiting" icon="Hourglass" text={t("Waiting on {waiting}", { waiting })} />);
   if (automation) items.push(<AutomationItem key="automation" signal={automation} />);
   if (subCards) items.push(<Signal key="sub-cards" icon="ListTree" text={t("Sub-cards {done}/{total}", subCards)} />);
+  // What Levels hides under the card, so nothing that needs you is out of sight (CARD-TREE-SPEC §2.4).
+  for (const signal of belowSignals(below, display.sessions))
+    items.push(
+      <Signal
+        key={`below-${signal.key}`}
+        icon={signal.key === "hidden" ? "ChevronsDownUp" : undefined}
+        pulse={signal.key === "running"}
+        color={belowColor(colors, signal.tone)}
+        text={signal.text}
+      />,
+    );
   if (!available && wrapped)
     items.push(<Signal key="wrapped" icon="CircleCheck" text={t("Wrapped up")} />);
   else if (!available)
@@ -538,16 +596,25 @@ function CardSignals({
  * What the card is: priority, type, ticket and tags as one quiet row above the
  * title (CARD-DISPLAY-SPEC §2). Plain text with icons; only Urgent/High keep colour.
  */
-function CardMeta({ task, externalKey, externalFamily, display }: { task: Task; externalKey: string; externalFamily?: ConnectorFamily; display: CardDisplay }) {
+function CardMeta({ task, externalKey, externalFamily, parentTitle, display }: { task: Task; externalKey: string; externalFamily?: ConnectorFamily; parentTitle: string; display: CardDisplay }) {
   const { colors } = useTheme();
   const priority = display.priority && task.priority !== "normal";
   const accent = priorityAccent(colors, task.priority);
   const type = display.type && !!task.type;
   const ticket = display.external && !!externalKey;
   const tags = display.tags ? task.tags || [] : [];
-  if (!priority && !type && !ticket && !tags.length) return null;
+  if (!priority && !type && !ticket && !tags.length && !parentTitle) return null;
   return (
     <View style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "center", columnGap: space[2]+2, rowGap: 2, minWidth: 0 }}>
+      {!!parentTitle && (
+        // Which card it belongs to (CARD-TREE-SPEC §2.5); the card's own label carries the whole path.
+        <View accessible={false} style={{ flexDirection: "row", alignItems: "center", gap: 3, maxWidth: "40%", minWidth: 0 }}>
+          <Icon name="CornerLeftUp" size={12} color={colors.foregroundMuted} />
+          <View style={{ flexShrink: 1, minWidth: 0 }}>
+            <Label size={font.xs} muted lines={1} selectable={false}>{parentTitle}</Label>
+          </View>
+        </View>
+      )}
       {priority && (
         <Meta label={t("{priority} priority", { priority: priorityLabels[task.priority] })} icon={<PriorityIcon priority={task.priority} size={12} />} text={priorityLabels[task.priority]} color={accent} />
       )}
@@ -580,6 +647,21 @@ function Meta({ label, icon, text, color }: { label: string; icon: ReactNode; te
       </Label>
     </View>
   );
+}
+
+function belowColor(colors: ReturnType<typeof useTheme>["colors"], tone: ReturnType<typeof belowSignals>[number]["tone"]) {
+  switch (tone) {
+    case "warning":
+      return colors.statusWarning;
+    case "danger":
+      return colors.statusDanger;
+    case "accent":
+      return colors.accent;
+    case "success":
+      return colors.statusSuccess;
+    default:
+      return undefined;
+  }
 }
 
 /** The card's workpad signal (WORKPAD-SPEC §6.1). */

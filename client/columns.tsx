@@ -59,8 +59,21 @@ const noOlder: ReadonlySet<string> = new Set();
 
 /** "Show N older" / "Hide older" row closing a Done/Cancelled lane (also used by the phone list). */
 export function OlderToggle({ count, shown, onPress }: { count: number; shown: boolean; onPress(): void }) {
-  const { colors } = useTheme();
   const text = shown ? t("Hide older tasks") : tn(count, "Show {n} older task", "Show {n} older tasks");
+  return <LaneToggle icon="Clock" text={text} shown={shown} onPress={onPress} />;
+}
+
+/** "Show {n} hidden sub-cards" / "Hide sub-cards": the lane's cards Levels hides, for this visit (CARD-TREE-SPEC §2.3). */
+export function LevelsToggle({ count, shown, onPress }: { count: number; shown: boolean; onPress(): void }) {
+  const text = shown ? t("Hide sub-cards") : tn(count, "Show {n} hidden sub-card", "Show {n} hidden sub-cards");
+  return <LaneToggle icon="ListTree" text={text} shown={shown} onPress={onPress} />;
+}
+
+/** "{n} sub-cards hidden at this level": a lane whose cards are all hidden by Levels. */
+export const levelsEmptyText = (count: number) => tn(count, "{n} sub-card hidden at this level", "{n} sub-cards hidden at this level");
+
+function LaneToggle({ icon, text, shown, onPress }: { icon: string; text: string; shown: boolean; onPress(): void }) {
+  const { colors } = useTheme();
   return (
     <Pressable
       accessibilityRole="button"
@@ -81,7 +94,7 @@ export function OlderToggle({ count, shown, onPress }: { count: number; shown: b
         };
       }}
     >
-      <Icon name="Clock" size={13} color={colors.foregroundMuted} />
+      <Icon name={icon} size={13} color={colors.foregroundMuted} />
       <Label muted size={font.sm} selectable={false}>{text}</Label>
     </Pressable>
   );
@@ -121,6 +134,9 @@ export function DesktopColumns({
   older = noOlder,
   olderShown = [],
   onToggleOlder,
+  levelsHidden,
+  levelsShown = [],
+  onToggleLevels,
   reveal,
   onRevealed,
   renderCard,
@@ -147,6 +163,10 @@ export function DesktopColumns({
   /** Lanes whose older cards are shown. */
   olderShown?: readonly Status[];
   onToggleOlder?(status: Status): void;
+  /** Cards per lane that Levels hides (CARD-TREE-SPEC §2.3); with `levelsShown` their footer shows them back. */
+  levelsHidden?: ReadonlyMap<Status, number>;
+  levelsShown?: readonly Status[];
+  onToggleLevels?(status: Status): void;
   /**
    * Scrolls this lane into view each time `n` changes to a non-zero value, also on mount (the overview bar's
    * In review / Blocked chips pressed while a page replaced the board).
@@ -348,6 +368,8 @@ export function DesktopColumns({
             past = column.filter((t) => older.has(t.id)),
             pastShown = olderShown.includes(status);
           const shown = pastShown ? [...recent, ...past] : recent;
+          const levelsCount = levelsHidden?.get(status) ?? 0,
+            levelsOpen = levelsShown.includes(status);
           // Drop slots follow the cards actually on screen.
           order.current[status] = shown.map((t) => t.id);
           const highlighted =
@@ -511,10 +533,11 @@ export function DesktopColumns({
                     }}
                   >
                     <Label muted size={font.sm} selectable={false}>
-                      {highlighted ? t("Drop to move here") : past.length ? t("No recent tasks") : t("No tasks")}
+                      {highlighted ? t("Drop to move here") : levelsCount && !levelsOpen ? levelsEmptyText(levelsCount) : past.length ? t("No recent tasks") : t("No tasks")}
                     </Label>
                   </View>
                 )}
+                {levelsCount > 0 && <LevelsToggle count={levelsCount} shown={levelsOpen} onPress={() => onToggleLevels?.(status)} />}
                 {past.length > 0 && (
                   <OlderToggle count={past.length} shown={pastShown} onPress={() => onToggleOlder?.(status)} />
                 )}

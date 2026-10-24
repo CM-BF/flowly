@@ -127,3 +127,25 @@ test("navigation follows the board sort; ⇧H/⇧L target the adjacent shown col
   expect(adjacentStatus(["backlog", "todo", "development"], "backlog", "move-left")).toBeNull();
   expect(adjacentStatus(["todo"], "done", "move-left")).toBeNull();
 });
+
+describe("card tree shortcuts (CARD-TREE-SPEC §2.2, §2.3)", () => {
+  test("T opens the tree; 1 2 3 0 set Levels; modifiers, repeats and IME input are ignored", async () => {
+    const { shortcutLevel } = await import("./shortcuts");
+    expect(resolveShortcut({ key: "t" }, true)).toBe("tree");
+    expect(resolveShortcut({ key: "T" }, true)).toBe("tree");
+    expect(["1", "2", "3", "0"].map((key) => resolveShortcut({ key }, true))).toEqual(["level-1", "level-2", "level-3", "level-all"]);
+    expect(["level-1", "level-2", "level-3", "level-all"].map((a) => shortcutLevel[a as keyof typeof shortcutLevel])).toEqual([1, 2, 3, null]);
+    for (const mod of ["metaKey", "ctrlKey", "altKey"] as const) expect(resolveShortcut({ key: "1", [mod]: true }, true)).toBeNull();
+    expect(resolveShortcut({ key: "1", repeat: true }, true)).toBeNull();
+    expect(resolveShortcut({ key: "t", isComposing: true }, true)).toBeNull();
+    expect(resolveShortcut({ key: "!", shiftKey: true }, true)).toBeNull();
+    expect(resolveShortcut({ key: "4" }, true)).toBeNull();
+  });
+  test("the help lists them, and the Command Center may open the tree", async () => {
+    const { shortcutHelp } = await import("./shortcuts");
+    const keys = shortcutHelp.flatMap((h) => h.keys);
+    for (const key of ["T", "1", "2", "3", "0"]) expect(keys).toContain(key);
+    const now = 1_800_000_000_000;
+    expect(parseBoardIntent(intentParams("tree", now), now)?.intent).toBe("tree");
+  });
+});
