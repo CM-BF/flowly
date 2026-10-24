@@ -79,6 +79,7 @@ import { automationAllowed, automationOf, isLive, jobOf, reviewerOfCard, reviews
 import { parentOf } from "../shared/links";
 import { createCardInputSchema, updateCardInputSchema, type CreateCardInput, type CreateCardResult, type UpdateCardInput } from "../shared/tools";
 import { taskInput, type Task, type TaskInput } from "../shared/model";
+import { reviewLevelNote } from "../shared/review-levels";
 import { existsSync } from "node:fs";
 
 /** A project-memory refusal as the tool error agents read (PROJECT-MEMORY-SPEC §4.1). */
@@ -209,6 +210,7 @@ export class AgentService {
           baseRef: input.baseRef ?? "",
           ...(input.subCard ? { subCardOf: r.task.id } : {}),
           ...(input.blockedBy.length ? { blockedBy: input.blockedBy } : {}),
+          ...(input.review_level && input.review_level !== "auto" ? { reviewLevel: input.review_level } : {}),
         });
       authorizeCardCreation(before, actor, { revision: !reserved });
       preflightCardLinks(this.store, before, draft);
@@ -265,6 +267,9 @@ export class AgentService {
 
   async updateCard(identity: ToolIdentity, raw: UpdateCardInput) {
     const input = updateCardInputSchema.parse(raw);
+    // A review level goes alone or with start (AUTOMATION-SPEC §5.2.1); refused before anything is recorded.
+    if (!input.action && !input.review_level) throw new ToolError("INVALID_INPUT", "Give an action, a review_level, or both (review_level only with action=start).");
+    if (input.review_level && input.action && input.action !== "start") throw new ToolError("INVALID_INPUT", `review_level goes alone or with action=start, not with action=${input.action}; nothing was changed.`);
     const signed = this.secrets.validateRequest(identity, input.request, input.expectedRevision);
     const r = await this.resources(identity);
     const actor: AgentCardActor = { ...identity, expectedRevision: input.expectedRevision, key: `${identity.agentId}:${digest(input.request.id)}`, payloadHash: digest(JSON.stringify({ action: "update_card", input })), start: "later" };
@@ -284,6 +289,15 @@ export class AgentService {
       const child = board.tasks.find((t) => t.id === input.cardId);
       if (!child || child.projectId !== project.id || parentOf(board.links, child.id) !== parent.id) throw new ToolError("NOT_PARENT", "Only direct sub-cards of this session's card can be managed.");
       if (child.archivedAt) throw new ToolError("ARCHIVED", "That sub-card is archived.");
+      if (!input.action) {
+        // Only the review level (§5.2): no move, no queue; it applies from the sub-card's next review round.
+        if (["done", "cancelled"].includes(child.status)) throw new ToolError("TASK_FINISHED", "That sub-card is already finished.");
+        const changed = this.setReviewLevel(board, child, input.review_level!, identity.agentId);
+        const queued = isLive(jobOf(board, child.id));
+        const receipt = this.cardReceipt(board, actor, "update_card");
+        receipt.cardId = child.id; receipt.status = child.status; receipt.queued = queued;
+        return { value: { cardId: child.id, status: child.status, queued, message: changed ? `Review level set to ${input.review_level}; it applies from the sub-card's next review round.` : `The review level already is ${input.review_level}; nothing changed.` }, changed: true };
+      }
       // Automation never runs work under a cancelled or archived ancestor; cancelling stays possible.
       if (input.action === "start") refuseAbandonedTree(board, parent.id, "start sub-cards");
       const job = jobOf(board, child.id);
@@ -297,6 +311,7 @@ export class AgentService {
         throw new ToolError("CHILD_BUSY", `This sub-card's automation is still ${liveWords[job.state] ?? job.state}. Nothing was changed${dropped}; wait until it settles, then start it again with the note.`);
       }
       const replayed = (input.action === "accept" && child.status === "done") || (input.action === "cancel" && child.status === "cancelled") || (input.action === "start" && isLive(job));
+      if (input.review_level && !["done", "cancelled"].includes(child.status)) this.setReviewLevel(board, child, input.review_level, identity.agentId);
       if (!replayed && ["done", "cancelled"].includes(child.status)) throw new ToolError("TASK_FINISHED", "That sub-card is already finished.");
       if (!replayed && input.action === "accept" && child.status !== "in_review") throw new ToolError("NOT_DELIVERED", "Only a delivered sub-card in In review can be accepted.");
       // The parent accepts a settled delivery, after the sub-card's own review; a person can still move it to Done directly.
@@ -328,6 +343,17 @@ export class AgentService {
     this.accesses.set(identity.agentId, { at: new Date(this.clock()).toISOString(), action: "update_card" });
     const { previous: _previous, moved: _moved, ...answer } = result;
     return answer;
+  }
+  /** A parent's agent sets its sub-card's review level (AUTOMATION-SPEC §5.2.1); whether it changed. `auto` removes it. */
+  private setReviewLevel(board: Board, child: Task, value: NonNullable<UpdateCardInput["review_level"]>, agentId: string) {
+    const next = value === "auto" ? undefined : value;
+    if (child.reviewLevel === next) return false;
+    if (next) child.reviewLevel = next;
+    else delete child.reviewLevel;
+    child.revision++;
+    child.updatedAt = new Date(this.clock()).toISOString();
+    this.store.event(board, { taskId: child.id, actor: "agent", agentId, action: "review_level_set", note: `${reviewLevelNote(next)} (set by the parent card's agent)` });
+    return true;
   }
   /** flowly_submit_review (AUTOMATION-SPEC §5): the verdict of the reviewer session automation started for this card. */
   async review(identity: ToolIdentity, input: ReviewInput) {

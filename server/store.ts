@@ -7,6 +7,7 @@ import { upgradeBoard } from "./migrate";
 import { ideaTitleKey } from "../shared/ideas";
 import { otherEnd, relationLabels, relationOf, touches } from "../shared/links";
 import { changeTags, mergeTagEdit, normalizeTags, tagChangeNote } from "../shared/tags";
+import { reviewLevelNote } from "../shared/review-levels";
 import { attentionDismissLimits, dismissalSignals, type AttentionDismissInput, type AttentionRestoreInput } from "../shared/attention-dismiss";
 import { commentAction, commentLimits } from "../shared/comments";
 import type { FlowLog } from "./flow-log";
@@ -210,6 +211,9 @@ export class BoardStore {
       if (input.priority !== undefined) task.priority = input.priority;
       if (input.type === null) delete task.type;
       else if (input.type !== undefined) task.type = input.type;
+      const levelBefore = task.reviewLevel;
+      if (input.reviewLevel === null) delete task.reviewLevel;
+      else if (input.reviewLevel !== undefined) task.reviewLevel = input.reviewLevel;
       if (input.status !== undefined) task.status = input.status;
       if (input.archived !== undefined)
         task.archivedAt = input.archived ? new Date().toISOString() : null;
@@ -231,6 +235,8 @@ export class BoardStore {
       });
       if (tagChange && (tagChange.added.length || tagChange.removed.length))
         this.event(board, { taskId: task.id, actor: "human", action: "tags_changed", note: tagChangeNote(tagChange) });
+      if (task.reviewLevel !== levelBefore)
+        this.event(board, { taskId: task.id, actor: input.actor, agentId: input.agentId, action: "review_level_set", note: reviewLevelNote(task.reviewLevel) });
       return task;
     });
   }

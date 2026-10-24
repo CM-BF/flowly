@@ -505,7 +505,7 @@ export const toolContextSchema = z.object({
       archived: z.boolean(),
       resolved: z.boolean().optional(),
       branch: z.string().optional(),
-      handoff: z.object({ branch: z.string().optional(), directory: z.string().optional(), evidence: z.string(), blockers: z.array(z.string()) }).optional(),
+      handoff: z.object({ branch: z.string().optional(), directory: z.string().optional(), evidence: z.string(), blockers: z.array(z.string()), risks: z.array(z.string()).optional() }).optional(),
     }),
   ),
 });
@@ -568,6 +568,8 @@ export type ArtifactToolInput = z.infer<typeof artifactInputSchema>;
 export type ArtifactRemovalInput = z.infer<typeof artifactRemovalSchema>;
 export type WorkpadInput = z.infer<typeof workpadInputSchema>;
 
+/** The review level agents give a card (AUTOMATION-SPEC §5.2.1): auto removes it. */
+export const agentReviewLevelSchema = z.enum(["light", "standard", "deep", "auto"]);
 /** flowly_create_card (SUB-CARDS-SPEC §3): a new card of this project, by default a sub-card of the caller's card. */
 export const createCardInputSchema = z.strictObject({
   expectedRevision: revisionSchema,
@@ -587,6 +589,8 @@ export const createCardInputSchema = z.strictObject({
   workspace: z.enum(["worktree", "directory"]).optional(),
   /** Worktree base: a branch or commit (default: the project root's current branch). */
   baseRef: z.string().trim().max(200).optional(),
+  /** How hard agent automation reviews the card (AUTOMATION-SPEC §5.2); auto (or absent): Flowly decides each round. */
+  review_level: agentReviewLevelSchema.optional(),
 });
 export type CreateCardInput = z.input<typeof createCardInputSchema>;
 export const createCardResultSchema = z.object({
@@ -605,9 +609,11 @@ export const updateCardInputSchema = z.strictObject({
   expectedRevision: revisionSchema,
   request: requestSchema,
   cardId: z.string().min(1).max(200),
-  /** start: queue a parked or idle sub-card; accept: Done for a delivered (In review) sub-card; cancel: Cancelled. */
-  action: z.enum(["start", "accept", "cancel"]),
+  /** start: queue a parked or idle sub-card; accept: Done for a delivered (In review) sub-card; cancel: Cancelled. Optional with review_level. */
+  action: z.enum(["start", "accept", "cancel"]).optional(),
   note: z.string().trim().max(2000).default(""),
+  /** Sets the sub-card's review level (AUTOMATION-SPEC §5.2), alone or with action=start; auto: Flowly decides each round. */
+  review_level: agentReviewLevelSchema.optional(),
 });
 export type UpdateCardInput = z.input<typeof updateCardInputSchema>;
 export const updateCardResultSchema = z.object({

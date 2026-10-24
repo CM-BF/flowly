@@ -32,10 +32,11 @@ export async function cardHandoff(board: Board, taskId: string, paseo: PaseoApi)
     ...(directory ? { directory } : {}), ...(head?.branch ? { branch: head.branch } : {}),
     evidence: handoffEvidence(board, taskId),
     blockers: unmetBlockers(board, taskId),
+    ...(job?.risks?.length ? { risks: job.risks } : {}),
   };
 }
 
-export type LinkHandoff = { branch?: string; directory?: string; evidence: string; blockers: string[] };
+export type LinkHandoff = { branch?: string; directory?: string; evidence: string; blockers: string[]; risks?: string[] };
 
 /** The branch a card's work is on as last recorded (its delivery or workpad write); no git. */
 const storedBranch = (board: Board, taskId: string) => {
@@ -102,6 +103,8 @@ export async function linkExtras(board: Board, taskId: string, paseo: PaseoApi, 
       ...(directory ? { directory } : {}),
       evidence: fits ? full : `Omitted: get_task carries at most ${handoffBudget.total} characters of handoff evidence and the links before this one used them. Inspect this card's directory and branch (git log, git diff) instead.`,
       blockers: unmetBlockers(board, v.other!.id),
+      // The reviewer's risks beyond the criteria (AUTOMATION-SPEC §5.2.4), so the parent weighs them before accepting.
+      ...(jobOf(board, v.other!.id)?.risks?.length ? { risks: jobOf(board, v.other!.id)!.risks } : {}),
     });
   }
   await Promise.all(
