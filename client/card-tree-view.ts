@@ -115,3 +115,69 @@ export function rowLabel(parts: { title: string; lane: string; signal?: string; 
     .filter(Boolean)
     .join(", ");
 }
+
+export type Neighbour = { id: string; state: "done" | "open" | "stuck" };
+
+/** What the drawer's Dependencies section shows for a card (CARD-TREE-SPEC §2.6). */
+export interface DependencyView {
+  /** Root..parent ids (empty for a top-level card). */
+  path: string[];
+  /** Direct blockers and direct blocked cards, as they stand. */
+  left: Neighbour[];
+  right: Neighbour[];
+  /** Unfinished blockers further up the chain than the direct ones. */
+  upstream: number;
+  /** Direct sub-cards in step order. */
+  strip: { id: string; step: number }[];
+  /** Blockers that hold the card (it is queued and they are Cancelled or archived). */
+  holding: string[];
+}
+
+export function dependencyView(
+  tree: CardTree,
+  id: string,
+  tasksById: ReadonlyMap<string, Pick<Task, "status" | "archivedAt">>,
+  held: boolean,
+): DependencyView | null {
+  if (!tree.ids.includes(id)) return null;
+  const path = tree.chain(id).slice(0, -1);
+  const neighbour = (other: string): Neighbour | null => {
+    const state = blockerState(tasksById.get(other));
+    return state === "gone" ? null : { id: other, state };
+  };
+  const left = (tree.blockers.get(id) ?? []).map(neighbour).filter((n): n is Neighbour => !!n);
+  const right = (tree.blocked.get(id) ?? []).map(neighbour).filter((n): n is Neighbour => !!n);
+  const kids = tree.ordered.get(id) ?? [];
+  if (!path.length && !left.length && !right.length && !kids.length) return null;
+  const direct = new Set(left.map((n) => n.id));
+  const upstream = chainOfUp(tree, id).filter((b) => !direct.has(b) && blockerState(tasksById.get(b)) === "open").length;
+  return {
+    path,
+    left,
+    right,
+    upstream,
+    strip: kids.map((k) => ({ id: k, step: tree.step.get(k) ?? 1 })),
+    holding: held ? left.filter((n) => n.state === "stuck").map((n) => n.id) : [],
+  };
+}
+
+/** Transitive blockers, nearest first. */
+function chainOfUp(tree: Pick<CardTree, "blockers">, id: string): string[] {
+  const out: string[] = [];
+  const seen = new Set([id]);
+  const queue = [id];
+  for (let i = 0; i < queue.length; i++)
+    for (const b of tree.blockers.get(queue[i]) ?? []) {
+      if (seen.has(b)) continue;
+      seen.add(b);
+      out.push(b);
+      queue.push(b);
+    }
+  return out;
+}
+
+/** The collapsed section's line: "Waits for 2 · Blocks 1", either part left out at 0. */
+export function dependencySummary(view: Pick<DependencyView, "left" | "right">): string {
+  const waits = view.left.filter((n) => n.state !== "done").length;
+  return [waits ? t("Waits for {n}", { n: waits }) : "", view.right.length ? t("Blocks {n}", { n: view.right.length }) : ""].filter(Boolean).join(" · ");
+}

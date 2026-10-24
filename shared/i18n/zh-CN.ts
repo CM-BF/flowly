@@ -1602,5 +1602,11 @@ const catalog: Catalog = {
   "Step {step} of {total}": "第 {step} 步，共 {total} 步",
   "under {title}": "属于 {title}",
   "order is circular": "顺序成环",
+  "Waits for {n}": "等待 {n} 张",
+  "Blocks {n}": "阻塞 {n} 张",
+  "{n} more upstream": "上游还有 {n} 张",
+  "Holds this card until the link is removed": "在移除链接之前一直挡住这张卡",
+  "Waits for": "等待",
+  "+{n} more": "还有 {n} 张",
 };
 export default catalog;

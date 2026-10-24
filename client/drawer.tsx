@@ -66,6 +66,7 @@ import { SessionMarkdown } from "./session-content";
 import { TaskIdeas } from "./task-ideas";
 import { TaskMemorySection } from "./memory";
 import { LinkOrigin, TaskLinks } from "./task-links";
+import { TaskDependencies } from "./task-dependencies";
 import { TaskArtifacts } from "./task-artifacts";
 import { TaskWorkpad } from "./task-workpad";
 import { TaskTags } from "./task-tags";
@@ -96,6 +97,7 @@ function TaskDrawerView({
   onFollowUp,
   onSubCard,
   onOpenTask,
+  onShowInTree,
   onStatusChanged,
   refresh,
   sessionEntry,
@@ -134,6 +136,8 @@ function TaskDrawerView({
   onSubCard?(task: Task): void;
   /** Opens another card's drawer (idea source or result). */
   onOpenTask?(id: string): void;
+  /** Opens the Card tree at this card with its chain highlighted (CARD-TREE-SPEC §2.6). */
+  onShowInTree?(id: string): void;
   /** After this drawer changed the card's status (the board may ask to wrap up). */
   onStatusChanged?(from: Status, to: Status): void;
   refresh(): void;
@@ -816,6 +820,22 @@ function TaskDrawerView({
           {/* Project memory proposed from this card, right after its ideas (PROJECT-MEMORY-SPEC §8.2). */}
           {onMemoryPage && <TaskMemorySection task={task} project={project} onOpenPage={onMemoryPage} />}
           </>
+        );
+      case "dependencies":
+        return (
+          onOpenTask && (
+            <TaskDependencies
+              task={task}
+              project={project}
+              ready={ready}
+              // Stacked under 420 pt of section width (the sidebar's 16 pt padding each side) and on compact layouts.
+              vertical={compact || width - 2 * space[4] < 420}
+              disabled={!active || !!task.archivedAt || !!project.archivedAt}
+              section={sectionStates.dependencies}
+              onOpenTask={onOpenTask}
+              onShowInTree={onShowInTree}
+            />
+          )
         );
       case "links":
         return (

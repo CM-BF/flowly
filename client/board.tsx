@@ -1658,6 +1658,7 @@ function BoardContent(
         onFollowUp={followUp}
         onSubCard={subCard}
         onOpenTask={openTaskById}
+        onShowInTree={showInTree}
         onStatusChanged={drawerStatusChanged}
         refresh={stableRefresh}
         sessionDefaults={sessionDefaults}

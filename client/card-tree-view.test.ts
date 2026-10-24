@@ -109,3 +109,35 @@ describe("Card tree rows (CARD-TREE-SPEC §2.2)", () => {
     expect(rows.find((r) => r.id === "C3a")?.depth).toBe(1);
   });
 });
+
+describe("drawer Dependencies (CARD-TREE-SPEC §2.6)", () => {
+  test("path, neighbours, upstream count, sub-card strip in step order, and what holds a queued card", async () => {
+    const { dependencyView, dependencySummary } = await import("./card-tree-view");
+    setLocale("en");
+    clock = 0;
+    const tasks = [task("root"), task("P"), task("Q", "done"), task("X", "cancelled"), task("me"), task("k1"), task("k2"), task("after")];
+    const tree = buildCardTree(tasks, [sub("me", "root"), sub("P", "root"), sub("Q", "root"), sub("X", "root"), sub("k1", "me"), sub("k2", "me"), blocks("Q", "P"), blocks("P", "me"), blocks("X", "me"), blocks("me", "after"), blocks("k1", "k2")]);
+    const byId = new Map(tasks.map((x) => [x.id, x] as const));
+    const view = dependencyView(tree, "me", byId, true)!;
+    expect(view.path).toEqual(["root"]);
+    expect(view.left).toEqual([{ id: "P", state: "open" }, { id: "X", state: "stuck" }]);
+    expect(view.right).toEqual([{ id: "after", state: "open" }]);
+    expect(view.upstream).toBe(0); // Q, above P, is Done
+    expect(view.strip).toEqual([{ id: "k1", step: 1 }, { id: "k2", step: 2 }]);
+    expect(view.holding).toEqual(["X"]);
+    expect(dependencyView(tree, "me", byId, false)!.holding).toEqual([]);
+    expect(dependencySummary(view)).toBe("Waits for 2 · Blocks 1");
+    expect(dependencySummary({ left: [], right: [{ id: "a", state: "open" }] })).toBe("Blocks 1");
+  });
+
+  test("unfinished blockers further up are counted; a card with no relation has no section", async () => {
+    const { dependencyView } = await import("./card-tree-view");
+    clock = 0;
+    const tasks = [task("a"), task("b"), task("c"), task("lone")];
+    const tree = buildCardTree(tasks, [blocks("a", "b"), blocks("b", "c")]);
+    const byId = new Map(tasks.map((x) => [x.id, x] as const));
+    expect(dependencyView(tree, "c", byId, false)!.upstream).toBe(1);
+    expect(dependencyView(tree, "lone", byId, false)).toBeNull();
+    expect(dependencyView(tree, "missing", byId, false)).toBeNull();
+  });
+});

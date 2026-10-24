@@ -1602,5 +1602,11 @@ const catalog: Catalog = {
   "Step {step} of {total}": "Шаг {step} из {total}",
   "under {title}": "в {title}",
   "order is circular": "порядок замкнут в круг",
+  "Waits for {n}": "Ждёт {n}",
+  "Blocks {n}": "Блокирует {n}",
+  "{n} more upstream": {"one": "ещё {n} выше по цепочке", "few": "ещё {n} выше по цепочке", "many": "ещё {n} выше по цепочке", "other": "ещё {n} выше по цепочке"},
+  "Holds this card until the link is removed": "Удерживает эту карточку, пока связь не удалена",
+  "Waits for": "Ждёт",
+  "+{n} more": {"one": "ещё {n}", "few": "ещё {n}", "many": "ещё {n}", "other": "ещё {n}"},
 };
 export default catalog;

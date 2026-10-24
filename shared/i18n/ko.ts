@@ -1602,5 +1602,11 @@ const catalog: Catalog = {
   "Step {step} of {total}": "{total}단계 중 {step}단계",
   "under {title}": "{title} 하위",
   "order is circular": "순서가 순환함",
+  "Waits for {n}": "{n}개 대기",
+  "Blocks {n}": "{n}개 막는 중",
+  "{n} more upstream": "상위에 {n}개 더",
+  "Holds this card until the link is removed": "링크를 지울 때까지 이 카드를 막습니다",
+  "Waits for": "대기 대상",
+  "+{n} more": "{n}개 더",
 };
 export default catalog;

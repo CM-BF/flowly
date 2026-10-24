@@ -1602,5 +1602,11 @@ const catalog: Catalog = {
   "Step {step} of {total}": "Schritt {step} von {total}",
   "under {title}": "unter {title}",
   "order is circular": "die Reihenfolge ist zirkulär",
+  "Waits for {n}": "Wartet auf {n}",
+  "Blocks {n}": "Blockiert {n}",
+  "{n} more upstream": {"one": "{n} weitere davor", "other": "{n} weitere davor"},
+  "Holds this card until the link is removed": "Hält diese Karte fest, bis die Verknüpfung entfernt ist",
+  "Waits for": "Wartet auf",
+  "+{n} more": {"one": "+{n} weitere", "other": "+{n} weitere"},
 };
 export default catalog;
