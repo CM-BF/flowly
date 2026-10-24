@@ -1442,5 +1442,16 @@ const catalog: Catalog = {
   "Used when the reviewer's model reports a rate or usage limit: the review round runs again on this model. None: the review waits for the limit to reset.": "審查者的模型回報頻率或用量上限時使用：用這個模型重新進行本輪審查。無：審查等待上限重置。",
   "On the fallback model after a provider limit": "provider 達到上限後改用備用模型",
   "Switched to the fallback model": "改用備用模型",
+  "Panel review": "審查小組",
+  "Off": "關閉",
+  "Every round": "每一輪",
+  "After 1 round with changes": "1 輪要求修改之後",
+  "After {n} rounds with changes": "{n} 輪要求修改之後",
+  "When serial reviews keep requesting changes, the next round is checked by several reviewers in parallel, each from its own focus, and every confirmed problem goes to the implementer at once.": "串行審查一再要求修改時，下一輪由多位審查者並行檢查，各有側重，確認的問題一次全部交給執行者。",
+  "Panel reviewer": "審查小組模型",
+  "The model panel rounds run on, best one that can start subagents (such as Claude). None: the reviewer's model.": "審查小組輪次使用的模型，最好是能啟動子智慧代理的模型（例如 Claude）。無：使用審查者的模型。",
+  "Same as reviewer": "與審查者相同",
+  "Reviewers in a panel": "小組審查者人數",
+  "Panel review round {n} of {max}": "第 {n}/{max} 輪小組審查",
 };
 export default catalog;

@@ -1442,5 +1442,16 @@ const catalog: Catalog = {
   "Used when the reviewer's model reports a rate or usage limit: the review round runs again on this model. None: the review waits for the limit to reset.": "검토 담당 모델이 속도 또는 사용량 한도를 보고하면 사용합니다. 이 모델로 검토 라운드를 다시 진행합니다. 없음: 한도가 초기화될 때까지 검토가 기다립니다.",
   "On the fallback model after a provider limit": "공급자 한도 이후 대체 모델로 실행 중",
   "Switched to the fallback model": "대체 모델로 전환함",
+  "Panel review": "패널 검토",
+  "Off": "끔",
+  "Every round": "매 라운드",
+  "After 1 round with changes": "수정 요청 1라운드 후",
+  "After {n} rounds with changes": "수정 요청 {n}라운드 후",
+  "When serial reviews keep requesting changes, the next round is checked by several reviewers in parallel, each from its own focus, and every confirmed problem goes to the implementer at once.": "순차 검토에서 수정 요청이 계속되면 다음 라운드는 여러 검토 담당이 각자의 관점에서 동시에 확인하고, 확인된 문제를 한 번에 모두 구현 담당에게 보냅니다.",
+  "Panel reviewer": "패널 검토 모델",
+  "The model panel rounds run on, best one that can start subagents (such as Claude). None: the reviewer's model.": "패널 라운드에서 쓰는 모델이며, 하위 에이전트를 시작할 수 있는 모델(예: Claude)이 좋습니다. 없음: 검토 담당의 모델.",
+  "Same as reviewer": "검토 담당과 같음",
+  "Reviewers in a panel": "패널 검토 담당 수",
+  "Panel review round {n} of {max}": "패널 검토 {n}/{max}라운드",
 };
 export default catalog;

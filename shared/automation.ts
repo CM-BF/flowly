@@ -176,9 +176,20 @@ export function recoveredOutcome(
 
 /** The model `role` switches to after a provider limit (§4.5), when the project set one. */
 export const fallbackModel = (settings: AutomationSettings, role: AutomationJob["role"]) => (role === "reviewer" ? settings.reviewerFallback : settings.implementerFallback);
-/** A role's own model as far as the board knows it; the implementer can also come from a card's launch or the global default. */
-export const primaryModel = (settings: AutomationSettings, project: Pick<Project, "agentModel"> | undefined, role: AutomationJob["role"]) =>
-  role === "reviewer" ? settings.reviewer : (settings.implementer ?? project?.agentModel ?? undefined);
+/**
+ * A role's own model as far as the board knows it; the implementer can also come from a card's launch or the global
+ * default. A reviewer session started for panel rounds (`job.panel`) runs on the panel model.
+ */
+export const primaryModel = (settings: AutomationSettings, project: Pick<Project, "agentModel"> | undefined, role: AutomationJob["role"], job?: Pick<AutomationJob, "panel">) =>
+  role === "reviewer" ? ((job?.panel && settings.panelReviewer) || settings.reviewer) : (settings.implementer ?? project?.agentModel ?? undefined);
+
+/** Panel review (§5.1) when a project never chose: from the third round of a cycle, three reviewers. */
+export const panelDefaults = { after: 2, size: 3 } as const;
+/** How many reviewers check review round `round` of a cycle: 1 for a serial round, the panel size for a panel round. */
+export function reviewersFor(settings: AutomationSettings, round: number) {
+  const after = settings.panelAfter === undefined ? panelDefaults.after : settings.panelAfter;
+  return after !== null && round > after ? (settings.panelSize ?? panelDefaults.size) : 1;
+}
 export const modelKey = (model: Pick<AgentModel, "provider" | "model">) => `${model.provider}/${model.model}`;
 /** How long a limited model is avoided: new sessions start on their role's fallback, then try it again. */
 export const fallbackHoldMs = 30 * 60_000;
@@ -549,21 +560,40 @@ const lenses = [
   "Lens for this round: the contract. Re-read the original card and its acceptance criteria and audit the delivery strictly against them, including every change requested in earlier rounds and in the comments.",
 ];
 
-export function reviewPrompt(round: number, max: number) {
+/** What each reviewer of a panel round focuses on (§5.1); a panel of n takes the first n. */
+const panelFocuses = [
+  "the artifact: read the diff cold before the delivery note, then investigate every mismatch with the note",
+  "execution: run the build, the tests and the reported behavior, and verify each claim of the delivery",
+  "the contract: the card's acceptance criteria, every change requested in earlier rounds and every comment",
+  "integration and regressions: callers and users of the changed code, other cards' work, data and cleanup",
+  "failure paths and safety: errors, races, retries, authorization and data loss",
+];
+
+/** The reviewer's instruction for one round; `reviewers` above 1 makes it a panel round (§5.1). */
+export function reviewPrompt(round: number, max: number, reviewers = 1) {
+  const panel = reviewers > 1;
   return [
-    `${tag} You are the reviewer of this card (review round ${round} of ${max}). The implementer delivered it to In review. Verify it independently; you review, you do not take over the implementation.`,
+    `${tag} You are the reviewer of this card (review round ${round} of ${max}${panel ? ", a panel review" : ""}). The implementer delivered it to In review. Verify it independently; you review, you do not take over the implementation.`,
     "Read flowly_get_task: the card, its workpad (acceptance criteria and checks), the people's comments (what they asked for counts like the card's requirements) and the delivery note in its activity. Inspect the actual changes in this workspace (git status, git diff, git log) and run the relevant checks.",
-    lenses[Math.min(round, lenses.length) - 1],
+    panel
+      ? [
+          `Earlier rounds of this cycle requested changes${round > 1 ? ` (${round - 1} so far)` : ""} or the project reviews every round this way, so this round checks the delivery with ${reviewers} independent reviewers at once instead of one more serial pass. Start them in parallel with your subagent tool (in Claude Code: ${reviewers} Agent calls in one message; a workflow if you have one), one per focus:`,
+          ...panelFocuses.slice(0, reviewers).map((focus, i) => `${i + 1}. ${focus}.`),
+          "Give each the card id, this workspace's path, the acceptance criteria and its focus, and tell it to report findings with file, problem and evidence; they only read and run checks, never edit files or call Flowly tools. If you cannot start subagents, review from each focus in turn yourself, independently. Then confirm each finding yourself (drop what you cannot reproduce or point to), merge duplicates and send every confirmed finding at once: the implementer gets one complete list instead of one problem per round.",
+        ].join("\n")
+      : lenses[Math.min(round, lenses.length) - 1],
     "Then call flowly_submit_review exactly once: verdict=approve when the acceptance criteria are met and the checks pass; verdict=changes with concrete findings the implementer can act on (file, problem, expected fix). Do not edit files, commit, push or change the card status. If only a person can decide something, ask with flowly_report_progress kind=question and end your turn.",
   ].join("\n\n");
 }
 
-export function changesPrompt(round: number, max: number, summary: string, findings: readonly string[]) {
+export function changesPrompt(round: number, max: number, summary: string, findings: readonly string[], reviewers = 1) {
   return [
-    `${tag} The reviewer requested changes (review round ${round} of ${max}):`,
+    `${tag} The ${reviewers > 1 ? `review panel (${reviewers} reviewers)` : "reviewer"} requested changes (review round ${round} of ${max}):`,
     summary,
     ...findings.map((f) => `- ${f}`),
-    "Fix them, rerun the checks, update the workpad and deliver again with flowly_update_status status=in_review.",
+    reviewers > 1
+      ? "This is every problem the panel confirmed: fix all of them before you deliver, check each one against its finding, rerun the checks, update the workpad and deliver again with flowly_update_status status=in_review."
+      : "Fix them, rerun the checks, update the workpad and deliver again with flowly_update_status status=in_review.",
   ].join("\n");
 }
 

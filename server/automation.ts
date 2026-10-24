@@ -44,6 +44,7 @@ import {
   reviewInputSchema,
   slotStates,
   reviewPrompt,
+  reviewersFor,
   startPrompt,
   turnDecision,
   automationExecution,
@@ -201,8 +202,9 @@ export class AutomationService {
           state: "queued",
           role: "implementer",
           ...(existing?.implementerId ? { implementerId: existing.implementerId } : {}),
-          // A reviewer that ran on its fallback model is not carried: the next run reviews on the reviewer's own model (§4.5).
-          ...(existing?.reviewerId && existing.reviewerId !== existing.implementerId && !existing.fallback?.reviewer ? { reviewerId: existing.reviewerId } : {}),
+          // A reviewer that ran on its fallback model (§4.5) or the panel model (§5.1) is not carried: the next run
+          // starts serial rounds on the reviewer's own model.
+          ...(existing?.reviewerId && existing.reviewerId !== existing.implementerId && !existing.fallback?.reviewer && !existing.panel ? { reviewerId: existing.reviewerId } : {}),
           // The implementer session is kept, so is its model: a limit on it is not another switch to the same fallback.
           ...(existing?.implementerId && existing.fallback?.implementer ? { fallback: { implementer: true } } : {}),
           ...(existing?.providerLimit && Date.parse(existing.providerLimit.until) > this.clock() ? { providerLimit: existing.providerLimit } : {}),
@@ -451,10 +453,12 @@ export class AutomationService {
           delete job.code;
           delete job.pendingOp;
           delete job.pendingRole;
-          this.instruct(job, "reviewer", reviewPrompt(job.reviewRounds, settings.maxReviewRounds));
+          const reviewers = reviewersFor(settings, job.reviewRounds);
+          this.choosePanelSession(job, reviewers > 1 && !!settings.panelReviewer);
+          this.instruct(job, "reviewer", reviewPrompt(job.reviewRounds, settings.maxReviewRounds, reviewers));
           job.instruction!.reviewDelivery = job.deliveryEvent;
           this.waitOnUnconfirmed(job);
-          note("automation_review_started", `Review round ${job.reviewRounds} of ${settings.maxReviewRounds}`);
+          note("automation_review_started", `Review round ${job.reviewRounds} of ${settings.maxReviewRounds}${reviewers > 1 ? ` (panel of ${reviewers} reviewers)` : ""}`);
           break;
         case "deliver":
           delete job.reopened;
@@ -562,7 +566,7 @@ export class AutomationService {
    */
   private switchToFallback(board: Board, job: AutomationJob, role: Role, settings: AutomationSettings, pending?: AutomationJob["instruction"], { keep = false } = {}) {
     const project = board.projects.find((p) => p.id === job.projectId);
-    const primary = primaryModel(settings, project, role);
+    const primary = primaryModel(settings, project, role, job);
     const limited = primary ? modelKey(primary) : (job.provider ?? "its model");
     job.providerLimit = { provider: primary?.provider ?? job.provider ?? "", ...(primary ? { model: modelKey(primary) } : {}), until: new Date(this.clock() + fallbackHoldMs).toISOString() };
     job.fallback = { ...job.fallback, [role]: true };
@@ -584,7 +588,7 @@ export class AutomationService {
     // A session that was never created keeps its first instruction: the new one is simply started on the fallback.
     if (keep && pending) job.instruction = pending;
     else if (role === "reviewer") {
-      this.instruct(job, "reviewer", `${note}\n\n${reviewPrompt(job.reviewRounds, settings.maxReviewRounds)}`);
+      this.instruct(job, "reviewer", `${note}\n\n${reviewPrompt(job.reviewRounds, settings.maxReviewRounds, reviewersFor(settings, job.reviewRounds))}`);
       job.instruction!.reviewDelivery = job.deliveryEvent;
     } else {
       const changes = job.verdict === "changes" ? [...board.events].reverse().find((e) => e.taskId === job.taskId && e.action === "automation_changes_requested")?.note : undefined;
@@ -606,6 +610,21 @@ export class AutomationService {
 
   private instruct(job: AutomationJob, role: Role, text: string, fresh = text) {
     job.instruction = { id: randomUUID(), role, text, fresh };
+  }
+
+  /**
+   * Panel rounds on their own model get a reviewer session of their own (§5.1), and the rounds after them a regular
+   * one again: a round whose model differs from the current reviewer session's starts a new session on its model.
+   */
+  private choosePanelSession(job: AutomationJob, onPanelModel: boolean) {
+    if (!!job.panel === onPanelModel) return;
+    delete job.reviewerId;
+    if (job.fallback?.reviewer) {
+      const { reviewer: _reviewer, ...rest } = job.fallback;
+      job.fallback = rest;
+    }
+    if (onPanelModel) job.panel = true;
+    else delete job.panel;
   }
 
   // ---- The reviewer's verdict (flowly_submit_review) --------------------
@@ -663,7 +682,9 @@ export class AutomationService {
       delete job.reopened;
       job.state = "working";
       job.turnAt = now;
-      this.instruct(job, "implementer", changesPrompt(job.reviewRounds, automationOf(project)!.maxReviewRounds, input.summary, input.findings));
+      const settings = automationOf(project)!;
+      const reviewers = reviewersFor(settings, job.reviewRounds);
+      this.instruct(job, "implementer", changesPrompt(job.reviewRounds, settings.maxReviewRounds, input.summary, input.findings, reviewers));
       this.store.event(board, { taskId: task.id, actor: "agent", agentId: identity.agentId, action: "automation_changes_requested", note: clip(text, 4000) });
       // Back to work: the same stage a person's review feedback leads to (rule A1).
       const stage = resumeStage(board, task, project);
@@ -678,7 +699,7 @@ export class AutomationService {
       return {
         value: {
           answer: { accepted: true, verdict: input.verdict, message: "Changes requested. Flowly sends your findings to the implementer; end your turn." },
-          changes: { job: { ...job }, prompt: changesPrompt(job.reviewRounds, max, input.summary, input.findings) },
+          changes: { job: { ...job }, prompt: changesPrompt(job.reviewRounds, max, input.summary, input.findings, reviewers) },
         },
         changed: true,
       };
@@ -740,7 +761,7 @@ export class AutomationService {
       delete job.retryAt;
       const settings = automationOf(board.projects.find((p) => p.id === job.projectId))!;
       const retry = job.code === "cooldown" ? cooldownPrompt(job.cooldowns ?? 1, job.detail ?? "") : retryPrompt(job.failures, settings.failureLimit, job.detail ?? "");
-      if (!job.instruction) this.instruct(job, job.role, retry, job.role === "reviewer" ? reviewPrompt(job.reviewRounds, settings.maxReviewRounds) : startPrompt({ review: !!settings.reviewer, again: false }));
+      if (!job.instruction) this.instruct(job, job.role, retry, job.role === "reviewer" ? reviewPrompt(job.reviewRounds, settings.maxReviewRounds, reviewersFor(settings, job.reviewRounds)) : startPrompt({ review: !!settings.reviewer, again: false }));
       delete job.code;
       delete job.detail;
       return { value: { ...job }, changed: true };
@@ -917,7 +938,7 @@ export class AutomationService {
     });
     if (!recorded) return;
     const launch = role === "implementer" && job.launchKey && !job.launchConsumed ? await this.launches.read(task.id, job.launchKey) : undefined;
-    const primary = launch?.model ?? (role === "reviewer" ? settings?.reviewer : await this.implementerModel(project, settings, paseo));
+    const primary = launch?.model ?? (role === "reviewer" ? settings && primaryModel(settings, project, role, job) : await this.implementerModel(project, settings, paseo));
     // The role's fallback (§4.5): once it switched, or while its own model has a recent limit or its provider cools down.
     const fallback = settings ? fallbackModel(settings, role) : undefined;
     const known = await this.store.read();
@@ -957,7 +978,7 @@ export class AutomationService {
       agentId: preparation.agentId,
       idempotencyKey: `ultra-kanban-session:${preparation.agentId}`,
       env: { FLOWLY_CONTEXT_FILE: preparation.contextFile, FLOWLY_CLI: preparation.cliPath, FLOWLY_SKILL: preparation.skillPath },
-      title: (role === "reviewer" ? `Review: ${task.title}` : task.title).slice(0, 120),
+      title: (role === "reviewer" ? `${job.panel ? "Panel review" : "Review"}: ${task.title}` : task.title).slice(0, 120),
       // Flowly handles provider limits of its automation sessions itself (§4.5); the rate-fallback plugin leaves them alone.
       labels: { "flowly-task": task.id, "flowly-automation": role, "paseo-rate-fallback": "off" },
       prompt,
@@ -1219,7 +1240,7 @@ export class AutomationService {
           if (!j || !isLive(j) || j.generation !== job.generation || !automationAllowed(b, j)) return { value: null, changed: false };
           const settings = automationOf(b.projects.find((p) => p.id === j.projectId))!;
           if (j.pendingRole && j.pendingRole !== j.role) { delete j.pendingOp; delete j.pendingRole; }
-          this.instruct(j, j.role, j.role === "reviewer" ? reviewPrompt(j.reviewRounds, settings.maxReviewRounds) : startPrompt({ review: !!settings.reviewer, again: !!j.implementerId }));
+          this.instruct(j, j.role, j.role === "reviewer" ? reviewPrompt(j.reviewRounds, settings.maxReviewRounds, reviewersFor(settings, j.reviewRounds)) : startPrompt({ review: !!settings.reviewer, again: !!j.implementerId }));
           if (j.role === "reviewer") j.instruction!.reviewDelivery = j.deliveryEvent;
           j.updatedAt = this.now();
           return { value: { ...j }, changed: true };

@@ -6,7 +6,7 @@ import { useRpc } from "@getpaseo/plugin/client";
 import { useQueryClient } from "@tanstack/react-query";
 import * as rpc from "../shared/rpc";
 import type { Project, Task } from "../shared/model";
-import { automationOf, isLive, readiness, type AutomationJob, type AutomationSettings } from "../shared/automation";
+import { automationOf, isLive, panelDefaults, readiness, reviewersFor, type AutomationJob, type AutomationSettings } from "../shared/automation";
 import { automationReason, type AutomationActions } from "./automation-view";
 import type { AgentModel } from "../shared/agent-defaults";
 import { boardKey, useBoardQuery } from "./queries";
@@ -103,7 +103,11 @@ export function TaskAutomation({ task, project, active, unavailable = false }: {
   const status =
     signal?.text ?? (job?.state === "stopped" || job?.state === "failed" ? t("Automation stopped") : job?.state === "delivered" ? (finished ? t("Finished") : task.status === "in_review" ? t("Delivered; your review") : t("Not running")) : t("Not running"));
   const counters = [
-    job?.reviewRounds && settings?.reviewer ? t("Review round {n} of {max}", { n: job.reviewRounds, max: settings.maxReviewRounds }) : "",
+    job?.reviewRounds && settings?.reviewer
+      ? reviewersFor(settings, job.reviewRounds) > 1
+        ? t("Panel review round {n} of {max}", { n: job.reviewRounds, max: settings.maxReviewRounds })
+        : t("Review round {n} of {max}", { n: job.reviewRounds, max: settings.maxReviewRounds })
+      : "",
     job?.nudges && settings ? t("Reminder {n} of {max}", { n: job.nudges, max: settings.nudgeLimit }) : "",
     job?.failures && settings ? t("Failed turns: {n} of {max}", { n: job.failures, max: settings.failureLimit }) : "",
   ].filter(Boolean);
@@ -144,6 +148,56 @@ export function TaskAutomation({ task, project, active, unavailable = false }: {
 
 const defaults = { enabled: true, maxRunning: 2, maxReviewRounds: 3, fullAccess: true, nudgeLimit: 2, failureLimit: 2 } satisfies AutomationSettings;
 
+/** Panel review (AUTOMATION-SPEC §5.1): when serial review rounds escalate to several reviewers at once. */
+function PanelSettings({
+  current,
+  set,
+  model,
+  cwd,
+}: {
+  current: AutomationSettings;
+  set: (patch: Partial<AutomationSettings>) => void;
+  model: (key: "panelReviewer", next: AgentModel | null) => void;
+  cwd?: string;
+}) {
+  const after = current.panelAfter === undefined ? panelDefaults.after : current.panelAfter;
+  return (
+    <>
+      <Choices
+        title={t("Panel review")}
+        value={after === null ? "off" : String(after)}
+        options={[
+          { value: "off", label: t("Off") },
+          { value: "0", label: t("Every round") },
+          { value: "1", label: t("After 1 round with changes") },
+          ...["2", "3"].map((n) => ({ value: n, label: t("After {n} rounds with changes", { n }) })),
+        ]}
+        onChange={(v) => set({ panelAfter: v === "off" ? null : Number(v) })}
+      />
+      <Label muted size={font.sm}>
+        {t("When serial reviews keep requesting changes, the next round is checked by several reviewers in parallel, each from its own focus, and every confirmed problem goes to the implementer at once.")}
+      </Label>
+      {after !== null && (
+        <>
+          <ModelDefaultGroup execution cwd={cwd}
+            title={t("Panel reviewer")}
+            description={t("The model panel rounds run on, best one that can start subagents (such as Claude). None: the reviewer's model.")}
+            value={current.panelReviewer ?? null}
+            noneLabel={t("Same as reviewer")}
+            onChange={(next) => model("panelReviewer", next)}
+          />
+          <Choices
+            title={t("Reviewers in a panel")}
+            value={String(current.panelSize ?? panelDefaults.size)}
+            options={["2", "3", "4", "5"].map((n) => ({ value: n, label: n }))}
+            onChange={(n) => set({ panelSize: Number(n) })}
+          />
+        </>
+      )}
+    </>
+  );
+}
+
 /** Edit project → Agent automation (AUTOMATION-SPEC §2). Turning it off keeps the other choices. */
 export function AutomationSettingsGroup({
   value,
@@ -156,7 +210,7 @@ export function AutomationSettingsGroup({
 }) {
   const current = value ?? { ...defaults, enabled: false };
   const set = (patch: Partial<AutomationSettings>) => onChange((previous) => ({ ...(previous ?? { ...defaults, enabled: false }), ...patch }));
-  const model = (key: "implementer" | "reviewer" | "implementerFallback" | "reviewerFallback", next: AgentModel | null) => {
+  const model = (key: "implementer" | "reviewer" | "implementerFallback" | "reviewerFallback" | "panelReviewer", next: AgentModel | null) => {
     onChange((previous) => {
       const { [key]: _drop, ...rest } = previous ?? { ...defaults, enabled: false };
       return next ? { ...rest, [key]: next } : rest;
@@ -213,10 +267,11 @@ export function AutomationSettingsGroup({
             <Choices
               title={t("Review rounds")}
               value={String(current.maxReviewRounds)}
-              options={["1", "2", "3"].map((n) => ({ value: n, label: n }))}
+              options={["1", "2", "3", "4", "5"].map((n) => ({ value: n, label: n }))}
               onChange={(n) => set({ maxReviewRounds: Number(n) })}
             />
           )}
+          {!!current.reviewer && <PanelSettings current={current} set={set} model={model} cwd={cwd} />}
           <Toggle
             title={t("Full access")}
             detail={t("Agents run without asking for permissions (Claude bypass, Codex full access), whatever Permissions the implementer, the reviewer or the project default model chose. Off: those Permissions apply, agents may stop to ask, and the card shows it.")}

@@ -6,7 +6,7 @@ import { agentModelSchema } from "./agent-defaults";
  * supervision and review loop, per project and off by default. Kept apart from
  * model.ts so the logic module can import the board types without a cycle.
  */
-export const automationLimits = { maxRunning: 10, reviewRounds: 5, nudges: 5, failures: 5, detail: 500, summary: 4000, finding: 1000, findings: 10 } as const;
+export const automationLimits = { maxRunning: 10, reviewRounds: 5, nudges: 5, failures: 5, detail: 500, summary: 4000, finding: 1000, findings: 20, panel: 5 } as const;
 /** Restarts of a sub-card's delivered work by its parent's agent before a person must act (SUB-CARDS-SPEC §8). */
 export const agentRestartLimit = 2;
 
@@ -27,6 +27,16 @@ export const automationSettingsSchema = z.strictObject({
   reviewerFallback: agentModelSchema.optional(),
   /** Reviews per delivery cycle before the card is left to the user (Hermes review rounds). */
   maxReviewRounds: z.number().int().min(1).max(automationLimits.reviewRounds).default(3),
+  /**
+   * Panel review (§5.1): rounds of a cycle that requested changes before its next round is reviewed by several
+   * reviewers at once; 0: every round, null: never. Absent: `panelDefaults.after`. Stored only once a person sets it,
+   * so a board stays readable by builds without panels.
+   */
+  panelAfter: z.number().int().min(0).max(automationLimits.reviewRounds).nullable().optional(),
+  /** The model panel rounds run on; absent: the reviewer's. */
+  panelReviewer: agentModelSchema.optional(),
+  /** Reviewers in a panel round; absent: `panelDefaults.size`. */
+  panelSize: z.number().int().min(2).max(automationLimits.panel).optional(),
   /** Sessions start in the provider's no-approval mode (claude bypassPermissions, codex full-access). */
   fullAccess: z.boolean().default(true),
   /** Reminders after a turn that ended without a delivery, a question or a blocker (Hermes stop nudges). */
@@ -141,6 +151,8 @@ export const automationJobSchema = z.object({
   provider: z.string().optional(),
   /** Roles that switched to their fallback model in this run; they stay on it until the run ends (§4.5). */
   fallback: z.object({ implementer: z.boolean().optional(), reviewer: z.boolean().optional() }).optional(),
+  /** The reviewer session runs on the panel model (§5.1); a round that is not a panel round starts a regular one again. */
+  panel: z.boolean().optional(),
   /**
    * The primary model (`provider/model`, or a provider alone when the model was not known) whose limit made a role
    * switch; until `until` a new session of any card starts on its role's fallback instead of trying it again.
