@@ -15,13 +15,13 @@ import {
   levelRounds,
   panelChoice,
   panelDefaults,
-  panelOutOfReach,
   readiness,
+  resolveReviewLevel,
   reviewersFor,
   type AutomationJob,
   type AutomationSettings,
 } from "../shared/automation";
-import { automationReason, automationSignal, levelLine, reviewRoundText, type AutomationActions, type AutomationSignal } from "./automation-view";
+import { automationReason, automationSignal, deepPanelNone, levelLines, panelFields, reviewRoundText, risksHeading, type AutomationActions, type AutomationSignal } from "./automation-view";
 import { Disclosure } from "./disclosure";
 import type { AgentModel } from "../shared/agent-defaults";
 import { boardKey, useBoardQuery } from "./queries";
@@ -86,6 +86,8 @@ export function TaskAutomation({ task, project, active, unavailable = false }: {
   const status =
     signal?.text ?? (job?.state === "stopped" || job?.state === "failed" ? t("Automation stopped") : job?.state === "delivered" ? (finished ? t("Finished") : task.status === "in_review" ? t("Delivered; your review") : t("Not running")) : t("Not running"));
   const plan = job?.review;
+  // The level the card resolves to now, for the drawer's "Next review round" line; none once the card is finished.
+  const levels = job && board.data ? levelLines(job, finished ? null : resolveReviewLevel(board.data, task)) : [];
   const counters = [
     // A round with a recorded plan says its level (AUTOMATION-SPEC §5.2.5); while it runs, the status line already does.
     job?.reviewRounds && settings?.reviewer
@@ -119,12 +121,12 @@ export function TaskAutomation({ task, project, active, unavailable = false }: {
           </Label>
         )}
         {!!counters.length && <Label muted size={font.sm}>{counters.join(" · ")}</Label>}
-        {!!plan && !!job?.reviewRounds && (
-          <Label muted size={font.sm}>{levelLine(plan)}</Label>
-        )}
+        {levels.map((line) => (
+          <Label key={line} muted size={font.sm}>{line}</Label>
+        ))}
         {!!job?.risks?.length && (
           <View testID="task-automation-risks" style={{ gap: 2, paddingTop: space[1] }}>
-            <Label medium size={font.sm} color={colors.statusWarning}>{t("Risks the reviewer noted beyond the acceptance criteria")}</Label>
+            <Label medium size={font.sm} color={colors.statusWarning}>{risksHeading(job)}</Label>
             {job.risks.map((risk, index) => (
               <Label key={index} size={font.sm} selectable>{`• ${risk}`}</Label>
             ))}
@@ -160,6 +162,7 @@ function PanelSettings({
   cwd?: string;
 }) {
   const after = current.panelAfter === undefined ? panelDefaults.after : current.panelAfter;
+  const fields = panelFields(current);
   return (
     <>
       <Choices
@@ -179,28 +182,31 @@ function PanelSettings({
       <Label muted size={font.sm}>
         {t("When serial reviews keep requesting changes, the next round is checked by several reviewers in parallel, each from its own focus, and every confirmed problem goes to the implementer at once.")}
       </Label>
-      {after !== null && panelOutOfReach(current) && (
-        <Label muted size={font.sm}>{t("With {n} review rounds a panel round never comes: allow more Review rounds or start the panel earlier.", { n: current.maxReviewRounds })}</Label>
+      {fields.outOfReach && (
+        <Label muted size={font.sm}>
+          {t("With {n} review rounds a Standard card never reaches a panel round: allow more Review rounds or start the panel earlier. Deep cards still get a panel every round.", { n: current.maxReviewRounds })}
+        </Label>
       )}
-      {after !== null && !panelOutOfReach(current) && (
-        <>
-          <ModelDefaultGroup execution cwd={cwd}
-            title={t("Panel reviewer")}
-            description={t("The model panel rounds run on, best one that can start subagents (such as Claude). None: the reviewer's model.")}
-            value={current.panelReviewer ?? null}
-            noneLabel={t("Same as reviewer")}
-            onChange={(next) => model("panelReviewer", next)}
-          />
-          <Choices
-            title={t("Reviewers in a panel")}
-            value={String(current.panelSize ?? panelDefaults.size)}
-            options={["2", "3", "4", "5"].map((n) => ({ value: n, label: n }))}
-            onChange={(n) => {
-              const patch = panelChoice(current, "panelSize", Number(n));
-              if (patch) set(patch);
-            }}
-          />
-        </>
+      {/* Shown even when Standard cards never panel: Deep cards run every round as a panel on this model (§5.2.3). */}
+      {fields.panelReviewer && (
+        <ModelDefaultGroup execution cwd={cwd}
+          title={t("Panel reviewer")}
+          description={t("The model panel rounds run on, Deep cards' panels too unless Review levels gives them their own; best one that can start subagents (such as Claude). None: the reviewer's model.")}
+          value={current.panelReviewer ?? null}
+          noneLabel={t("Same as reviewer")}
+          onChange={(next) => model("panelReviewer", next)}
+        />
+      )}
+      {fields.panelSize && (
+        <Choices
+          title={t("Reviewers in a panel")}
+          value={String(current.panelSize ?? panelDefaults.size)}
+          options={["2", "3", "4", "5"].map((n) => ({ value: n, label: n }))}
+          onChange={(n) => {
+            const patch = panelChoice(current, "panelSize", Number(n));
+            if (patch) set(patch);
+          }}
+        />
       )}
     </>
   );
@@ -236,7 +242,7 @@ function LevelSettingsGroup({ current, set, cwd }: { current: AutomationSettings
           title={t("Deep panel reviewer")}
           description={t("Deep cards get a panel from the first round: contract and correctness, design and scale, failure, data safety and security, then execution and integration.")}
           value={current.levels?.deep?.panelReviewer ?? null}
-          noneLabel={t("Same as panel reviewer")}
+          noneLabel={deepPanelNone(current)}
           onChange={(next) => choose("deep", "panelReviewer", next)}
         />
         <Choices

@@ -1,5 +1,17 @@
 import type { Project, Task } from "../shared/model";
-import { automationOf, isLive, type AutomationCode, type AutomationJob, type LevelReason, type ReviewLevel, type ReviewPlan } from "../shared/automation";
+import {
+  automationOf,
+  isLive,
+  panelDefaults,
+  panelOutOfReach,
+  risksEarlier,
+  type AutomationCode,
+  type AutomationJob,
+  type AutomationSettings,
+  type LevelReason,
+  type ReviewLevel,
+  type ReviewPlan,
+} from "../shared/automation";
 import type { BlockerInfo } from "../shared/card-tree";
 import type { Tone } from "./ui";
 import { localizedLabels, msg, t, tn } from "../shared/i18n";
@@ -92,8 +104,38 @@ export function levelReasonText(reason: LevelReason): string {
   }
 }
 
-/** The drawer's level line for a round's plan: "Review level: Deep (its description mentions database)". */
-export const levelLine = (plan: Pick<ReviewPlan, "level" | "reason">) => t("Review level: {level} ({why})", { level: reviewLevelLabels[plan.level], why: levelReasonText(plan.reason) });
+/**
+ * The drawer's level lines (§5.2.5): the level of the round the job recorded, said as that round's ("This review
+ * round: Deep (…)" while it runs, else "Last review round: …"), and the next round's when the card resolves to another
+ * level now (a person changed it in Edit task). `current`: the card's resolution now, null when no round will follow.
+ */
+export function levelLines(job: Pick<AutomationJob, "state" | "review" | "reviewRounds">, current: { level: ReviewLevel; reason: LevelReason } | null): string[] {
+  const plan = job.review;
+  if (!plan || !job.reviewRounds) return [];
+  const values = (p: { level: ReviewLevel; reason: LevelReason }) => ({ level: reviewLevelLabels[p.level], why: levelReasonText(p.reason) });
+  return [
+    job.state === "reviewing" ? t("This review round: {level} ({why})", values(plan)) : t("Last review round: {level} ({why})", values(plan)),
+    ...(current && current.level !== plan.level ? [t("Next review round: {level} ({why})", values(current))] : []),
+  ];
+}
+
+/** The heading of the drawer's risk list; risks of an earlier delivery say which round reported them (§5.2.4). */
+export const risksHeading = (job: Pick<AutomationJob, "risks" | "risksFrom" | "latestDelivery" | "deliveryEvent">) =>
+  risksEarlier(job)
+    ? t("Risks noted beyond the acceptance criteria in review round {n}, on an earlier delivery", { n: job.risksFrom!.round })
+    : t("Risks the reviewer noted beyond the acceptance criteria");
+
+/**
+ * Which panel fields Edit project shows (§5.1, §5.2.5): the panel model whenever there is a reviewer, since Deep cards
+ * run their panels on it even when Standard cards never reach one; the panel size only when they do.
+ */
+export function panelFields(settings: AutomationSettings) {
+  const after = settings.panelAfter === undefined ? panelDefaults.after : settings.panelAfter;
+  const reach = after !== null && !panelOutOfReach(settings);
+  return { panelReviewer: !!settings.reviewer, panelSize: reach, outOfReach: after !== null && !reach };
+}
+/** The Deep panel reviewer's "none": the model Deep cards then use, the panel reviewer when one is set. */
+export const deepPanelNone = (settings: Pick<AutomationSettings, "panelReviewer">) => (settings.panelReviewer ? t("Same as panel reviewer") : t("Same as reviewer"));
 
 /** The card editor's hint under Auto: what Auto resolves to with the form's current text and tags, and why. */
 export const autoLevelHint = (resolved: { level: ReviewLevel; reason: LevelReason }) =>
@@ -150,7 +192,13 @@ export function automationSignal(job: AutomationJob | undefined, task: Pick<Task
           ? { text: tn(risks, "Agent review passed · {n} risk", "Agent review passed · {n} risks"), icon: "ShieldAlert", tone: "warning" }
           : { text: t("Agent review passed"), icon: "BadgeCheck", tone: "success" };
       if (!job.verdict) return null;
-      return { text: risks ? tn(risks, "Review needs you · {n} risk", "Review needs you · {n} risks") : t("Review needs you"), icon: "TriangleAlert", tone: "warning" };
+      // Risks kept from an earlier delivery (its reviewer gave up, or the rounds ran out) say so (§5.2.4).
+      const text = !risks
+        ? t("Review needs you")
+        : risksEarlier(job)
+          ? tn(risks, "Review needs you · {n} earlier risk", "Review needs you · {n} earlier risks")
+          : tn(risks, "Review needs you · {n} risk", "Review needs you · {n} risks");
+      return { text, icon: "TriangleAlert", tone: "warning" };
     }
     case "failed":
       return { text: t("Automation stopped"), icon: "OctagonX", tone: "danger" };

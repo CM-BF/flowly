@@ -1,7 +1,7 @@
 import { expect, test } from "vitest";
 import type { AutomationJob } from "../shared/automation";
-import { autoLevelHint, automationSignal, levelEdit, levelLine, levelReasonText, reviewLevelLabels, reviewRoundText } from "./automation-view";
-import { resolveReviewLevel } from "../shared/automation";
+import { autoLevelHint, automationSignal, deepPanelNone, levelEdit, levelLines, levelReasonText, panelFields, reviewLevelLabels, reviewRoundText, risksHeading } from "./automation-view";
+import { automationSettingsSchema, resolveReviewLevel } from "../shared/automation";
 import { setLocale, withLocale } from "../shared/i18n";
 import "../shared/i18n-all";
 
@@ -58,5 +58,46 @@ test("the card editor sends the level only when it changed, Auto as null, and sa
   const draft = { id: "a", title: "Save drafts", description: "Write them to a SQLite database", tags: [] };
   expect(autoLevelHint(resolveReviewLevel(board, draft))).toBe("Auto: Deep, because its description mentions database.");
   expect(autoLevelHint(resolveReviewLevel(board, { ...draft, description: "" }))).toBe("Auto: Standard, because nothing calls for a deeper or lighter review.");
-  expect(levelLine({ level: "light", reason: { kind: "light_tag" } })).toBe("Review level: Light (the card has the tag light-review)");
+});
+
+test("the drawer's level lines say which round they describe, and the next round's level when the card changed since", () => {
+  setLocale("en");
+  const review = { level: "deep" as const, reason: { kind: "keyword" as const, keyword: "database", field: "description" as const }, max: 3, size: 3 };
+  const deep = { level: "deep" as const, reason: review.reason };
+  expect(levelLines(job({ review }), deep)).toEqual(["This review round: Deep (its description mentions database)"]);
+  // A person set the card to Standard after the round: the drawer no longer reads as if the card were Deep.
+  const working = job({ state: "working", role: "implementer", review });
+  expect(levelLines(working, { level: "standard", reason: { kind: "card" } })).toEqual([
+    "Last review round: Deep (its description mentions database)",
+    "Next review round: Standard (set on the card)",
+  ]);
+  expect(levelLines(working, null)).toEqual(["Last review round: Deep (its description mentions database)"]);
+  expect(levelLines(job({}), deep)).toEqual([]);
+});
+
+test("risks from an earlier delivery say so on the card and in the drawer", () => {
+  setLocale("en");
+  const earlier = { risks: ["One"], risksFrom: { round: 1, delivery: "d1" }, latestDelivery: "d2" };
+  const card = automationSignal(job({ state: "delivered", role: "implementer", verdict: "incomplete", ...earlier }), inReview);
+  expect(card).toMatchObject({ text: "Review needs you · 1 earlier risk", tone: "warning" });
+  expect(automationSignal(job({ state: "delivered", role: "implementer", verdict: "changes", ...earlier, risks: ["One", "Two"] }), inReview)?.text).toBe("Review needs you · 2 earlier risks");
+  expect(risksHeading(job({ state: "delivered", ...earlier }))).toBe("Risks noted beyond the acceptance criteria in review round 1, on an earlier delivery");
+  // Risks of the latest delivery read as before.
+  const current = { risks: ["One"], risksFrom: { round: 2, delivery: "d2" }, latestDelivery: "d2" };
+  expect(automationSignal(job({ state: "delivered", role: "implementer", verdict: "changes", ...current }), inReview)?.text).toBe("Review needs you · 1 risk");
+  expect(risksHeading(job(current))).toBe("Risks the reviewer noted beyond the acceptance criteria");
+  withLocale("ru", () => expect(automationSignal(job({ state: "delivered", role: "implementer", verdict: "incomplete", ...earlier, risks: ["1", "2", "3", "4", "5"] }), inReview)?.text).toBe("Проверка требует вас · 5 более ранних рисков"));
+});
+
+test("Edit project keeps the panel model visible, since Deep cards use it, and Deep's none says which model that is", () => {
+  setLocale("en");
+  const luna = { provider: "codex", model: "gpt-6-luna" };
+  const opus = { provider: "claude", model: "claude-opus-5-5" };
+  const settings = (extra: object) => automationSettingsSchema.parse({ enabled: true, reviewer: luna, ...extra });
+  // Panel review off, or out of reach: Standard cards never panel, Deep cards still do, on the panel model.
+  expect(panelFields(settings({ panelReviewer: opus, panelAfter: null }))).toEqual({ panelReviewer: true, panelSize: false, outOfReach: false });
+  expect(panelFields(settings({ panelReviewer: opus, maxReviewRounds: 2 }))).toEqual({ panelReviewer: true, panelSize: false, outOfReach: true });
+  expect(panelFields(settings({}))).toEqual({ panelReviewer: true, panelSize: true, outOfReach: false });
+  expect(deepPanelNone(settings({ panelReviewer: opus, panelAfter: null }))).toBe("Same as panel reviewer");
+  expect(deepPanelNone(settings({}))).toBe("Same as reviewer");
 });
