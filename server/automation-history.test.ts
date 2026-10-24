@@ -200,3 +200,26 @@ test("requested changes a later delivery answered are not handed to a takeover s
   expect(takeover.prompt).toContain("reminder 1 of 2");
   expect(takeover.prompt).not.toContain("OLD-FINDING");
 });
+
+test("a fallback takeover does not bring back requested changes a delivery already answered", async () => {
+  const opus = { provider: "claude", model: "claude-opus-5-5" };
+  const sol = { provider: "codex", model: "gpt-6.1-sol" };
+  const { x, impl, rev } = await underReview({ maxReviewRounds: 1, implementer: opus, implementerFallback: sol });
+  await x.automation.submitReview({ agentId: rev, taskId: "a", workspaceId: "w-a" }, { verdict: "changes", summary: "Not yet", findings: ["a.ts: OLD-FINDING"] });
+  await x.endTurn(rev, "a");
+  await x.automation.kick();
+  await x.deliver(impl, "a");
+  await x.turn(impl, "a");
+  expect(await x.job("a")).toMatchObject({ state: "delivered", code: "review_rounds" });
+  // The person's feedback reopens it, and that turn fails on a provider limit: the fallback session takes over.
+  await x.startTurn(impl, "a");
+  x.advance(1000);
+  await x.record("a", { actor: "system", action: "agent.turn_ended", agentId: impl, outcome: "failed", note: "You've hit your session limit · resets 2pm" });
+  x.advance(1000);
+  x.agents.get(impl)!.status = "idle";
+  await x.automation.turnEnded(impl);
+  await x.automation.kick();
+  const takeover = x.created.at(-1)!;
+  expect(takeover.provider).toBe("codex/gpt-6.1-sol");
+  expect(takeover.prompt).not.toContain("OLD-FINDING");
+});

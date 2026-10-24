@@ -648,7 +648,8 @@ export class AutomationService {
       this.instruct(job, "reviewer", `${note}\n\n${reviewPrompt(job.reviewRounds, settings.maxReviewRounds, reviewersFor(settings, job.reviewRounds))}`);
       job.instruction!.reviewDelivery = job.deliveryEvent;
     } else {
-      const recorded = job.verdict === "changes" && !job.changes ? [...board.events].reverse().find((e) => e.taskId === job.taskId && e.action === "automation_changes_requested")?.note : undefined;
+      // Jobs recorded before job.changes kept them only in the event; a delivery since that verdict answered them.
+      const recorded = job.verdict === "changes" && !job.changes && (!job.latestDelivery || job.latestDelivery === job.reviewedEvent) ? [...board.events].reverse().find((e) => e.taskId === job.taskId && e.action === "automation_changes_requested")?.note : undefined;
       const changes = job.verdict === "changes" ? (job.changes ?? (recorded ? `The reviewer's requested changes, still to do:\n${recorded}` : undefined)) : undefined;
       const carried = pending?.role === "implementer" ? pending.text : changes;
       this.instruct(job, "implementer", [note, startPrompt({ review: !!settings.reviewer, again: false }), job.feedback, carried].filter(Boolean).join("\n\n"));
