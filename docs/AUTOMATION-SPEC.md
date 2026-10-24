@@ -30,6 +30,7 @@ Hermes Kanban 的 agent 自动化有四块：**dispatcher**（依赖、并发、
 | `panelAfter` | 2（缺省） | 小组评审（§5.1）：一个周期里要求修改的轮数达到它之后，下一轮改为小组评审；`0` 每一轮都是，`null` 关闭。 |
 | `panelReviewer` | 无 | 小组评审轮使用的模型；无则用评审者（或其备用）模型。 |
 | `panelSize` | 3（缺省） | 小组评审的评审者人数，2–5。 |
+| `levels` | 无 | 评审级别（§5.2）：`light`（`reviewer`、`maxReviewRounds`）与 `deep`（`panelReviewer`、`panelSize`、`maxReviewRounds`）各自的模型、人数与轮数；只在人改过之后写入。 |
 | `fullAccess` | true | 开着时，所有自动化 session（执行者和评审者）都用 provider 的免审批模式（claude `bypassPermissions`、codex `full-access`），**覆盖**角色自己设的 Permissions 和同 provider 项目默认模型的 Permissions（用户决定，2026-10-23）；没有已知免审批模式的 provider 保留选定的权限。关着时按 [TASK-INTAKE-SPEC](TASK-INTAKE-SPEC.md)：角色的 Permissions → 同 provider 项目默认模型的 Permissions（包括显式的 “Provider default”）→ provider 默认。自动化开启时 New task 表单默认显示同样的结果；有人在表单里为某张卡改了权限，那张卡按其选择启动。速度等其它执行设置仍按角色 → 项目默认继承。 |
 | `nudgeLimit` | 2 | 静默结束后的提醒次数（stop nudge）。界面不暴露。 |
 | `failureLimit` | 2 | 连续失败回合上限（`failure_limit`）。界面不暴露。 |
@@ -69,9 +70,14 @@ AutomationJob {
   fallback?: { implementer?, reviewer? }, // 本次运行中已换到备用模型的角色（§4.5）
   providerLimit?: { provider, model?, until }, // 让角色换模型的那次上限；到期前新 session 直接用备用模型
   subSeen?,                               // 父卡上次看到的子卡签名（SUB-CARDS-SPEC §5）
+  review?: { level, reason, max, size },  // 本轮开始时解析的评审级别计划（§5.2）
+  seat?: light | deep,                    // 评审 session 所在的级别模型槽（panel 见 §5.1）
+  risks?,                                 // 最近一次结论报告的标准之外的风险（§5.2.4）
   queuedAt, startedAt?, updatedAt
 }
 ```
+
+卡片上另有 `reviewLevel?`（light | standard | deep，缺省 Auto，§5.2）。
 
 - `turnAt`：早于或等于它的回合结束不归本 job 处理（已处理，或早于最后一条指令）。`pendingOp`：正在创建的 session 的 preparation，重启后用同一个 op 再建同一个 id，绝不建第二个；`pendingRole` 标明它属于哪个角色。
 - “交付”指实现者**自己**把卡片设为 In review 的那条状态事件。`deliveryEvent` 是最近一轮评审所看的交付，总是实现者自己的事件（A1r 把卡恢复到 In review 不算交付）。`reviewedEvent` 是最近一次结论（approved、changes 或 incomplete）所针对的交付：回合结束时卡片仍停在这次交付上，就是没有新交付（随口回答）；其它交付都是新工作。`reviewedEvent` 出现之前保存的 job，有结论时以 `deliveryEvent` 代替。`latestDelivery` 将最近一次交付身份存在 job 上，不依赖只保留最近 100 条的活动历史；没有 agent 交付事件时用该回合身份。历史裁剪或没有新交付的闲聊都不使已给出的结论失效。交付身份与失败卡片被人接回的 `takenBack` 都在相应事件的事务中、裁剪历史之前保存，不等下一次派发。
@@ -175,7 +181,7 @@ AutomationJob {
 - 评审说明（`reviewPrompt`）沿用 Hermes `sdlc-review` 的分轮视角：第 1 轮先冷读 diff 再对照交付说明；第 2 轮亲自运行构建、测试与所述行为；第 3 轮起逐条对照原卡验收标准和此前每轮的修改要求。只评审，不改文件、不提交、不改卡片状态。
 - **规则 A1 例外**：job 活着或 `delivered` 时，job 自己的评审 session 开始回合不把卡片从 In review 拉回工作阶段（它不是在做卡片的工作），不只是在它评审的时候。
 - 评审者在本轮之外开始回合（人问它结论、返工期间、Run again 保留它之后）：job 不变，不视为接管。
-- 新工具 `flowly_submit_review { verdict: approve | changes, summary, findings[] }`（MCP；CLI fallback 为 `submit-review --review <JSON>`，不需要 request file，同一 API 动作 `review` 与校验）：
+- 新工具 `flowly_submit_review { verdict: approve | changes, summary, findings[], risks?[] }`（`risks` 见 §5.2.4；MCP；CLI fallback 为 `submit-review --review <JSON>`，不需要 request file，同一 API 动作 `review` 与校验）：
   - 只接受该卡当前 job 的 `reviewerId`，否则 `NOT_REVIEWER`；本轮已结束或卡片不在 In review → `REVIEW_CLOSED`；同一结论重复调用 → `replayed`。结论记在 `reviewedEvent`（本轮的交付）上。新轮的指令携带 `reviewDelivery`；它尚未到达评审者时，旧结论为 `REVIEW_CLOSED`。真实 reviewer turn 可以确认正在创建或已发出的同一条指令，即使 create/send 的响应还未返回；明确失败的旧调用不能被无关回合当作送达。
   - `approve`：job `delivered`、`verdict=approved`，卡片留在 In review，记 `automation_review_approved`（附摘要）。
   - `changes`：卡片回到 `resumeStage`（通常 Development，`rule="REVIEW"`），job 回到实现者 `working`，把摘要与发现以 `[Flowly automation] The reviewer requested changes …` 发给实现者，记 `automation_changes_requested`。评审者回合仍在进行时这条消息暂扣，回合一结束就送出（§4.2）。
@@ -194,6 +200,100 @@ AutomationJob {
 - **兼容**：三个字段都只在人改过之后才写入（点选当前的缺省值不算改动）；此前保存的设置不变（按缺省值工作）。一旦任何项目存了其中一个字段，不认识它的旧版本会拒绝读取**整个** `board.json`（项目设置是严格对象），所以回退到旧版本前要先在界面里把它们改回缺省、或从备份恢复；PR #1 起的 `implementerFallback`/`reviewerFallback` 也是这样。job 上的新字段（`panel`、`reviewers`、`heldLimits`、`changes`）旧版本会直接丢掉。
 - **不做**：由 Flowly 自己同时开多个评审 session 并合并多个结论。那要改动评审回路里所有按单个评审者设计的状态（回合结束、提醒、失败、限额、对账、接管判断），风险大；子智能体方案得到同样的并行复查，状态机不变。
 
+### 5.2 评审级别（按卡片难度配置评审者）
+
+用户决定，2026-10-24：评审者的强度、人数和视角要与卡片的难度相称。原因（实际事故）：Next Workspace 项目的 C1 卡做了一个存储层，每次改动都把整个状态追加写入、从不删除，15 小时后长到 16 GB。它的 Codex 评审者（gpt-6-astra）第 1 轮就批准了，父卡也验收了。评审者拿到了完整的 diff，什么都能运行；它被告知“验收标准满足就批准”，而标准只覆盖正确性，不涉及增长、单次操作的成本和清理。没有谁的职责是问“几千次操作之后会怎样”。只换更强的模型也解决不了：评审者需要**报告标准之外风险**的明确授权，基础性的卡片需要**固定的设计问题**，并且从第一轮起就要有多个评审者。
+
+#### 5.2.1 数据
+
+- **卡片** `Task.reviewLevel?: "light" | "standard" | "deep"`，缺省即 **Auto**。`tasks.update` 接受 `reviewLevel: light | standard | deep | null`（`null` 为 Auto，删除字段）；`tasks.create` 接受可选的 `reviewLevel`（agent 建卡用；新建表单不提供，见 §5.2.5）。字段改变时记事件 `review_level_set`（note 为 daemon 英文 “Review level: Deep” 或 “Review level: Auto”），卡片 revision +1。
+- **项目设置** `AutomationSettings.levels?: { light?: { reviewer?, maxReviewRounds? }, deep?: { panelReviewer?, panelSize?, maxReviewRounds? } }`（严格对象；轮数 1–5，`panelSize` 2–5）。缺省值：`light.reviewer` → `reviewer`；`light.maxReviewRounds` → min(2, `maxReviewRounds`)；`deep.panelReviewer` → `panelReviewer` → `reviewer`；`deep.panelSize` → 3；`deep.maxReviewRounds` → `maxReviewRounds`。
+- **job** 新增：`review?: { level, reason, max, size }`：本轮开始时解析出的计划（级别、原因、本周期的轮数上限、本轮评审者人数），在新一轮开始前不变；`seat?: "light" | "deep"`：当前评审 session 运行在哪个级别的模型上（`panel: true` 仍表示小组模型 `panelReviewer`，§5.1）；`risks?: string[]`：最近一次结论给出的风险（§5.2.4）。
+- `reason` 的种类：`card`（卡片上设的）、`tag`（卡片自己的 deep-review/foundation 标签）、`ancestor_tag`（祖先卡的这两个标签，记录祖先 id 与标题）、`keyword`（命中的关键词与字段 `title` / `description` / `acceptance`）、`light_tag`、`default`。
+- **agent 工具**：`flowly_create_card` 增加 `review_level?: light | standard | deep | auto`（缺省与 `auto` 都不写字段）。`flowly_update_card` 增加 `review_level?`，`action` 改为可选：只给 `review_level` 时只改该直接子卡片的级别；与 `action=start` 一起时先改级别再启动；与 `accept`/`cancel` 一起，或两者都没给，返回 `INVALID_INPUT`，什么都不记录。字段名用用户给的 `review_level`（这两个工具的其它字段是 camelCase）。
+- **`flowly_submit_review`** 增加可选的 `risks: string[]`（MCP 与 CLI fallback 的 `--review` JSON 共用同一校验）：最多 10 条，每条去掉首尾空白后 1–500 个字符；超出时 `INVALID_INPUT`，什么都不记录。
+
+#### 5.2.2 级别解析（Auto）
+
+每一轮评审开始时（§5：实现者有新交付、开始评审的那个事务里）解析一次，只读看板，结果确定，写进 job 的 `review` 和 `automation_review_started` 活动。顺序：
+
+1. 卡片自己的 `reviewLevel`（`card`）。
+2. 卡片或任一祖先（沿子卡片链接向上，最多 20 层，遇环停止）有标签 `deep-review` 或 `foundation` → **deep**。先看卡片自己（`tag`），再从近到远看祖先（`ancestor_tag`）。
+3. 卡片的标题、描述或 workpad 验收标准含**深度关键词** → **deep**（`keyword`，按标题、描述、验收标准的顺序取第一个命中）。
+4. 卡片自己有标签 `light-review` → **light**（`light_tag`）。
+5. 否则 **standard**（`default`）。
+
+祖先显式设的级别和 `light-review` 标签不向下传。深度关键词是 `shared/review-levels.ts` 的 `deepKeywords`，界面、daemon 和测试共用一份。英文不区分大小写、按词边界匹配，允许复数 -s/-es，短语里的空格也匹配连字符；中文按子串匹配。列表只收具体的技术词：
+
+- 英文：storage format、storage layer、storage engine、on-disk format、wire format、serialization format、persistence、persistent storage、persistent state、journal、write-ahead log、database、schema、migration、protocol、API contract、public API、external interface、backward compatibility、backwards compatibility、breaking change、authentication、authorization、access control、permission、OAuth、encryption、decryption、credential、security、vulnerability、concurrency、concurrent writes、concurrent access、race condition、deadlock、crash recovery、crash safety、crash-safe、data loss、data corruption、durability、fsync。
+- 中文：存储、持久化、数据库、数据迁移、表结构、协议、鉴权、认证、授权、权限、加密、解密、凭据、安全漏洞、并发、竞态、死锁、崩溃恢复、数据丢失、数据损坏、向后兼容。
+
+刻意不收单独的 log、format、lock、storage、state、cache、file、token、日志、格式、锁、模式、安全：它们在界面卡里太常见（“login”“date format”“lock icon”“localStorage”“日志格式”“锁屏”都不是深度卡）。已知的误报：“协议”也出现在“用户协议页面”这类界面卡里，“权限”也出现在权限提示的界面卡里；这种卡由人在编辑里，或由父卡用 `review_level=standard` 设成 Standard。
+
+#### 5.2.3 各级别的评审
+
+| | Light | Standard | Deep |
+| --- | --- | --- | --- |
+| 评审者模型 | `levels.light.reviewer`，缺省为 `reviewer` | 与今天相同：串行轮 `reviewer`，小组轮 `panelReviewer` → `reviewer` | `levels.deep.panelReviewer` → `panelReviewer` → `reviewer` |
+| 小组评审 | 从不 | 与今天相同（§5.1，`panelAfter`） | 每一轮，从第 1 轮起 |
+| 评审者人数 | 1 | 1，小组轮 `panelSize` | `levels.deep.panelSize`，缺省 3 |
+| 一个周期最多几轮 | `levels.light.maxReviewRounds`，缺省 min(2, `maxReviewRounds`) | `maxReviewRounds` | `levels.deep.maxReviewRounds`，缺省 `maxReviewRounds` |
+| 每轮的视角 | §5 的分轮视角 | §5 / §5.1 | 下面的 Deep 小组视角 |
+
+- **Standard 就是今天的行为**：串行轮、`panelAfter` 轮要求修改之后改为小组评审、同样的模型、同样的说明（只多了 §5.2.4 的风险一段）、同样的活动文字。
+- **轮数上限**按“将要开始的这一轮”解析出的级别判断。卡片在周期中途换了级别，下一次交付按新级别的上限（Light 两轮后改为 Deep：第 3 轮照常开始；Deep 三轮后改为 Light：轮数已用完，`delivered` / `review_rounds`）。用完时活动为 “Review rounds used up (n); the card waits for you”，n 是那个级别的上限。
+- 项目没设 `reviewer` 时，任何级别都不做 agent 评审（与今天相同），级别不起作用。
+- **评审 session**：job 记住当前评审 session 运行在哪个模型槽（`panel` 或 `seat`）。一轮需要的槽与当前评审 session 的不同（例如 Deep 设了自己的模型，或从 Light 槽回到普通评审者），就像 §5.1 一样新建评审 session，旧的记入 `reviewers`。标题：Deep 轮 `Deep review: <卡片>`，Light 轮 `Light review: <卡片>`，Standard 仍为 `Review:` / `Panel review:`。Run again 不沿用级别槽上的评审 session。同一轮的重发（备用模型、历史过大的轮换、重试、对账恢复）用 job 上记录的本轮计划 `review`，不重新解析，所以一轮中途改级别不会改变这一轮。
+- **Deep 小组视角**（顺序固定，按人数取前几个）：1. 契约与正确性（验收标准、此前各轮的修改要求与评论、在所有输入上而不只是测到的输入上是否做到了它声称的）；2. 设计与规模；3. 失败、数据安全与安全（错误、操作中途崩溃或重启、重试、竞态、写一半、数据丢失、触及的权限、凭据与信任边界）；4. 执行（亲自跑构建、测试与所述行为）；5. 集成与回归（调用方、其它卡片的工作、已有数据和版本的升级）。设计与规模视角每一轮都要逐条回答，并指出代码里的依据：
+  1. 10,000 次操作或六个月之后，存下来的数据是什么样？有没有无界增长的东西？
+  2. 一次操作的成本是多少？它会不会随历史增长？
+  3. 旧数据怎么清理？清理会不会删掉仍然需要的东西？
+  4. 格式或 schema 将来怎么升级？
+  5. 进程在操作中途死掉会怎样？
+  6. 它触及哪条安全或权限边界？
+  回答不了的问题，要阻止交付就作为发现，否则作为风险报告。Deep 的说明开头写明级别和原因（例如 “its description mentions "database"”），并说明这张卡每一轮都是小组评审；子智能体的用法、转交给子评审者的内容、确认与合并发现，都与 §5.1 相同。
+- **修改要求**：小组评审的消息与 §5.1 相同（“review panel (n reviewers)”）。Light 和 Deep 的消息标题写明级别（“deep review round n of max”），Standard 不变。
+
+#### 5.2.4 标准之外的风险（所有级别）
+
+- 每一轮的评审说明（小组轮里每个子评审者也一样）都要求：列出验收标准没有覆盖的风险：数据或内存随时间增长、单次操作的成本随历史增长、旧数据的清理、格式或 schema 的升级、故障与崩溃后的恢复、安全与权限、与其它卡片工作的相互影响。每条一句平实的话，说清会出什么问题、在什么时候、有多严重。每一轮都列出仍然存在的全部风险，包括之前轮次报告过的：Flowly 只保留最新一份。
+- 风险**从不阻止批准**。评审者认为某条必须阻止交付时，要求修改，把它写成发现。
+- 记录：结论与风险在同一事务里写入 job（`risks` 替换上一份；本次没有风险就删除）和活动（结论事件之后紧跟一条 `automation_review_risks`，note 为 “Risks beyond the acceptance criteria (n):” 加逐条列表；没有风险就不记）。同一结论的重发（`replayed`）不改风险。要求修改时，风险附在发给实现者的消息末尾，标明只是信息：只有修复属于本卡时才处理，其余写进交付说明。
+- 显示：抽屉的 Agent automation 区列出 “Risks the reviewer noted beyond the acceptance criteria”（任何状态，有就显示）；卡片在 In review 且 job 为 `delivered` 时，卡片上的信号带上数量：“Agent review passed · 2 risks”（warning 色，`ShieldAlert`），“Review needs you · 2 risks”。
+- 父卡：唤醒消息（[SUB-CARDS-SPEC](SUB-CARDS-SPEC.md) §5）给有风险的子卡片加一行 “Reviewer risks beyond the acceptance criteria (card data): [...]”，并要求父卡验收前权衡这些风险（必要时用 `action=start` 带说明要求返工，或问人）；`flowly_get_task` 的 links handoff 也带 `risks`。所以人和父卡都不必打开评审 session 就能看到。
+
+#### 5.2.5 界面
+
+- **卡片编辑**（Edit task → More options）：**Review level**：Auto / Light / Standard / Deep。选 Auto 时下面一行说明它解析成什么、为什么，例如 “Auto: Deep, because its description mentions database.”，随表单里的标题、描述和标签即时变化（祖先与 workpad 取自看板）。只出现在编辑已有卡片时：新建表单只有一份任务说明，由 agent 整理，Auto 已覆盖。
+- **编辑项目** → Agent automation → Reviewer 下（设了 reviewer 时），在 Panel review 之后有一个紧凑的 **Review levels** 组：一句说明（Auto 怎样选级别）；Light：**Light reviewer**（模型，无 = Same as reviewer）、**Light rounds**（1–5，缺省显示 min(2, Review rounds)）；Deep：**Deep panel reviewer**（模型，无 = Same as panel reviewer）、**Deep reviewers**（2–5，缺省 3）、**Deep rounds**（1–5，缺省 = Review rounds）。
+- **卡片信号与抽屉计数**（有 `review` 的 job）：评审中的信号为 “Light review round n of max”、“Standard review round n of max”、“Standard review round n of max (panel of k reviewers)”、“Deep review round n of max (panel of k reviewers)”；抽屉的计数行同样写法（评审中时信号已经说了，计数里不再重复）。抽屉另有一行 “Review level: Deep (its description mentions database)”。没有 `review` 的旧 job 仍为 “Agent reviewing”、“Review round n of max”、“Panel review round n of max”。
+- **活动**：`automation_review_started` 的 note（daemon 英文）：Standard 且原因为 `default` 时与今天完全相同（“Review round 1 of 3”、“Review round 3 of 3 (panel of 3 reviewers)”）；其它情况写级别与原因，例如 “Deep review round 1 of 3 (panel of 3 reviewers); level deep: its description mentions "database"”。新事件的标签：Set the review level、Noted risks beyond the acceptance criteria。
+- **新手引导**：一次性提示 `review-risks`：项目里有一张 In review 的卡带着评审者的风险、没有打开卡片时（[ONBOARDING-SPEC](ONBOARDING-SPEC.md) §5）；欢迎页 More features 的 Agent automation 一行补上评审级别；README Highlights 补一段。
+
+#### 5.2.6 兼容
+
+- 没有 `levels` 的项目按 §5.2.1 的缺省值工作；没有 `reviewLevel`、没有触发标签和关键词的卡片都是 Standard，评审与今天相同，只是评审说明多了风险一段。现有自动化测试不改动地通过。
+- `levels` 只在人改过之后写入：点选当前的缺省值不算改动；改回缺省就删掉那个键，空的 `light`/`deep`/`levels` 对象一并删掉。与 §5.1 一样，一旦存了，不认识它的旧版本会拒绝读取**整个** `board.json`（项目设置是严格对象），回退前先在界面里改回缺省或从备份恢复。
+- 卡片的 `reviewLevel` 与 job 的 `review`、`seat`、`risks` 旧版本直接丢掉（非严格对象）：降级后卡片回到 Auto；旧版本把 Light/Deep 槽上的评审 session 当作普通评审 session 继续用（模型不同，结论仍有效）。`risks` 可选：按旧说明工作的评审 session 不传也照常。
+
+#### 5.2.7 错误
+
+- `review_level` 不在枚举里、`flowly_update_card` 既没有 `action` 也没有 `review_level`、或 `review_level` 与 `accept`/`cancel` 同时给出：`INVALID_INPUT`，不记回执。改级别同样受 §4 的 `NOT_PARENT`、`ARCHIVED`、`TASK_FINISHED` 约束；同一请求重发返回记录的结果（`replayed`）。
+- `risks` 超出条数或长度：`INVALID_INPUT`，结论不记录（评审者改短后重发）。
+- `tasks.update` 的 `reviewLevel` 非法：schema 拒绝，卡片不变。
+
+#### 5.2.8 验收
+
+- 纯函数（`shared/review-levels.test.ts`）：显式级别优先；卡片和祖先的 deep-review/foundation 标签（近的祖先先，环不死循环）；中英文关键词在标题、描述、验收标准里命中，复数与连字符；误报（login、date format、lock icon、localStorage、journalist、schematic、日志格式、锁屏）仍为 Standard；light-review 只看卡片自己；各级别的轮数、人数与模型缺省；`levels` 只在改动时写入、改回缺省即删除。
+- 服务（`server/automation-levels.test.ts`，假 SDK）：Standard 卡的说明、活动文字与今天相同；Light 从不小组评审、在自己的模型上、轮数到上限后交给人；Deep 第 1 轮就是小组评审，视角顺序、六个设计问题、人数、模型、轮数上限；job 与活动记录级别和原因；周期中途改级别下一轮生效；风险的校验（MCP 与 CLI）、job、活动、修改要求消息、父卡唤醒消息与 get_task handoff；`flowly_create_card`/`flowly_update_card` 的 `review_level`。
+- 界面（`client/*.test.ts`）：卡片信号与抽屉计数的级别文字、带风险的交付信号；`review-risks` 提示的规则。
+
+#### 5.2.9 不做
+
+- 由 Flowly 同时开几个不同模型家族的评审 session，再把它们的结论合并成一个。
+- 按 diff 的大小自动选 Light。
+- 祖先显式设的级别向子卡片传递（只有标签向下传）；新建表单上的级别选项。
+
 ## 6. 界面
 
 1. **卡片信号行**：Queued for agent / Starting agent… / Agent working / Agent reviewing（脉冲点）/ Agent retrying / Agent waiting for you / Agent needs permission / Agent review passed / Review needs you / Automation stopped（失败时）。`stopped` 与不带评审的 `delivered` 不显示（泳道已说明）。
@@ -206,13 +306,13 @@ AutomationJob {
    - `workspace_unavailable`：“The card's workspace is no longer available”；`taken_over`：“Another session took over the card”；`ancestor_finished`：“An ancestor card was cancelled, archived or removed”。它们不再复用 session 消失或卡片移动的原因。
 3. **菜单**：卡片右键/⋯、手机操作表、详情菜单都有 Run with agent（项目开启且卡片未结束）或 Stop automation（job 活着）。卡片的 workspace 不在已加载的 Paseo workspace 列表里时，看板右键菜单和手机操作表与详情一样把 Run with agent 显示为不可用；workspace 列表还在加载，或列表最后成功刷新早于卡片创建时，不因此禁用（agent 或其它设备创建的卡片可能先到达看板）。活着的 job 的 Stop automation 不受影响。
 4. **Needs attention 与侧栏角标**：只在项目的 Agent automation 开启时列出卡片的自动化条目；关闭自动化后，它冻结的 job（包括 `needs_human`、`failed` 和等待评审的交付）的条目都消失。失败的 job 在失败后卡片状态被改过（自动化自己移到 Blocked，即 `rule="AUTO"` 的那次除外，例如人把它从 Blocked 拖回 Development）后离开 Needs attention；job 本身仍是 `failed`，详情里仍有 Run again。条目的自动化部分跟随卡片的信号：失败为 “Automation stopped”，等权限为 “Agent needs permission”，评审者没能定论的交付为 “Review needs you”，其它等待仍为 “Agent waiting for you”。
-5. **编辑项目**：Agent automation 开关；开启后 Cards at once（1/2/3/5）、Implementer、Implementer fallback、Reviewer、Reviewer fallback（有评审者时）（模型选择沿用默认模型控件，“无”分别为项目默认模型 / 不评审 / No fallback）、Review rounds（有评审者时）、Full access。In review 关闭时显示 “Agent automation requires the In review lane.”。
+5. **编辑项目**：Agent automation 开关；开启后 Cards at once（1/2/3/5）、Implementer、Implementer fallback、Reviewer、Reviewer fallback（有评审者时）（模型选择沿用默认模型控件，“无”分别为项目默认模型 / 不评审 / No fallback）、Review rounds（有评审者时）、Panel review 与 Review levels（有评审者时，§5.1、§5.2.5）、Full access。In review 关闭时显示 “Agent automation requires the In review lane.”。
 6. **活动**：`automation_*` 事件各有文案；daemon 写的 note（“Reminder 1 of 2”、“Provider limit (1 of 5); retrying in 1 min”、“Another session took over the card” 等）保持英文。
 7. **新手引导**：一次性提示 `agent-automation`（项目有 Backlog/Todo 卡、未打开卡片时，排在 first-card、task-intake 之后）；欢迎页 More features 增加 Agent automation（[ONBOARDING-SPEC](ONBOARDING-SPEC.md) §2、§5）。README Highlights 增加一节。
 
 ## 7. Skill
 
-`skills/flowly/SKILL.md` 新增 “Automated runs”：首条指令以 `[Flowly automation]` 开头时无人值守，一次做到交付；每回合以交付、提问或 blocked 结束；按 `[Flowly automation]` 消息行事；评审者只评审，用 `flowly_submit_review` 结束本轮。实现者与评审者之间的交接由 daemon 做。
+`skills/flowly/SKILL.md` 新增 “Automated runs”：首条指令以 `[Flowly automation]` 开头时无人值守，一次做到交付；每回合以交付、提问或 blocked 结束；按 `[Flowly automation]` 消息行事；评审者只评审，用 `flowly_submit_review` 结束本轮。实现者与评审者之间的交接由 daemon 做。2026-10-24（§5.2）：拆卡的父卡给基础性的卡片（存储格式、schema、协议、外部接口、安全、数据迁移、并发）设 `review_level=deep`；评审者用 `risks` 报告验收标准之外的风险，风险不阻止批准，必须阻止的写成修改要求。
 
 合并上游 #35/#39 后（2026-10-23）：skill 开头的 “Start of every turn” 由 `shared/turn-checklist.ts` 的六条规则生成，`flowly_get_task` 每次也返回 `turnChecklist`，所以长期复用的实现者 session 也能读到最新规则。fork 的调整：
 - 第 1 条保留 “Handle unread inputs and unread comments first”，并说明 setup.missing 包括 metadata；“Small cards also need…” 一行补上 task.brief 的 `flowly_update_metadata`。
@@ -225,11 +325,13 @@ AutomationJob {
 - 纯函数（`shared/automation.test.ts`、`shared/automation-round2.test.ts`）：依赖必须 Done、Cancelled 不放行；按优先级填名额、等人回复不占名额、关闭或冻结的项目不派发；重试到期；交付→评审/交付给人/轮次用完；评审周期在反馈后重开、结论属于它所评的交付；提问与 blocker 等人；静默提醒到上限后 block；失败重试与放弃；中断等待；评审者无结论提醒后交给人且不 block；非监督 session 忽略；job 活着或已交付时它的评审者豁免 A1；provider 冷却只挡确定的同一 provider。
 - 服务（`server/automation.test.ts` 与 `server/automation-*.test.ts`，假 SDK）：未开启时拒绝排队；排队后在卡片 workspace 创建无人值守 session（模型、模式、标签、开工说明）；名额、优先级与 blocker；提醒与 block 且同一回合结束不处理两次；提问等待与回复恢复；失败退避重试与放弃、退避期间人的回合取代重试；创建失败重试后报告且不动卡片；未知结果等人且不重发；评审回路（非评审者拒绝、修改→Development 并发给实现者、重复结论 replayed、第二轮复用评审 session、批准后留在 In review、反馈后新周期）；人移动卡片停止且不动 session、已交付卡在工作阶段间移动仍为 delivered、再次排队复用 session；钩子漏掉的回合结束由对账补上；idle/error/closed 的 session 丢失回合后等人；被监督 session 或卡片 workspace 归档后结束；共享目录占用。
 - 备用模型（`server/automation-fallback.test.ts`、`shared/automation-fallback.test.ts`）：评审者触及上限后在备用模型上重做同一轮、旧评审者结论被拒、新评审者结论生效；实现者触及上限后新 session 接手（接手说明、Full access、opt-out label），旧 session 的回合不再处理；接手带上未完成的修改要求；无备用模型时仍是冷却；备用模型也触及上限时冷却、不再换；completed 回合末尾的 Claude 额度通知算上限，引用通知的普通回答不算；上限记录期间新卡片直接用备用模型、到期后回到原模型；冷却中的 provider 不挡有备用模型的角色；创建时被拒则在备用模型上用原首条指令创建；Run again 在记录到期后回到评审者自己的模型。限额文字识别与冷却闸门的纯函数测试。
+- 评审级别与风险：见 §5.2.8。
 - 真实 daemon + Web UI（按 open-paseo-plugins/AGENTS.md）：安装到本机 daemon，用 app.paseo.sh 验证设置、排队、真实 agent 跑到交付、评审回路与卡片/详情显示；fixture 项目与 session 用后清理。结果记在 [verification/automation.md](verification/automation.md)。
 
 ## 9. 不做（本期）与后续
 
 - **编排**：已由 [SUB-CARDS-SPEC](SUB-CARDS-SPEC.md) 实现（agent 建卡/子卡、依赖、父卡等待与唤醒）。仍不做：triage 列由 LLM 自动拆卡（Hermes decomposer）。
+- **评审级别**（§5.2.9）：几个不同模型家族的评审 session 合并成一个结论；按 diff 大小自动选 Light。
 - goal 模式（每回合由裁判模型判定是否达成）、定时开始（`scheduled_at`）、按卡片指定执行者/模型、per-profile 并发、心跳/超时回收（Paseo 自己的 session 状态已覆盖进程存活；长时间 running 只靠人看）。
 - 依赖 Done 不等于上游代码已进入下游 worktree（此前设计稿指出）：Flowly 不同步分支；开工说明附 blocker 的 handoff 与分支（子卡片另附父卡集成分支，§4.1），由执行者检查后合并。
 - 降级到上游 Flowly：旧版本解析 `board.json` 时会丢弃 `automation` 与 `project.automation`（zod 非严格对象），卡片与其它数据不受影响。

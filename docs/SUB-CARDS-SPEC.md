@@ -23,6 +23,8 @@
 
 输入：`title`、`description`、`type?`、`priority`（默认 normal）、`tags?`、`subCard`（默认 true）、`start`（now | later，默认 now）、`blockedBy`（卡片 id，默认 []）、`workspace?`（worktree | directory）、`baseRef?`，以及照例的 `expectedRevision`、`request`。
 
+2026-10-24 增加 `review_level?`（light | standard | deep | auto，缺省与 auto 为 Auto），写到新卡的 `reviewLevel`（[AUTOMATION-SPEC](AUTOMATION-SPEC.md) §5.2）。工具说明与 skill 要求父卡给基础性的卡片（存储格式、schema、协议、外部接口、安全、数据迁移、并发）设 `review_level=deep`。
+
 - 一个 request 只建一张卡：`operationId = agent-card:<request id 摘要>:<参数摘要>`。同一请求同一参数重发返回同一张卡（`replayed`），不会建第二个 workspace；同一请求换了参数是 `REQUEST_REUSED`（与其他写操作一致）。并行的调用在进程内按 request 认领，第一个 await 之前就占住，所以 agent 用同一个 request 并行建两张卡时只建一张，另一个拿到 `REQUEST_REUSED`（实测中 agent 确实这样并行调用过）。已经建出卡片的请求，若那张卡之后被删除，重发得到 `REQUEST_REUSED`，不会再建一次。
 - **revision 只查一次**：签名请求里的 task/project revision 只在认领请求时检查。之后，在建 workspace 之前和提交时只重查权限与存活：父卡绑定、归档、结束、评审者身份、祖先、创建预算和认领。同一 agent 并行写状态、元数据或进度，或人在 worktree 创建期间编辑了卡片，都不再让提交被拒。
 - 拒绝：本卡已结束或归档；blocker 不在本项目（`CARD_INVALID`，且不会建 workspace）；超过限制（`CARD_LIMIT`、子卡片数量/层数）；`ANCESTOR_FINISHED`：沿子卡链接向上，本卡有已取消、已归档或已不存在的祖先时不能建卡（`subCard` 为 true 或 false 都一样），在建 workspace 之前检查，提交时再查一次；Done 的祖先不挡。`flowly_update_card` 的 `action=start` 同样检查父卡的祖先（`ANCESTOR_FINISHED`，“…so this card cannot start sub-cards”），`accept`/`cancel` 不受影响，所以被放弃的树里仍可以取消子卡片。
@@ -34,6 +36,8 @@
 ## 4. `flowly_update_card`
 
 输入：`cardId`、`action`（start | accept | cancel）、`note?`、`expectedRevision`、`request`。
+
+2026-10-24：`action` 改为可选，增加 `review_level?`（light | standard | deep | auto）。只给 `review_level` 时只改这张直接子卡片的级别（`review_level_set` 事件，不排队、不移动）；与 `action=start` 一起时先改级别再启动；与 `accept`/`cancel` 同时给出或两者都没给为 `INVALID_INPUT`。级别从子卡片的下一轮评审起生效（[AUTOMATION-SPEC](AUTOMATION-SPEC.md) §5.2）。
 
 - 只能操作本卡的直接子卡片（`NOT_PARENT`）。独立卡（`subCard=false`）以 `start=later` 建好后，返回消息写 “A person starts it with Run with agent; this card's agent can start only its direct sub-cards.”，不再提示用 `flowly_update_card` 启动。
 - `start`：Backlog → Todo；自动化开着时排队。
@@ -57,6 +61,8 @@
 - 等待中的父卡自己的 workspace 已归档、正在归档或不再被 daemon 列出 → `failed` / `workspace_unavailable`（AUTOMATION-SPEC §4.1），它的父卡可以被唤醒。项目冻结（自动化开着但 In review 关闭）时不唤醒。
 - 人在父卡 session 里发消息（或父卡开始新一轮）时 `waiting` → `working`。
 - 例：A、B 并行，C blockedBy A、B。A、B 交付后 C 仍在排队但被卡住 → 没有推进中的子卡 → 父卡被唤醒，合并 A、B 的分支并验收 → C 开始 → 父卡再次等待 → C 交付 → 父卡被唤醒、验收 C、交付本卡。
+
+- 2026-10-24 评审风险（[AUTOMATION-SPEC](AUTOMATION-SPEC.md) §5.2.4）：唤醒消息给评审者报告了风险的子卡片加一行 “Reviewer risks beyond the acceptance criteria (card data): [...]”，并要求父卡验收前权衡；`flowly_get_task` 的 handoff 带 `risks`。
 
 ## 6. 界面
 

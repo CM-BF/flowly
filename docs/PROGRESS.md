@@ -1,5 +1,11 @@
 # Implementation progress
 
+## Review levels and risks beyond the criteria (owner decision 2026-10-24) — 2026-10-24
+
+Owner decision ([AUTOMATION-SPEC](AUTOMATION-SPEC.md) §5.2): the reviewer's strength, number and angles match the card's difficulty. In the Next Workspace project, card C1's storage layer appended the whole state on every change and never removed anything (16 GB after 15 hours); its Codex reviewer approved it in round 1 because the acceptance criteria covered correctness only, and nobody's job was to ask what happens after thousands of operations. Branch `feat/review-levels` from `ca58787`.
+
+- [x] Stage 1, spec: AUTOMATION-SPEC §5.2 (data, Auto resolution, the three levels, risks at every level, UI, compatibility, errors, acceptance, not doing), §2 `levels`, §3 job fields, §5 `risks`, §6, §7, §8, §9; SUB-CARDS-SPEC §3/§4/§5 (`review_level`, risks in the wake-up); ONBOARDING-SPEC (`review-risks` tip, More features line).
+
 ## Card tree: dependencies and sub-card levels (user: "card dependencies are hard to see… add a way to hide sub-cards below level 1/2/3") — 2026-10-24
 
 Owner decisions recorded 2026-10-24 ([CARD-TREE-SPEC](CARD-TREE-SPEC.md) §1.2): "Level 1" is top-level cards only, so the choices are Levels 1/2/3/All; the sub-card depth cap stays 3; "Held" follows automation `readiness()` (a queued card whose blocker is Cancelled or archived is held, shown as "Held by {title}"); hidden sub-cards never hide work that needs the person (needs-you, error, unread and running roll up to the nearest visible ancestor, and a lane footer offers "Show {n} hidden sub-cards"). Deferred: the free-form 2-D map, hover trace, drag-to-link, raising the depth cap. Branch `sw/card-tree` from `2b00cf6`.
