@@ -81,6 +81,13 @@ export function rotationDecision(input: RotationInput, overrides: Partial<Rotati
 
 export type CheckpointSeen = { agentId: string; fill?: boolean; large?: boolean; growth?: boolean; K?: number };
 export type HistorySample = { at: number; bytes: number };
+/** The fast-growth reminder looks at the minute samples only from this main history size on. */
+export const growthWatchBytes = 64 * 2 ** 20;
+/**
+ * Whether the minute byte samples matter beyond memory: only where the fast-growth reminder can still fire for this session.
+ * Below that a sample is no board change (SESSION-HANDOFF-SPEC §5.1); the board copy only bridges a reload.
+ */
+export const growthSamplesMatter = (bytes: number | undefined, seen: CheckpointSeen) => bytes !== undefined && bytes >= growthWatchBytes && !seen.growth;
 /** A checkpoint is a card/tool reminder, never a native message or an instruction to interrupt. */
 export function checkpointObservation(input: { facts: SessionPolicyFacts; now: number; seen?: CheckpointSeen; samples?: HistorySample[]; turnStartedAt?: number; checkpointAt?: number; lastToolAt?: number }) {
   const { facts: f, now } = input, seen: CheckpointSeen = input.seen?.agentId === f.agentId ? { ...input.seen } : { agentId: f.agentId };
@@ -89,7 +96,7 @@ export function checkpointObservation(input: { facts: SessionPolicyFacts; now: n
   if (f.W !== undefined && f.W > 0 && f.C !== undefined && f.C >= .6 * f.W && !seen.fill) { seen.fill = true; reasons.push("Context is at least 60% full."); }
   if (f.B !== undefined && f.B >= 128 * 2 ** 20 && !seen.large) { seen.large = true; reasons.push("The main session history reached 128 MiB."); }
   const [a, b, c] = samples;
-  if (!seen.growth && f.B !== undefined && f.B >= 64 * 2 ** 20 && a && b && c && b.bytes > a.bytes && c.bytes > b.bytes && c.at > b.at && b.at > a.at) {
+  if (!seen.growth && f.B !== undefined && f.B >= growthWatchBytes && a && b && c && b.bytes > a.bytes && c.bytes > b.bytes && c.at > b.at && b.at > a.at) {
     const rate = (c.bytes - a.bytes) / (c.at - a.at);
     if (c.bytes + rate * 10 * 60_000 >= 200 * 2 ** 20) { seen.growth = true; reasons.push("History is growing fast enough to reach 200 MiB within ten minutes."); }
   }

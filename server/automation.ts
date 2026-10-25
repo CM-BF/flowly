@@ -1,4 +1,4 @@
-import { rotationDecision, rotationLimits, poisonedSession, checkpointObservation, type RotationDecision, type RotationLimits } from "../shared/session-rotation";
+import { rotationDecision, rotationLimits, poisonedSession, checkpointObservation, growthSamplesMatter, type RotationDecision, type RotationLimits } from "../shared/session-rotation";
 import type { SessionPolicyFacts } from "../shared/session-measurement";
 import { resolveReviewLevel, reviewPlan, withFallback } from "./review-levels";
 import { AutomationLaunches } from "./automation-launch";
@@ -294,8 +294,10 @@ export class AutomationService {
         }
         if (this.deps.handoff?.measure) {
           const previousBytes = j.historySamples?.agentId === agentId ? j.historySamples.values.at(-1)?.bytes : undefined;
-          // Flat minute samples help the rate estimate in memory; a timestamp alone is not a board change.
-          if (mainBytes !== undefined && previousBytes !== mainBytes) { j.historySamples = { agentId, values: observed.samples }; changed = true; }
+          // The minute samples live in memory. The board keeps a copy only where the fast-growth reminder can still fire
+          // (main history at least 64 MiB), so a reload in the middle of the samples still sees them; below that a busy
+          // turn's growing history would rewrite board.json every minute. A timestamp alone is never a board change.
+          if (growthSamplesMatter(mainBytes, observed.seen) && previousBytes !== mainBytes) { j.historySamples = { agentId, values: observed.samples }; changed = true; }
           const seen = Object.keys(observed.seen).length > 1 ? observed.seen : undefined;
           if (JSON.stringify(j.checkpointSeen) !== JSON.stringify(seen)) { if (seen) j.checkpointSeen = seen; else delete j.checkpointSeen; changed = true; }
           if (j.role === "implementer" && observed.reason && !(j.checkpoint?.agentId === agentId && j.checkpoint.reason === observed.reason && (checkpointAt === undefined || checkpointAt < Date.parse(j.checkpoint.at)))) {
