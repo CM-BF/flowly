@@ -57,9 +57,11 @@ test("a person's words arriving mid-read still change the view and refuse an ACK
 
 test("a partial ACK is continued after its own session was observed", async () => {
   const x = await handedOver();
-  // The successor starts a server before acknowledging: real background work (a new revision), listed with the two gaps.
+  // The successor's first turn started a server and ended with it running: real background work (a new revision), listed
+  // with the two gaps. Its next turn acknowledges.
   await x.tool("exec_command", { cmd: "./scripts/serve --port 4100" }, "Process running with session ID 7001");
   await x.minute();
+  x.turn(false); await x.minute(); x.turn(true);
   const read = await x.read(), [one, two, ...rest] = (await x.handoffs.context("card", "succ", { full: true })).page!.openIds;
   expect(rest).toEqual([expect.stringMatching(/^bg:/)]);
   const partial = await x.handoffs.update(x.identity, { handoffRevision: read.revision, ack: { handoffRevision: read.revision, heads: await x.heads(), understanding: "Two gaps handled.", items: [one, two].map((id) => ({ id, disposition: "done" as const, note: "Checked in the session history." })) } });

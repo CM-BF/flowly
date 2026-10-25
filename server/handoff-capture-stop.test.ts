@@ -43,15 +43,16 @@ test("a Monitor and a background command left running by an earlier turn and sto
   expect(JSON.parse(sealed.prompt.slice(sealed.prompt.indexOf("\n") + 1)).openIds).toEqual([]);
 });
 
-test("a stop in the same turn as the start leaves no open work", async () => {
+test("a stop in the same turn as the start leaves nothing to hand over", async () => {
   const x = await observerFixture({ provider: "claude", running: true });
   await x.append([...monitorStart, ...bashStart]); await x.poll();
   await x.append([...stop("bn9u7frii", 1, stopResult("bn9u7frii", "local_monitor", monitorInput.command)), ...stop("bk7p2q9x1", 2, stopResult("bk7p2q9x1", "local_bash", "npm run dev")), done]);
   turn(x, false); await x.poll(); await x.poll();
   const sealed = await x.seal(), view = successorView(await x.read());
-  expect(view.open).toBe(0);
-  expect(view.background.filter((item) => !item.includes(":closed:"))).toEqual([]);
+  // Both started and ended within the turn: no item stays (SESSION-HANDOFF-SPEC §5.7), so neither the board nor the seal names them.
+  expect(view).toMatchObject({ background: [], open: 0 });
   expect(JSON.parse(sealed.prompt.slice(sealed.prompt.indexOf("\n") + 1)).openIds).toEqual([]);
+  expect(sealed.prompt).not.toContain("Monitor: watch the staging deploy");
 });
 
 test("a failed stop, or a result that does not say it stopped, leaves the task as it was", async () => {

@@ -135,8 +135,11 @@ export function lineHint(prefix: Uint8Array) {
   const text = Buffer.from(prefix).toString("utf8");
   const types = [...text.matchAll(/"type"\s*:\s*"([\w.-]{1,80})"/g)].slice(0, 3).map((match) => redactCaptureText(match[1]));
   const path = types[1] === "item_completed" ? types : types.slice(0, 2), role = /"role"\s*:\s*"(\w{1,20})"/.exec(text)?.[1];
+  // A Codex tool result whose output starts with the exec header (`"output":"Process exited with code 0\n…`): which call it answers, and how it ended.
+  const exit = types[0] === "response_item" && /^(?:function|custom_tool)_call_output$/.test(types[1] ?? "") ? /"output"\s*:\s*"Process exited with code (-?\d{1,10})\b/.exec(text)?.[1] : undefined;
+  const callId = exit !== undefined ? id(/"call_id"\s*:\s*"([\w:.-]{1,200})"/.exec(text)?.[1]) : undefined;
   const at = /"timestamp"\s*:\s*"([^"\r\n]{1,80})"/.exec(text)?.[1];
-  return { type: (path.join("/") || "unknown") + (role && path.includes("message") ? ` (${role})` : ""), at: at && Number.isFinite(Date.parse(at)) ? at : undefined, messageId: id(/"(?:message_id|messageId|client_message_id|uuid)"\s*:\s*"([\w:.-]{1,200})"/.exec(text)?.[1]) };
+  return { type: (path.join("/") || "unknown") + (role && path.includes("message") ? ` (${role})` : ""), at: at && Number.isFinite(Date.parse(at)) ? at : undefined, messageId: id(/"(?:message_id|messageId|client_message_id|uuid)"\s*:\s*"([\w:.-]{1,200})"/.exec(text)?.[1]), ...(callId && exit !== undefined ? { result: { callId, exit } } : {}) };
 }
 /**
  * Whether a skipped line of this type can hold a person's words (Codex user_message / UserMessage, a user-role response
@@ -232,7 +235,8 @@ export class CaptureRecords {
    * not a gap, but its compaction counts. Without latest_token_usage_record (near its end) it is a sub-agent inheriting its
    * parent's history, not a compaction; when the tail seen is too short to tell, it counts.
    */
-  longLine(gap: CaptureGap, tail: Uint8Array, wholeTail: boolean) {
+  longLine(gap: CaptureGap, tail: Uint8Array, wholeTail: boolean, result?: { callId: string; exit: string }) {
+    if (result && gap.source) this.skippedResult(result.callId, result.exit, gap.source);
     if (!gap.typeHint?.startsWith("compacted") || !gap.source) { this.gap(gap); return; }
     if (!wholeTail || Buffer.from(tail).includes('"latest_token_usage_record"')) this.compacted("record", gap.source, gap.at);
   }
@@ -600,15 +604,31 @@ export class CaptureRecords {
       if (ref && !asyncShellRunning.has(status)) this.push({ id: `background:${this.agentId}:${call.kind}:${ref}`, kind: call.kind, handle: ref, callId, status: "closed", closeOnly: true, ...(status ? { outcome: redactCaptureText(status).slice(0, 40) } : {}) }, source, call.at);
       return;
     }
-    const finishedExec = call.kind === "exec" && (number(data.exit_code) !== undefined || (typeof value === "string" && /^Process exited with code \d+/m.test(value)));
+    const exited = typeof value === "string" ? /^Process exited with code (-?\d+)/m.exec(value)?.[1] : undefined, exitCode = number(data.exit_code) ?? exited;
+    const finishedExec = call.kind === "exec" && exitCode !== undefined;
     if (call.kind === "exec" && ref && !finishedExec) this.running(ref);
+    // A session a poll reports ended is proven finished, as by its CommandExecution: a later printed copy of its start cannot reopen it.
+    if (call.action === "poll" && ref && finishedExec) { this.closed = [...this.closed.filter((value) => value !== ref), ref].slice(-captureLimits.closed); this.sessions = this.sessions.filter((value) => value !== ref); }
     if (finishedExec && !ref) {
       if (call.detached) { this.gap({ id: `detached:${sourceKey(source)}`, kind: "detached_background_untracked", source }); this.result.background.push({ id: `background:${this.agentId}:${callId}`, source, kind: call.kind, callId, status: "unknown", at: call.at, ...(call.label ? { label: call.label } : {}) }); }
       else this.push({ id: `background:${this.agentId}:${callId}`, kind: call.kind, callId, status: "closed", closeOnly: true }, source, call.at);
       return;
     }
     if (!ref) { this.gap({ id: `handle:${sourceKey(source)}`, kind: "background_handle_unknown", source }); this.result.background.push({ id: `background:${this.agentId}:${callId}`, source, kind: call.kind, callId, status: "unknown", at: call.at, ...(call.label ? { label: call.label } : {}) }); return; }
-    this.result.background.push({ id: `background:${this.agentId}:${call.kind}:${ref}`, source, kind: call.kind, handle: ref, callId, status: finishedExec ? "closed" : "open", at: call.at, ...(call.label ? { label: call.label } : {}), ...(finishedExec ? { outcome: number(data.exit_code) !== undefined ? `exit ${data.exit_code}` : "completed" } : {}) });
+    // A poll (write_stdin) reports on the session it names: it keeps that item's start call and label, and an ended
+    // session it reports closes the item, never creates one (SESSION-HANDOFF-SPEC §5.7).
+    const poll = call.action === "poll";
+    this.result.background.push({ id: `background:${this.agentId}:${call.kind}:${ref}`, source, kind: call.kind, handle: ref, ...(poll ? { keepLabel: true } : { callId }), status: finishedExec ? "closed" : "open", at: call.at, ...(call.label && !poll ? { label: call.label } : {}), ...(finishedExec ? { outcome: `exit ${exitCode}` } : {}), ...(poll && finishedExec ? { closeOnly: true } : {}) });
+  }
+  /**
+   * A tool result too long to read whose visible start (the first 2 KiB of its line) is Codex's `Process exited with code
+   * N` header: the exec_command it answers started nothing that still runs, and the session a write_stdin poll names has
+   * ended. Without this its call stayed pending, so the session's long test runs became open placeholders at its turn end.
+   * Scripts are not settled this way: what they leave running is printed in the output that was not read.
+   */
+  skippedResult(callId: string, exit: string, source: CaptureSource) {
+    const call = this.calls.get(callId);
+    if (call?.kind === "exec" && !call.script && !call.monitor && !call.wait && call.name !== "Bash") this.output(callId, `Process exited with code ${exit}`, source);
   }
   /**
    * TaskStop {task_id} ({"message":"Successfully stopped task: <id> (<command>)","task_id","task_type","command"}) and

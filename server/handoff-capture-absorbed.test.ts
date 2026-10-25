@@ -106,6 +106,11 @@ test("a running Monitor is open work under its own task id: events keep the late
   await x.poll();
   let record = await x.read(), view = successorView(record);
   expect(view.background).toEqual(["exec_session:open:bn9u7frii:Monitor: watch the staging deploy:event=step 3/4 eu-west: health check failing"]);
+  // Started in the running turn: on the card, not yet an id to acknowledge; the turn ends with the watch still running, so it is open work.
+  expect(view).toMatchObject({ notes: [], gaps: [], inputs: [], open: 0 });
+  x.actor.status = "idle"; x.actor.activeTurn = null; await x.poll();
+  record = await x.read(); view = successorView(record);
+  expect(view.background).toEqual(["exec_session:open:bn9u7frii:Monitor: watch the staging deploy:event=step 3/4 eu-west: health check failing"]);
   expect(view).toMatchObject({ notes: [], gaps: [], inputs: [], open: 1 });
   // More events, absorbed, delivered as the next prompt and queued through the SDK: progress written in place, nothing else.
   const revision = record.revision;

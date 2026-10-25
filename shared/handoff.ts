@@ -40,7 +40,8 @@ export const handoffSessionSchema = base.extend({
   turns: z.array(z.object({ n: z.number().int(), startedAt: z.string(), endedAt: z.string().optional(), outcome: z.string(), final: text(2000).optional(), wroteHandoff: z.boolean() })).max(10).default([]),
   background: z.array(z.object({ id, callId: z.string().max(200).optional(), kind: z.enum(["async_shell", "exec_session", "browser_tab", "terminal", "script", "subagent", "schedule", "heartbeat"]), ref: z.string(), label: text(120), startedAt: z.string(), status: z.enum(["open", "closed", "unknown"]), /** How it ended (exit code, workflow status, settled by an ACK); older versions drop it. */ outcome: text(120).optional(), source: z.enum(["hook", "live", "skeleton"]),
     /** A start call whose result was not read yet (no evidence): observation state, never archived; removed once its result settles it without evidence. Older versions drop it. */ inFlight: z.literal(true).optional(),
-    /** The latest progress a running task reported (a Claude Monitor event), bounded and redacted: observation state, superseded in place. Older versions drop it. */ event: text(200).optional() })).max(40).default([]),
+    /** The latest progress a running task reported (a Claude Monitor event), bounded and redacted: observation state, superseded in place. Older versions drop it. */ event: text(200).optional(),
+    /** An exec session its session started in the turn that is still running: observation state like a call in flight (not history, not an ACK id); dropped when it ends in that turn, history once the turn is over with it still open. Older versions drop it. */ transient: z.literal(true).optional() })).max(40).default([]),
   live: z.array(z.object({ at: z.string(), text: text(800), truncated: z.boolean().optional() })).max(8).default([]),
   ack: handoffAckSchema.extend({ at: z.string(), complete: z.boolean(), recordRevision: z.number().int().nonnegative().optional() }).optional(), understanding: text(800).optional(),
   /** The store's bookkeeping: the highest turn `n` already in an archived version of this entry (each turn is archived once). Older versions drop it. */
@@ -112,9 +113,10 @@ export function entryOpenIds(section: HandoffEntrySection, entry: HandoffEntry):
   if (section === "questions" || section === "gaps") return e.status === "open" ? [entry.id] : [];
   if (section === "running") return e.status !== "done" ? [entry.id] : [];
   if (section === "reviews") return (entry as HandoffReview).findings.filter((f) => f.status === "open").map((f) => f.id);
-  // A call in flight is on the card but not a requirement: it is observation state of a session in a turn, written without
-  // a revision. When that session stops or is sealed without its result, it is leftover work and becomes one (§5.7, §7.5).
-  if (section === "ledger") return (entry as HandoffSession).background.filter((b) => b.status !== "closed" && !b.inFlight).map((b) => b.id);
+  // A call in flight, and an exec session started in the running turn, are on the card but not requirements: observation
+  // state of a session in a turn, written without a revision. When that turn is over (the session idle, stopped or sealed)
+  // with them still open, they are leftover work and become requirements (§5.7, §7.5).
+  if (section === "ledger") return (entry as HandoffSession).background.filter((b) => b.status !== "closed" && !b.inFlight && !b.transient).map((b) => b.id);
   return [];
 }
 /** Internal complete set. A bounded transport page must label its subset/continuation instead of claiming completeness. */

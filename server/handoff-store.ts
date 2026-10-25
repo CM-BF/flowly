@@ -43,10 +43,12 @@ const prefix: Record<HandoffEntrySection, string> = { done: "dn", next: "nx", de
  */
 function ledgerHistory(session: HandoffSession) {
   const { through: _through, capturedThrough: _captured, measured: _measured, growth: _growth, live: _live, skeleton: _skeleton, scriptCalls: _scripts, turnsArchived: _archived, rev: _rev, at: _at, by: _by, contentRef: _ref, ...kept } = session;
-  // An in-flight placeholder (a call whose result was not read yet) comes and goes with the polls that catch it running; a
+  // An in-flight placeholder (a call whose result was not read yet) comes and goes with the polls that catch it running, and
+  // so does an exec session the running turn started (it is history only if the turn is over with it still open); a
   // running task's latest progress event is superseded by the next one.
-  return { ...kept, background: session.background.filter((item) => !item.inFlight).map(({ event: _event, ...item }) => item) };
+  return { ...kept, background: historyBackground(session) };
 }
+const historyBackground = (session: HandoffSession) => session.background.filter((item) => !item.inFlight && !item.transient).map(({ event: _event, ...item }) => item);
 const canonical = (value: unknown): unknown => Array.isArray(value) ? value.map(canonical) : value !== null && typeof value === "object" ? Object.fromEntries(Object.keys(value).sort().map((key) => [key, canonical((value as Record<string, unknown>)[key])])) : value;
 const historyHash = (session: HandoffSession) => hash(JSON.stringify(canonical(ledgerHistory(session))));
 /**
@@ -63,9 +65,10 @@ function semantic(record: CardHandoff) {
 /**
  * What moves the revision that page cursors, ACKs and entry conflicts pin: the semantic record without its observation
  * state. Ledger observation (what ledgerHistory strips: cursor, measurements, growth, narration preview, coverage text,
- * script count, calls in flight, progress events), the growth of open gaps, Git snapshots (Flowly reads them again at every turn end, rotation and
- * handoff write, and an ACK checks the heads against its own fresh read) and the read cache are written in place: the
- * successor's own running turn, observed every minute, no longer restarts its full read or refuses its ACK (§5.1, §7.5).
+ * script count, calls in flight, exec sessions of the running turn, progress events), the growth of open gaps, Git
+ * snapshots (Flowly reads them again at every turn end, rotation and handoff write, and an ACK checks the heads against its
+ * own fresh read) and the read cache are written in place: the successor's own running turn, observed every minute, no
+ * longer restarts its full read or refuses its ACK (§5.1, §7.5).
  */
 function pinned(record: CardHandoff) {
   const { revision: _revision, updatedAt: _updated, updatedBy: _by, ops: _ops, seen: _seen, git: _git, ...rest } = record;
@@ -464,7 +467,7 @@ export class HandoffStore {
       if (highest) entry.turnsArchived = highest; else delete entry.turnsArchived;
       if (!before.contentRef) continue;
       const { contentRef: _ref, through: _through, capturedThrough: _captured, measured: _measured, growth: _growth, live: _live, skeleton: _skeleton, scriptCalls: _scripts, ...kept } = before;
-      const plain = { ...kept, turns, background: before.background.filter((item) => !item.inFlight).map(({ event: _event, ...item }) => item) }, body = JSON.stringify(plain), ref = hash(body);
+      const plain = { ...kept, turns, background: historyBackground(before) }, body = JSON.stringify(plain), ref = hash(body);
       await this.immutable(join(this.paths(current.taskId).folder, "entries", `${ref}.json`), body);
       change.history.push(this.pointer("ledger", { ...plain, contentRef: ref } as HandoffEntry));
     }

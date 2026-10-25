@@ -32,7 +32,7 @@ export type CaptureUsage = { id: string; source: CaptureSource; at: string; atSo
 export type CaptureNotice = { id: string; text: string; at: string; kind?: "background" | "hazard" | "other" };
 /** `notices`: host messages worth a card note. `anchors`: external identifiers (a linked pull request). `scriptCalls`: script/workflow calls seen in this batch or timeline. */
 export type CaptureSemantics = { inputs: CaptureMessage[]; live: CaptureNarration[]; background: CaptureBackground[]; usage: CaptureUsage[]; compactions: { id: string; source: CaptureSource; at: string; preTokens?: number; captured?: boolean }[]; gaps: CaptureGap[]; notices: CaptureNotice[]; anchors: string[]; omittedGaps: number; narrationOmitted: number; narrationTrimmedChars: number; scriptCalls: number };
-export type CaptureCursor = { version: 1; provider: "codex" | "claude"; sessionId: string; fileId: string; path: string; epoch: number; offset: number; prefix?: { length: number; hash: string }; anchor?: { offset: number; length: number; hash: string }; skipping?: { start: number; bytes: number; typeHint: string; at?: string; messageId?: string }; calls?: PendingCaptureCall[]; closed?: string[]; sessions?: string[]; compaction?: { signal: "record" | "item"; at: string }; sawUsage?: boolean; firstUsageAvailable?: boolean };
+export type CaptureCursor = { version: 1; provider: "codex" | "claude"; sessionId: string; fileId: string; path: string; epoch: number; offset: number; prefix?: { length: number; hash: string }; anchor?: { offset: number; length: number; hash: string }; skipping?: { start: number; bytes: number; typeHint: string; at?: string; messageId?: string; result?: { callId: string; exit: string } }; calls?: PendingCaptureCall[]; closed?: string[]; sessions?: string[]; compaction?: { signal: "record" | "item"; at: string }; sawUsage?: boolean; firstUsageAvailable?: boolean };
 export type CaptureBatch = CaptureSemantics & { provider?: string; source?: NativeHistoryFile; cursor?: CaptureCursor; growth: Record<string, { bytes: number; lines: number }>; coverage: { at: string; from: number; through: number; fileBytes?: number; readBytes: number; backlogBytes: number; partialBytes: number; skippedBytes: number; complete: boolean; aborted: boolean } };
 export type CaptureOptions = { signal?: AbortSignal; now?: () => number; codexHome?: string; claudeHome?: string; maxBytes?: number; maxLineBytes?: number; maxRecords?: number; /** Already recorded Flowly sends; the body must not be compared by text. */ sentMessageIds?: readonly string[]; automationTextHashes?: readonly string[] };
 const hash = (data: Uint8Array) => createHash("sha256").update(data).digest("hex");
@@ -108,7 +108,7 @@ export async function captureHandoff(agent: HistoryAgent & { id: string }, previ
       if (ended) {
         const skipped = cursor.skipping!;
         if (!skipped.messageId) { const found = lineHint(skipTail.subarray(Math.max(0, skipTail.length - 2048))).messageId; if (found) skipped.messageId = found; }
-        records.longLine({ id: `long:${agent.id}:${fileId}:${cursor.epoch}:${skipped.start}`, kind: "long_line", source: { ...sourceAt(skipped.start, end), ...(skipped.messageId ? { messageId: skipped.messageId } : {}) }, from: skipped.start, to: end, bytes: skipped.bytes, typeHint: skipped.typeHint, at: skipped.at }, skipTail, skipStartedHere || skipTail.length >= 4096);
+        records.longLine({ id: `long:${agent.id}:${fileId}:${cursor.epoch}:${skipped.start}`, kind: "long_line", source: { ...sourceAt(skipped.start, end), ...(skipped.messageId ? { messageId: skipped.messageId } : {}) }, from: skipped.start, to: end, bytes: skipped.bytes, typeHint: skipped.typeHint, at: skipped.at }, skipTail, skipStartedHere || skipTail.length >= 4096, skipped.result);
         delete cursor.skipping; start = end; lineCount++; skipTail = Buffer.alloc(0); skipStartedHere = false;
       }
     };
@@ -126,7 +126,7 @@ export async function captureHandoff(agent: HistoryAgent & { id: string }, previ
         else if (length + fragment.length > lineBudget) {
           const buffered = Buffer.concat([...parts, fragment]);
           const hint = lineHint(buffered.subarray(0, 2048));
-          cursor.skipping = { start, bytes: 0, typeHint: hint.type, ...(hint.at ? { at: hint.at } : {}), ...(hint.messageId ? { messageId: hint.messageId } : {}) };
+          cursor.skipping = { start, bytes: 0, typeHint: hint.type, ...(hint.at ? { at: hint.at } : {}), ...(hint.messageId ? { messageId: hint.messageId } : {}), ...(hint.result ? { result: hint.result } : {}) };
           parts = []; length = 0; records.firstUsageAvailable = false; skipStartedHere = true; skip(buffered, absolute, newline >= 0);
         } else {
           parts.push(fragment); length += fragment.length;

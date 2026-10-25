@@ -29,8 +29,11 @@ const stripAt = <T extends { at: string }>(value: T) => { const { at: _, ...rest
 const stored = <T>(value: T): T => value === undefined ? value : JSON.parse(JSON.stringify(value)) as T;
 /** The error a snapshot carries when Flowly's last read of the card's repositories failed as a whole. */
 const gitUnobserved = "Repository state could not be observed at the last read; these heads may be stale. Do not assume the checkout is clean or unchanged.";
-/** Calls in flight whose result can no longer come become ordinary evidence-free placeholders (in place). */
-const settleInFlight = (background: HandoffSession["background"]) => background.forEach((item, index) => { if (item.inFlight) { const { inFlight: _, ...settled } = item; background[index] = settled; } });
+/**
+ * The turn is over: calls in flight whose result can no longer come become ordinary evidence-free placeholders, and exec
+ * sessions the turn started that still run become history (SESSION-HANDOFF-SPEC §5.7).
+ */
+const settleTurn = (background: HandoffSession["background"]) => background.forEach((item, index) => { if (item.inFlight || item.transient) { const { inFlight: _, transient: _turn, ...settled } = item; background[index] = settled; } });
 /** Skipped content the session produced itself (tool output, its own narration): never a person's words (§5.7). */
 const ownContent = (key: string) => { const [kind, hint] = key.split("\0"); return kind === "large_tool_result_omitted" || kind === "long_line" && !personalLine(hint); };
 const temporary = new Set(["partial_line", "backlog", "record_budget", "aborted", "background_handle_pending", "long_line_partial", "source_missing", "source_unreadable", "read_failed", "locator_budget", "unsupported_provider", "invalid_session"]);
@@ -45,8 +48,12 @@ type NarrationCoverage = { nativeOmitted: number; nativeTrimmed: number; nativeR
  * `held`: skipped content the session produced itself in its running turn, per group, written as a gap when the turn is over.
  */
 type GapMarks = { provider: Record<string, number>; timeline: Record<string, number>; recent: string[]; seen?: Record<string, string[]>; rows?: Record<string, number>; located?: Record<string, number>; held?: Record<string, CaptureGap> };
-/** `heard`: digests of narration already on the card (any source), so a provider copy of the hook's words is not kept twice. */
-type ObserverState = { liveIds?: string[]; heard?: string[]; providerK?: number; timelineK?: number; compactIds?: string[]; usageId?: string; usageAt?: string; ttl?: number; lastTurn?: string; lastRequest?: string; activeMs?: number; lastTimeline?: string; lastEndedTurnId?: string; turnStart?: { id: string; at: string; observedAt?: string }; sentMessageIds?: string[]; automationTextHashes?: string[]; narration?: NarrationCoverage; gaps?: GapMarks; scripts?: { provider: number; timeline: number }; merged?: { epoch: number; count: number } };
+/**
+ * `heard`: digests of narration already on the card (any source), so a provider copy of the hook's words is not kept twice.
+ * `ended`: digests of exec sessions (kind and ref) that started and ended within a running turn and were dropped, so the
+ * turn-end timeline, which replays every start, does not bring them back (bounded).
+ */
+type ObserverState = { ended?: string[]; liveIds?: string[]; heard?: string[]; providerK?: number; timelineK?: number; compactIds?: string[]; usageId?: string; usageAt?: string; ttl?: number; lastTurn?: string; lastRequest?: string; activeMs?: number; lastTimeline?: string; lastEndedTurnId?: string; turnStart?: { id: string; at: string; observedAt?: string }; sentMessageIds?: string[]; automationTextHashes?: string[]; narration?: NarrationCoverage; gaps?: GapMarks; scripts?: { provider: number; timeline: number }; merged?: { epoch: number; count: number } };
 type Resume = Partial<CaptureCursor> & { observer?: ObserverState };
 export type HandoffObservation = { timeline?: readonly unknown[]; outcome?: "completed" | "failed" | "canceled"; received?: boolean; forceGit?: boolean };
 export type HandoffSessionOptions = { role?: HandoffSession["role"]; reason?: string; model?: AgentModel; previousAgentId?: string };
@@ -226,11 +233,14 @@ export class HandoffObserver {
     }
     const meta = state;
     // The session's turn is over once it is idle, gone or ended and its provider file was read to the end (SESSION-HANDOFF-SPEC
-    // §5.7): until then its calls in flight and the output it produces that is too long to keep are observation state, so its
-    // own work never moves the revision its read and its ACK pin.
+    // §5.7): until then its calls in flight, the exec sessions it starts and the output it produces that is too long to keep
+    // are observation state, so its own work never moves the revision its read and its ACK pin.
     const turnOver = !!session.endedAt || (actor ? !inTurn && !captureFailed && !batch?.coverage.backlogBytes : !snapshotFailed);
     const gapUpdates = this.captureGaps(agentId, meta, batch, hook, !turnOver);
     const background = [...session.background];
+    const ended = new Set(meta.ended ?? []), endedKey = (kind: string, ref: string) => digest(`${kind}:${ref}`).slice(0, 16);
+    /** An exec session that started and ended within the running turn leaves nothing to hand over; a replayed start must not bring it back. */
+    const drop = (index: number) => { const [item] = background.splice(index, 1); if (item.transient) ended.add(endedKey(item.kind, item.ref)); };
     /**
      * The oldest evidence-free item of a kind (no handle was ever seen): a completion whose start was not itemized settles it. Exec placeholders are only the "completion not observed" ones.
      * A call in flight is not one: its own result is still to come, and it would come back on the next poll while the call runs.
@@ -244,9 +254,10 @@ export class HandoffObserver {
       if (item.closeOnly) {
         // A completion closes what was recorded (for any kind: a task id names one task); it never adds an entry.
         let index = background.findIndex((entry) => entry.id === entryId("bg", item.id) || item.callId && entry.callId === item.callId || item.handle && entry.ref === item.handle);
-        if (index < 0 && item.late) index = placeholder(kinds[item.kind]);
-        // An in-flight placeholder whose result started nothing that runs leaves nothing to hand over (SESSION-HANDOFF-SPEC §5.7).
-        if (index >= 0 && background[index].inFlight) background.splice(index, 1);
+        if (index < 0 && item.late && !(item.handle && ended.has(endedKey(kinds[item.kind], item.handle)))) index = placeholder(kinds[item.kind]);
+        // An in-flight placeholder whose result started nothing that runs leaves nothing to hand over (SESSION-HANDOFF-SPEC §5.7),
+        // and neither does an exec session that ended in the turn that started it.
+        if (index >= 0 && (background[index].inFlight || background[index].transient)) drop(index);
         else if (index >= 0 && background[index].status !== "closed") background[index] = { ...background[index], status: "closed", ...outcome };
         // What a background notice said stays on the card, matched or not (SESSION-HANDOFF-SPEC §5.7, §9.3).
         if (item.note) {
@@ -258,8 +269,14 @@ export class HandoffObserver {
       const kind = kinds[item.kind];
       let index = background.findIndex((entry) => entry.id === entryId("bg", item.id) || item.callId && entry.callId === item.callId || item.handle && entry.kind === kind && entry.ref === item.handle);
       if (index < 0 && item.late && item.status === "closed") index = placeholder(kind);
-      const old = index >= 0 ? background[index] : undefined;
-      if (old?.inFlight && item.status === "closed") { background.splice(index, 1); continue; }
+      const old = index >= 0 ? background[index] : undefined, ref = item.handle ?? old?.ref ?? `unknown:${item.callId ?? item.id}`;
+      // The turn-end timeline replays every start, and a running task's later progress repeats that it runs: an exec session
+      // that already ended within a turn stays ended. A start read from the provider file is new (each is read once).
+      if (!old && !item.reopen && (source === hook || item.keepLabel) && ended.has(endedKey(kind, ref))) continue;
+      if ((old?.inFlight || old?.transient) && item.status === "closed") { drop(index); continue; }
+      // An exec session the running turn starts is observation state until the turn is over (SESSION-HANDOFF-SPEC §5.7).
+      const transient = kind === "exec_session" && !turnOver && !item.inFlight && (!old || !!old.inFlight || !!old.transient);
+      if (transient && item.status === "closed") { ended.add(endedKey(kind, ref)); continue; }
       // A reprinted start never reopens what was proven ended; only new work (a sub-agent's follow-up task) does.
       if (old?.status === "closed" && item.status !== "closed" && !item.reopen) {
         // A placeholder settled before its result arrived learns the real handle, so later evidence about it finds it.
@@ -268,18 +285,19 @@ export class HandoffObserver {
       }
       const reopened = old?.status === "closed" && !!item.reopen;
       const next: HandoffSession["background"][number] = { id: old?.id ?? entryId("bg", item.id), ...(item.callId ? { callId: item.callId.slice(0, 200) } : old?.callId ? { callId: old.callId } : {}), kind,
-        ref: item.handle ?? old?.ref ?? `unknown:${item.callId ?? item.id}`, label: ((item.keepLabel && old?.label) || item.label || old?.label || kind).slice(0, 120), startedAt: reopened ? item.at : old?.startedAt ?? item.at,
+        ref, label: ((item.keepLabel && old?.label) || item.label || old?.label || kind).slice(0, 120), startedAt: reopened ? item.at : old?.startedAt ?? item.at,
         status: item.status === "unknown" && old ? old.status : item.status, ...(item.outcome ? outcome : old?.outcome && !reopened ? { outcome: old.outcome } : {}), source: old?.source ?? (source === hook ? "hook" : "live"),
         // Still only the call, its result unread: the placeholder stays observation state until evidence arrives.
         ...(item.inFlight && (!old || old.inFlight) ? { inFlight: true as const } : {}),
         // A running task's latest progress event (observation state, superseded by the next one).
-        ...(item.event ? { event: item.event.slice(0, 200) } : old?.event ? { event: old.event } : {}) };
+        ...(item.event ? { event: item.event.slice(0, 200) } : old?.event ? { event: old.event } : {}), ...(transient ? { transient: true as const } : {}) };
       if (index >= 0) background[index] = next; else background.push(next);
     }
     // A call is in flight only while its session is in a turn (SESSION-HANDOFF-SPEC §5.7). Once the turn is over, a call
     // without its result will get none: it is leftover work like any evidence-free placeholder (it counts on the board,
-    // enters the delivery gate and is ledger history).
-    if (turnOver) settleInFlight(background);
+    // enters the delivery gate and is ledger history), and so is an exec session the turn started that still runs.
+    if (turnOver) settleTurn(background);
+    if (ended.size) meta.ended = [...ended].slice(-128);
     this.mergeBackground(agentId, session.n, background, meta, entries);
     const unlisted = this.boundBackground(background);
     const live = new Map<string, HandoffSession["live"][number]>();
@@ -625,9 +643,9 @@ export class HandoffObserver {
     if (session && !session.endedAt) {
       const finalized = !!rotation?.finalize?.startedAt && record.checkpoint?.agentId === context.fromAgentId && time(record.checkpoint.at) >= time(rotation.finalize.startedAt);
       const lastWords = this.sealWords(record, session);
-      // A sealed session gets no more results: a call still in flight is leftover work from here on, and output it produced
-      // that was too long to keep is a gap (§5.7).
-      const background = [...session.background]; settleInFlight(background);
+      // A sealed session gets no more results: a call still in flight and an exec session its turn started are leftover work
+      // from here on, and output it produced that was too long to keep is a gap (§5.7).
+      const background = [...session.background]; settleTurn(background);
       const resume = session.through?.resume as Resume | undefined, marks = resume?.observer?.gaps;
       const gaps = marks?.held ? this.releaseHeld(context.fromAgentId, marks) : [];
       const through = gaps.length ? { ...session.through!, resume: { ...resume, observer: { ...resume!.observer, gaps: marks } } } : session.through;
