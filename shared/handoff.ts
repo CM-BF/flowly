@@ -42,6 +42,8 @@ export const handoffSessionSchema = base.extend({
     /** The latest progress a running task reported (a Claude Monitor event), bounded and redacted: observation state, superseded in place. Older versions drop it. */ event: text(200).optional() })).max(40).default([]),
   live: z.array(z.object({ at: z.string(), text: text(800), truncated: z.boolean().optional() })).max(8).default([]),
   ack: handoffAckSchema.extend({ at: z.string(), complete: z.boolean(), recordRevision: z.number().int().nonnegative().optional() }).optional(), understanding: text(800).optional(),
+  /** The store's bookkeeping: the highest turn `n` already in an archived version of this entry (each turn is archived once). Older versions drop it. */
+  turnsArchived: z.number().int().nonnegative().optional(),
 });
 const sectionSchemas = {
   done: base.extend({ text: text(300), ref: text(200).optional() }),

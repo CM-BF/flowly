@@ -42,7 +42,7 @@ const prefix: Record<HandoffEntrySection, string> = { done: "dn", next: "nx", de
  * is superseded in place; archiving each version made the successor's full read page through one snapshot per minute.
  */
 function ledgerHistory(session: HandoffSession) {
-  const { through: _through, capturedThrough: _captured, measured: _measured, growth: _growth, live: _live, skeleton: _skeleton, scriptCalls: _scripts, rev: _rev, at: _at, by: _by, contentRef: _ref, ...kept } = session;
+  const { through: _through, capturedThrough: _captured, measured: _measured, growth: _growth, live: _live, skeleton: _skeleton, scriptCalls: _scripts, turnsArchived: _archived, rev: _rev, at: _at, by: _by, contentRef: _ref, ...kept } = session;
   // An in-flight placeholder (a call whose result was not read yet) comes and goes with the polls that catch it running; a
   // running task's latest progress event is superseded by the next one.
   return { ...kept, background: session.background.filter((item) => !item.inFlight).map(({ event: _event, ...item }) => item) };
@@ -269,6 +269,7 @@ export class HandoffStore {
       const current = (await this.current(taskId, projectId))!, record = clone(current);
       record.revision++; record.updatedAt = this.now(); record.updatedBy = context.by;
       const mutation: Mutation = { record, history: [], changed: new Set() }; await mutate(mutation);
+      await this.archiveLedger(mutation, current);
       if (context.unconfirmed && context.sourceId && [...handoffEntrySections.flatMap((section) => list(record, section)), ...record.overflow].some((e) => e.sourceId === context.sourceId && e.unconfirmed) && !record.pendingOperations.some((o) => o.id === operationId)) record.pendingOperations.push({ id: operationId, sourceId: context.sourceId, at: record.updatedAt });
       // No semantic change: no revision, no receipt, no bytes. An idle poll re-capturing what is already stored must not
       // move the revision (a prepared ACK would fail with ACK_MISMATCH) or rewrite the file.
@@ -309,10 +310,14 @@ export class HandoffStore {
     if (record.state && current.state) { record.state.rev = current.state.rev; record.state.at = current.state.at; }
   }
   /** `archive: false` supersedes an entry without keeping its previous version in archive.jsonl (routine observation state, growing counts). */
+  /**
+   * Ledger versions are archived once per transaction, against the version it started from (archiveLedger); every other
+   * section archives the replaced version unless `archive` is false.
+   */
   private replace(change: Mutation, section: HandoffEntrySection, value: HandoffEntry, archive = true) {
     const entries = list(change.record, section), index = entries.findIndex((e) => e.id === value.id);
     if (index >= 0) {
-      const previous = entries[index]; if (previous.contentRef && archive) change.history.push(this.pointer(section, previous));
+      const previous = entries[index]; if (previous.contentRef && archive && section !== "ledger") change.history.push(this.pointer(section, previous));
       entries[index] = value;
     } else {
       const overflow = change.record.overflow.findIndex((e) => e.section === section && e.id === value.id);
@@ -425,8 +430,33 @@ export class HandoffStore {
   private async session(change: Mutation, draft: Draft<HandoffSession>, context: HandoffContext) {
     const record = change.record, id = draft.id ?? `s:${hash(draft.agentId).slice(0, 32)}`;
     const old = await this.entry(record, "ledger", id) as HandoffSession | null;
-    const entry = handoffEntrySchemas.ledger.parse({ ...(old ?? {}), ...draft, id, rev: record.revision, at: record.updatedAt, by: context.by });
-    this.replace(change, "ledger", entry, !old || !isDeepStrictEqual(ledgerHistory(old), ledgerHistory(entry)));
+    this.replace(change, "ledger", handoffEntrySchemas.ledger.parse({ ...(old ?? {}), ...draft, id, rev: record.revision, at: record.updatedAt, by: context.by }));
+  }
+  /**
+   * The previous version of a changed ledger entry is archived when its history other than turns changed (role, end,
+   * background, ACK), or when a turn that no archived version holds yet leaves the 10-turn window. An archived version is
+   * history only: the turns no earlier archived version holds, and none of the observation state that is superseded in
+   * place (cursor, measurements, narration preview, coverage text, calls in flight). The full read then returns each
+   * finished turn once in the archive instead of a full copy of the window and its preview at every turn end (about one
+   * page per 3-4 turns, one final up to 15 times).
+   */
+  private async archiveLedger(change: Mutation, current: CardHandoff) {
+    const besides = (session: HandoffSession) => ({ ...ledgerHistory(session), turns: [] });
+    for (const entry of change.record.ledger) {
+      if (!change.changed.has(entry.id)) continue;
+      const before = current.ledger.find((value) => value.id === entry.id);
+      if (!before) continue; // new here, or back from the overflow index: its earlier versions are archived already
+      const archived = before.turnsArchived ?? 0;
+      const evicted = before.turns.some((turn) => turn.n > archived && !entry.turns.some((kept) => kept.n === turn.n));
+      if (!evicted && isDeepStrictEqual(besides(before), besides(entry))) { if (before.turnsArchived === undefined) delete entry.turnsArchived; else entry.turnsArchived = before.turnsArchived; continue; }
+      const turns = before.turns.filter((turn) => turn.n > archived), highest = Math.max(archived, ...before.turns.map((turn) => turn.n));
+      if (highest) entry.turnsArchived = highest; else delete entry.turnsArchived;
+      if (!before.contentRef) continue;
+      const { contentRef: _ref, through: _through, capturedThrough: _captured, measured: _measured, growth: _growth, live: _live, skeleton: _skeleton, scriptCalls: _scripts, ...kept } = before;
+      const plain = { ...kept, turns, background: before.background.filter((item) => !item.inFlight).map(({ event: _event, ...item }) => item) }, body = JSON.stringify(plain), ref = hash(body);
+      await this.immutable(join(this.paths(current.taskId).folder, "entries", `${ref}.json`), body);
+      change.history.push(this.pointer("ledger", { ...plain, contentRef: ref } as HandoffEntry));
+    }
   }
   setSession(taskId: string, projectId: string, draft: Draft<HandoffSession>, context: HandoffContext) { return this.transaction(taskId, projectId, { action: "session", draft }, context, (change) => this.session(change, draft, context)); }
   /** `stored`: whether anything was written, and whether it took a new revision (observation state is written in place). */
