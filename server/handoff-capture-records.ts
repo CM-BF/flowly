@@ -23,7 +23,12 @@ const toolNames = new Map<string, { kind: CaptureBackground["kind"]; action: "st
   ["create_agent", { kind: "agent", action: "start" }], ["spawn_agent", { kind: "agent", action: "start" }],
   ["create_schedule", { kind: "schedule", action: "start" }], ["delete_schedule", { kind: "schedule", action: "close" }], ["cancel_schedule", { kind: "schedule", action: "close" }],
   ["create_heartbeat", { kind: "heartbeat", action: "start" }], ["delete_heartbeat", { kind: "heartbeat", action: "close" }], ["cancel_heartbeat", { kind: "heartbeat", action: "close" }],
+  // Claude Code stops any of its background tasks (a backgrounded Bash, a Monitor, an Agent, a Workflow) with TaskStop;
+  // older versions stopped a background shell with KillShell / KillBash. The target is named by its task or shell id.
+  ["TaskStop", { kind: "exec", action: "close" }], ["KillShell", { kind: "exec", action: "close" }], ["KillBash", { kind: "exec", action: "close" }],
 ]);
+/** Stop tools: no notice follows a stop, so only a result that says the task stopped ends it. */
+const stopTools = new Set(["TaskStop", "KillShell", "KillBash"]);
 const knownTool = (name: string) => [...toolNames].find(([known]) => name === known || name.endsWith(`__${known}`) || name.endsWith(`.${known}`))?.[1];
 /** Codex code-mode scripts (`exec`), Claude Code `Workflow` and the paseo-dynamic-workflow MCP `workflow`: their inner calls are not itemized, only evident background work. */
 const scriptTool = (name: string): "script" | "workflow" | undefined => {
@@ -583,6 +588,7 @@ export class CaptureRecords {
     }
     failed ||= data.isError === true || data.is_error === true || !!data.error || data.ok === false;
     if (failed) { this.failedCall(call, data, value, source); return; }
+    if (stopTools.has(call.name ?? "")) { this.stopOutput(call, data, raw, source); return; }
     // Paseo's tools nest the handle and status one level down: browser tabs in `result`, async shells in `task`.
     const nested = object(data.result), specific = object(data[call.kind === "async_shell" ? "task" : call.kind]);
     const handle = id(data.session_id ?? data.task_id ?? data.taskId ?? data.agentId ?? data.agent_id ?? data.tabId ?? data.tab_id ?? data.browserId ?? nested.browserId ?? nested.tabId ?? data.terminalId ?? data.terminal_id ?? data.runId ?? data.scheduleId ?? data.heartbeatId ?? specific.taskId ?? specific.id ?? data.id) ?? call.handle;
@@ -603,6 +609,17 @@ export class CaptureRecords {
     }
     if (!ref) { this.gap({ id: `handle:${sourceKey(source)}`, kind: "background_handle_unknown", source }); this.result.background.push({ id: `background:${this.agentId}:${callId}`, source, kind: call.kind, callId, status: "unknown", at: call.at, ...(call.label ? { label: call.label } : {}) }); return; }
     this.result.background.push({ id: `background:${this.agentId}:${call.kind}:${ref}`, source, kind: call.kind, handle: ref, callId, status: finishedExec ? "closed" : "open", at: call.at, ...(call.label ? { label: call.label } : {}), ...(finishedExec ? { outcome: number(data.exit_code) !== undefined ? `exit ${data.exit_code}` : "completed" } : {}) });
+  }
+  /**
+   * TaskStop {task_id} ({"message":"Successfully stopped task: <id> (<command>)","task_id","task_type","command"}) and
+   * KillShell / KillBash {shell_id} ("Successfully killed shell: <id> (<command>)"): no task notice follows a stop, so a
+   * stop that says it succeeded closes the task it names, as "stopped", whatever its kind. Any other result leaves it as it was.
+   */
+  private stopOutput(call: PendingCaptureCall, data: RecordValue, raw: unknown, source: CaptureSource) {
+    const said = /\bSuccessfully (?:stopped task|killed shell):\s*([\w.-]{1,200})/.exec(string(data.message) || outputBlocks(raw).join("\n"))?.[1];
+    if (!said && data.success !== true) return;
+    const handle = id(data.task_id ?? data.shell_id) ?? id(said) ?? call.handle;
+    if (handle) this.push({ id: `background:${this.agentId}:${call.kind}:${handle}`, kind: call.kind, handle, callId: call.callId, status: "closed", closeOnly: true, outcome: "stopped" }, source, call.at);
   }
   /** "Monitor started (task bn9u7frii, expires in 30m …)": the watch is open background work under its own task id, which its events and its end notice name. */
   private monitorOutput(call: PendingCaptureCall, raw: unknown, source: CaptureSource, failed: boolean) {
