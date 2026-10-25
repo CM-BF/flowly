@@ -60,7 +60,9 @@ export async function observerFixture(options: { provider?: "codex" | "claude"; 
     const read1 = record ?? await read();
     return records.update("card", "project", { handoffRevision: read1.revision, ack: { handoffRevision: read1.revision, heads: [], understanding: "synthetic", items: handoffOpenIds(read1).filter(filter).map((id) => ({ id, disposition, note })) } }, { by: { kind: "agent", agentId: "worker" } }, { agentId: "worker", actualHeads: [] });
   };
-  return { observer, records, path, read, ack,
+  /** The automation's seal of this session for a rotation (no finalize turn ran). */
+  const seal = (rotationId = "rotation:fixture") => observer.bridge.seal({ taskId: "card", rotationId, role: "implementer", fromAgentId: "worker", reason: "run_again", allowFinalize: false, carry: { id: "instruction", role: "implementer", text: "Continue", fresh: "Continue", kind: "again" } });
+  return { observer, records, path, read, ack, seal,
     append: (lines: unknown[]) => appendFile(path, lines.map(jsonLine).join("")),
     poll: () => observer.observe("card", "worker"),
     hook: (timeline: unknown[], outcome: HandoffObservation["outcome"] = "completed") => observer.observe("card", "worker", { outcome, timeline }) };
