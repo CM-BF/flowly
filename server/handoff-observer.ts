@@ -382,7 +382,8 @@ export class HandoffObserver {
   /**
    * One open gap per session, kind and type hint, however many times it occurs (SESSION-HANDOFF-SPEC §5.7).
    * Counts are absolute and idempotent: a committed provider batch is never re-read, a cursorless batch is
-   * deduplicated by occurrence id, and the hook's whole timeline only raises its own high-water mark.
+   * deduplicated by occurrence id, and the hook's whole timeline adds only rows whose identity was not seen. Location-bearing
+   * gaps (a skipped long paste, an unparsable line) are their own entries, the first captureLimits.hints per kind.
    */
   private captureGaps(agentId: string, meta: ObserverState, batch: CaptureBatch | undefined, hook: CaptureSemantics | undefined): NonNullable<HandoffCapture["gaps"]> {
     const marks: GapMarks = { provider: { ...(meta.gaps?.provider ?? {}) }, timeline: { ...(meta.gaps?.timeline ?? {}) }, recent: [...(meta.gaps?.recent ?? [])], seen: { ...(meta.gaps?.seen ?? {}) }, rows: { ...(meta.gaps?.rows ?? {}) }, located: { ...(meta.gaps?.located ?? {}) } };
