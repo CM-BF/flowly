@@ -223,7 +223,8 @@ export class CaptureRecords {
     }
     if (cut) parts.push("(Excerpt; the whole notice is in that session's raw history.)");
     const kind = status === "completed" ? "background" as const : "hazard" as const;
-    this.closeHandle(task, source, timestamp, status, "agent", { late: true, note: { id: `task-notice:${task}:${status}`, text: parts.join(" ").slice(0, 2000), kind, always: status !== "completed" || details.length > 0 } });
+    // Not `late`: a notice cannot tell a workflow from a background command, so an unmatched one never settles a placeholder; its note keeps it.
+    this.closeHandle(task, source, timestamp, status, "agent", { note: { id: `task-notice:${task}:${status}`, text: parts.join(" ").slice(0, 2000), kind, always: status !== "completed" || details.length > 0 } });
     return true;
   }
   private message(text: string, source: CaptureSource, timestamp: unknown, assistant = false, received = false, unlinked?: string) {
