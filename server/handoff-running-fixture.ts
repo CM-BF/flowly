@@ -63,8 +63,8 @@ export async function handedOver(options: { notes?: number } = {}) {
   const minute = async () => { now += 60_000; await observer.poll(managed); };
   for (let n = 0; n < 3; n++) await minute();
   let calls = 0, turns = 1;
-  /** Records appended to the successor's rollout as Codex writes them. */
-  const raw = async (records: unknown[]) => appendFile(rollouts.get("succ")!, records.map(line).join(""));
+  /** Records appended to a session's rollout (the successor's by default) as Codex writes them. */
+  const raw = async (records: unknown[], agentId: "pred" | "succ" = "succ") => appendFile(rollouts.get(agentId)!, records.map(line).join(""));
   /** One tool call in the successor's rollout: the call, its output (none while it runs) and the new context size. Returns the call id. */
   const tool = async (name: string, args: unknown, output?: string) => {
     calls++;

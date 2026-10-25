@@ -67,7 +67,56 @@ test("a running hour's in-place passes write the card's observation state, not t
   }
   expect(await readFile(x.file)).toEqual(bytes);
   expect((await x.read()).revision).toBe(revision);
-  // 60 passes of about 6.4 KB (both sessions' ledger entries, mostly their cursors, and the Git snapshot): about 385 KB,
-  // where rewriting the card file wrote 60 × 160 KB (9.6 MB). What a pass writes depends on the sessions, not on the card.
+  // 60 passes of about 5.6 KB (the keys both sessions' ledger entries changed, mostly their cursors, and the Git snapshot):
+  // about 335 KB, where rewriting the card file wrote 60 × 160 KB (9.6 MB). What a pass writes depends on the sessions, not
+  // on the card.
   expect(written.bytes).toBeLessThan(60 * 10_000);
 }, 120_000);
+
+/** A turn's final of 1900 characters (a turn window keeps its first 800, as the live preview does). */
+const final = (agentId: string, n: number) => `${agentId} turn ${n}: ${"what this turn did, what it found and what the next turn checks first; ".repeat(30)}`.slice(0, 1900);
+
+/**
+ * Both sessions mature (the reviewer's probe, cost-r2-1): a full 10-turn window of long finals each and live previews,
+ * then the predecessor's trailing token count, so its entry changes in place once and then stays the same.
+ */
+async function mature(x: RunningCard) {
+  for (let n = 1; n <= 10; n++) {
+    await x.raw([{ timestamp: new Date(x.now()).toISOString(), type: "event_msg", payload: { type: "agent_message", message: `Turn ${n}: ${"checked the shard results and moved on to the next module; ".repeat(8)}`.slice(0, 480) } }]);
+    x.turn(false); await x.minute();
+    await x.observer.observe("card", "succ", { timeline: [{ type: "assistant_message", text: final("succ", n) }], outcome: "completed" });
+    x.turn(true);
+    await x.observer.observe("card", "pred", { timeline: [{ type: "assistant_message", text: final("pred", n) }], outcome: "completed" });
+  }
+  await x.raw([{ timestamp: new Date(x.now()).toISOString(), type: "event_msg", payload: { type: "token_count", info: { last_token_usage: { total_tokens: 61_000 }, model_context_window: 258_400 } } }], "pred");
+  await x.minute();
+}
+
+test("mature sessions (10-turn windows of long finals, live previews): a pass writes the keys changed since the revision, never the history", async () => {
+  const x = await handedOver({ notes: 6 });
+  await mature(x);
+  const record = await x.read(), observation = join(x.directory, "handoffs", "card", "observation.json");
+  for (const agentId of ["pred", "succ"]) {
+    const session = record.ledger.find((value) => value.agentId === agentId)!;
+    expect(session.turns).toHaveLength(10); expect(session.turns[0].final).toContain(`${agentId} turn 1:`);
+    expect(session.live.length).toBeGreaterThan(4); expect(JSON.stringify(session.live)).not.toContain(`${agentId} turn 1:`);
+  }
+  const bytes = await readFile(x.file);
+  const passes: number[] = [];
+  for (let minute = 1; minute <= 60; minute++) {
+    fsCalls.length = 0; written.bytes = 0;
+    await busyMinute(x, minute);
+    expect(handoffWrites(x)).toEqual(["rename handoffs/card/observation.json"]);
+    passes.push(written.bytes);
+    // A turn window is history, fixed for the whole turn: an old final (no longer in the live preview) is never written in place.
+    const observed = await readFile(observation, "utf8");
+    for (const agentId of ["pred", "succ"]) expect(observed).not.toContain(`${agentId} turn 1:`);
+  }
+  expect(await readFile(x.file)).toEqual(bytes);
+  expect((await x.read()).revision).toBe(record.revision);
+  // Whole entries were up to 34 KB a pass here (1.95 MB an hour on a 50 KB card). The keys that change are 5–10 KB: both
+  // cursors (mostly the observer's resume state), measurements and growth, and the successor's coverage text and, once
+  // narration changed it, its narration preview (up to 4,000 characters); about 475 KB an hour.
+  expect(Math.max(...passes)).toBeLessThan(12_000);
+  expect(passes.reduce((sum, value) => sum + value, 0)).toBeLessThan(600_000);
+}, 180_000);

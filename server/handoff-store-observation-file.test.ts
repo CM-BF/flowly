@@ -43,6 +43,34 @@ test("in-place writes go to the observation file; every reader sees them; the ne
   expect((await bodyReferences(handoffs)).missing).toEqual([]);
 });
 
+test("an entry changed in place stores only the keys that changed and those it lost, never its history; every reader and the next revision agree", async () => {
+  const { store, card, file, exists, read, restart } = await fixture();
+  // A mature session: a full turn window, anchors and a closed background item are history, fixed since the revision.
+  const turns = Array.from({ length: 10 }, (_, n) => ({ n: n + 1, startedAt: at, endedAt: at, outcome: "completed", final: `Turn ${n + 1} final: ${"what it did and found. ".repeat(30)}`.slice(0, 800), wroteHandoff: false }));
+  const background = [{ id: "bg:server", kind: "exec_session" as const, ref: "exec:7", label: "npm run dev", startedAt: at, status: "closed" as const, source: "live" as const }];
+  const history = { turns, background, anchors: ["src/server.ts"] };
+  await store.setSession("card", "project", { ...session, ...history, skeleton: "Current capture coverage: one record too long to keep." }, { ...flowly, sourceId: "session:worker" });
+  const revision = (await read()).revision, bytes = await readFile(card, "utf8");
+  // In place: the cursor and measurements move, and the coverage text goes.
+  const measured = { C: 41_000, turns: 10 };
+  await expect(store.capture("card", "project", { session: { ...session, ...history, measured, skeleton: undefined }, cursor: { agentId: "worker", through: through(100) } }, flowly)).resolves.toMatchObject({ stored: "observation" });
+  expect(await readFile(card, "utf8")).toBe(bytes);
+  const observed = JSON.parse(await readFile(file, "utf8")) as { entries: { section: string; set: Record<string, unknown>; unset: string[] }[] };
+  expect(observed.entries).toHaveLength(1);
+  expect(observed.entries[0]).toMatchObject({ section: "ledger", unset: ["skeleton"] });
+  expect(Object.keys(observed.entries[0].set).sort()).toEqual(["capturedThrough", "measured", "through"]);
+  for (const reader of [store, restart()]) {
+    const entry = (await reader.read("card", "project")).ledger[0];
+    expect(entry).toMatchObject({ ...history, measured, through: { offset: 100 }, rev: revision });
+    expect(entry).not.toHaveProperty("skeleton");
+  }
+  // The next revision folds it into the card file, the removed key included.
+  await store.appendNote("card", "project", { kind: "hazard", text: "Port 3000 is taken." }, { ...flowly, sourceId: "note:port" });
+  expect(await exists()).toBe(false);
+  const folded = (JSON.parse(await readFile(card, "utf8")) as CardHandoff).ledger[0];
+  expect(folded).toMatchObject({ ...history, measured, through: { offset: 100 } }); expect(folded).not.toHaveProperty("skeleton");
+});
+
 test("a card file rewritten by anyone else (an older version) leaves the observation file stale: it is ignored, then replaced", async () => {
   const { store, card, file, read } = await fixture();
   await store.capture("card", "project", { ...observation(100), git: git("observed") }, flowly);
@@ -101,14 +129,17 @@ test("a backup holds the record with its observation state and no observation fi
 test("an observation file that does not fit the card file it names is preserved and the card reports unavailable", async () => {
   const { store, file, read } = await fixture();
   await store.capture("card", "project", observation(100), flowly);
-  const broken = JSON.parse(await readFile(file, "utf8")) as { entries: { id: string }[] };
-  broken.entries[0].id = "s:not-on-this-card"; const text = JSON.stringify(broken);
+  const valid = JSON.parse(await readFile(file, "utf8")) as { version: number; entries: { id: string; set: Record<string, unknown>; unset: string[] }[] };
+  const text = JSON.stringify({ ...valid, entries: [{ ...valid.entries[0], id: "s:not-on-this-card" }] });
   await writeFile(file, text);
   await expect(read()).rejects.toMatchObject({ code: "HANDOFF_UNAVAILABLE" });
   await expect(store.capture("card", "project", observation(200), flowly)).rejects.toMatchObject({ code: "HANDOFF_UNAVAILABLE" });
   expect(await readFile(file, "utf8")).toBe(text);
-  // Also when an entry is not an object at all.
-  const empty = JSON.stringify({ ...broken, entries: [null] }); await writeFile(file, empty);
-  await expect(read()).rejects.toMatchObject({ code: "HANDOFF_UNAVAILABLE" });
-  expect(await readFile(file, "utf8")).toBe(empty);
+  // Also when an entry is not an object, would change an entry's identity, or has no key lists, and in another format version.
+  const [entry] = valid.entries;
+  for (const invalid of [{ ...valid, entries: [null] }, { ...valid, entries: [{ ...entry, set: { ...entry.set, id: "s:other" } }] }, { ...valid, entries: [{ ...entry, unset: ["id"] }] }, { ...valid, entries: [{ ...entry, set: undefined }] }, { ...valid, version: 1 }]) {
+    const value = JSON.stringify(invalid); await writeFile(file, value);
+    await expect(read()).rejects.toMatchObject({ code: "HANDOFF_UNAVAILABLE" });
+    expect(await readFile(file, "utf8")).toBe(value);
+  }
 });

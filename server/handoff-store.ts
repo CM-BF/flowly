@@ -33,11 +33,15 @@ type IdentityClaim = { kind: "entry" | "finding" | "background" | "state"; secti
  */
 type History = Pointer | { section: HandoffEntrySection; entry: HandoffEntry; removal?: Pointer["removal"] };
 type Mutation = { record: CardHandoff; history: History[]; changed: Set<string>; ackMissing?: string[] };
+/** The top-level keys of an object that differ from another's (`set`) and those it no longer has (`unset`). */
+type KeyDelta = { set: Record<string, unknown>; unset: string[] };
 /**
- * Observation state written in place (§5.1), over the card file whose bytes hash to `base`: top-level fields and whole
- * entries that differ from it (same ids, same order). Any rewrite of the card file leaves it stale, and a stale one is ignored.
+ * Observation state written in place (§5.1), over the card file whose bytes hash to `base`: the top-level fields that differ
+ * from it, and of each entry that differs (same ids, same order) only its top-level keys that differ, so a turn window,
+ * background items or anchors fixed since the revision are not written again on every pass. Any rewrite of the card file
+ * leaves it stale, and a stale one is ignored.
  */
-type Observation = { version: 1; base: string; revision: number; fields: Record<string, unknown>; unset: string[]; entries: { section: HandoffEntrySection; id: string; value: HandoffEntry }[] };
+type Observation = { version: 2; base: string; revision: number; fields: Record<string, unknown>; unset: string[]; entries: ({ section: HandoffEntrySection; id: string } & KeyDelta)[] };
 /** The card file as stored (`base`, its bytes) and the record read from it with its observation file (`record`). */
 type Stored = { record: CardHandoff; base: CardHandoff; bytes: Buffer };
 const fixedFields = ["version", "taskId", "projectId", "revision"];
@@ -49,6 +53,16 @@ const tokens = (text: string, into = new Set<string>()) => { for (const [token] 
 const absent = (error: unknown) => (error as NodeJS.ErrnoException).code === "ENOENT";
 const bytes = (value: unknown) => Buffer.byteLength(JSON.stringify(value));
 const clone = <T>(value: T): T => JSON.parse(JSON.stringify(value));
+const keyDelta = (before: object, after: object, skip: (key: string) => boolean = () => false): KeyDelta => {
+  const old = before as Record<string, unknown>, next = after as Record<string, unknown>, set: Record<string, unknown> = {}, unset: string[] = [];
+  for (const key of new Set([...Object.keys(old), ...Object.keys(next)])) {
+    if (skip(key)) continue;
+    if (!Object.hasOwn(next, key)) unset.push(key); else if (!isDeepStrictEqual(old[key], next[key])) set[key] = next[key];
+  }
+  return { set, unset };
+};
+const isObject = (value: unknown): value is Record<string, unknown> => !!value && typeof value === "object" && !Array.isArray(value);
+const validDelta = (value: unknown): value is KeyDelta => isObject(value) && isObject(value.set) && Array.isArray(value.unset) && value.unset.every((key) => typeof key === "string");
 const queues = new Map<string, Promise<unknown>>();
 const caps: Record<HandoffEntrySection, number> = { done: 30, next: 12, decisions: 30, ruledOut: 20, problems: 20, pitfalls: 20, running: 12, where: 30, env: 12, notes: 100, gaps: 40, inputs: 200, questions: 40, reviews: 30, ledger: 200 };
 const list = (record: CardHandoff, section: HandoffEntrySection) => record[section] as HandoffEntry[];
@@ -194,16 +208,20 @@ export class HandoffStore {
   /** The record with its observation file applied; one that does not fit the card file it names is preserved for inspection. */
   private observed(base: CardHandoff, observation: Observation, path: string) {
     const invalid = () => new HandoffError("HANDOFF_UNAVAILABLE", `Handoff observation data is invalid; preserved at ${path}.`);
-    if (observation.version !== 1 || observation.revision !== base.revision || !observation.fields || typeof observation.fields !== "object" || !Array.isArray(observation.unset) || !Array.isArray(observation.entries)) throw invalid();
+    if (observation.version !== 2 || observation.revision !== base.revision || !validDelta({ set: observation.fields, unset: observation.unset }) || !Array.isArray(observation.entries)) throw invalid();
     const merged = clone(base) as unknown as Record<string, unknown>, sections = handoffEntrySections as readonly string[];
+    // Applied generically: which keys are observation state is decided by the writer (`pinned`), not repeated here.
+    const apply = (target: Record<string, unknown>, delta: KeyDelta) => {
+      for (const key of delta.unset) delete target[key];
+      for (const [key, value] of Object.entries(delta.set)) Object.defineProperty(target, key, { value, enumerable: true, writable: true, configurable: true });
+    };
     for (const key of [...observation.unset, ...Object.keys(observation.fields)]) if (sections.includes(key) || fixedFields.includes(key)) throw invalid();
-    for (const key of observation.unset) delete merged[key];
-    Object.assign(merged, observation.fields);
+    apply(merged, { set: observation.fields, unset: observation.unset });
     for (const item of observation.entries) {
-      if (!item || typeof item !== "object") throw invalid();
-      const { section, id, value } = item, entries = sections.includes(section) ? merged[section] as HandoffEntry[] : undefined, index = entries?.findIndex((entry) => entry.id === id) ?? -1;
-      if (index < 0 || !value || typeof value !== "object" || value.id !== id) throw invalid();
-      entries![index] = value;
+      if (!validDelta(item)) throw invalid();
+      const { section, id } = item, entries = typeof section === "string" && sections.includes(section) ? merged[section] as HandoffEntry[] : undefined, index = entries?.findIndex((entry) => entry.id === id) ?? -1;
+      if (index < 0 || Object.hasOwn(item.set, "id") || item.unset.includes("id")) throw invalid();
+      apply(entries![index] as unknown as Record<string, unknown>, item);
     }
     const parsed = cardHandoffSchema.safeParse(merged);
     if (!parsed.success || parsed.data.taskId !== base.taskId || parsed.data.projectId !== base.projectId || parsed.data.revision !== base.revision || bytes(merged) > handoffLimits.currentBytes) throw invalid();
@@ -213,31 +231,29 @@ export class HandoffStore {
   /** What an in-place write changes against the card file: null when it is not observation-shaped (other entries or order). */
   private delta(base: CardHandoff, written: CardHandoff): Omit<Observation, "version" | "base" | "revision"> | null {
     const before = base as unknown as Record<string, unknown>, after = clone(written) as unknown as Record<string, unknown>, sections = handoffEntrySections as readonly string[];
-    const fields: Record<string, unknown> = {}, unset: string[] = [], entries: Observation["entries"] = [];
-    for (const key of new Set([...Object.keys(before), ...Object.keys(after)])) {
-      if (sections.includes(key)) continue;
-      if (fixedFields.includes(key)) { if (!isDeepStrictEqual(before[key], after[key])) return null; continue; }
-      if (!(key in after)) unset.push(key); else if (!isDeepStrictEqual(before[key], after[key])) fields[key] = after[key];
-    }
+    if (fixedFields.some((key) => !isDeepStrictEqual(before[key], after[key]))) return null;
+    const top = keyDelta(before, after, (key) => sections.includes(key) || fixedFields.includes(key)), entries: Observation["entries"] = [];
     for (const section of handoffEntrySections) {
       const old = list(base, section), next = after[section] as HandoffEntry[];
       if (old.length !== next.length) return null;
       for (const [index, entry] of next.entries()) {
         if (old[index].id !== entry.id) return null;
-        if (!isDeepStrictEqual(old[index], entry)) entries.push({ section, id: entry.id, value: entry });
+        const change = keyDelta(old[index], entry);
+        if (change.unset.length || Object.keys(change.set).length) entries.push({ section, id: entry.id, ...change });
       }
     }
-    return { fields, unset, entries };
+    return { fields: top.set, unset: top.unset, entries };
   }
   /**
    * An in-place write (§5.1): the observation file holds what differs from the card file, which is not rewritten; a pass
-   * writes the few entries it changed, not the whole card. Without a card file (or not observation-shaped) the card is written.
+   * writes the keys changed since the revision, not the card or whole entries. Without a card file (or not
+   * observation-shaped) the card is written.
    */
   private async observe(taskId: string, stored: Stored | null, record: CardHandoff) {
     const path = this.paths(taskId), delta = stored && this.delta(stored.base, record);
     if (!delta) { await this.atomic(path.current, JSON.stringify(record)); await this.unobserve(taskId); return; }
     if (!delta.unset.length && !delta.entries.length && !Object.keys(delta.fields).length) { await this.unobserve(taskId, true); return; }
-    await this.atomic(path.observation, JSON.stringify({ version: 1, base: hash(stored!.bytes), revision: record.revision, ...delta } satisfies Observation));
+    await this.atomic(path.observation, JSON.stringify({ version: 2, base: hash(stored!.bytes), revision: record.revision, ...delta } satisfies Observation));
   }
   /** Removes the observation file once the card file holds what it held (`sync` when the card file did not change). */
   private async unobserve(taskId: string, sync = false) {
