@@ -208,3 +208,29 @@ test("a start call that failed started nothing: no item and no gap, only a note 
     "background:cancel_async_shell failed (call call-cancel-9); what it targeted keeps its state: no such task"]);
 });
 
+// ---------------------------------------------------------------- Claude host-injected user records (noise-r3-2)
+const meta = (n: number) => ({ ...claudeBase, type: "user", uuid: `meta-${n}`, isMeta: true, message: { role: "user", content: [{ type: "text", text: `Base directory for this skill: /tmp/synthetic/skill-${n}\n\nSynthetic skill body.` }] } });
+const summary = (n: number) => ({ ...claudeBase, type: "user", uuid: `sum-${n}`, isCompactSummary: true, message: { role: "user", content: "This session is being continued from a previous conversation. Synthetic summary." } });
+const assistant = (n: number) => ({ ...claudeBase, type: "assistant", uuid: `a-${n}`, message: { id: `msg-${n}`, role: "assistant", content: [{ type: "text", text: `synthetic narration ${n}` }] } });
+
+test("Claude isMeta and isCompactSummary records are host metadata: no gap, and nothing reopens after an ACK", async () => {
+  const x = await observerFixture({ provider: "claude" });
+  await x.append([meta(1), assistant(1), summary(1)]); await x.poll();
+  expect(successorView(await x.read()).gaps).toEqual([]);
+  await x.ack("obsolete", "checked");
+  await x.append([meta(2), assistant(2), summary(2)]); await x.poll();
+  const view = successorView(await x.read());
+  expect(view.gaps).toEqual([]); expect(view.inputs).toEqual([]); expect(view.open).toBe(0);
+});
+
+test("a person's slash command is their input; a local command's output is metadata", async () => {
+  const x = await observerFixture({ provider: "claude" });
+  await x.append([{ ...claudeBase, type: "user", uuid: "cmd-1", message: { role: "user", content: "<command-name>/review</command-name>\n<command-message>review</command-message>\n<command-args>focus on the login flow</command-args>" } },
+    { ...claudeBase, type: "user", uuid: "cmd-2", message: { role: "user", content: "<local-command-stdout>Total cost: $0.00</local-command-stdout>" } },
+    { ...claudeBase, type: "user", uuid: "cmd-3", message: { role: "user", content: "<command-message>compact is running…</command-message>\n<command-name>/compact</command-name>" } }]);
+  await x.poll();
+  const view = successorView(await x.read());
+  expect(view.inputs).toEqual(["session:open:-:/review focus on the login flow", "session:open:-:/compact"]);
+  expect(view.gaps).toEqual([]);
+});
+

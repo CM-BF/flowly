@@ -642,14 +642,21 @@ export class CaptureRecords {
     if (provider === "claude") {
       if (entry.isSidechain === true) return "claude/sidechain";
       const message = object(entry.message), content = message.content;
-      if (Array.isArray(content) && content.some((block) => object(block).type === "image")) this.gap({ id: `image:${sourceKey(source)}`, kind: "image_not_captured", source });
+      // Written by the host, not typed: skill bodies, slash-command expansions and caveats (isMeta), and the compaction
+      // summary (isCompactSummary, its compact_boundary already counts the compaction). Re-injected or re-read from disk.
+      const injected = type === "user" && (entry.isMeta === true || entry.isCompactSummary === true);
+      if (!injected && Array.isArray(content) && content.some((block) => object(block).type === "image")) this.gap({ id: `image:${sourceKey(source)}`, kind: "image_not_captured", source });
       if (type === "attachment") { this.attachment(entry, source, timestamp); return "claude/attachment"; }
       source = { ...source, ...(id(entry.uuid) ? { messageId: id(entry.uuid) } : {}) };
-      if (type === "user" && !entry.isMeta && !entry.isCompactSummary) {
+      if (injected) return "claude/user";
+      if (type === "user") {
         if (Array.isArray(content)) for (const item of content) { const block = object(item); if (block.type === "tool_result") this.output(string(block.tool_use_id), block.content, source, block.is_error === true); }
         if (!Array.isArray(content) || !content.some((block) => object(block).type === "tool_result")) {
-          const text = contentText(content);
-          if (/^\s*<(?:system-reminder|command-|local-command)/.test(text)) this.gap({ id: `synthetic:${sourceKey(source)}`, kind: "provider_system_notification", source });
+          const text = contentText(content), command = /^\s*<command-(?:name|message)>/.test(text) ? /<command-name>([^<\n]{1,200})<\/command-name>/.exec(text)?.[1]?.trim() : undefined;
+          // A person's slash command (its expansion follows as an isMeta record); a local command's own output is metadata.
+          if (command) { const args = /<command-args>([\s\S]*?)<\/command-args>/.exec(text)?.[1]?.trim(); this.message(`${command.startsWith("/") ? "" : "/"}${command}${args ? ` ${args}` : ""}`, source, timestamp); }
+          else if (/^\s*<local-command-(?:stdout|stderr|caveat)>/.test(text)) return "claude/user";
+          else if (/^\s*<(?:system-reminder|command-|local-command)/.test(text)) this.gap({ id: `synthetic:${sourceKey(source)}`, kind: "provider_system_notification", source });
           else this.message(text, source, timestamp);
         }
       } else if (type === "assistant") {
