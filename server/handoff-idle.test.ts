@@ -1,4 +1,4 @@
-import { afterEach, expect, test } from "vitest";
+import { afterEach, expect, test, vi } from "vitest";
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
 import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
 import { promisify } from "node:util";
 import type { PaseoApi } from "@getpaseo/client";
+import { AutomationService } from "./automation";
 import { captureHandoff } from "./handoff-capture";
 import { HandoffObserver, type HandoffObserverDeps, type ManagedHandoffSession } from "./handoff-observer";
 import { HandoffService } from "./handoff-service";
@@ -17,9 +18,10 @@ import type { AutomationJob } from "../shared/automation-schema";
 // Never reaches a daemon or a real provider history: the Paseo API is an in-memory fake; the board, the synthetic Codex and
 // Claude homes and the Git repositories live in a temporary directory.
 const run = promisify(execFile);
-const roots: string[] = [], observers: HandoffObserver[] = [];
+const roots: string[] = [], observers: HandoffObserver[] = [], dispatchers: AutomationService[] = [];
 afterEach(async () => {
-  forgetHistory();
+  forgetHistory(); vi.restoreAllMocks();
+  await Promise.all(dispatchers.splice(0).map((automation) => automation.stop()));
   await Promise.all(observers.splice(0).map((observer) => observer.stop()));
   await Promise.all(roots.splice(0).map((path) => rm(path, { recursive: true, force: true })));
 });
@@ -109,21 +111,25 @@ async function idleBoard() {
     const deps: HandoffObserverDeps = { records: handoffs.records, board, paseo: () => paseo, serial: handoffs.serial.bind(handoffs), syncIndex: handoffs.syncIndex.bind(handoffs), onCompaction: (taskId, agentId) => handoffs.forgetRead(taskId, agentId), clock: () => now,
       capture: (agent, previous, options) => captureHandoff(agent, previous, { ...options, codexHome, claudeHome }) };
     const observer = new HandoffObserver(deps); observers.push(observer);
-    return { handoffs, observer };
+    // The automation dispatcher (15-second pass) with the observer as its handoff bridge, as in production.
+    const automation = new AutomationService(board, { prepare: async () => { throw new Error("an idle board starts no session"); }, globalModel: async () => null, clock: () => now, historyBytes: async () => 4096, handoff: observer.bridge });
+    dispatchers.push(automation); automation.attach(paseo);
+    return { handoffs, observer, automation };
   };
   const managed = async (): Promise<ManagedHandoffSession[]> => sessions.map(({ taskId, agentId }) => ({ taskId, agentId }));
   return { directory, board, sessions, wire, managed, advance: (ms: number) => { now += ms; } };
 }
 
 test("idle cards keep their revision and every file byte through the whole idle loop and a plugin reload", async () => {
+  const failures = vi.spyOn(console, "error");
   const x = await idleBoard();
-  let { handoffs, observer } = x.wire();
+  let { handoffs, observer, automation } = x.wire();
   // Warm-up: each session's last turn (start registration, end hook with its timeline), then passes that read the provider files.
   for (const s of x.sessions) {
     await observer.ensureSession(s.taskId, s.agentId);
     await observer.observe(s.taskId, s.agentId, { timeline: [{ type: "user_message", text: `Fix card ${s.taskId}`, messageId: `m-${s.agentId}` }, { type: "assistant_message", text: `Card ${s.taskId}: tests pass; delivered.` }], outcome: "completed", forceGit: true });
   }
-  for (let minute = 0; minute < 5; minute++) { x.advance(60_000); await observer.poll(x.managed); }
+  for (let minute = 0; minute < 5; minute++) { x.advance(60_000); await observer.poll(x.managed); await automation.kick(); }
   // A real idle state also has acknowledged Flowly gaps pushed out of the 40-entry current list into the archive.
   const beta = await handoffs.records.read("beta", "project"), unavailable = beta.gaps.find((gap) => gap.sourceId === "git-unavailable:beta");
   expect(unavailable).toBeTruthy();
@@ -137,8 +143,9 @@ test("idle cards keep their revision and every file byte through the whole idle 
 
   const before = await bytes(x.directory), revisions = await Promise.all(["alpha", "beta", "gamma"].map(async (id) => (await handoffs.records.read(id, "project")).revision));
   for (let minute = 1; minute <= 30; minute++) {
-    if (minute === 15) { await observer.stop(); ({ handoffs, observer } = x.wire()); } // Plugin reload: in-memory state (Git timers, reads) is gone.
-    x.advance(60_000); await observer.poll(x.managed);
+    if (minute === 15) { await automation.stop(); await observer.stop(); ({ handoffs, observer, automation } = x.wire()); } // Plugin reload: in-memory state (Git timers, reads) is gone.
+    for (let pass = 0; pass < 4; pass++) { x.advance(15_000); await automation.kick(); }
+    await observer.poll(x.managed);
     if (minute % 2) continue;
     for (const s of x.sessions) {
       await observer.ensureSession(s.taskId, s.agentId);
@@ -149,6 +156,7 @@ test("idle cards keep their revision and every file byte through the whole idle 
   }
   expect(await Promise.all(["alpha", "beta", "gamma"].map(async (id) => (await handoffs.records.read(id, "project")).revision))).toEqual(revisions);
   expect(await bytes(x.directory)).toEqual(before);
+  expect(failures).not.toHaveBeenCalled(); // every dispatcher pass and observation ran to its end
   // An ACK the successor prepared from the revision it read before all that idle time still applies.
   await expect(handoffs.records.update("alpha", "project", { handoffRevision: revisions[0], ack: { handoffRevision: revisions[0], heads: [], understanding: "Idle card, nothing new.", items: [] } }, { by: { kind: "agent", agentId: "a-impl" } }, { agentId: "a-impl", actualHeads: [] })).resolves.toMatchObject({ handoffRevision: revisions[0] + 1 });
 }, 60_000);
