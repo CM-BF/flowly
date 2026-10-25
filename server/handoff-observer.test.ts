@@ -1,5 +1,5 @@
 import { afterEach, expect, test, vi } from "vitest";
-import { mkdtemp, rm, mkdir, writeFile } from "node:fs/promises";
+import { mkdtemp, rm, mkdir, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { PaseoApi } from "@getpaseo/client";
@@ -58,6 +58,29 @@ test("measured work time includes only proven started-and-ended turns, not sessi
   const facts = await x.observer.measure({ taskId: "card", agentId: "worker" });
   expect(facts.activeMs).toBe(45_000); expect(facts.completedTurns).toBe(1); expect(facts.lastTurnEndAt).toBe(Date.parse(startedAt) + 90_000);
   expect(facts.lastRequestAt).toBe(Date.parse(at)); expect(facts.ttlSeconds).toBeUndefined();
+});
+
+test("a running turn's proof of activity is stored only with new data: quiet polls write nothing, a reload keeps the stored proof", async () => {
+  const x = await fixture(), file = join(x.directory, "handoffs", "card.json");
+  x.actor.status = "running"; x.actor.activeTurn = { turnId: "long", startedAt: at };
+  await x.observer.observe("card", "worker"); // first sight of the turn: stored, with the time it was seen
+  x.advance(10 * 60_000); x.setBatch(batch(200)); await x.observer.observe("card", "worker"); // new provider data: the proof goes with it
+  const stored = await readFile(file, "utf8"), revision = (await x.read()).revision;
+  for (let minute = 0; minute < 10; minute++) { x.advance(60_000); await x.observer.observe("card", "worker"); }
+  expect(await readFile(file, "utf8")).toBe(stored); expect((await x.read()).revision).toBe(revision);
+  // A plugin reload loses the quiet polls' in-memory proof; the hook (late, after the session went idle) counts the stored one.
+  const reloaded = x.restart(); x.advance(5 * 60_000); x.actor.status = "idle"; x.actor.activeTurn = null;
+  await reloaded.observe("card", "worker", { timeline: [{ type: "assistant_message", text: "Done." }], outcome: "completed" });
+  expect((await reloaded.measure({ taskId: "card", agentId: "worker" })).activeMs).toBe(10 * 60_000);
+});
+
+test("without a reload the turn counts up to the last poll that saw it running, never up to a late hook", async () => {
+  const x = await fixture();
+  x.actor.status = "running"; x.actor.activeTurn = { turnId: "long", startedAt: at };
+  for (let minute = 0; minute <= 20; minute++) { await x.observer.observe("card", "worker"); x.advance(60_000); }
+  x.advance(39 * 60_000); x.actor.status = "idle"; x.actor.activeTurn = null;
+  await x.observer.observe("card", "worker", { timeline: [{ type: "assistant_message", text: "Done." }], outcome: "completed" });
+  expect((await x.observer.measure({ taskId: "card", agentId: "worker" })).activeMs).toBe(20 * 60_000);
 });
 
 test("equal narration on separate proven turns still counts each turn exactly once", async () => {

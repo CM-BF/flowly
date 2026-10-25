@@ -79,6 +79,12 @@ export class HandoffObserver {
   private gitAt = new Map<string, number>();
   /** Per session: the observed turn whose end a poll already read the repositories for. */
   private turnGit = new Map<string, string>();
+  /**
+   * Per session: the last time a poll saw its turn running. It is the proof that the turn's active time (`activeMs`) counts up
+   * to, and it is stored only when the poll writes new data anyway, so a quiet running turn writes nothing (SESSION-HANDOFF-SPEC
+   * §21.1). A reload loses at most the quiet polls since the last write: those count again only when a later poll sees the turn.
+   */
+  private activeSeen = new Map<string, { turnId: string; at: number }>();
   private polling = false;
   private next = 0;
   readonly bridge: AutomationHandoffBridge;
@@ -364,7 +370,13 @@ export class HandoffObserver {
       const key = growth.has(kind) || growth.size < 11 ? kind : "other", old = growth.get(key) ?? { kind: key, calls: 0, bytes: 0 };
       old.calls += value.lines; old.bytes += value.bytes; growth.set(key, old);
     }
-    if (actor?.activeTurn?.startedAt) meta.turnStart = { id: actor.activeTurn.turnId, at: actor.activeTurn.startedAt, observedAt: this.now() };
+    const turnKey = `${taskId}:${agentId}`;
+    if (actor?.activeTurn?.startedAt) {
+      const { turnId: id, startedAt } = actor.activeTurn;
+      // A turn first seen is stored with the time it was seen; later polls of the same turn only move the proof in memory.
+      if (meta.turnStart?.id !== id || meta.turnStart.at !== startedAt) meta.turnStart = { id, at: startedAt, observedAt: this.now() };
+      this.activeSeen.set(turnKey, { turnId: id, at: this.clock() });
+    }
     const timelineKey = hook && digest(JSON.stringify({ inputs: hook.inputs.map((m) => m.id), live: hook.live.map((m) => m.id), background: hook.background.map((m) => [m.id, m.status]), compactions: hook.compactions.map((m) => m.id), outcome: options.outcome }));
     const turns = [...session.turns];
     if (hook && options.outcome && (meta.turnStart ? meta.lastEndedTurnId !== meta.turnStart.id : meta.lastTimeline !== timelineKey)) {
@@ -375,8 +387,10 @@ export class HandoffObserver {
       measured.turns++; turns.push({ n: measured.turns, startedAt, endedAt: stamp, outcome: options.outcome,
         ...(last ? { final: last.text.slice(0, 2000) } : {}), wroteHandoff });
       // Hook delivery can be late: only count the interval proven by an active snapshot, never all session age.
-      if (meta.turnStart && time(meta.turnStart.at) > 0 && time(meta.turnStart.observedAt) >= time(meta.turnStart.at))
-        meta.activeMs = (meta.activeMs ?? 0) + time(meta.turnStart.observedAt) - time(meta.turnStart.at);
+      const proven = meta.turnStart && this.provenActive(turnKey, meta.turnStart);
+      if (meta.turnStart && proven && time(meta.turnStart.at) > 0 && proven >= time(meta.turnStart.at))
+        meta.activeMs = (meta.activeMs ?? 0) + proven - time(meta.turnStart.at);
+      this.activeSeen.delete(turnKey);
       if (!wroteHandoff && time(stamp) - time(startedAt) >= 300_000) {
         const sourceId = handoffSource(`unwritten-turn:${agentId}:${timelineKey}`);
         entries.push({ section: "notes", value: { id: entryId("nt", sourceId), sourceId, kind: "hazard", text: "A work turn of at least five minutes ended without an agent handoff checkpoint. Its reasoning may exist only in the session; verify the captured narration and saved outputs before continuing." } });
@@ -416,6 +430,9 @@ export class HandoffObserver {
       resume: { ...(cursor ?? resume ?? {}), observer: meta } };
     const oldThrough = session.through && stripAt(session.through), changedThrough = !isDeepStrictEqual(stored(oldThrough), stored(stripAt(through)));
     if (changedThrough) through.at = this.now();
+    // The cursor moves anyway (new provider data): the running turn's proof of activity is stored with it (`through.resume.observer`).
+    const proven = meta.turnStart && this.provenActive(turnKey, meta.turnStart);
+    if (changedThrough && meta.turnStart && proven && proven > time(meta.turnStart.observedAt)) meta.turnStart = { ...meta.turnStart, observedAt: new Date(proven).toISOString() };
     const anchors = [...new Set([...(session.anchors ?? []), ...semantics.flatMap((source) => source.anchors)])].slice(-60);
     const scriptText = scriptCalls ? ` ${scriptCalls} script or workflow calls ran here; Flowly lists only background work they evidently left running, and their other inner tool calls remain in the session's raw history.` : "";
     const nextSession: SessionDraft = { ...session, ...(actor ? { provider: actor.provider, ...(actor.model ? { model: actor.model } : {}), ...(session.provider === "unknown" ? { startedAt: actor.createdAt } : {}) } : {}), sourceId: handoffSource(`session:${agentId}`), measured, growth: [...growth.values()], background,
@@ -439,8 +456,8 @@ export class HandoffObserver {
     // revision per card every 2 minutes, each moving the revision a prepared ACK names). A turn end that only a poll saw
     // (its hook was lost to a reload or restart, or failed before it observed) is a turn end too: one read, once per turn
     // (`meta.turnStart` stays for a hook that comes late). A card whose last read failed is read again every 2 minutes.
-    const turnKey = `${taskId}:${agentId}`, turnEnded = !!actor && !inTurn && !!meta.turnStart && this.turnGit.get(turnKey) !== meta.turnStart.id;
-    if (!meta.turnStart) this.turnGit.delete(turnKey);
+    const turnEnded = !!actor && !inTurn && !!meta.turnStart && this.turnGit.get(turnKey) !== meta.turnStart.id;
+    if (!meta.turnStart) { this.turnGit.delete(turnKey); this.activeSeen.delete(turnKey); }
     const unobserved = record.git.some((entry) => entry.error === gitUnobserved);
     if (options.forceGit || turnEnded || (inTurn || unobserved) && this.clock() - (this.gitAt.get(taskId) ?? -Infinity) >= 120_000) {
       this.gitAt.set(taskId, this.clock());
@@ -598,6 +615,11 @@ export class HandoffObserver {
     const shown = new Set(flying.slice(0, 40 - real.length));
     background.splice(0, background.length, ...(trimmed ? real : background.filter((item) => !item.inFlight || shown.has(item))));
     return flying.length - shown.size;
+  }
+  /** The last time the turn was seen running: the stored proof, or a later one a quiet poll kept in memory. */
+  private provenActive(turnKey: string, turnStart: NonNullable<ObserverState["turnStart"]>) {
+    const seen = this.activeSeen.get(turnKey);
+    return Math.max(time(turnStart.observedAt), seen?.turnId === turnStart.id ? seen.at : 0);
   }
   private comparable(session: SessionDraft) {
     const { rev: _, at: _at, by: _by, contentRef: _ref, ...rest } = session as HandoffSession;

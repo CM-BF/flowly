@@ -80,7 +80,7 @@ export async function handedOver(options: { notes?: number } = {}) {
   const elsewhere = async (n: number) => { await writeFile(join(repo, `other-${n}.md`), "another card\n"); await git(repo, "add", "."); await git(repo, "commit", "-q", "-m", `other ${n}`); };
   const heads = async () => [await handoffGitSnapshot(repo)].map(({ repo: path, sha, dirty }) => ({ repo: path, sha, dirty }));
   const read = () => handoffs.records.read("card", "project");
-  return { directory, repo, handoffs, observer, managed, minute, raw, tool, turn, elsewhere, heads, read, file: join(directory, "handoffs", "card.json"), archive: join(directory, "handoffs", "card", "archive.jsonl"), now: () => now, identity: { taskId: "card", workspaceId: "ws", agentId: "succ" } };
+  return { directory, repo, board, paseo, handoffs, observer, managed, minute, raw, tool, turn, elsewhere, heads, read, file: join(directory, "handoffs", "card.json"), archive: join(directory, "handoffs", "card", "archive.jsonl"), now: () => now, advance: (ms: number) => { now += ms; }, identity: { taskId: "card", workspaceId: "ws", agentId: "succ" } };
 }
 export type RunningCard = Awaited<ReturnType<typeof handedOver>>;
 
