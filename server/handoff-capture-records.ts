@@ -309,11 +309,14 @@ export class CaptureRecords {
    * Claude task notifications and paseo-dynamic-workflow run notices: close the item with its status, and keep what the
    * notice said (status, summary, output file, the start of result/error/failures/recovery/interrupted agents) as a
    * bounded, redacted note, also for a plain completion: the output file is the only way to its result, and only the
-   * session that launched it gets the notice. A text without a task id and a status is not a notice (returns false).
+   * session that launched it gets the notice. A Monitor event (a task id and an <event>, no <status>) is progress of a task
+   * that still runs: it ends nothing and keeps no note, and the task's real end still gets its own (returns true). Any
+   * other text without a task id and a status is not a notice (returns false).
    */
   private taskNotice(text: string, source: CaptureSource, timestamp: unknown): boolean {
     const block = (name: string) => new RegExp(`<${name}>([\\s\\S]*?)</${name}>`).exec(text)?.[1]?.trim();
     const task = id(block("task-id")), status = /^[\w-]{1,40}$/.exec(block("status") ?? "")?.[0];
+    if (task && !status && block("event") !== undefined) return true;
     if (!task || !status) return false;
     const flat = (value: string) => redactCaptureText(value.replace(/\s+/g, " ").trim());
     let cut = false;
@@ -794,9 +797,13 @@ export class CaptureRecords {
   private taskRow(item: RecordValue, source: CaptureSource, timestamp: unknown) {
     const detail = object(item.detail), metadata = object(item.metadata), raw = string(detail.text);
     if (raw.includes("<task-notification>") && this.taskNotice(raw, source, timestamp)) return;
+    // The status is the notice's own, never the row's: Paseo gives a notice without one (a Monitor event of a task that
+    // still runs) the row status "completed". A task id without a status is progress: nothing ends, nothing is noted.
+    const status = string(metadata.status) || (/<status>([\w-]{1,40})<\/status>/.exec(raw)?.[1] ?? "");
+    if (!status && id(string(metadata.taskId))) return;
     const tag = (name: string, value: string) => value.trim() ? `<${name}>${value.trim()}</${name}>` : "";
     const summary = string(detail.label) || string(object(item.error).message);
-    const rebuilt = `<task-notification>${tag("task-id", string(metadata.taskId))}${tag("status", string(metadata.status) || string(item.status))}${tag("summary", summary)}${tag("output-file", string(metadata.outputFile))}</task-notification>`;
+    const rebuilt = `<task-notification>${tag("task-id", string(metadata.taskId))}${tag("status", status)}${tag("summary", summary)}${tag("output-file", string(metadata.outputFile))}</task-notification>`;
     if (!this.taskNotice(rebuilt, source, timestamp)) this.gap({ id: `timeline:${sourceKey(source)}`, kind: "unknown_timeline_type", source, typeHint: "tool_call/task_notification" });
   }
   timeline(items: readonly unknown[], received: boolean) {
