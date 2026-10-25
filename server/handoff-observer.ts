@@ -386,8 +386,12 @@ export class HandoffObserver {
     const existingSources = new Set([...record.gaps, ...record.notes, ...record.overflow].map((entry) => entry.sourceId));
     const unique = new Map(entries.filter((entry) => entry.section === "inputs" || !existingSources.has(entry.value.sourceId as string)).map((entry) => [String(entry.value.sourceId), entry]));
     let git: HandoffGitSnapshot[] | undefined;
-    if (options.forceGit || this.clock() - (this.gitAt.get(taskId) ?? -Infinity) >= 120_000) {
-      // At most once per card every 2 minutes, also when it fails: a card whose workspace is gone was read on every pass.
+    // Repositories are polled for a session in a turn (SESSION-HANDOFF-SPEC §4 item 2), at most once per card every 2 minutes,
+    // also when the read fails. An idle card is read at its turn ends, rotations and handoff writes (forceGit), and an ACK
+    // reads the heads itself: polling it recorded every change other cards made in a shared project root (live: about one
+    // revision per card every 2 minutes, each moving the revision a prepared ACK names).
+    const inTurn = !!actor && (["running", "initializing"].includes(actor.status) || !!actor.activeTurn);
+    if (options.forceGit || inTurn && this.clock() - (this.gitAt.get(taskId) ?? -Infinity) >= 120_000) {
       this.gitAt.set(taskId, this.clock());
       try {
         const observed = await this.git(taskId, board, this.now()); this.check();

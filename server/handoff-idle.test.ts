@@ -117,7 +117,13 @@ async function idleBoard() {
     return { handoffs, observer, automation };
   };
   const managed = async (): Promise<ManagedHandoffSession[]> => sessions.map(({ taskId, agentId }) => ({ taskId, agentId }));
-  return { directory, board, sessions, wire, managed, advance: (ms: number) => { now += ms; } };
+  /** Work of other cards in the shared project root: a commit in one repository, another edit of an already-dirty file. */
+  const elsewhere = async (minute: number) => {
+    if (minute === 6) { await writeFile(join(alpha, "app", "CHANGELOG.md"), "another card's change\n"); await git(join(alpha, "app"), "add", "CHANGELOG.md"); await git(join(alpha, "app"), "commit", "-q", "-m", "another card"); }
+    if (minute === 9) await writeFile(join(alpha, "lib", "README.md"), "fixture, edited again by someone else\n");
+    if (minute === 20) { await writeFile(join(wide, "service-3", "NOTES.md"), "x\n"); await git(join(wide, "service-3"), "add", "NOTES.md"); await git(join(wide, "service-3"), "commit", "-q", "-m", "elsewhere"); }
+  };
+  return { directory, board, sessions, actors, wire, managed, elsewhere, advance: (ms: number) => { now += ms; } };
 }
 
 test("idle cards keep their revision and every file byte through the whole idle loop and a plugin reload", async () => {
@@ -144,6 +150,7 @@ test("idle cards keep their revision and every file byte through the whole idle 
   const before = await bytes(x.directory), revisions = await Promise.all(["alpha", "beta", "gamma"].map(async (id) => (await handoffs.records.read(id, "project")).revision));
   for (let minute = 1; minute <= 30; minute++) {
     if (minute === 15) { await automation.stop(); await observer.stop(); ({ handoffs, observer, automation } = x.wire()); } // Plugin reload: in-memory state (Git timers, reads) is gone.
+    await x.elsewhere(minute);
     for (let pass = 0; pass < 4; pass++) { x.advance(15_000); await automation.kick(); }
     await observer.poll(x.managed);
     if (minute % 2) continue;
@@ -159,6 +166,29 @@ test("idle cards keep their revision and every file byte through the whole idle 
   expect(failures).not.toHaveBeenCalled(); // every dispatcher pass and observation ran to its end
   // An ACK the successor prepared from the revision it read before all that idle time still applies.
   await expect(handoffs.records.update("alpha", "project", { handoffRevision: revisions[0], ack: { handoffRevision: revisions[0], heads: [], understanding: "Idle card, nothing new.", items: [] } }, { by: { kind: "agent", agentId: "a-impl" } }, { agentId: "a-impl", actualHeads: [] })).resolves.toMatchObject({ handoffRevision: revisions[0] + 1 });
+  // The card's next turn end records the repositories as they are now; nothing was lost by not polling them while idle.
+  const stale = await handoffs.records.read("alpha", "project");
+  await observer.observe("alpha", "a-impl", { timeline: [{ type: "assistant_message", text: "Checked." }], outcome: "completed", forceGit: true });
+  const caught = await handoffs.records.read("alpha", "project"), heads = (record: typeof caught) => record.git.map(({ repo, sha, dirtyHash }) => `${relative(x.directory, repo)}:${sha}:${dirtyHash}`);
+  expect(heads(caught)).not.toEqual(heads(stale));
+}, 60_000);
+
+test("a quiet running turn writes nothing either: its repositories are read every 2 minutes, an archived gap is not written again", async () => {
+  const x = await idleBoard();
+  const { handoffs, observer } = x.wire();
+  // beta's current session is in a long, quiet turn (its provider file does not grow) and its workspace cannot be read.
+  Object.assign(x.actors.get("b-impl")!, { status: "running", activeTurn: { turnId: "turn-long", startedAt: at } });
+  for (let minute = 0; minute < 3; minute++) { x.advance(60_000); await observer.poll(x.managed); }
+  const beta = await handoffs.records.read("beta", "project"), unavailable = beta.gaps.find((gap) => gap.sourceId === "git-unavailable:beta")!;
+  await handoffs.records.update("beta", "project", { handoffRevision: beta.revision, gaps: [{ id: unavailable.id, status: "closed", note: "Checked by hand: the workspace folder was archived." }] }, { by: { kind: "human" } });
+  for (let batch = 0; batch < 5; batch++) {
+    const record = await handoffs.records.read("beta", "project");
+    await handoffs.records.update("beta", "project", { handoffRevision: record.revision, gaps: Array.from({ length: 9 }, (_, n) => ({ text: `Successor question ${batch}.${n}`, status: "open" as const })) }, { by: { kind: "agent", agentId: "b-impl" } });
+  }
+  const before = await bytes(x.directory), revision = (await handoffs.records.read("beta", "project")).revision;
+  for (let minute = 0; minute < 12; minute++) { x.advance(60_000); await observer.poll(x.managed); }
+  expect((await handoffs.records.read("beta", "project")).revision).toBe(revision);
+  expect(await bytes(x.directory)).toEqual(before);
 }, 60_000);
 
 test("a transaction that changes nothing writes nothing: no revision, no receipt, no bytes", async () => {

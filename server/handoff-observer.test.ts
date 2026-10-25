@@ -111,7 +111,9 @@ test("semantic input and full native resume are committed together, including af
 });
 
 test("unchanged polls do not rewrite records; Git time alone never changes the record", async () => {
-  const x = await fixture(); await x.observer.observe("card", "worker"); const first = await x.read();
+  // Repositories are polled for a session in a turn; an idle one is read at its turn ends (handoff-idle.test.ts).
+  const x = await fixture(); x.actor.status = "running"; x.actor.activeTurn = { turnId: "turn", startedAt: at };
+  await x.observer.observe("card", "worker"); const first = await x.read();
   x.advance(60_000); await x.observer.observe("card", "worker"); expect((await x.read()).revision).toBe(first.revision); expect(x.git).toHaveBeenCalledTimes(1);
   x.advance(60_000); await x.observer.observe("card", "worker"); expect((await x.read()).revision).toBe(first.revision); expect(x.git).toHaveBeenCalledTimes(2);
 });
