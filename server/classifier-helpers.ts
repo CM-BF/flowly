@@ -46,9 +46,16 @@ export class ClassifierHelpers {
   private recovery?: Promise<void>;
   private timer?: ReturnType<typeof setInterval>;
   private cursor = 0;
-  constructor(directory: string, private removeAgent: RemoveAgent, private options: { graceMs?: number; recoverMs?: number; probeMs?: number; newId?: () => string } = {}) {
+  /**
+   * Helpers whose last hard delete left them in place (archived at best), per id: the 30-second check still probes them, but
+   * the delete (a local daemon connection, an archive call, a log line) is retried only after a backoff that doubles from one
+   * minute up to an hour, and quietly. In memory: each plugin start tries once at its first pass (a new Paseo may delete).
+   */
+  private failures = new Map<string, { attempts: number; retryAt: number }>();
+  constructor(directory: string, private removeAgent: RemoveAgent, private options: { graceMs?: number; recoverMs?: number; probeMs?: number; newId?: () => string; now?: () => number } = {}) {
     this.store = new ClassifierHelperStore(directory);
   }
+  private now() { return (this.options.now ?? Date.now)(); }
   attach(paseo: PaseoApi) {
     if (this.stopped) return;
     const first = !this.paseo;
@@ -88,10 +95,14 @@ export class ClassifierHelpers {
     const work = (async () => {
       const owned = (await this.store.read()).find((e) => e.id === agent.id);
       if (!owned) return;
-      await this.removeAgent(agent);
+      const failure = this.failures.get(agent.id);
+      await this.removeAgent(agent, failure ? { quiet: true } : undefined);
       // The existing remover may only archive when hard deletion fails. Keep ownership until absence is confirmed.
       const current = await this.paseo!.agents.ref(agent.id).refresh().catch(() => undefined);
-      if (owned.confirmed && (current === null || (current && !current.agent))) await this.store.forget(agent.id);
+      const gone = current === null || (!!current && !current.agent);
+      if (gone) this.failures.delete(agent.id);
+      else if (current) { const attempts = (failure?.attempts ?? 0) + 1; this.failures.set(agent.id, { attempts, retryAt: this.now() + Math.min((this.options.recoverMs ?? 30_000) * 2 ** attempts, 3_600_000) }); }
+      if (owned.confirmed && gone) await this.store.forget(agent.id);
     })().finally(() => { this.active.delete(agent.id); this.handles.delete(agent.id); this.removing.delete(agent.id); });
     this.removing.set(agent.id, work);
     return this.track(work);
@@ -109,10 +120,12 @@ export class ClassifierHelpers {
         const current = await deadline(agent.refresh(), this.options.probeMs ?? 1000).catch(() => undefined);
         if (this.stopped || current === undefined) continue;
         if (!current?.agent) {
+          this.failures.delete(entry.id);
           if (entry.confirmed) await this.store.forget(entry.id);
           continue;
         }
         if (current.agent.workspaceId !== entry.workspaceId || current.agent.labels?.[CLASSIFIER_OWNER_LABEL] !== entry.owner) continue;
+        if ((this.failures.get(entry.id)?.retryAt ?? 0) > this.now()) continue; // its last delete failed: back off
         await deadline(this.remove(agent), this.options.probeMs ?? 1000).catch(() => undefined);
       }
       this.cursor += Math.min(20, entries.length);
