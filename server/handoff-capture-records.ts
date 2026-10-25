@@ -120,10 +120,12 @@ export type ScriptMember = { ref: string; execCalls: number; starts: string[]; d
  * Code-mode scripts that overlap (parallel exec cells, or a yielded cell still running while a newer script runs) share one
  * pool until the last of them returns: Codex's nested completion items name no script, so a completion counts for the pool,
  * never for one member (SESSION-HANDOFF-SPEC §5.7). `seen`: completions per nested tool; `done`: the members that returned,
- * summed (`covered`: exec_commands accounted for without a completion: printed as running, or in an output not read; `known`:
- * exec sessions they named); `placed`: the placeholders emitted so far per tool, under the first member's call id (`id`).
+ * summed (`covered`: exec_commands accounted for without a completion: printed as running, or, in pools written before
+ * `claims`, in an output not read; `known`: exec sessions they named; `claims`: per nested tool, the calls of members that
+ * left without their result read, a terminated cell or an output too long to read, which claim completions as a running
+ * cell's do); `placed`: the placeholders emitted so far per tool, under the first member's call id (`id`).
  */
-export type ScriptPool = { id: string; open: ScriptMember[]; seen: Record<string, number>; done: { members: number; execCalls: number; covered: number; starts: Record<string, number>; detached: string[]; known: string[] }; placed: Record<string, number> };
+export type ScriptPool = { id: string; open: ScriptMember[]; seen: Record<string, number>; done: { members: number; execCalls: number; covered: number; starts: Record<string, number>; detached: string[]; known: string[]; claims?: Record<string, number> }; placed: Record<string, number> };
 /** `subagent`: a Codex native sub-agent tool (multi-agent mode); its handle is the agent path `/root/<task_name>`. */
 /** `monitor`: Claude Code's Monitor tool (a watch that runs up to its timeout and reports events); its result names its task. */
 export type PendingCaptureCall = { callId: string; kind: CaptureBackground["kind"]; action: "start" | "close" | "poll"; source: CaptureSource; at: string; name?: string; handle?: string; label?: string; detached?: boolean; script?: ScriptEvidence; wait?: { terminate?: boolean }; subagent?: "spawn_agent" | "followup_task" | "interrupt_agent"; monitor?: true };
@@ -581,28 +583,36 @@ export class CaptureRecords {
   }
   /**
    * A pool member returned (`running`: the exec sessions its output printed as still running; `unread`: what it left is in an
-   * output Flowly could not read, covered by that gap). Its calls join the returned members' tally, and the pool's
-   * placeholders follow; the pool ends with its last member.
+   * output Flowly could not read, covered by that gap, or not reported, a terminated cell). Its calls join the returned
+   * members' tally, and the pool's placeholders follow; the pool ends with its last member. An unread member's calls are no
+   * placeholders of their own, and they keep claiming the completions they may have received, as while it ran as a cell:
+   * counting them as returned and covered let those completions settle another member's leftover (a dev server next to it).
    */
   private leave(member: ScriptMember, source: CaptureSource, at: string, { running = 0, unread = false }: { running?: number; unread?: boolean } = {}) {
     const pool = this.pool!, done = pool.done;
     pool.open = pool.open.filter((value) => value !== member);
-    done.members++; done.execCalls += member.execCalls; done.covered += unread ? member.execCalls : Math.min(running, member.execCalls);
-    if (!unread) { for (const base of member.starts) done.starts[base] = (done.starts[base] ?? 0) + 1; if (member.detached) done.detached.push(member.detached); }
+    done.members++;
+    if (unread) {
+      const claims = done.claims ??= {}, claim = (key: string, count: number) => { if (count) claims[key] = (claims[key] ?? 0) + count; };
+      claim("exec_command", member.execCalls); for (const base of member.starts) claim(base, 1); if (member.detached) claim("detached", 1);
+    } else {
+      done.execCalls += member.execCalls; done.covered += Math.min(running, member.execCalls);
+      for (const base of member.starts) done.starts[base] = (done.starts[base] ?? 0) + 1; if (member.detached) done.detached.push(member.detached);
+    }
     if (member.known) done.known = [...new Set([...done.known, ...member.known])].slice(-captureLimits.closed);
     this.tally(source, at);
     if (!pool.open.length) this.pool = undefined;
   }
   /**
    * The pool's evidence-free placeholders: per nested tool, the returned members' calls that no completion accounts for. A
-   * completion is credited first to the members still running as yielded cells (they may run past this turn), so what a
-   * returned member may have left running surfaces now; a member whose own result is still to come is waited for. Placeholders
+   * completion is credited first to the members still running as yielded cells (they may run past this turn) and to those that
+   * left unread, so what a returned member may have left running surfaces now; a member whose own result is still to come is waited for. Placeholders
    * a later tally no longer needs are withdrawn; once the last member returned, the count is exact (at most 4 exec_command
    * placeholders per returned script, as before).
    */
   private tally(source: CaptureSource, at: string) {
     const pool = this.pool!, done = pool.done, cells = pool.open.filter((member) => member.ref.startsWith("cell:"));
-    const left = (key: string, returned: number, claim: number, covered = 0) => Math.max(0, returned - Math.max(0, (pool.seen[key] ?? 0) - claim) - covered);
+    const left = (key: string, returned: number, running: number, covered = 0) => Math.max(0, returned - Math.max(0, (pool.seen[key] ?? 0) - running - (done.claims?.[key] ?? 0)) - covered);
     const place = (key: string, count: number, item: (suffix: string) => Omit<CaptureBackground, "source" | "at">) => {
       const before = pool.placed[key] ?? 0;
       for (let n = 1; n <= Math.max(before, count); n++) {
