@@ -106,6 +106,12 @@ export function TaskHandoff({ taskId, active, disabled, section, index, onStartS
   </Section>;
 }
 
+/** A grouped capture gap: how many occurrences, from when to when. Numbers and times only, so no catalog strings. */
+function gapSpan(gap: CardHandoff["gaps"][number]) {
+  if ((gap.count ?? 1) < 2) return "";
+  const span = gap.firstAt && gap.lastAt ? ` · ${relativeTime(gap.firstAt)} – ${relativeTime(gap.lastAt)}` : "";
+  return ` · ×${gap.count}${span}`;
+}
 function Group({ title, count, initial = false, children }: { title: string; count?: number; initial?: boolean; children: ReactNode }) {
   const [open, setOpen] = useState(initial);
   return <Disclosure title={title} summary={count === undefined ? undefined : String(count)} open={open} onChange={setOpen} flush>{children}</Disclosure>;
@@ -126,7 +132,7 @@ function HandoffRecord({ record: r, currentAgentId, disabled, truncated, onMark,
   return <View style={{ gap: space[2] }}>
     {!!r.state && <Box><Label medium>{t("Current state")}</Label><Label>{r.state.text}</Label><Label muted size={font.sm}>{t("Recorded {time}; verify against the workspace.", { time: relativeTime(r.state.at) })}</Label></Box>}
     {!!r.next.length && <Group title={t("Next steps")} count={r.next.length} initial>{r.next.map((step, i) => <Label key={step.id}>{i + 1}. {step.text}{step.gate ? ` · ${step.gate}` : ""}</Label>)}</Group>}
-    {!!r.gaps.length && <Group title={t("Information gaps")} count={r.gaps.length} initial>{r.gaps.map(g => <Notice key={g.id} tone={g.status === "open" ? "warning" : undefined}>{g.text}{g.resolution ? ` · ${g.resolution.note}` : ""}</Notice>)}</Group>}
+    {!!r.gaps.length && <Group title={t("Information gaps")} count={r.gaps.length} initial>{r.gaps.map(g => <Notice key={g.id} tone={g.status === "open" ? "warning" : undefined}>{g.text}{gapSpan(g)}{g.resolution ? ` · ${g.resolution.note}` : ""}</Notice>)}</Group>}
     {!!r.ledger.length && <Group title={t("Session handoffs")} count={r.ledger.length} initial>{r.ledger.map(s => <SessionRow key={s.id} session={s} current={s.agentId === currentAgentId} disabled={disabled} onContinue={onContinue} />)}</Group>}
     <TextRows title={t("Completed work")} rows={r.done.map(e => ({ ...e, detail: e.ref }))} />
     <TextRows title={t("Decisions and reasons")} rows={r.decisions.map(e => ({ ...e, detail: e.why }))} />

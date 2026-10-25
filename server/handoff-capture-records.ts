@@ -1,8 +1,9 @@
 import { createHash } from "node:crypto";
 import { handoffMessageSource, handoffSource } from "./handoff-source";
+import { nextRowKind, summaryRowKind } from "../shared/native-session";
 import type { CaptureBackground, CaptureGap, CaptureSemantics, CaptureSource } from "./handoff-capture";
 
-export const captureLimits = { bytes: 64 * 2 ** 20, line: 256 * 2 ** 10, chunk: 64 * 2 ** 10, records: 5000, gaps: 100, calls: 64, live: 8, liveChars: 4000, messageChars: 800 } as const;
+export const captureLimits = { bytes: 64 * 2 ** 20, line: 256 * 2 ** 10, chunk: 64 * 2 ** 10, records: 5000, gaps: 100, calls: 64, live: 8, liveChars: 4000, messageChars: 800, hints: 8, notices: 20, closed: 64 } as const;
 
 type RecordValue = Record<string, unknown>;
 const object = (value: unknown): RecordValue => value !== null && typeof value === "object" && !Array.isArray(value) ? value as RecordValue : {};
@@ -21,7 +22,58 @@ const toolNames = new Map<string, { kind: CaptureBackground["kind"]; action: "st
   ["create_schedule", { kind: "schedule", action: "start" }], ["delete_schedule", { kind: "schedule", action: "close" }], ["cancel_schedule", { kind: "schedule", action: "close" }],
   ["create_heartbeat", { kind: "heartbeat", action: "start" }], ["delete_heartbeat", { kind: "heartbeat", action: "close" }], ["cancel_heartbeat", { kind: "heartbeat", action: "close" }],
 ]);
-export type PendingCaptureCall = { callId: string; kind: CaptureBackground["kind"]; action: "start" | "close" | "poll"; source: CaptureSource; at: string; handle?: string; label?: string; detached?: boolean };
+const knownTool = (name: string) => [...toolNames].find(([known]) => name === known || name.endsWith(`__${known}`) || name.endsWith(`.${known}`))?.[1];
+/** One rule for every place a shell command string is visible: a known tool's argument, a script's command literal, a nested CommandExecution, a timeline shell row. */
+const detachedCommand = (command: string) => /\bnohup\b|\bsetsid\b|\bdisown\b|&\s*$/.test(command);
+/** Codex code-mode scripts (`exec`), Claude Code `Workflow` and the paseo-dynamic-workflow MCP `workflow`: their inner calls are not itemized, only evident background work. */
+const scriptTool = (name: string): "script" | "workflow" | undefined => {
+  const last = name.split(".").pop() ?? "";
+  return last === "exec" ? "script" : last === "Workflow" || /(?:^|__|\.)workflow$/.test(name) ? "workflow" : undefined;
+};
+/** Nested tools a script can call that leave something running; the Codex exec tool is handled through its completion items. */
+const nestedStart = (base: string): CaptureBackground["kind"] | undefined => {
+  if (base === "workflow") return "agent";
+  const tool = toolNames.get(base);
+  return tool?.action === "start" && base !== "Bash" && base !== "exec_command" ? tool.kind : undefined;
+};
+const toolBase = (name: string) => name.split(/__|\./).pop() ?? name;
+const nestedCalls = /\btools\s*(?:\.\s*([A-Za-z_$][\w$]*)|\[\s*(["'`])([^"'`\n]{1,200})\2\s*\])\s*\(/g;
+const commandLiterals = /\b(?:cmd|command)["']?\s*:\s*(?:"((?:[^"\\\n]|\\.)*)"|'((?:[^'\\\n]|\\.)*)'|`((?:[^`\\]|\\.)*)`)/g;
+const unescapeLiteral = (text: string) => text.replace(/\\(.)/g, (_, c: string) => ({ n: "\n", t: "\t", r: "\r" } as Record<string, string>)[c] ?? c);
+const parseJson = (text: string): unknown => { try { return JSON.parse(text); } catch { return undefined; } };
+/** Printed tool results: a unified exec session that is still running reports `session_id` and no `exit_code`. */
+function runningSessions(blocks: readonly string[]): string[] {
+  const found = new Set<string>(); let nodes = 0;
+  const walk = (value: unknown, depth: number) => {
+    if (depth > 6 || ++nodes > 2000 || value === null || typeof value !== "object") return;
+    if (Array.isArray(value)) { for (const item of value) walk(item, depth + 1); return; }
+    const record = value as RecordValue, session = id(record.session_id);
+    if (session && (record.exit_code === undefined || record.exit_code === null)) found.add(session);
+    for (const child of Object.values(record)) walk(child, depth + 1);
+  };
+  for (const block of blocks) {
+    const trimmed = block.trim(), parsed = parseJson(trimmed);
+    if (parsed !== undefined) { walk(parsed, 0); continue; }
+    for (const line of trimmed.split("\n")) if (/^[[{]/.test(line.trim())) walk(parseJson(line.trim()), 0);
+    for (const match of trimmed.matchAll(/\bProcess running with session ID ([\w.-]+)/g)) { const session = id(match[1]); if (session) found.add(session); }
+  }
+  return [...found];
+}
+/** Text the tool returned, as separate blocks (Codex code mode: a status header block, then each printed value). */
+function outputBlocks(raw: unknown): string[] {
+  if (typeof raw === "string") return [raw];
+  const blocks = (list: unknown[]) => list.slice(0, 64).flatMap((item) => typeof item === "string" ? [item] : typeof object(item).text === "string" ? [object(item).text as string] : []);
+  if (Array.isArray(raw)) return blocks(raw);
+  const value = object(raw);
+  if (Array.isArray(value.content)) return blocks(value.content);
+  if (typeof value.output === "string") return [value.output];
+  return raw === undefined || raw === null ? [] : [JSON.stringify(raw)];
+}
+/** A background handle announced in plain text: Claude's backgrounded Bash and Workflow, the dynamic-workflow MCP tool. */
+const announcedHandle = (text: string) => id(/\b(?:running in background with ID|Task ID|Run ID):\s*([\w-]+(?:\.[\w-]+)*)/i.exec(text)?.[1]);
+const pluginMetadata = new Set([summaryRowKind, nextRowKind, "activity-list", "guard-decision", "learning-update", "async-shell-task", "dynamic-workflow-run"]);
+type ScriptEvidence = { workflow?: boolean; timeline?: boolean; starts: string[]; execCalls: number; seen: Record<string, number>; detached?: string };
+export type PendingCaptureCall = { callId: string; kind: CaptureBackground["kind"]; action: "start" | "close" | "poll"; source: CaptureSource; at: string; handle?: string; label?: string; detached?: boolean; script?: ScriptEvidence; wait?: { terminate?: boolean } };
 
 /** Keep task paths and prose, remove credential values and inline binary data before any excerpt is made. */
 export function redactCaptureText(text: string): string {
@@ -78,17 +130,56 @@ function tokenUsageMetadata(entry: RecordValue, sessionId: string | undefined) {
 }
 
 export class CaptureRecords {
-  readonly result: CaptureSemantics = { inputs: [], live: [], background: [], usage: [], compactions: [], gaps: [], omittedGaps: 0, narrationOmitted: 0, narrationTrimmedChars: 0 };
+  readonly result: CaptureSemantics = { inputs: [], live: [], background: [], usage: [], compactions: [], gaps: [], notices: [], omittedGaps: 0, narrationOmitted: 0, narrationTrimmedChars: 0, scriptCalls: 0 };
   private calls = new Map<string, PendingCaptureCall>();
   private sent: Set<string>;
+  /** Calls whose result this batch already handled: Codex repeats a top-level call as an item_completed with the same id. */
+  private done = new Set<string>();
+  /** Unified exec sessions proven finished (CommandExecution process_id); a later printed copy of the start result cannot reopen them. */
+  private closed: string[] = [];
+  /** Aggregation per kind and type hint: a flood of one unknown record type is one gap with a count. */
+  private groups = new Map<string, CaptureGap>();
+  private origin: "provider" | "timeline" = "provider";
+  private lineAt?: string;
   sawUsage = false;
   firstUsageAvailable = true;
   identityMismatch = false;
   constructor(private agentId: string, private capturedAt: string, sentMessageIds: readonly string[] = [], private automationTextHashes: readonly string[] = []) { this.sent = new Set(sentMessageIds); }
-  restore(calls: PendingCaptureCall[], sawUsage: boolean, firstUsageAvailable: boolean) { this.calls = new Map(calls.slice(-captureLimits.calls).map((call) => [call.callId, call])); this.sawUsage = sawUsage; this.firstUsageAvailable = firstUsageAvailable; }
+  restore(calls: PendingCaptureCall[], sawUsage: boolean, firstUsageAvailable: boolean, closed: readonly string[] = []) { this.calls = new Map(calls.slice(-captureLimits.calls).map((call) => [call.callId, call])); this.sawUsage = sawUsage; this.firstUsageAvailable = firstUsageAvailable; this.closed = closed.slice(-captureLimits.closed); }
   pending() { return [...this.calls.values()]; }
-  gap(value: CaptureGap) { value.id = stableId(value.id); if (["parse_failed", "unknown_record_type", "unknown_event_type", "unknown_response_type", "session_identity_mismatch"].includes(value.kind)) this.firstUsageAvailable = false; if (this.result.gaps.length < captureLimits.gaps) this.result.gaps.push(value); else this.result.omittedGaps++; }
+  closedSessions() { return [...this.closed]; }
+  gap(value: CaptureGap) {
+    if (["parse_failed", "unknown_record_type", "unknown_event_type", "unknown_response_type", "session_identity_mismatch"].includes(value.kind)) this.firstUsageAvailable = false;
+    const at = value.at ?? this.lineAt ?? this.capturedAt;
+    let key = `${value.kind}\0${value.typeHint ?? ""}`;
+    if (!this.groups.has(key) && value.typeHint !== undefined && [...this.groups.values()].filter((gap) => gap.kind === value.kind && gap.typeHint !== undefined).length >= captureLimits.hints) { key = `${value.kind}\0*`; value = { ...value, typeHint: "*" }; }
+    const group = this.groups.get(key);
+    if (group) {
+      group.count = (group.count ?? 1) + (value.count ?? 1);
+      if (at < (group.at ?? at)) group.at = at;
+      if (at > (group.lastAt ?? group.at ?? at)) group.lastAt = at;
+      if (value.bytes !== undefined) group.bytes = (group.bytes ?? 0) + value.bytes;
+      if (value.to !== undefined) group.to = Math.max(group.to ?? value.to, value.to);
+      return;
+    }
+    const gap: CaptureGap = { ...value, id: stableId(value.id), at, lastAt: at, count: value.count ?? 1 };
+    if (this.result.gaps.length < captureLimits.gaps) { this.result.gaps.push(gap); this.groups.set(key, gap); } else this.result.omittedGaps++;
+  }
+  private notice(key: string, text: string, timestamp: unknown) {
+    if (this.result.notices.some((notice) => notice.id === key)) return;
+    if (this.result.notices.length >= captureLimits.notices) { this.gap({ id: `notices:${this.agentId}`, kind: "notice_budget" }); return; }
+    this.result.notices.push({ id: key, text: redactCaptureText(text).slice(0, 600), at: this.time(timestamp).at });
+  }
   private time(value: unknown) { return typeof value === "string" && Number.isFinite(Date.parse(value)) ? { at: value, atSource: "provider" as const } : { at: this.capturedAt, atSource: "captured" as const }; }
+  /** A completion notice only closes an item already captured; it never invents one. */
+  private closeHandle(handle: string, source: CaptureSource, timestamp: unknown, outcome?: string, kind: CaptureBackground["kind"] = "agent") {
+    this.result.background.push({ id: `close:${this.agentId}:${handle}`, source, kind, handle, status: "closed", at: this.time(timestamp).at, closeOnly: true, ...(outcome ? { outcome: outcome.slice(0, 40) } : {}) });
+  }
+  private taskNotice(text: string, source: CaptureSource, timestamp: unknown) {
+    const task = id(/<task-id>\s*([^<\s]{1,200})\s*<\/task-id>/.exec(text)?.[1]), status = /<status>\s*([\w-]{1,40})\s*<\/status>/.exec(text)?.[1];
+    if (task && status) this.closeHandle(task, source, timestamp, status);
+    else this.gap({ id: `notice:${sourceKey(source)}`, kind: "unknown_background_notice", source });
+  }
   private message(text: string, source: CaptureSource, timestamp: unknown, assistant = false, received = false) {
     if (!text.trim()) return;
     const wrapped = assistant ? undefined : envelope(text.trim());
@@ -106,6 +197,8 @@ export class CaptureRecords {
       else this.gap({ id: `async-notice:${sourceKey(source)}`, kind: "unknown_background_notice", source });
       return;
     }
+    // Background completions addressed to the agent (Claude task notifications, paseo-dynamic-workflow): close their item, never a person's words.
+    if (!assistant && (/^\s*<task-notification>/.test(text) || text.trimStart().startsWith("[paseo-dynamic-workflow]"))) { this.taskNotice(text, source, timestamp); return; }
     const messageId = source.messageId;
     const fromFlowly = !assistant && !wrapped && !messageId && this.automationTextHashes.includes(createHash("sha256").update(text).digest("hex"));
     if (!assistant && messageId && this.sent.has(messageId)) return;
@@ -118,27 +211,90 @@ export class CaptureRecords {
       while (this.result.live.length > captureLimits.live || this.result.live.reduce((n, item) => n + item.text.length, 0) > captureLimits.liveChars) { this.result.live.shift(); this.result.narrationOmitted++; }
     } else this.result.inputs.push({ id: key, source, text: safe, ...time, ...(safe !== text ? { redacted: true } : {}), ...(messageId ? { messageId } : {}), via: fromFlowly || wrapped && wrapped.kind !== "user-message" ? "agent" : "session", ...(fromFlowly ? { senderTitle: "Flowly automation" } : {}), ...(wrapped?.senderId ? { senderId: wrapped.senderId } : {}), ...(wrapped?.title ? { senderTitle: redactCaptureText(wrapped.title).slice(0, 200) } : {}), status: received || fromFlowly ? "received" : "open" });
   }
+  private arguments(input: unknown, source: CaptureSource): RecordValue | undefined {
+    if (typeof input !== "string") return object(input);
+    try { if (input.length > captureLimits.line || Buffer.byteLength(input) > captureLimits.line) throw new Error("Large arguments"); return object(JSON.parse(input)); }
+    catch { this.gap({ id: `call:${sourceKey(source)}`, kind: "unparsed_tool_arguments", source }); return undefined; }
+  }
+  private register(call: PendingCaptureCall, source: CaptureSource) {
+    this.calls.set(call.callId, call);
+    if (this.calls.size > captureLimits.calls) { const first = this.calls.keys().next().value!; this.calls.delete(first); this.gap({ id: `pending:${sourceKey(source)}`, kind: "pending_call_budget", source }); }
+  }
   private call(name: string, callId: string, input: unknown, source: CaptureSource, timestamp: unknown) {
-    const tool = [...toolNames].find(([known]) => name === known || name.endsWith(`__${known}`) || name.endsWith(`.${known}`))?.[1];
-    if (!tool) {
-      if (["exec", "Workflow"].includes(name.split(".").pop() ?? "")) this.gap({ id: `opaque:${sourceKey(source)}`, kind: "opaque_tool_background", source });
+    if (this.done.has(callId)) return;
+    const script = scriptTool(name);
+    if (script) { this.script(script, callId, input, source, timestamp); return; }
+    if (name.split(".").pop() === "wait") {
+      // Codex code mode resumes a yielded script cell with a top-level wait {cell_id}.
+      const data = this.arguments(input, source), cell = id(data?.cell_id);
+      if (cell && id(callId)) this.register({ callId, kind: "exec", action: "close", source, at: this.time(timestamp).at, handle: `cell:${cell}`, wait: data?.terminate === true ? { terminate: true } : {} }, source);
       return;
     }
+    const tool = knownTool(name);
+    if (!tool) return;
     if (!id(callId)) { this.gap({ id: `call:${sourceKey(source)}`, kind: "tool_call_identity_unknown", source }); return; }
-    let data = object(input);
-    if (typeof input === "string") { try { if (input.length > captureLimits.line || Buffer.byteLength(input) > captureLimits.line) throw new Error("Large arguments"); data = object(JSON.parse(input)); } catch { this.gap({ id: `call:${sourceKey(source)}`, kind: "unparsed_tool_arguments", source }); } }
-    const detached = data.run_in_background === true || /\bnohup\b|&\s*$/.test(string(data.cmd ?? data.command));
+    const data = this.arguments(input, source) ?? {};
+    const detached = data.run_in_background === true || detachedCommand(string(data.cmd ?? data.command));
     if (name === "Bash" && !detached) return;
     const handle = id(data.session_id ?? data.task_id ?? data.taskId ?? data.agentId ?? data.agent_id ?? data.tabId ?? data.tab_id ?? data.terminalId ?? data.scheduleId ?? data.heartbeatId ?? data.id);
     const label = redactCaptureText(string(data.cmd ?? data.command ?? data.title ?? data.name)).slice(0, 120);
-    const call: PendingCaptureCall = { callId, ...tool, source, at: this.time(timestamp).at, ...(handle ? { handle } : {}), ...(label ? { label } : {}), ...(detached ? { detached: true } : {}) };
-    this.calls.set(callId, call);
-    if (this.calls.size > captureLimits.calls) { const first = this.calls.keys().next().value!; this.calls.delete(first); this.gap({ id: `pending:${sourceKey(source)}`, kind: "pending_call_budget", source }); }
+    this.register({ callId, ...tool, source, at: this.time(timestamp).at, ...(handle ? { handle } : {}), ...(label ? { label } : {}), ...(detached ? { detached: true } : {}) }, source);
+  }
+  /** Scripts and workflows are counted, not itemized: only background work they evidently leave running becomes an item (see SESSION-HANDOFF-SPEC §5.7). */
+  private script(type: "script" | "workflow", callId: string, input: unknown, source: CaptureSource, timestamp: unknown) {
+    this.result.scriptCalls++;
+    if (!id(callId)) return;
+    const at = this.time(timestamp).at;
+    if (type === "workflow") {
+      const data = typeof input === "string" ? object(parseJson(input)) : object(input);
+      const name = redactCaptureText(string(data.name) || string(data.workflowName) || string(data.scriptPath).split("/").pop()?.replace(/\.[^.]+$/, "") || "").slice(0, 80);
+      this.register({ callId, kind: "agent", action: "start", source, at, label: `Workflow${name ? ` ${name}` : ""}`, script: { workflow: true, starts: [], execCalls: 0, seen: {} } }, source);
+      return;
+    }
+    const raw = typeof input === "string" ? input : string(object(input).code ?? object(input).script ?? object(input).input) || JSON.stringify(input ?? "");
+    const text = raw.length > captureLimits.line ? raw.slice(0, captureLimits.line) : raw;
+    const bases = [...text.matchAll(nestedCalls)].map((match) => toolBase(match[1] ?? match[3]));
+    const starts = [...new Set(bases.filter((base) => nestedStart(base)))].slice(0, 16);
+    const command = [...text.matchAll(commandLiterals)].map((match) => unescapeLiteral(match[1] ?? match[2] ?? match[3])).find(detachedCommand) ?? (/\brun_in_background["']?\s*:\s*true\b/.test(text) ? "run_in_background" : undefined);
+    this.register({ callId, kind: "exec", action: "start", source, at, label: "script running", script: { ...(this.origin === "timeline" ? { timeline: true } : {}), starts, execCalls: bases.filter((base) => base === "exec_command").length, seen: {}, ...(command ? { detached: redactCaptureText(command).slice(0, 100) } : {}) } }, source);
+  }
+  /** Nested completion items count toward the newest unfinished script; they show that a started call ended within it. */
+  private attribute(base: string) {
+    const script = [...this.calls.values()].reverse().find((call) => call.script && !call.script.workflow)?.script;
+    if (script && (base === "exec_command" || base === "detached" || script.starts.includes(base))) script.seen[base] = (script.seen[base] ?? 0) + 1;
+  }
+  private push(item: Omit<CaptureBackground, "source" | "at">, source: CaptureSource, at: string) { this.result.background.push({ ...item, source, at }); }
+  private scriptOutput(call: PendingCaptureCall, raw: unknown, source: CaptureSource, failed: boolean) {
+    const script = call.script!, blocks = outputBlocks(raw), text = blocks.join("\n");
+    // The in-flight placeholder (finish) closes unless evidence below keeps the work open.
+    this.push({ id: `background:${this.agentId}:${call.callId}`, kind: call.kind, callId: call.callId, status: "closed", closeOnly: true }, source, call.at);
+    if (Buffer.byteLength(text) > captureLimits.line) { this.gap({ id: `large-result:${sourceKey(source)}`, kind: "large_tool_result_omitted", source }); return; }
+    if (script.workflow) {
+      if (failed || !(/launched in background/i.test(text) || /"status"\s*:\s*"async_launched"/.test(text))) return; // A rejected workflow started nothing.
+      const handle = announcedHandle(text) ?? id(object(parseJson(text)).taskId ?? object(parseJson(text)).runId);
+      if (!handle) this.gap({ id: `handle:${sourceKey(source)}`, kind: "background_handle_unknown", source });
+      this.push({ id: handle ? `background:${this.agentId}:agent:${handle}` : `background:${this.agentId}:${call.callId}:workflow`, kind: "agent", callId: call.callId, ...(handle ? { handle, status: "open" } : { status: "unknown" }), label: call.label }, source, call.at);
+      return;
+    }
+    const header = /^Script (completed|failed|running with cell ID ([\w.-]+))/.exec(blocks[0] ?? "");
+    if (header?.[2]) { const handle = `cell:${header[2]}`; this.push({ id: `background:${this.agentId}:exec:${handle}`, kind: "exec", handle, status: "open", label: `script cell ${header[2]} still running` }, source, call.at); return; }
+    const running = runningSessions(blocks.slice(blocks.length > 1 ? 1 : 0)).filter((session) => !this.closed.includes(session));
+    for (const handle of running) this.push({ id: `background:${this.agentId}:exec:${handle}`, kind: "exec", handle, status: "open", label: "exec session started by a script" }, source, call.at);
+    if (script.detached && !script.seen.detached) this.push({ id: `background:${this.agentId}:${call.callId}:detached`, kind: "exec", callId: `${call.callId}:detached`, status: "unknown", label: `detached in script: ${script.detached}`.slice(0, 120) }, source, call.at);
+    if (script.timeline) return; // Paseo's timeline shows nested calls as their own rows.
+    for (const base of script.starts) if (!script.seen[base]) this.push({ id: `background:${this.agentId}:${call.callId}:${base}`, kind: nestedStart(base)!, callId: `${call.callId}:${base}`, status: "unknown", label: `${base} called in a script; result not observed` }, source, call.at);
+    if (script.execCalls > (script.seen.exec_command ?? 0) + running.length) this.push({ id: `background:${this.agentId}:${call.callId}:exec`, kind: "exec", callId: `${call.callId}:exec`, status: "unknown", label: "exec_command in a script; completion not observed" }, source, call.at);
   }
   private output(callId: string, raw: unknown, source: CaptureSource, failed = false) {
     const call = this.calls.get(callId);
     if (!call) return;
-    this.calls.delete(callId);
+    this.calls.delete(callId); this.done.add(callId);
+    if (call.script) { this.scriptOutput(call, raw, source, failed); return; }
+    if (call.wait) {
+      const ended = /^Script (completed|failed)/.exec(outputBlocks(raw)[0] ?? "")?.[1];
+      if (call.wait.terminate || ended) this.closeHandle(call.handle!, source, undefined, call.wait.terminate ? "terminated" : ended, "exec");
+      return;
+    }
     let value = raw;
     if (typeof value === "string" && (value.length > captureLimits.line || Buffer.byteLength(value) > captureLimits.line)) { this.gap({ id: `large-result:${sourceKey(source)}`, kind: "large_tool_result_omitted", source }); value = undefined; }
     if (typeof value === "string") { try { value = JSON.parse(value); } catch { /* Native exec also uses a short textual status header. */ } }
@@ -155,22 +311,48 @@ export class CaptureRecords {
     if (failed) { this.gap({ id: `failed-result:${sourceKey(source)}`, kind: "background_tool_failed", source }); this.result.background.push({ id: `background:${this.agentId}:${callId}`, source, kind: call.kind, callId, ...(call.handle ? { handle: call.handle } : {}), status: "unknown", at: call.at }); return; }
     const specific = object(data[call.kind === "async_shell" ? "task" : call.kind]);
     const handle = id(data.session_id ?? data.task_id ?? data.taskId ?? data.agentId ?? data.agent_id ?? data.tabId ?? data.tab_id ?? data.terminalId ?? data.terminal_id ?? data.runId ?? data.scheduleId ?? data.heartbeatId ?? specific.id ?? data.id) ?? call.handle;
-    const header = typeof value === "string" ? /^Process running with session ID ([\w.-]+)/m.exec(value)?.[1] : undefined;
+    const header = typeof value === "string" ? id(/^Process running with session ID ([\w.-]+)/m.exec(value)?.[1]) ?? announcedHandle(value) : undefined;
     const ref = handle ?? header;
     const finishedExec = call.kind === "exec" && (number(data.exit_code) !== undefined || (typeof value === "string" && /^Process exited with code \d+/m.test(value)));
     const closed = finishedExec || call.action === "close" && (data.ok === true || data.success === true || data.cancelled === true || data.canceled === true || data.deleted === true || ["closed", "cancelled", "canceled", "deleted"].includes(string(data.status)));
     if (finishedExec && !ref) {
       if (call.detached) { this.gap({ id: `detached:${sourceKey(source)}`, kind: "detached_background_untracked", source }); this.result.background.push({ id: `background:${this.agentId}:${callId}`, source, kind: call.kind, callId, status: "unknown", at: call.at, ...(call.label ? { label: call.label } : {}) }); }
+      else this.push({ id: `background:${this.agentId}:${callId}`, kind: call.kind, callId, status: "closed", closeOnly: true }, source, call.at);
       return;
     }
     if (!ref || call.action === "close" && !closed) { this.gap({ id: `handle:${sourceKey(source)}`, kind: "background_handle_unknown", source }); this.result.background.push({ id: `background:${this.agentId}:${callId}`, source, kind: call.kind, callId, status: "unknown", at: call.at, ...(call.label ? { label: call.label } : {}) }); return; }
     this.result.background.push({ id: `background:${this.agentId}:${call.kind}:${ref}`, source, kind: call.kind, handle: ref, callId, status: closed ? "closed" : "open", at: call.at, ...(call.label ? { label: call.label } : {}), ...(finishedExec ? { outcome: number(data.exit_code) !== undefined ? `exit ${data.exit_code}` : "completed" } : {}) });
   }
+  /** Codex item_completed: nested calls of a code-mode script appear only here (top-level ones repeat their call id). */
+  private item(raw: unknown, source: CaptureSource, timestamp: unknown) {
+    const item = object(raw), type = string(item.type), itemId = string(item.id);
+    if (type === "McpToolCall") {
+      const name = `${string(item.server)}.${string(item.tool)}`;
+      this.attribute(toolBase(name));
+      this.call(name, itemId, item.arguments, source, timestamp);
+      if (this.calls.has(itemId)) this.output(itemId, item.result ?? item.error, source, !!item.error || !["completed", ""].includes(string(item.status)));
+    } else if (type === "CommandExecution") {
+      this.attribute("exec_command");
+      const command = Array.isArray(item.command) ? string(item.command.at(-1)) : string(item.command), session = id(item.process_id);
+      if (session) {
+        this.closed = [...this.closed.filter((value) => value !== session), session].slice(-captureLimits.closed);
+        this.push({ id: `background:${this.agentId}:exec:${session}`, kind: "exec", handle: session, status: "closed", closeOnly: true, ...(number(item.exit_code) !== undefined ? { outcome: `exit ${item.exit_code}` } : {}) }, source, this.time(timestamp).at);
+      }
+      if (detachedCommand(command) && id(itemId)) this.attribute("detached");
+      if (detachedCommand(command) && id(itemId)) this.push({ id: `background:${this.agentId}:${itemId}`, kind: "exec", callId: itemId, status: "unknown", label: `detached: ${redactCaptureText(command)}`.slice(0, 120) }, source, this.time(timestamp).at);
+    }
+    // Other items (Reasoning, FileChange, ContextCompaction, UserMessage, AgentMessage, ...) are covered elsewhere or are metadata; see SESSION-HANDOFF-SPEC §5.7.
+  }
   providerLine(provider: "codex" | "claude", raw: Buffer, source: CaptureSource): string {
+    this.origin = "provider";
+    try { return this.line(provider, raw, source); } finally { this.lineAt = undefined; }
+  }
+  private line(provider: "codex" | "claude", raw: Buffer, source: CaptureSource): string {
     if (!raw.toString("utf8").trim()) return "empty";
     let entry: RecordValue;
     try { entry = object(JSON.parse(raw.toString("utf8"))); } catch { this.gap({ id: `parse:${sourceKey(source)}`, kind: "parse_failed", source, bytes: raw.length }); this.firstUsageAvailable = false; return "invalid_json"; }
     const type = redactCaptureText(string(entry.type)).slice(0, 80), payload = object(entry.payload), timestamp = entry.timestamp;
+    if (typeof timestamp === "string" && Number.isFinite(Date.parse(timestamp))) this.lineAt = timestamp;
     if (provider === "claude" && entry.isSidechain === true) return "claude/sidechain";
     if (this.identityMismatch) return "wrong_session";
     if (entry.sessionId && entry.sessionId !== source.sessionId || type === "session_meta" && payload.id && payload.id !== source.sessionId) { this.identityMismatch = true; this.gap({ id: `identity:${sourceKey(source)}`, kind: "session_identity_mismatch", source }); return "wrong_session"; }
@@ -183,7 +365,7 @@ export class CaptureRecords {
         if (Array.isArray(content)) for (const item of content) { const block = object(item); if (block.type === "tool_result") this.output(string(block.tool_use_id), block.content, source, block.is_error === true); }
         if (!Array.isArray(content) || !content.some((block) => object(block).type === "tool_result")) {
           const text = contentText(content);
-          if (/^\s*<(?:task-notification|system-reminder|command-|local-command)/.test(text)) this.gap({ id: `synthetic:${sourceKey(source)}`, kind: "provider_system_notification", source });
+          if (/^\s*<(?:system-reminder|command-|local-command)/.test(text)) this.gap({ id: `synthetic:${sourceKey(source)}`, kind: "provider_system_notification", source });
           else this.message(text, source, timestamp);
         }
       } else if (type === "assistant") {
@@ -209,7 +391,12 @@ export class CaptureRecords {
       else if (event === "token_count") {
         const info = object(payload.info), contextTokens = number(object(info.last_token_usage).total_tokens), windowTokens = number(info.model_context_window ?? payload.model_context_window);
         if (contextTokens !== undefined) { this.result.usage.push({ id: `usage:${sourceKey(source)}`, source, ...this.time(timestamp), contextTokens, ...(windowTokens ? { windowTokens } : {}), ...(this.firstUsageAvailable && !this.sawUsage ? { initialContextTokens: contextTokens } : {}) }); this.sawUsage = true; }
-      } else if (!["task_started", "task_complete", "turn_aborted", "agent_reasoning", "agent_reasoning_raw_content", "item_started", "item_completed", "warning", "error", "context_compacted"].includes(event)) this.gap({ id: `event:${sourceKey(source)}`, kind: "unknown_event_type", source, typeHint: event.slice(0, 80) || "unknown" });
+      } else if (event === "item_completed") this.item(payload.item, source, timestamp);
+      else if (event === "thread_goal_updated") {
+        // A /goal objective is a person's standing instruction; repeated updates of the same objective are one input.
+        const objective = string(object(payload.goal).objective).trim();
+        if (objective) this.message(objective, { ...source, messageId: `goal:${digest(objective)}` }, timestamp);
+      } else if (!metadataEvents.has(event)) this.gap({ id: `event:${sourceKey(source)}`, kind: "unknown_event_type", source, typeHint: event.slice(0, 80) || "unknown" });
       return `event_msg/${event.slice(0, 80) || "unknown"}`;
     }
     if (type === "response_item") {
@@ -220,23 +407,52 @@ export class CaptureRecords {
       return `response_item/${redactCaptureText(string(payload.type)).slice(0, 80) || "unknown"}`;
     }
     if (type === "compacted") { if (payload.latest_token_usage_record || entry.latest_token_usage_record) this.result.compactions.push({ id: `compact:${sourceKey(source)}`, source, at: this.time(timestamp).at }); }
-    else if (!["session_meta", "turn_context"].includes(type)) this.gap({ id: `type:${sourceKey(source)}`, kind: "unknown_record_type", source, typeHint: type.slice(0, 80) || "unknown" });
+    else if (!metadataRecords.has(type)) this.gap({ id: `type:${sourceKey(source)}`, kind: "unknown_record_type", source, typeHint: type.slice(0, 80) || "unknown" });
     return type.slice(0, 80) || "unknown";
   }
+  /** Paseo shell rows (Codex command executions, also nested ones; Claude Bash): a row still running at turn end is evidently background work. */
+  private shell(item: RecordValue, callId: string, detail: RecordValue, source: CaptureSource, timestamp: unknown) {
+    const input = object(detail.input ?? item.input), command = string(detail.command ?? input.command ?? input.cmd), status = string(item.status), at = this.time(timestamp).at;
+    const label = redactCaptureText(command).slice(0, 100) || "shell";
+    if (status === "running") { this.push({ id: `background:${this.agentId}:${callId}`, kind: "exec", callId, status: "open", label: `running at turn end: ${label}` }, source, at); return; }
+    if (input.run_in_background === true || detachedCommand(command)) {
+      const output = detail.output ?? item.output, handle = announcedHandle(typeof output === "string" ? output : JSON.stringify(output ?? ""));
+      this.push({ id: `background:${this.agentId}:${callId}`, kind: "exec", callId, ...(handle ? { handle, status: "open" } : { status: "unknown" }), label: `detached: ${label}` }, source, at);
+      return;
+    }
+    this.push({ id: `background:${this.agentId}:${callId}`, kind: "exec", callId, status: "closed", closeOnly: true }, source, at);
+  }
+  /** Plugin rows never reach the model. Known UI and summary rows are metadata; a person's goal is an input; anything else stays a (grouped) gap. */
+  private plugin(item: RecordValue, source: CaptureSource, timestamp: unknown, received: boolean) {
+    const kind = redactCaptureText(string(item.kind)).slice(0, 60), plugin = redactCaptureText(string(item.pluginId)).slice(0, 60), data = object(item.data);
+    if (pluginMetadata.has(kind)) return;
+    if (kind === "goal-status") {
+      const goal = (string(data.goal) || string(object(data.goal).objective) || string(object(data.goal).text)).trim();
+      if (goal) this.message(goal, { ...source, messageId: `goal:${digest(goal)}` }, timestamp, false, received);
+      return;
+    }
+    if (kind === "provider-transfer") { const to = id(data.fallbackAgentId); this.notice(`provider-transfer:${to ?? digest(JSON.stringify(data))}`, `Paseo rate-fallback moved this session's work to agent ${to ?? "(id not recorded)"}; that session is not this card's ledger entry.`, timestamp); return; }
+    this.gap({ id: `timeline:${sourceKey(source)}`, kind: "unknown_timeline_type", source, typeHint: `plugin:${plugin || "?"}/${kind || "?"}`.slice(0, 80) });
+  }
   timeline(items: readonly unknown[], received: boolean) {
+    this.origin = "timeline";
     const counts = new Map<string, number>();
     for (const raw of items) {
       const item = object(raw), type = string(item.type), messageId = id(item.messageId ?? item.clientMessageId);
       const value = string(item.text), fingerprint = digest(`${type}\0${value}\0${string(item.callId)}\0${string(item.name)}`), occurrence = (counts.get(fingerprint) ?? 0) + 1;
       counts.set(fingerprint, occurrence);
       const source: CaptureSource = { agentId: this.agentId, provider: "timeline", fileId: `${fingerprint}:${occurrence}`, ...(messageId ? { messageId } : {}) };
-      if (type === "user_message" || type === "assistant_message" || type === "agent_message") this.message(value, source, item.at ?? item.timestamp, type !== "user_message", received);
+      const timestamp = item.at ?? item.timestamp;
+      if (type === "user_message" || type === "assistant_message" || type === "agent_message") this.message(value, source, timestamp, type !== "user_message", received);
       else if (type === "tool_call") {
         const callId = id(item.callId) ?? `timeline:${fingerprint}:${occurrence}`, detail = object(item.detail);
-        this.call(string(item.name), callId, detail.input ?? item.input, source, item.at ?? item.timestamp);
+        if (string(detail.type) === "shell") { this.shell(item, callId, detail, source, timestamp); continue; }
+        this.call(string(item.name), callId, detail.input ?? item.input, source, timestamp);
         if (["completed", "failed", "canceled"].includes(string(item.status))) this.output(callId, detail.output ?? item.output ?? item.metadata, source, item.status !== "completed");
-      } else if (type === "compaction" && item.status === "completed") this.result.compactions.push({ id: `compact:${sourceKey(source)}`, source, at: this.time(item.at ?? item.timestamp).at, ...(number(item.preTokens) !== undefined ? { preTokens: number(item.preTokens) } : {}) });
-      else if (!["reasoning", "plan", "plan_update", "error", "notice", "turn_started", "turn_completed"].includes(type)) this.gap({ id: `timeline:${sourceKey(source)}`, kind: "unknown_timeline_type", source, typeHint: type.slice(0, 80) || "unknown" });
+      } else if (type === "compaction") { if (item.status === "completed") this.result.compactions.push({ id: `compact:${sourceKey(source)}`, source, at: this.time(timestamp).at, ...(this.time(timestamp).atSource === "captured" ? { captured: true } : {}), ...(number(item.preTokens) !== undefined ? { preTokens: number(item.preTokens) } : {}) }); }
+      else if (type === "plugin") this.plugin(item, source, timestamp, received);
+      else if (type === "notification") { const level = string(item.level); if (level === "warning" || level === "error") this.notice(`notification:${digest(`${level}\0${string(item.message)}`)}`, `Paseo ${level} notice in this session: ${string(item.message)}`, timestamp); }
+      else if (!["reasoning", "plan", "plan_update", "todo", "error", "notice", "turn_started", "turn_completed"].includes(type)) this.gap({ id: `timeline:${sourceKey(source)}`, kind: "unknown_timeline_type", source, typeHint: type.slice(0, 80) || "unknown" });
     }
   }
   finish() {
@@ -247,3 +463,5 @@ export class CaptureRecords {
     for (const list of [this.result.inputs, this.result.live, this.result.background, this.result.usage, this.result.compactions]) for (const item of list) item.id = stableId(item.id);
   }
 }
+const metadataRecords = new Set(["session_meta", "turn_context", "world_state", "inter_agent_communication_metadata"]);
+const metadataEvents = new Set(["task_started", "task_complete", "turn_aborted", "agent_reasoning", "agent_reasoning_raw_content", "item_started", "warning", "error", "context_compacted", "thread_settings_applied"]);

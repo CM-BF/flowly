@@ -8,11 +8,14 @@ export { captureLimits };
 export type CaptureSource = { agentId: string; provider: string; fileId?: string; sessionId?: string; offset?: number; end?: number; messageId?: string };
 export type CaptureMessage = { id: string; source: CaptureSource; text: string; at: string; atSource: "provider" | "captured"; messageId?: string; via: "session" | "agent"; senderId?: string; senderTitle?: string; redacted?: boolean; status: "open" | "received" };
 export type CaptureNarration = Omit<CaptureMessage, "via" | "status"> & { truncated?: boolean };
-export type CaptureBackground = { id: string; source: CaptureSource; kind: "async_shell" | "exec" | "browser" | "terminal" | "workspace_script" | "agent" | "schedule" | "heartbeat"; handle?: string; callId?: string; status: "open" | "closed" | "unknown"; label?: string; outcome?: string; at: string };
-export type CaptureGap = { id: string; kind: string; source?: CaptureSource; from?: number; to?: number; bytes?: number; count?: number; typeHint?: string; at?: string };
+/** `closeOnly`: a completion that may close an item already recorded (by id, call id or handle) but never creates one. */
+export type CaptureBackground = { id: string; source: CaptureSource; kind: "async_shell" | "exec" | "browser" | "terminal" | "workspace_script" | "agent" | "schedule" | "heartbeat"; handle?: string; callId?: string; status: "open" | "closed" | "unknown"; label?: string; outcome?: string; at: string; closeOnly?: boolean };
+/** One gap per kind and type hint in a batch: `id`/`source`/`from` are its first occurrence, `count` all of them, `at`/`lastAt` the first and last time. */
+export type CaptureGap = { id: string; kind: string; source?: CaptureSource; from?: number; to?: number; bytes?: number; count?: number; typeHint?: string; at?: string; lastAt?: string };
 export type CaptureUsage = { id: string; source: CaptureSource; at: string; atSource?: "provider" | "captured"; contextTokens: number; windowTokens?: number; initialContextTokens?: number; cacheTtlSeconds?: number; messageId?: string };
-export type CaptureSemantics = { inputs: CaptureMessage[]; live: CaptureNarration[]; background: CaptureBackground[]; usage: CaptureUsage[]; compactions: { id: string; source: CaptureSource; at: string; preTokens?: number }[]; gaps: CaptureGap[]; omittedGaps: number; narrationOmitted: number; narrationTrimmedChars: number };
-export type CaptureCursor = { version: 1; provider: "codex" | "claude"; sessionId: string; fileId: string; path: string; epoch: number; offset: number; prefix?: { length: number; hash: string }; anchor?: { offset: number; length: number; hash: string }; skipping?: { start: number; bytes: number; typeHint: string; at?: string; messageId?: string }; calls?: PendingCaptureCall[]; sawUsage?: boolean; firstUsageAvailable?: boolean };
+/** `notices`: host messages worth a card note (warnings, plugin transfers). `scriptCalls`: script/workflow calls seen in this batch or timeline. */
+export type CaptureSemantics = { inputs: CaptureMessage[]; live: CaptureNarration[]; background: CaptureBackground[]; usage: CaptureUsage[]; compactions: { id: string; source: CaptureSource; at: string; preTokens?: number; captured?: boolean }[]; gaps: CaptureGap[]; notices: { id: string; text: string; at: string }[]; omittedGaps: number; narrationOmitted: number; narrationTrimmedChars: number; scriptCalls: number };
+export type CaptureCursor = { version: 1; provider: "codex" | "claude"; sessionId: string; fileId: string; path: string; epoch: number; offset: number; prefix?: { length: number; hash: string }; anchor?: { offset: number; length: number; hash: string }; skipping?: { start: number; bytes: number; typeHint: string; at?: string; messageId?: string }; calls?: PendingCaptureCall[]; closed?: string[]; sawUsage?: boolean; firstUsageAvailable?: boolean };
 export type CaptureBatch = CaptureSemantics & { provider?: string; source?: NativeHistoryFile; cursor?: CaptureCursor; growth: Record<string, { bytes: number; lines: number }>; coverage: { at: string; from: number; through: number; fileBytes?: number; readBytes: number; backlogBytes: number; partialBytes: number; skippedBytes: number; complete: boolean; aborted: boolean } };
 export type CaptureOptions = { signal?: AbortSignal; now?: () => number; codexHome?: string; claudeHome?: string; maxBytes?: number; maxLineBytes?: number; maxRecords?: number; /** Already recorded Flowly sends; the body must not be compared by text. */ sentMessageIds?: readonly string[]; automationTextHashes?: readonly string[] };
 const hash = (data: Uint8Array) => createHash("sha256").update(data).digest("hex");
@@ -24,6 +27,7 @@ function validCursor(cursor: CaptureCursor) {
   if (cursor.prefix && (!integer(cursor.prefix.length) || cursor.prefix.length > 128)) return false;
   if (cursor.anchor && (!integer(cursor.anchor.length) || cursor.anchor.length > 128 || !integer(cursor.anchor.offset) || cursor.anchor.offset + cursor.anchor.length !== cursor.offset)) return false;
   if (cursor.skipping && (!integer(cursor.skipping.start) || !integer(cursor.skipping.bytes) || cursor.skipping.start + cursor.skipping.bytes !== cursor.offset)) return false;
+  if (cursor.closed && (!Array.isArray(cursor.closed) || cursor.closed.length > captureLimits.closed || cursor.closed.some((value) => typeof value !== "string"))) return false;
   return !cursor.calls || Array.isArray(cursor.calls) && cursor.calls.length <= captureLimits.calls;
 }
 
@@ -61,11 +65,11 @@ export async function captureHandoff(agent: HistoryAgent & { id: string }, previ
         cursor.firstUsageAvailable = false;
         records.gap({ id: `reset:${agent.id}:${fileId}:${cursor.epoch}`, kind: initial.size < previous.offset ? "file_truncated" : "file_replaced", from: 0, to: previous.offset });
       } else {
-        cursor = { ...previous, calls: previous.calls?.map((call) => ({ ...call })), skipping: previous.skipping && { ...previous.skipping }, path: location.file.path };
+        cursor = { ...previous, calls: previous.calls?.map((call) => structuredClone(call)), closed: previous.closed && [...previous.closed], skipping: previous.skipping && { ...previous.skipping }, path: location.file.path };
         if (previous.path !== cursor.path) records.gap({ id: `moved:${agent.id}:${fileId}:${cursor.epoch}`, kind: "file_moved", from: previous.offset, to: previous.offset });
       }
     }
-    records.restore(cursor.calls ?? [], !!cursor.sawUsage, cursor.firstUsageAvailable !== false);
+    records.restore(cursor.calls ?? [], !!cursor.sawUsage, cursor.firstUsageAvailable !== false, cursor.closed ?? []);
     const sourceAt = (start: number, end: number): CaptureSource => ({ agentId: agent.id, provider: cursor.provider, sessionId: cursor.sessionId, fileId: `${cursor.fileId}:${cursor.epoch}`, offset: start, end });
     const growth = (type: string, bytes: number, lines: number) => {
       const key = Object.keys(batch.growth).length < 64 || batch.growth[type] ? type : "other";
@@ -114,6 +118,7 @@ export async function captureHandoff(agent: HistoryAgent & { id: string }, previ
     if (prefix.length) cursor.prefix = { length: prefix.length, hash: hash(prefix) };
     if (tail.length) cursor.anchor = { offset: cursor.offset - tail.length, length: tail.length, hash: hash(tail) };
     cursor.calls = records.pending(); cursor.sawUsage = records.sawUsage; cursor.firstUsageAvailable = records.firstUsageAvailable;
+    const closed = records.closedSessions(); if (closed.length) cursor.closed = closed; else delete cursor.closed;
     batch.cursor = cursor;
     const final = await file.stat();
     batch.coverage.through = cursor.offset; batch.coverage.fileBytes = final.size; batch.coverage.backlogBytes = Math.max(0, final.size - cursor.offset);

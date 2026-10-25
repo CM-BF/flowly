@@ -14,7 +14,7 @@ afterEach(async () => { await Promise.all(observers.splice(0).map((observer) => 
 const at = "2026-10-24T00:00:00.000Z", flowly = { by: { kind: "flowly" as const } };
 const source = { agentId: "worker", provider: "codex", fileId: "file:0", offset: 0, end: 100 };
 const cursor = (offset = 100, epoch = 0): CaptureCursor => ({ version: 1, provider: "codex", sessionId: "native", fileId: "file", path: "synthetic-provider", offset, epoch, calls: [{ callId: "unresolved", kind: "exec", action: "start", source, at, label: "safe label" }] });
-function batch(offset = 100): CaptureBatch { return { inputs: [], live: [], background: [], usage: [], compactions: [], gaps: [], omittedGaps: 0, narrationOmitted: 0, narrationTrimmedChars: 0, cursor: cursor(offset), growth: {}, coverage: { at, from: 0, through: offset, fileBytes: offset, readBytes: offset, backlogBytes: 0, partialBytes: 0, skippedBytes: 0, complete: true, aborted: false } }; }
+function batch(offset = 100): CaptureBatch { return { inputs: [], live: [], background: [], usage: [], compactions: [], gaps: [], notices: [], scriptCalls: 0, omittedGaps: 0, narrationOmitted: 0, narrationTrimmedChars: 0, cursor: cursor(offset), growth: {}, coverage: { at, from: 0, through: offset, fileBytes: offset, readBytes: offset, backlogBytes: 0, partialBytes: 0, skippedBytes: 0, complete: true, aborted: false } }; }
 async function fixture(options: { fault?: (point: string) => void; override?: Partial<HandoffObserverDeps> } = {}) {
   const directory = await mkdtemp(join(tmpdir(), "flowly-handoff-observer-")); folders.push(directory);
   const board = new BoardStore(directory), records = new HandoffStore(directory, { fault: options.fault });

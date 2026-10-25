@@ -17,7 +17,9 @@ type Draft<T extends HandoffEntry> = Omit<T, "id" | "rev" | "at" | "by"> & Parti
 export type HandoffInputDraft = Omit<Draft<HandoffInput>, "characters" | "status" | "atSource"> & { characters?: number; status?: HandoffInput["status"]; atSource?: HandoffInput["atSource"] };
 export type HandoffQuestionDraft = Omit<Draft<HandoffQuestion>, "status"> & { status?: HandoffQuestion["status"] };
 export type HandoffReviewDraft = Omit<Draft<HandoffReview>, "findings" | "risks" | "gaps"> & { findings: (string | HandoffReview["findings"][number])[]; risks?: string[]; gaps?: string[] };
-export type HandoffCapture = { entries?: { section: HandoffEntrySection; value: Record<string, unknown> }[]; session?: Draft<HandoffSession>; cursor?: { agentId: string; through: CaptureCursor; capturedThrough?: number }; git?: CardHandoff["git"]; checkpoint?: CardHandoff["checkpoint"]; forgetSeen?: string[]; lastWords?: CardHandoff["lastWords"] };
+/** Grouped Flowly capture gap: `count` is the absolute number of occurrences so far (replays are idempotent). */
+export type HandoffCaptureGap = { id: string; sourceId: string; agentId: string; text: string; count: number; firstAt?: string; lastAt?: string };
+export type HandoffCapture = { entries?: { section: HandoffEntrySection; value: Record<string, unknown> }[]; gaps?: HandoffCaptureGap[]; session?: Draft<HandoffSession>; cursor?: { agentId: string; through: CaptureCursor; capturedThrough?: number }; git?: CardHandoff["git"]; checkpoint?: CardHandoff["checkpoint"]; forgetSeen?: string[]; lastWords?: CardHandoff["lastWords"] };
 type Pointer = { section: HandoffEntrySection; id: string; ref: string; rev: number; sourceId?: string; at: string; removal?: { reason: string; by: HandoffActor; at: string; rev: number } };
 type Receipt = { operationId: string; digest: string; result: HandoffWriteResult };
 type Intent = { version: 1; before: number; after: CardHandoff; archiveOffset: number; archiveData: string; pointers: Pointer[]; receipt: Receipt };
@@ -320,6 +322,18 @@ export class HandoffStore {
     const entry = handoffEntrySchemas[section].parse({ ...draft, id: entryId, rev: record.revision, at: draft.at ?? record.updatedAt, by: context.by, ...(sourceId ? { sourceId, sourceHash } : {}), ...(context.operationId ? { operationId: context.operationId } : {}), ...(context.unconfirmed ? { unconfirmed: true } : {}) }) as HandoffEntry;
     this.replace(change, section, entry); return entry;
   }
+  /** Grouped capture gaps keep one identity: the count only grows, times widen, and a closed gap reopens once it grows past the acknowledged count. */
+  private async mergeGap(change: Mutation, draft: HandoffCaptureGap, context: HandoffContext) {
+    const old = await this.entry(change.record, "gaps", draft.id) as HandoffGap | null;
+    if (!old) { await this.append(change, "gaps", { ...draft, kind: "flowly", status: "open" }, { ...context, sourceId: draft.sourceId }); return; }
+    if (old.sourceId !== draft.sourceId) throw new HandoffError("HANDOFF_CONFLICT", "A grouped capture gap id belongs to a different source.", { id: draft.id });
+    const count = Math.max(old.count ?? 1, draft.count);
+    const firstAt = [old.firstAt, draft.firstAt].filter((at): at is string => !!at).sort()[0], lastAt = [old.lastAt, draft.lastAt].filter((at): at is string => !!at).sort().at(-1);
+    if (count === (old.count ?? 1) && firstAt === old.firstAt && lastAt === old.lastAt) return;
+    const reopen = old.status === "closed" && count > (old.resolution?.count ?? old.count ?? 1);
+    const { rev: _rev, contentRef: _ref, ...kept } = old;
+    this.replace(change, "gaps", handoffEntrySchemas.gaps.parse({ ...kept, rev: change.record.revision, count, ...(firstAt ? { firstAt } : {}), ...(lastAt ? { lastAt } : {}), ...(reopen ? { status: "open", at: change.record.updatedAt } : {}) }));
+  }
   private input(draft: HandoffInputDraft) { return { status: "open", atSource: "typed", ...draft, characters: draft.characters ?? draft.text?.length ?? 0 }; }
   private review(draft: HandoffReviewDraft) {
     const identity = draft.id ?? draft.sourceId ?? `${draft.reviewerId}:${draft.cycle}:${draft.round}`;
@@ -340,6 +354,7 @@ export class HandoffStore {
   capture(taskId: string, projectId: string, capture: HandoffCapture, context: HandoffContext) {
     return this.transaction(taskId, projectId, { action: "capture", capture }, context, async (change) => {
       for (const { section, value } of capture.entries ?? []) await this.append(change, section, value, { ...context, sourceId: typeof value.sourceId === "string" ? value.sourceId : undefined });
+      for (const gap of capture.gaps ?? []) await this.mergeGap(change, gap, context);
       if (capture.session) await this.session(change, capture.session, context);
       if (capture.cursor) {
         const entry = await this.entry(change.record, "ledger", `s:${hash(capture.cursor.agentId).slice(0, 32)}`) as HandoffSession | null;
@@ -420,7 +435,7 @@ export class HandoffStore {
         }
         const old = await this.entry(record, "gaps", disposition.id) as HandoffGap | null; this.conflict(record, revision, old);
         if (!old) throw new HandoffError("HANDOFF_CONFLICT", "That information gap is unavailable.", { id: disposition.id });
-        this.replace(change, "gaps", { ...old, rev: record.revision, at: record.updatedAt, status: disposition.status, resolution: { by: context.by, at: record.updatedAt, note: disposition.note } });
+        this.replace(change, "gaps", { ...old, rev: record.revision, at: record.updatedAt, status: disposition.status, resolution: { by: context.by, at: record.updatedAt, note: disposition.note, ...(disposition.status === "closed" && old.count ? { count: old.count } : {}) } });
       }
       if (context.by.kind === "agent" && (update.state !== undefined || update.set?.length || update.remove?.length || update.order)) {
         record.checkpoint = { agentId: context.by.agentId ?? options.agentId ?? "unknown", at: record.updatedAt, ...(options.actualHeads ? { heads: options.actualHeads.map(({ repo, sha }) => ({ repo, sha })) } : {}), ...(options.dirtyHash ? { dirtyHash: options.dirtyHash } : {}), ...(options.turnStartedAt ? { turnStartedAt: options.turnStartedAt } : {}) };
@@ -438,6 +453,12 @@ export class HandoffStore {
         const continuation = prior?.recordRevision === record.revision - 1 && observed.length === priorHeads.length && observed.every((head) => priorHeads.some((p) => p.repo === head.repo && p.sha === head.sha && p.dirty === head.dirty));
         const items = [...new Map([...(continuation ? prior!.items : []), ...ack.items].map((item) => [item.id, item])).values()].filter((item) => required.includes(item.id));
         change.ackMissing = required.filter((id) => !items.some((item) => item.id === id));
+        // Acknowledging a gap as done/obsolete settles every occurrence counted so far (§7.5); only later growth reopens it.
+        for (const item of ack.items) {
+          if (!["done", "obsolete"].includes(item.disposition) || !required.includes(item.id)) continue;
+          const gap = await this.entry(record, "gaps", item.id) as HandoffGap | null;
+          if (gap?.status === "open") this.replace(change, "gaps", { ...gap, rev: record.revision, at: record.updatedAt, status: "closed", resolution: { by: context.by, at: record.updatedAt, note: item.note!, ...(gap.count ? { count: gap.count } : {}) } });
+        }
         this.replace(change, "ledger", { ...session, rev: record.revision, at: record.updatedAt, ack: { ...ack, items, at: record.updatedAt, recordRevision: record.revision, complete: !change.ackMissing.length }, understanding: ack.understanding });
       }
     });

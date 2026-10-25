@@ -25,7 +25,8 @@ export function handoffRequirementsHash(section: HandoffEntrySection, entry: Han
       requirement = fields("kind", "text"); break;
     case "gaps":
       if (value.status !== "open" && !entry.unconfirmed) return null;
-      requirement = fields("kind", "text", "status"); break;
+      // Growth of an open grouped gap is the same obligation; a reopened one names the count it grew past.
+      requirement = { ...fields("kind", "text", "status"), ...((value.resolution as { count?: number } | undefined)?.count ? { acknowledged: (value.resolution as { count: number }).count } : {}) }; break;
     case "problems":
       if (value.status !== "open") return null;
       requirement = fields("text", "status", "note"); break;

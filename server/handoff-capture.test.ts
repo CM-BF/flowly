@@ -83,7 +83,11 @@ test("pending native calls survive a batch boundary; only proven handles and ter
   await appendFile(x.path, json(response("function_call_output", { call_id: "c1", output: JSON.stringify({ session_id: 12345, output: "large result should not be kept" }) })));
   const b = await x.capture(a.cursor); expect(b.background).toContainEqual(expect.objectContaining({ kind: "exec", handle: "12345", status: "open" })); expect(JSON.stringify(b)).not.toContain("secret-value-123");
   await appendFile(x.path, [response("function_call", { name: "write_stdin", call_id: "c2", arguments: JSON.stringify({ session_id: 12345 }) }), response("function_call_output", { call_id: "c2", output: JSON.stringify({ exit_code: 0, output: "not retained" }) }), response("function_call", { name: "functions.exec", call_id: "opaque", arguments: "nested source" })].map(json).join(""));
-  const c = await x.capture(b.cursor); expect(c.background).toContainEqual(expect.objectContaining({ handle: "12345", status: "closed" })); expect(c.gaps.map((g) => g.kind)).toContain("opaque_tool_background");
+  const c = await x.capture(b.cursor); expect(c.background).toContainEqual(expect.objectContaining({ handle: "12345", status: "closed" }));
+  // A script still in flight is a pending placeholder, not an opaque gap; its plain completion closes the placeholder.
+  expect(c.gaps.map((g) => g.kind)).toEqual(["background_handle_pending"]); expect(c.scriptCalls).toBe(1);
+  await appendFile(x.path, json(response("custom_tool_call_output", { call_id: "opaque", output: [{ type: "input_text", text: "Script completed\nWall time 0.4 seconds\nOutput:\n" }] })));
+  const d = await x.capture(c.cursor); expect(d.gaps).toEqual([]); expect(d.background).toEqual([expect.objectContaining({ callId: "opaque", status: "closed", closeOnly: true })]);
 });
 
 test("Codex usage/compaction and narration have independent stable ids, bounded text and credential redaction", async () => {
@@ -207,7 +211,6 @@ test("unknown text or malformed token_usage_record metadata still produces a gap
     { ...base, payload: { ...base.payload, usage: incompleteUsage } },
   ];
   await writeFile(x.path, cases.map(json).join("")); const b = await x.capture();
-  expect(b.gaps).toHaveLength(cases.length);
-  expect(b.gaps.every(g => g.kind === "unknown_record_type" && g.typeHint === "token_usage_record")).toBe(true);
+  expect(b.gaps).toEqual([expect.objectContaining({ kind: "unknown_record_type", typeHint: "token_usage_record", count: cases.length })]);
   expect(b.usage).toEqual([]); expect(b.compactions).toEqual([]);
 });
