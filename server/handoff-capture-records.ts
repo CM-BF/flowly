@@ -453,10 +453,11 @@ export class CaptureRecords {
    */
   private agentChannel(payload: RecordValue, source: CaptureSource, timestamp: unknown) {
     const author = agentPath(payload.author), text = contentText(payload.content).trimStart();
-    if (string(payload.recipient).trim() !== "/root" || !author || author === "/root" || !text.trim()) return;
+    if (string(payload.recipient).trim() !== "/root" || author === "/root" || !text.trim()) return;
     const parsed = /^Message Type: ([A-Z][A-Z_]{0,39})\nTask name: [^\n]{0,200}\nSender: ([^\n]{1,200})\nPayload:(?:\n([\s\S]*))?$/.exec(text);
-    if (!parsed) { this.gap({ id: `response:${sourceKey(source)}`, kind: "unknown_response_type", source, typeHint: "agent_message (unparsed header)" }); return; }
-    const [, type, sender, body = ""] = parsed, path = agentPath(sender.trim()) ?? author;
+    const path = parsed && (agentPath(parsed[2].trim()) ?? author);
+    if (!parsed || !path) { this.gap({ id: `response:${sourceKey(source)}`, kind: "unknown_response_type", source, typeHint: "agent_message (unparsed header)" }); return; }
+    const [, type, , body = ""] = parsed;
     if (!body.trim()) return;
     const key = `subagent-report:${id(payload.id) ?? sourceKey(source)}`, safe = redactCaptureText(body.trim());
     const write = (interrupted: boolean) => {
