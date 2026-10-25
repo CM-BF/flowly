@@ -830,7 +830,7 @@ export class CaptureRecords {
     for (const call of this.calls.values()) {
       if (call.action !== "start") continue;
       this.gap({ id: `pending-background:${this.agentId}:${call.callId}`, kind: "background_handle_pending", source: call.source });
-      if (!this.result.background.some((item) => item.callId === call.callId)) this.result.background.push({ id: `background:${this.agentId}:${call.callId}`, source: call.source, kind: call.kind, callId: call.callId, status: "unknown", at: call.at, ...(call.label ? { label: call.label } : {}) });
+      if (!this.result.background.some((item) => item.callId === call.callId)) this.result.background.push({ id: `background:${this.agentId}:${call.callId}`, source: call.source, kind: call.kind, callId: call.callId, status: "unknown", at: call.at, inFlight: true, ...(call.label ? { label: call.label } : {}) });
     }
     for (const list of [this.result.inputs, this.result.live, this.result.background, this.result.usage, this.result.compactions]) for (const item of list) item.id = stableId(item.id);
   }

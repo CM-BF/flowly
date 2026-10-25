@@ -36,7 +36,8 @@ export function handoffRequirementsHash(section: HandoffEntrySection, entry: Han
       requirement = fields("what", "how", "check", "owner", "status", "result"); break;
     case "ledger": {
       const session = entry as HandoffSession;
-      const background = session.background.filter(item => item.status !== "closed").map(({ id, kind, ref, label, status }) => ({ id, kind, ref, label, status })).sort((a, b) => a.id.localeCompare(b.id));
+      // In-flight placeholders surface on the card, but a poll catching a call running is not a newly arrived requirement.
+      const background = session.background.filter(item => item.status !== "closed" && !item.inFlight).map(({ id, kind, ref, label, status }) => ({ id, kind, ref, label, status })).sort((a, b) => a.id.localeCompare(b.id));
       const through = !session.endedAt ? session.through : undefined;
       const coverage = through && (through.gaps > 0 || through.lagBytes > 0) ? { gaps: through.gaps, lag: through.lagBytes > 0, ...(through.gaps ? { identity: through.identity } : {}) } : undefined;
       if (!background.length && !coverage) return null;

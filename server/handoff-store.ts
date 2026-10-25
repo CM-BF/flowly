@@ -40,7 +40,8 @@ const prefix: Record<HandoffEntrySection, string> = { done: "dn", next: "nx", de
  */
 function ledgerHistory(session: HandoffSession) {
   const { through: _through, capturedThrough: _captured, measured: _measured, growth: _growth, live: _live, skeleton: _skeleton, scriptCalls: _scripts, rev: _rev, at: _at, by: _by, contentRef: _ref, ...kept } = session;
-  return kept;
+  // An in-flight placeholder (a call whose result was not read yet) comes and goes with the polls that catch it running.
+  return { ...kept, background: session.background.filter((item) => !item.inFlight) };
 }
 const canonical = (value: unknown): unknown => Array.isArray(value) ? value.map(canonical) : value !== null && typeof value === "object" ? Object.fromEntries(Object.keys(value).sort().map((key) => [key, canonical((value as Record<string, unknown>)[key])])) : value;
 const historyHash = (session: HandoffSession) => hash(JSON.stringify(canonical(ledgerHistory(session))));

@@ -116,10 +116,11 @@ test("unchanged polls do not rewrite records; Git time alone never changes the r
   x.advance(60_000); await x.observer.observe("card", "worker"); expect((await x.read()).revision).toBe(first.revision); expect(x.git).toHaveBeenCalledTimes(2);
 });
 
+// A pending start call is its own in-flight background item, not missing coverage: only the backlog counts (handoff-inflight.test.ts).
 test("backlog and pending handles clear in current coverage instead of leaving permanent open gaps", async () => {
   const x = await fixture(); const first = batch(); first.gaps.push({ id: "lag", kind: "backlog", bytes: 90 }, { id: "call", kind: "background_handle_pending" }); first.coverage.backlogBytes = 90; first.coverage.fileBytes = 190; first.coverage.complete = false;
   first.background.push({ id: "call", callId: "call", source, kind: "exec", status: "unknown", at }); x.setBatch(first);
-  await x.observer.observe("card", "worker"); expect((await x.read()).gaps).toEqual([]); expect((await x.read()).ledger[0].through?.gaps).toBe(2);
+  await x.observer.observe("card", "worker"); expect((await x.read()).gaps).toEqual([]); expect((await x.read()).ledger[0].through?.gaps).toBe(1);
   const next = batch(190); next.background.push({ id: "resolved", callId: "call", source, kind: "exec", handle: "owned-123", status: "open", at }); x.setBatch(next);
   await x.observer.observe("card", "worker"); const record = await x.read(); expect(record.ledger[0].through?.gaps).toBe(0); expect(record.ledger[0].background).toMatchObject([{ ref: "owned-123", status: "open" }]);
 });

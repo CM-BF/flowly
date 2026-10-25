@@ -217,9 +217,12 @@ export class HandoffObserver {
     const meta = state;
     const gapUpdates = this.captureGaps(agentId, meta, batch, hook);
     const background = [...session.background];
-    /** The oldest evidence-free item of a kind (no handle was ever seen): a completion whose start was not itemized settles it. Exec placeholders are only the "completion not observed" ones. */
+    /**
+     * The oldest evidence-free item of a kind (no handle was ever seen): a completion whose start was not itemized settles it. Exec placeholders are only the "completion not observed" ones.
+     * A call in flight is not one: its own result is still to come, and it would come back on the next poll while the call runs.
+     */
     const placeholder = (kind: HandoffSession["background"][number]["kind"]) => {
-      const candidates = background.map((entry, index) => ({ entry, index })).filter(({ entry }) => entry.status !== "closed" && entry.kind === kind && entry.ref.startsWith("unknown:") && (kind !== "exec_session" || /:exec(?::\d+)?$/.test(entry.callId ?? "")));
+      const candidates = background.map((entry, index) => ({ entry, index })).filter(({ entry }) => entry.status !== "closed" && !entry.inFlight && entry.kind === kind && entry.ref.startsWith("unknown:") && (kind !== "exec_session" || /:exec(?::\d+)?$/.test(entry.callId ?? "")));
       return candidates.sort((a, b) => time(a.entry.startedAt) - time(b.entry.startedAt) || a.index - b.index)[0]?.index ?? -1;
     };
     for (const source of semantics) for (const item of source.background) {
@@ -228,7 +231,9 @@ export class HandoffObserver {
         // A completion closes what was recorded (for any kind: a task id names one task); it never adds an entry.
         let index = background.findIndex((entry) => entry.id === entryId("bg", item.id) || item.callId && entry.callId === item.callId || item.handle && entry.ref === item.handle);
         if (index < 0 && item.late) index = placeholder(kinds[item.kind]);
-        if (index >= 0 && background[index].status !== "closed") background[index] = { ...background[index], status: "closed", ...outcome };
+        // An in-flight placeholder whose result started nothing that runs leaves nothing to hand over (SESSION-HANDOFF-SPEC §5.7).
+        if (index >= 0 && background[index].inFlight) background.splice(index, 1);
+        else if (index >= 0 && background[index].status !== "closed") background[index] = { ...background[index], status: "closed", ...outcome };
         // What a background notice said stays on the card, matched or not (SESSION-HANDOFF-SPEC §5.7, §9.3).
         if (item.note) {
           const sourceId = handoffSource(`capture-notice:${agentId}:${item.note.id}`);
@@ -240,16 +245,19 @@ export class HandoffObserver {
       let index = background.findIndex((entry) => entry.id === entryId("bg", item.id) || item.callId && entry.callId === item.callId || item.handle && entry.kind === kind && entry.ref === item.handle);
       if (index < 0 && item.late && item.status === "closed") index = placeholder(kind);
       const old = index >= 0 ? background[index] : undefined;
+      if (old?.inFlight && item.status === "closed") { background.splice(index, 1); continue; }
       // A reprinted start never reopens what was proven ended; only new work (a sub-agent's follow-up task) does.
       if (old?.status === "closed" && item.status !== "closed" && !item.reopen) {
         // A placeholder settled before its result arrived learns the real handle, so later evidence about it finds it.
-        if (old.ref.startsWith("unknown:") && item.handle) background[index] = { ...old, ref: item.handle, ...(item.label && !item.keepLabel ? { label: item.label.slice(0, 120) } : {}) };
+        if (old.ref.startsWith("unknown:") && item.handle && !item.inFlight) { const { inFlight: _, ...settled } = old; background[index] = { ...settled, ref: item.handle, ...(item.label && !item.keepLabel ? { label: item.label.slice(0, 120) } : {}) }; }
         continue;
       }
       const reopened = old?.status === "closed" && !!item.reopen;
       const next: HandoffSession["background"][number] = { id: old?.id ?? entryId("bg", item.id), ...(item.callId ? { callId: item.callId.slice(0, 200) } : old?.callId ? { callId: old.callId } : {}), kind,
         ref: item.handle ?? old?.ref ?? `unknown:${item.callId ?? item.id}`, label: ((item.keepLabel && old?.label) || item.label || old?.label || kind).slice(0, 120), startedAt: reopened ? item.at : old?.startedAt ?? item.at,
-        status: item.status === "unknown" && old ? old.status : item.status, ...(item.outcome ? outcome : old?.outcome && !reopened ? { outcome: old.outcome } : {}), source: old?.source ?? (source === hook ? "hook" : "live") };
+        status: item.status === "unknown" && old ? old.status : item.status, ...(item.outcome ? outcome : old?.outcome && !reopened ? { outcome: old.outcome } : {}), source: old?.source ?? (source === hook ? "hook" : "live"),
+        // Still only the call, its result unread: the placeholder stays observation state until evidence arrives.
+        ...(item.inFlight && (!old || old.inFlight) ? { inFlight: true as const } : {}) };
       if (index >= 0) background[index] = next; else background.push(next);
     }
     this.mergeBackground(agentId, session.n, background, meta, entries);
@@ -358,7 +366,8 @@ export class HandoffObserver {
     narration.rolledOff += rolledOff; meta.narration = narration;
     const narrationLoss = narration.nativeOmitted + narration.nativeTrimmed + narration.hookOmitted + narration.hookTrimmed + narration.rolledOff > 0;
     const narrationText = narrationLoss ? `Narration preview incomplete: native capture omitted ${narration.nativeOmitted} messages and trimmed ${narration.nativeTrimmed} characters; latest hook omitted ${narration.hookOmitted} messages and trimmed ${narration.hookTrimmed} characters; ${narration.rolledOff} older preview messages rolled off. The full narration is not preserved in this card excerpt.` : "";
-    const currentGaps = semantics.flatMap((source) => source.gaps).filter((gap) => temporary.has(gap.kind));
+    // A start call whose result is not written yet is its own in-flight background item; it is not missing coverage.
+    const currentGaps = semantics.flatMap((source) => source.gaps).filter((gap) => temporary.has(gap.kind) && gap.kind !== "background_handle_pending");
     const unavailable = captureFailed ? ["Provider capture failed; the previous cursor is preserved."] : !actor ? [snapshotFailed ? "Session snapshot could not be refreshed." : "The managed session is unavailable; its uncaptured content is unknown."] : [];
     const coverageText = [...unavailable, ...(narrationText ? [narrationText] : []), ...currentGaps.map((gap) => `${gap.kind}${gap.bytes === undefined ? "" : ` (${gap.bytes} bytes)`}`), ...semantics.filter((source) => source.omittedGaps).map((source) => `${source.omittedGaps} additional capture gaps omitted`)].join("; ");
     const cursor = batch?.cursor ?? nativeCursor(resume);
@@ -481,7 +490,8 @@ export class HandoffObserver {
     let aggregateId = entryId("bg", `background-merged:${agentId}:${merge.epoch}`);
     if (background.some((item) => item.id === aggregateId && item.status === "closed")) { merge.epoch++; merge.count = 0; aggregateId = entryId("bg", `background-merged:${agentId}:${merge.epoch}`); }
     const aggregate = background.find((item) => item.id === aggregateId);
-    const candidates = active().filter((item) => item.id !== aggregateId).sort((a, b) => Number(!a.ref.startsWith("unknown:")) - Number(!b.ref.startsWith("unknown:")) || time(a.startedAt) - time(b.startedAt));
+    // Calls in flight merge last: one still running comes back on the next poll as its own placeholder.
+    const candidates = active().filter((item) => item.id !== aggregateId).sort((a, b) => Number(!!a.inFlight) - Number(!!b.inFlight) || Number(!a.ref.startsWith("unknown:")) - Number(!b.ref.startsWith("unknown:")) || time(a.startedAt) - time(b.startedAt));
     const merged = candidates.slice(0, active().length - 40 + (aggregate ? 0 : 1));
     for (const item of merged) background.splice(background.indexOf(item), 1);
     merge.count += merged.length; meta.merged = merge;
