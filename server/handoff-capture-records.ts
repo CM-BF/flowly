@@ -82,7 +82,8 @@ function cliLaunch(command: string, output: string): { kind: "agent" | "async_sh
   }
   if (/\bpaseo-shell\b[^\n]*\bregister\b/.test(command)) {
     const data = object(parseJson(text.trim())), task = object(data.task);
-    const handle = id(task.taskId ?? data.task_id ?? data.taskId) ?? id(/"(?:taskId|task_id)"\s*:\s*"([\w.-]{1,200})"/.exec(text)?.[1]);
+    // Pretty JSON from the CLI, or only the id when the agent piped it through jq.
+    const handle = id(task.taskId ?? data.task_id ?? data.taskId) ?? id(/"(?:taskId|task_id)"\s*:\s*"([\w.-]{1,200})"/.exec(text)?.[1]) ?? id(/\b(task-[0-9a-f]{12})\b/.exec(text)?.[1]);
     return handle ? { kind: "async_shell", handle, label: `async shell: ${label}` } : undefined;
   }
 }

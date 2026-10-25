@@ -427,10 +427,10 @@ export class HandoffObserver {
       const seen = new Set([...(marks.seen![key] ?? []), ...legacy].filter((value) => !(rebuilt && positional.has(value))));
       let fresh = [...new Set(ids)].filter((value) => !seen.has(value));
       // A window too small for a long replayed timeline: only growth past the last hook's rows is new.
-      if (ids.length > 256 && ids.length >= (marks.rows![key] ?? 0)) fresh = fresh.slice(0, ids.length - (marks.rows![key] ?? 0));
+      if (ids.length > 128 && ids.length >= (marks.rows![key] ?? 0)) fresh = fresh.slice(0, ids.length - (marks.rows![key] ?? 0));
       marks.rows![key] = ids.length;
-      if (!fresh.length) { marks.seen![key] = [...seen].slice(-256); continue; }
-      marks.timeline[key] = (marks.timeline[key] ?? 0) + fresh.length; marks.seen![key] = [...seen, ...fresh].slice(-256);
+      if (!fresh.length) { marks.seen![key] = [...seen].slice(-128); continue; }
+      marks.timeline[key] = (marks.timeline[key] ?? 0) + fresh.length; marks.seen![key] = [...seen, ...fresh].slice(-128);
       changed.set(key, span(changed.get(key), { ...gap, count: 0 }));
     }
     if (changed.size || hook?.gaps.length) meta.gaps = marks;
