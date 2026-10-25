@@ -309,10 +309,9 @@ export class HandoffStore {
     }
     if (record.state && current.state) { record.state.rev = current.state.rev; record.state.at = current.state.at; }
   }
-  /** `archive: false` supersedes an entry without keeping its previous version in archive.jsonl (routine observation state, growing counts). */
   /**
-   * Ledger versions are archived once per transaction, against the version it started from (archiveLedger); every other
-   * section archives the replaced version unless `archive` is false.
+   * `archive: false` supersedes an entry without keeping its previous version in archive.jsonl (routine observation state,
+   * growing counts). Ledger versions are archived once per transaction, against the version it started from (archiveLedger).
    */
   private replace(change: Mutation, section: HandoffEntrySection, value: HandoffEntry, archive = true) {
     const entries = list(change.record, section), index = entries.findIndex((e) => e.id === value.id);
