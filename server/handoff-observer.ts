@@ -430,8 +430,9 @@ export class HandoffObserver {
       ...(changedThrough ? { cursor: { agentId, through, capturedThrough: this.clock() } } : {}), ...(git ? { git } : {}), ...(compacted ? { forgetSeen: [agentId] } : {}),
       ...(hook?.live.length && options.outcome && meta.lastTimeline !== (resume?.observer?.lastTimeline) ? { lastWords: { agentId, at: this.now(), since: record.checkpoint?.at ?? session.startedAt, text: hook.live.at(-1)!.text.slice(0, 2000) } } : {}) }, flowly);
     if (compacted) this.deps.onCompaction?.(taskId, agentId);
-    // Entries already stored (an archived gap observed again) change nothing; the store kept the revision and the index stands.
-    if (written.handoffRevision === record.revision) return;
+    // Entries already stored (an archived gap observed again) change nothing and the index stands. Observation written in
+    // place can still change what the index shows (coverage, a failed Git read), so it is synced like a new revision.
+    if (written.stored === "none") return;
     this.check(); await this.deps.syncIndex(taskId);
   }
   /**

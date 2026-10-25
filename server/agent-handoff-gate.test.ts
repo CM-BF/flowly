@@ -64,13 +64,14 @@ test("same-turn explicit acknowledgement survives passive cursor and measurement
   const request = await question(x);
   await expect(x.service.write(x.identity, "progress", request)).rejects.toMatchObject({ code: "HANDOFF_STALE" });
   const before = await context(x);
-  await x.handoffs.records.capture("t", "p", {
+  const written = await x.handoffs.records.capture("t", "p", {
     cursor: { agentId: "actor", through: { path: "fixture.jsonl", identity: "fixture-inode", offset: 80, size: 80, at: new Date().toISOString(), lagBytes: 0, gaps: 0 } },
     session: { ...(await x.handoffs.records.sessionRecord("t", "actor"))!, measured: { C: 12000, B: 800, turns: 1 }, live: [{ at: new Date().toISOString(), text: "The same work is in progress" }] },
   }, flowly);
   await x.handoffs.records.markSeen("t", "p", "actor", (await context(x)).revision, flowly);
   const after = await context(x);
-  expect(after.due).toEqual(before.due); expect(after.revision).toBeGreaterThan(before.revision);
+  // Passive observation is written in place: stored, but under the same revision (SESSION-HANDOFF-SPEC §5.1).
+  expect(written.stored).toBe("observation"); expect(after.due).toEqual(before.due); expect(after.revision).toBe(before.revision);
   await expect(x.service.write(x.identity, "progress", request)).resolves.toMatchObject({ replayed: false });
 });
 

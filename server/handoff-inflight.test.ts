@@ -11,9 +11,9 @@ import { BoardStore } from "./store";
 
 // A poll that lands while a call runs (a code-mode script, an exec_command, a browser tab being opened) sees the call but
 // not its result yet: an evidence-free in-flight placeholder. It must surface while the call runs, and once the result
-// settles it, leave no archived ledger version, no closed entry and no new delivery-gate requirement behind. A call is in
-// flight only while its session is in a turn: once the session is idle, gone or ended, a call without a result is leftover
-// work like any evidence-free placeholder.
+// settles it, leave no archived ledger version, no closed entry, no revision and no new requirement (delivery gate or ACK)
+// behind. A call is in flight only while its session is in a turn: once the session is idle, gone or ended, a call without
+// a result is leftover work like any evidence-free placeholder, and an ACK must cover it.
 const folders: string[] = [], at = "2026-10-25T02:00:00.000Z";
 afterEach(async () => { await cleanupObserverFixtures(); await Promise.all(folders.splice(0).map((path) => rm(path, { recursive: true, force: true }))); });
 
@@ -36,7 +36,7 @@ test("a script caught running surfaces as one in-flight item, and once it return
     await x.poll();
     const running = await x.read();
     expect(background(running.ledger[0])).toEqual([`exec_session:unknown:unknown:s${n}:script running:in flight`]);
-    expect(handoffOpenIds(running)).toContain(running.ledger[0].background[0].id);
+    expect(handoffOpenIds(running)).not.toContain(running.ledger[0].background[0].id);
     await x.append([completion(4000 + n), scriptOutput(`s${n}`)]);
     await x.poll();
     expect((await x.read()).ledger[0].background).toEqual([]);
@@ -52,11 +52,12 @@ test("a script that keeps running stays on the card across polls and in the seal
   for (let n = 0; n < 4; n++) await x.poll();
   const record = await x.read(), id = record.ledger[0].background[0].id;
   expect(background(record.ledger[0])).toEqual(["exec_session:unknown:unknown:s1:script running:in flight"]);
-  expect(handoffOpenIds(record)).toEqual([id]);
+  expect(handoffOpenIds(record)).toEqual([]); // on the card, but its own session is still running it
   const sealed = await x.seal();
   expect(sealed.prompt).toContain("script running");
-  // Sealed, the session gets no result any more: the call is leftover work, no longer in flight.
+  // Sealed, the session gets no result any more: the call is leftover work, no longer in flight, and the successor's ACK must cover it.
   expect(background((await x.read()).ledger[0])).toEqual(["exec_session:unknown:unknown:s1:script running"]);
+  expect(handoffOpenIds(await x.read())).toEqual([id]);
   // Its result, read later, ends the handed-over placeholder (history now, so it closes rather than vanishes) and the yielded
   // cell is real work.
   await x.append([scriptOutput("s1", "Script running with cell ID 7")]);

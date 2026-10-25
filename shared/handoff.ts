@@ -38,7 +38,8 @@ export const handoffSessionSchema = base.extend({
   agentId: z.string(), n: z.number().int().positive(), role: z.enum(["implementer", "reviewer", "manual", "other"]), provider: z.string(), model: z.string().optional(), launchModel: agentModelSchema.optional(), startedAt: z.string(), endedAt: z.string().optional(), reason: z.string(), endReason: z.string().optional(), finalized: z.boolean(), handoffRevisionAtEnd: z.number().int().optional(), abandoned: z.string().optional(), measured: z.object({ C: z.number().optional(), C0: z.number().optional(), W: z.number().optional(), B: z.number().optional(), S: z.number().optional(), K: z.number().optional(), turns: z.number().int().nonnegative(), peakC: z.number().optional() }).optional(), anchors: z.array(z.string()).max(60).optional(), growth: z.array(z.object({ kind: z.string(), calls: z.number().int().nonnegative(), bytes: z.number().nonnegative() })).max(12).optional(), nextMoves: z.array(text(300)).max(3).optional(), skeleton: z.string().optional(), /** Informational: script/workflow calls whose inner tool calls are not itemized; the raw session history holds them. Never an open item. */ scriptCalls: z.number().int().nonnegative().optional(), capturedThrough: z.number().int().optional(), through: captureCursorSchema.optional(),
   turns: z.array(z.object({ n: z.number().int(), startedAt: z.string(), endedAt: z.string().optional(), outcome: z.string(), final: text(2000).optional(), wroteHandoff: z.boolean() })).max(10).default([]),
   background: z.array(z.object({ id, callId: z.string().max(200).optional(), kind: z.enum(["async_shell", "exec_session", "browser_tab", "terminal", "script", "subagent", "schedule", "heartbeat"]), ref: z.string(), label: text(120), startedAt: z.string(), status: z.enum(["open", "closed", "unknown"]), /** How it ended (exit code, workflow status, settled by an ACK); older versions drop it. */ outcome: text(120).optional(), source: z.enum(["hook", "live", "skeleton"]),
-    /** A start call whose result was not read yet (no evidence): observation state, never archived; removed once its result settles it without evidence. Older versions drop it. */ inFlight: z.literal(true).optional() })).max(40).default([]),
+    /** A start call whose result was not read yet (no evidence): observation state, never archived; removed once its result settles it without evidence. Older versions drop it. */ inFlight: z.literal(true).optional(),
+    /** The latest progress a running task reported (a Claude Monitor event), bounded and redacted: observation state, superseded in place. Older versions drop it. */ event: text(200).optional() })).max(40).default([]),
   live: z.array(z.object({ at: z.string(), text: text(800), truncated: z.boolean().optional() })).max(8).default([]),
   ack: handoffAckSchema.extend({ at: z.string(), complete: z.boolean(), recordRevision: z.number().int().nonnegative().optional() }).optional(), understanding: text(800).optional(),
 });
@@ -108,7 +109,9 @@ export function entryOpenIds(section: HandoffEntrySection, entry: HandoffEntry):
   if (section === "questions" || section === "gaps") return e.status === "open" ? [entry.id] : [];
   if (section === "running") return e.status !== "done" ? [entry.id] : [];
   if (section === "reviews") return (entry as HandoffReview).findings.filter((f) => f.status === "open").map((f) => f.id);
-  if (section === "ledger") return (entry as HandoffSession).background.filter((b) => b.status !== "closed").map((b) => b.id);
+  // A call in flight is on the card but not a requirement: it is observation state of a session in a turn, written without
+  // a revision. When that session stops or is sealed without its result, it is leftover work and becomes one (§5.7, §7.5).
+  if (section === "ledger") return (entry as HandoffSession).background.filter((b) => b.status !== "closed" && !b.inFlight).map((b) => b.id);
   return [];
 }
 /** Internal complete set. A bounded transport page must label its subset/continuation instead of claiming completeness. */

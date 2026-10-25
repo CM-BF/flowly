@@ -22,7 +22,10 @@ export type HandoffCaptureGap = { id: string; sourceId: string; agentId: string;
 export type HandoffCapture = { entries?: { section: HandoffEntrySection; value: Record<string, unknown> }[]; gaps?: HandoffCaptureGap[]; session?: Draft<HandoffSession>; cursor?: { agentId: string; through: CaptureCursor; capturedThrough?: number }; git?: CardHandoff["git"]; checkpoint?: CardHandoff["checkpoint"]; forgetSeen?: string[]; lastWords?: CardHandoff["lastWords"] };
 type Pointer = { section: HandoffEntrySection; id: string; ref: string; rev: number; sourceId?: string; at: string; removal?: { reason: string; by: HandoffActor; at: string; rev: number } };
 type Receipt = { operationId: string; digest: string; result: HandoffWriteResult };
-type Intent = { version: 1; before: number; after: CardHandoff; archiveOffset: number; archiveData: string; pointers: Pointer[]; receipt: Receipt };
+/** `inPlace`: an observation-only write (§5.1) that keeps the revision; it has no archive lines and a receipt only for an explicit operation id. */
+type Intent = { version: 1; before: number; after: CardHandoff; archiveOffset: number; archiveData: string; pointers: Pointer[]; receipt?: Receipt; inPlace?: true };
+/** What a transaction stored: nothing, observation state in place (same revision), or a new revision. */
+export type HandoffStored = "none" | "observation" | "revision";
 type IdentityClaim = { kind: "entry" | "finding" | "background" | "state"; section: HandoffEntrySection | "state"; parent: string };
 type Mutation = { record: CardHandoff; history: Pointer[]; changed: Set<string>; ackMissing?: string[] };
 const hash = (value: string | Buffer) => createHash("sha256").update(value).digest("hex");
@@ -40,8 +43,9 @@ const prefix: Record<HandoffEntrySection, string> = { done: "dn", next: "nx", de
  */
 function ledgerHistory(session: HandoffSession) {
   const { through: _through, capturedThrough: _captured, measured: _measured, growth: _growth, live: _live, skeleton: _skeleton, scriptCalls: _scripts, rev: _rev, at: _at, by: _by, contentRef: _ref, ...kept } = session;
-  // An in-flight placeholder (a call whose result was not read yet) comes and goes with the polls that catch it running.
-  return { ...kept, background: session.background.filter((item) => !item.inFlight) };
+  // An in-flight placeholder (a call whose result was not read yet) comes and goes with the polls that catch it running; a
+  // running task's latest progress event is superseded by the next one.
+  return { ...kept, background: session.background.filter((item) => !item.inFlight).map(({ event: _event, ...item }) => item) };
 }
 const canonical = (value: unknown): unknown => Array.isArray(value) ? value.map(canonical) : value !== null && typeof value === "object" ? Object.fromEntries(Object.keys(value).sort().map((key) => [key, canonical((value as Record<string, unknown>)[key])])) : value;
 const historyHash = (session: HandoffSession) => hash(JSON.stringify(canonical(ledgerHistory(session))));
@@ -55,6 +59,19 @@ function semantic(record: CardHandoff) {
   const entry = (value: object) => { const { rev: _rev, at: _at, contentRef: _ref, ...kept } = value as Record<string, unknown>; return kept; };
   const sections = Object.fromEntries(handoffEntrySections.map((section) => [section, list(record, section).map(entry)]));
   return JSON.stringify(canonical(JSON.parse(JSON.stringify({ ...rest, ...sections, ...(rest.state ? { state: entry(rest.state) } : {}), git: rest.git.map(({ at: _at, ...snapshot }) => snapshot) }))));
+}
+/**
+ * What moves the revision that page cursors, ACKs and entry conflicts pin: the semantic record without its observation
+ * state. Ledger observation (what ledgerHistory strips: cursor, measurements, growth, narration preview, coverage text,
+ * script count, calls in flight, progress events), Git snapshots (Flowly reads them again at every turn end, rotation and
+ * handoff write, and an ACK checks the heads against its own fresh read) and the read cache are written in place: the
+ * successor's own running turn, observed every minute, no longer restarts its full read or refuses its ACK (§5.1, §7.5).
+ */
+function pinned(record: CardHandoff) {
+  const { revision: _revision, updatedAt: _updated, updatedBy: _by, ops: _ops, seen: _seen, git: _git, ...rest } = record;
+  const entry = (value: object) => { const { rev: _rev, at: _at, contentRef: _ref, ...kept } = value as Record<string, unknown>; return kept; };
+  const sections = Object.fromEntries(handoffEntrySections.map((section) => [section, section === "ledger" ? record.ledger.map(ledgerHistory) : list(record, section).map(entry)]));
+  return JSON.stringify(canonical(JSON.parse(JSON.stringify({ ...rest, ...sections, ...(rest.state ? { state: entry(rest.state) } : {}) }))));
 }
 /** Per archive file (append-only): the newest archived version of each ledger entry and the offsets of versions whose history equals the next one's. */
 type LedgerRuns = { identity: string; scanned: number; last: Map<string, { offset: number; history: string }>; superseded: Set<number> };
@@ -138,30 +155,36 @@ export class HandoffStore {
     const path = this.paths(taskId), intent = await this.optional<Intent>(path.intent);
     if (!intent) return;
     const parsed = cardHandoffSchema.safeParse(intent.after);
-    if (intent.version !== 1 || !parsed.success || parsed.data.taskId !== taskId || bytes(intent.after) > handoffLimits.currentBytes || !Number.isSafeInteger(intent.archiveOffset) || intent.archiveOffset < 0 || typeof intent.archiveData !== "string" || !Array.isArray(intent.pointers) || !intent.receipt)
+    const inPlace = intent.inPlace === true;
+    if (intent.version !== 1 || !parsed.success || parsed.data.taskId !== taskId || bytes(intent.after) > handoffLimits.currentBytes || !Number.isSafeInteger(intent.archiveOffset) || intent.archiveOffset < 0 || typeof intent.archiveData !== "string" || !Array.isArray(intent.pointers) || (!intent.receipt && !inPlace) || (inPlace && intent.archiveData !== ""))
       throw new HandoffError("HANDOFF_UNAVAILABLE", `Handoff recovery data is invalid; preserved at ${path.intent}.`);
     this.identities(parsed.data, "HANDOFF_UNAVAILABLE");
     const current = await this.current(taskId);
-    if (intent.after.revision !== intent.before + 1 || (current ? current.projectId !== intent.after.projectId || ![intent.before, intent.after.revision].includes(current.revision) || (current.revision === intent.after.revision && !isDeepStrictEqual(current, parsed.data)) : intent.before !== 0)) throw new HandoffError("HANDOFF_UNAVAILABLE", "The current handoff conflicts with its unfinished write; both files are preserved.");
-    if (intent.pointers.some((p) => !handoffEntrySections.includes(p.section) || !/^[a-f0-9]{64}$/.test(p.ref) || typeof p.id !== "string") || typeof intent.receipt.operationId !== "string" || !/^[a-f0-9]{64}$/.test(intent.receipt.digest)) throw new HandoffError("HANDOFF_UNAVAILABLE", "The unfinished handoff has invalid content references; preserved for recovery.");
-    const content = Buffer.from(intent.archiveData);
-    await mkdir(path.folder, { recursive: true, mode: 0o700 });
-    const archive = await open(path.archive, "a+", 0o600);
-    try {
-      const size = (await archive.stat()).size;
-      if (size < intent.archiveOffset || size > intent.archiveOffset + content.length) throw new HandoffError("HANDOFF_UNAVAILABLE", "The handoff archive conflicts with its pending write; preserved for recovery.");
-      const tail = Buffer.alloc(size - intent.archiveOffset); if (tail.length) await archive.read(tail, 0, tail.length, intent.archiveOffset);
-      if (!tail.equals(content.subarray(0, tail.length))) throw new HandoffError("HANDOFF_UNAVAILABLE", "The handoff archive contains unexpected bytes; preserved for recovery.");
-      if (tail.length < content.length) await archive.writeFile(content.subarray(tail.length));
-      await archive.sync();
-    } finally { await archive.close(); }
+    // An in-place write keeps the revision: the current file is the one before it or already the one it writes.
+    const conflicting = inPlace ? intent.after.revision !== intent.before || !current || current.projectId !== intent.after.projectId || current.revision !== intent.before
+      : intent.after.revision !== intent.before + 1 || (current ? current.projectId !== intent.after.projectId || ![intent.before, intent.after.revision].includes(current.revision) || (current.revision === intent.after.revision && !isDeepStrictEqual(current, parsed.data)) : intent.before !== 0);
+    if (conflicting) throw new HandoffError("HANDOFF_UNAVAILABLE", "The current handoff conflicts with its unfinished write; both files are preserved.");
+    if (intent.pointers.some((p) => !handoffEntrySections.includes(p.section) || !/^[a-f0-9]{64}$/.test(p.ref) || typeof p.id !== "string") || (intent.receipt && (typeof intent.receipt.operationId !== "string" || !/^[a-f0-9]{64}$/.test(intent.receipt.digest)))) throw new HandoffError("HANDOFF_UNAVAILABLE", "The unfinished handoff has invalid content references; preserved for recovery.");
+    if (!inPlace) {
+      const content = Buffer.from(intent.archiveData);
+      await mkdir(path.folder, { recursive: true, mode: 0o700 });
+      const archive = await open(path.archive, "a+", 0o600);
+      try {
+        const size = (await archive.stat()).size;
+        if (size < intent.archiveOffset || size > intent.archiveOffset + content.length) throw new HandoffError("HANDOFF_UNAVAILABLE", "The handoff archive conflicts with its pending write; preserved for recovery.");
+        const tail = Buffer.alloc(size - intent.archiveOffset); if (tail.length) await archive.read(tail, 0, tail.length, intent.archiveOffset);
+        if (!tail.equals(content.subarray(0, tail.length))) throw new HandoffError("HANDOFF_UNAVAILABLE", "The handoff archive contains unexpected bytes; preserved for recovery.");
+        if (tail.length < content.length) await archive.writeFile(content.subarray(tail.length));
+        await archive.sync();
+      } finally { await archive.close(); }
+    }
     await this.options.fault?.("archive-synced");
     await this.atomic(path.current, JSON.stringify(intent.after)); await this.options.fault?.("current-synced");
     for (const pointer of intent.pointers) {
       await this.atomic(join(path.folder, "latest", `${hash(pointer.id)}.json`), JSON.stringify(pointer));
       if (pointer.sourceId) await this.atomic(join(path.folder, "sources", `${hash(pointer.sourceId)}.json`), JSON.stringify(pointer));
     }
-    await this.atomic(join(path.folder, "ops", `${hash(intent.receipt.operationId)}.json`), JSON.stringify(intent.receipt));
+    if (intent.receipt) await this.atomic(join(path.folder, "ops", `${hash(intent.receipt.operationId)}.json`), JSON.stringify(intent.receipt));
     await this.options.fault?.("sources-synced");
     await unlink(path.intent); await this.syncDirectory(path.folder); await this.options.fault?.("intent-removed");
   }
@@ -234,23 +257,32 @@ export class HandoffStore {
     }
     return { ok: true, handoffRevision: record.revision, at: record.updatedAt, budget: agentCharacters(record), open, handoffDue: !record.state || !record.next.length ? "Write the card state and next step before delivery." : null, ...(ackMissing?.length ? { ackMissing } : {}) };
   }
-  private async transaction(taskId: string, projectId: string, payload: unknown, context: HandoffContext, mutate: (change: Mutation) => Promise<void> | void): Promise<HandoffWriteResult> {
+  private transaction(taskId: string, projectId: string, payload: unknown, context: HandoffContext, mutate: (change: Mutation) => Promise<void> | void): Promise<HandoffWriteResult> {
+    return this.write(taskId, projectId, payload, context, mutate).then(({ result }) => result);
+  }
+  private write(taskId: string, projectId: string, payload: unknown, context: HandoffContext, mutate: (change: Mutation) => Promise<void> | void): Promise<{ result: HandoffWriteResult; stored: HandoffStored }> {
     return this.serial(taskId, async () => {
       await this.recover(taskId);
       const operationId = context.operationId ?? randomUUID(), digest = hash(JSON.stringify(payload)), path = this.paths(taskId);
       const receipt = await this.optional<Receipt>(join(path.folder, "ops", `${hash(operationId)}.json`));
-      if (receipt) { if (receipt.digest !== digest) throw new HandoffError("OPERATION_REUSED", "That handoff operation id was already used for different content."); return { ...receipt.result, replayed: true }; }
+      if (receipt) { if (receipt.digest !== digest) throw new HandoffError("OPERATION_REUSED", "That handoff operation id was already used for different content."); return { result: { ...receipt.result, replayed: true }, stored: "none" }; }
       const current = (await this.current(taskId, projectId))!, record = clone(current);
       record.revision++; record.updatedAt = this.now(); record.updatedBy = context.by;
       const mutation: Mutation = { record, history: [], changed: new Set() }; await mutate(mutation);
       if (context.unconfirmed && context.sourceId && [...handoffEntrySections.flatMap((section) => list(record, section)), ...record.overflow].some((e) => e.sourceId === context.sourceId && e.unconfirmed) && !record.pendingOperations.some((o) => o.id === operationId)) record.pendingOperations.push({ id: operationId, sourceId: context.sourceId, at: record.updatedAt });
       // No semantic change: no revision, no receipt, no bytes. An idle poll re-capturing what is already stored must not
       // move the revision (a prepared ACK would fail with ACK_MISMATCH) or rewrite the file.
-      if (semantic(record) === semantic(current)) return this.result(current, mutation.ackMissing);
+      if (semantic(record) === semantic(current)) return { result: this.result(current, mutation.ackMissing), stored: "none" };
+      // Observation state only (§5.1): written in place under the same revision, write time and writer; each changed entry
+      // keeps the rev and time of its last pinned change.
+      let inPlace = pinned(record) === pinned(current);
+      if (inPlace) this.restamp(record, current);
       await this.preserveIdentities(current, record);
       const budget = agentCharacters(record); if (budget.used > budget.max) throw new HandoffError("HANDOFF_TOO_LARGE", "Agent handoff sections exceed 16000 characters.", budget);
-      record.ops = [...record.ops.filter((id) => id !== operationId), operationId].slice(-50);
       const pointers = await this.normalize(record, mutation.history);
+      // The 1 MiB budget moved an entry into the archive: that is history, so it takes a revision after all.
+      if (inPlace && mutation.history.length) { inPlace = false; record.revision = current.revision + 1; record.updatedAt = this.now(); record.updatedBy = context.by; }
+      if (!inPlace) record.ops = [...record.ops.filter((id) => id !== operationId), operationId].slice(-50);
       cardHandoffSchema.parse(record); this.identities(record);
       const result = this.result(record, mutation.ackMissing);
       const seen = new Set<string>();
@@ -258,11 +290,23 @@ export class HandoffStore {
       const archiveOffset = await stat(path.archive).then((s) => s.size, (e) => { if (e.code === "ENOENT") return 0; throw e; });
       record.archivedCount += lines.split("\n").length - 1;
       if (bytes(record) > handoffLimits.currentBytes) throw new HandoffError("HANDOFF_TOO_LARGE", "Unresolved handoff indexes fill the 1 MiB budget; existing data is preserved.");
-      const intent: Intent = { version: 1, before: current.revision, after: record, archiveOffset, archiveData: lines, pointers, receipt: { operationId, digest, result } };
+      // An in-place write keeps a receipt only for an explicit operation id (a replay must still be recognized); Flowly's
+      // own observation passes use fresh ids and would only fill ops/.
+      const keep = !inPlace || context.operationId !== undefined;
+      const intent: Intent = { version: 1, before: current.revision, after: record, archiveOffset, archiveData: lines, pointers, ...(keep ? { receipt: { operationId, digest, result } } : {}), ...(inPlace ? { inPlace: true as const } : {}) };
       await this.atomic(path.intent, JSON.stringify(intent)); await this.options.fault?.("intent-synced");
       await this.recover(taskId);
-      return result;
+      return { result, stored: inPlace ? "observation" : "revision" };
     });
+  }
+  /** An in-place write: the record and every entry it changed keep the revision, time and writer of their last pinned change. */
+  private restamp(record: CardHandoff, current: CardHandoff) {
+    record.revision = current.revision; record.updatedAt = current.updatedAt; record.updatedBy = current.updatedBy;
+    for (const section of handoffEntrySections) {
+      const before = new Map(list(current, section).map((entry) => [entry.id, entry]));
+      for (const entry of list(record, section)) { const old = before.get(entry.id); if (old) { entry.rev = old.rev; entry.at = old.at; } }
+    }
+    if (record.state && current.state) { record.state.rev = current.state.rev; record.state.at = current.state.at; }
   }
   /** `archive: false` supersedes an entry without keeping its previous version in archive.jsonl (routine observation state, growing counts). */
   private replace(change: Mutation, section: HandoffEntrySection, value: HandoffEntry, archive = true) {
@@ -385,8 +429,9 @@ export class HandoffStore {
     this.replace(change, "ledger", entry, !old || !isDeepStrictEqual(ledgerHistory(old), ledgerHistory(entry)));
   }
   setSession(taskId: string, projectId: string, draft: Draft<HandoffSession>, context: HandoffContext) { return this.transaction(taskId, projectId, { action: "session", draft }, context, (change) => this.session(change, draft, context)); }
-  capture(taskId: string, projectId: string, capture: HandoffCapture, context: HandoffContext) {
-    return this.transaction(taskId, projectId, { action: "capture", capture }, context, async (change) => {
+  /** `stored`: whether anything was written, and whether it took a new revision (observation state is written in place). */
+  capture(taskId: string, projectId: string, capture: HandoffCapture, context: HandoffContext): Promise<HandoffWriteResult & { stored: HandoffStored }> {
+    return this.write(taskId, projectId, { action: "capture", capture }, context, async (change) => {
       for (const { section, value } of capture.entries ?? []) await this.append(change, section, value, { ...context, sourceId: typeof value.sourceId === "string" ? value.sourceId : undefined });
       for (const gap of capture.gaps ?? []) await this.mergeGap(change, gap, context);
       if (capture.session) await this.session(change, capture.session, context);
@@ -400,7 +445,7 @@ export class HandoffStore {
       if (capture.lastWords) change.record.lastWords = capture.lastWords;
       if (capture.checkpoint) change.record.checkpoint = capture.checkpoint;
       for (const id of capture.forgetSeen ?? []) delete change.record.seen[id];
-    });
+    }).then(({ result, stored }) => ({ ...result, stored }));
   }
   confirmSource(taskId: string, projectId: string, sourceId: string, context: HandoffContext) {
     return this.transaction(taskId, projectId, { action: "confirm", sourceId }, context, async (change) => {

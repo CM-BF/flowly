@@ -76,8 +76,10 @@ describe("durable handoff", () => {
     const { store } = await fixture(); await store.setSession("card", "project", session(), actor);
     await store.update("card", "project", { handoffRevision: 1, state: "doing" }, actor, { actualHeads: [{ repo: "repo", sha: "aaa", dirty: true }], dirtyHash: "dirty", turnStartedAt: "start" });
     const checkpoint = (await store.read("card", "project")).checkpoint; expect(checkpoint).toMatchObject({ dirtyHash: "dirty", turnStartedAt: "start" });
-    await store.capture("card", "project", { git: [{ repo: "repo", sha: "bbb", dirty: false, at: "later" }] }, { by: { kind: "flowly" } });
-    await store.markSeen("card", "project", "worker", 3, actor); expect((await store.read("card", "project")).checkpoint).toEqual(checkpoint);
+    await expect(store.capture("card", "project", { git: [{ repo: "repo", sha: "bbb", dirty: false, at: "later" }] }, { by: { kind: "flowly" } })).resolves.toMatchObject({ stored: "observation" });
+    // Git is observation state: written in place, under the revision the agent's write took (§5.1).
+    const observed = await store.read("card", "project"); expect(observed).toMatchObject({ revision: 2, git: [{ sha: "bbb" }] });
+    await store.markSeen("card", "project", "worker", observed.revision, actor); expect((await store.read("card", "project")).checkpoint).toEqual(checkpoint);
   });
 });
 
