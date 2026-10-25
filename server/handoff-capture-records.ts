@@ -245,18 +245,39 @@ export class CaptureRecords {
     const block = (name: string) => new RegExp(`<${name}>([\\s\\S]*?)</${name}>`).exec(text)?.[1]?.trim();
     const task = id(block("task-id")), status = /^[\w-]{1,40}$/.exec(block("status") ?? "")?.[0];
     if (!task || !status) return false;
-    const line = (value: string | undefined, max: number) => value ? redactCaptureText(value.replace(/\s+/g, " ")).slice(0, max) : "";
-    const parts = [`Background task ${task} ended with status ${status}${block("summary") ? `: ${line(block("summary"), 300)}` : ""}.`];
-    if (block("output-file")) parts.push(`Output file: ${line(block("output-file"), 300)}.`);
-    const details = ([["result", "Result", 700], ["error", "Error", 500], ["failures", "Failures", 500], ["recovery", "Recovery", 300], ["interrupted-agents", "Interrupted agents", 600]] as const).filter(([name]) => block(name));
+    const flat = (value: string) => redactCaptureText(value.replace(/\s+/g, " ").trim());
     let cut = false;
-    for (const [name, label, max] of details) {
-      // The dynamic-workflow plugin lists cut-off agents after its instructions: their ids come first, they hold the partial work to re-read.
-      const raw = block(name)!, agents = name === "interrupted-agents" ? raw.split("\n").filter((row) => /:\s*(?:agent\s+\S+|not started)\s*$/.test(row)) : [];
-      const value = redactCaptureText((agents.length ? agents.join("; ") : raw).replace(/\s+/g, " "));
-      cut ||= value.length > max || agents.length > 0; parts.push(`${label}: ${value.slice(0, max)}${value.length > max ? "…" : ""}`);
+    const bounded = (value: string, max: number) => { if (value.length <= max) return value; cut = true; return `${value.slice(0, max - 1)}…`; };
+    const rows = (name: string) => (block(name) ?? "").split("\n").map((row) => flat(row)).filter(Boolean);
+    const header = [`Background task ${task} ended with status ${status}${block("summary") ? `: ${bounded(flat(block("summary")!), 300)}` : ""}.`, ...(block("output-file") ? [`Output file: ${bounded(flat(block("output-file")!), 300)}.`] : [])];
+    // The dynamic-workflow plugin lists cut-off agents after its instructions: their ids come first, they hold the partial work to re-read.
+    const agents = rows("interrupted-agents").filter((row) => /:\s*(?:agent\s+\S+|not started)$/.test(row));
+    if (agents.length) cut = true;
+    // Priority order: where the run's code changes are (branches, paths, unresolved cleanup) and the user's instruction about it come first.
+    const details = ([
+      ["worktrees", "Worktrees", () => rows("worktrees").map((row) => bounded(row, 240)).join("; "), 800],
+      ["note", "Note", () => flat(block("note")!), 500],
+      ["interrupted-agents", "Interrupted agents", () => agents.length ? agents.join("; ") : flat(block("interrupted-agents")!), 600],
+      ["error", "Error", () => flat(block("error")!), 500],
+      ["failures", "Failures", () => flat(block("failures")!), 500],
+      ["result", "Result", () => flat(block("result")!), 700],
+      ["recovery", "Recovery", () => flat(block("recovery")!), 300],
+    ] as const).filter(([name]) => block(name));
+    // Any other block (diagnostics, usage, guidance, a future one) is named, and the note then says it is an excerpt.
+    const inner = /<task-notification>([\s\S]*)<\/task-notification>/.exec(text)?.[1] ?? text;
+    const kept = new Set<string>(["task-id", "tool-use-id", "status", "summary", "output-file", ...details.map(([name]) => name)]);
+    const omitted = [...new Set([...inner.matchAll(/<([a-z][\w-]{0,40})>[\s\S]*?<\/\1>/g)].map((match) => match[1]).filter((name) => !kept.has(name)))].slice(0, 12);
+    const marker = "(Excerpt; the whole notice is in that session's raw history.)", parts = [...header];
+    // Room for the marker and for naming every block, including any that the 2,000-character note has no room for.
+    let room = 2000 - parts.join(" ").length - marker.length - `Not kept here: ${[...omitted, ...details.map(([name]) => name)].join(", ")}.`.length - 3;
+    for (const [name, label, value, max] of details) {
+      const part = `${label}: ${bounded(value(), max)}`;
+      if (part.length + 1 <= room) { parts.push(part); room -= part.length + 1; }
+      else if (room > label.length + 40) { parts.push(`${part.slice(0, room - 2)}…`); room = 0; cut = true; }
+      else { omitted.push(name); cut = true; }
     }
-    if (cut) parts.push("(Excerpt; the whole notice is in that session's raw history.)");
+    if (omitted.length) parts.push(`Not kept here: ${omitted.join(", ")}.`);
+    if (cut || omitted.length) parts.push(marker);
     const kind = status === "completed" ? "background" as const : "hazard" as const;
     // Not `late`: a notice cannot tell a workflow from a background command, so an unmatched one never settles a placeholder; its note keeps it.
     this.closeHandle(task, source, timestamp, status, "agent", { note: { id: `task-notice:${task}:${status}`, text: parts.join(" ").slice(0, 2000), kind, always: status !== "completed" || details.length > 0 } });

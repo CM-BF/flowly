@@ -69,3 +69,56 @@ test("a text that only starts like an async-shell notice is still a visible gap,
   expect(b.gaps).toEqual([expect.objectContaining({ kind: "unknown_background_notice" })]);
   expect(b.inputs).toEqual([]);
 });
+
+// ---------------------------------------------------------------- background-task notices: every block is kept or named (loss-r2-L3)
+const marker = "[paseo-dynamic-workflow] A background workflow you launched has ended. This is an automated event from the plugin, not a message from the user: it does not answer anything you asked the user and is not their approval.";
+const wfLaunch = { type: "tool_call", name: "mcp__dynamic_workflow__workflow", callId: "wf-1", status: "completed", detail: { input: { scriptPath: "/tmp/wf/impl.js" }, output: "Workflow launched in background. Run ID: wf_synthetic01\nSummary: implement" } };
+const notice = (status: string, ...blocks: string[]) => [marker, "<task-notification>", "<task-id>wf_synthetic01</task-id>", `<status>${status}</status>`, ...blocks, "</task-notification>"].join("\n");
+const workflowNote = async (text: string) => {
+  const x = await observerFixture();
+  await x.hook([wfLaunch, { type: "user_message", text, messageId: "m-wf" }, { type: "assistant_message", text: "ok" }]);
+  const record = await x.read();
+  expect(record.inputs).toEqual([]); expect(record.gaps).toEqual([]);
+  expect(successorView(record).background).toEqual([expect.stringMatching(/^subagent:closed:wf_synthetic01:/)]);
+  expect(record.notes).toHaveLength(1);
+  return record.notes[0].text;
+};
+
+test("R2-C1 the worktree branches that hold a completed workflow's changes are on the card, and the note says it is an excerpt", async () => {
+  const text = await workflowNote(notice("completed", '<summary>Dynamic workflow "implement" completed</summary>', "<output-file>/tmp/wf/runs/wf_synthetic01/result.json</output-file>", '<result>{"ok":true}</result>',
+    "<diagnostics>Per-agent results and errors: /tmp/wf/runs/wf_synthetic01/journal.jsonl. Read this journal if the result is empty or unexpected.</diagnostics>",
+    "<worktrees>\napi-change: branch wf/api-change-7f3a at /tmp/wt/api-change\nmigration: branch wf/migration-19bc; child creation/cleanup is unresolved (agent agent-synthetic-9); inspect the run snapshot before merging or deleting it.\n</worktrees>",
+    "<usage><agent_count>2</agent_count><agents_done>2</agents_done></usage>"));
+  expect(text).toContain("api-change: branch wf/api-change-7f3a at /tmp/wt/api-change");
+  expect(text).toContain("migration: branch wf/migration-19bc; child creation/cleanup is unresolved (agent agent-synthetic-9)");
+  expect(text).toMatch(/Not kept here: diagnostics, usage\b/);
+  expect(text).toMatch(/\(Excerpt; the whole notice is in that session's raw history\.\)$/);
+});
+
+test("R2-C2 the user's stop instruction relayed in a stopped workflow's notice is on the card verbatim", async () => {
+  const text = await workflowNote(notice("stopped", '<summary>Dynamic workflow "implement" was stopped</summary>', "<error>stopped by the user</error>",
+    "<note>The user stopped this run in Paseo. Do not resume or relaunch it unless they ask; tell them briefly what had finished if that helps.</note>",
+    "<diagnostics>Per-agent results and errors: /tmp/wf/runs/wf_synthetic01/journal.jsonl.</diagnostics>"));
+  expect(text).toContain("Note: The user stopped this run in Paseo. Do not resume or relaunch it unless they ask; tell them briefly what had finished if that helps.");
+  expect(text).toMatch(/\(Excerpt; the whole notice is in that session's raw history\.\)$/);
+});
+
+test("worktrees and the note keep their place in a long failed notice; the excerpt marker survives the note budget", async () => {
+  const failures = Array.from({ length: 40 }, (_, n) => `[reviewer-${n}] failed: synthetic timeout ${"x".repeat(40)}`).join("\n");
+  const text = await workflowNote(notice("failed", `<summary>Dynamic workflow "implement" failed: ${"synthetic error ".repeat(30)}</summary>`, `<error>${"synthetic error detail ".repeat(60)}</error>`,
+    "<recovery>Resume with resumeFromRunId wf_synthetic01: completed agent() calls return their cached results.</recovery>", `<failures>\n${failures}\n</failures>`,
+    "<worktrees>\napi-change: branch wf/api-change-7f3a at /tmp/wt/api-change\n</worktrees>", "<guidance>synthetic future guidance</guidance>", "<future-block>synthetic</future-block>"));
+  expect(text.length).toBeLessThanOrEqual(2000);
+  expect(text).toContain("wf/api-change-7f3a at /tmp/wt/api-change");
+  expect(text).toContain("resumeFromRunId");
+  expect(text).toMatch(/Not kept here: .*guidance.*future-block/);
+  expect(text).toMatch(/\(Excerpt; the whole notice is in that session's raw history\.\)$/);
+});
+
+test("a Claude task notice with only the blocks it keeps is written whole, without an excerpt marker", () => {
+  const b = captureTimeline("agent", [{ type: "user_message", text: "<task-notification>\n<task-id>bsh7</task-id>\n<tool-use-id>tu-7</tool-use-id>\n<output-file>/tmp/synthetic/bsh7.output</output-file>\n<status>completed</status>\n<summary>Background command \"npm run e2e\" completed (exit code 0)</summary>\n<note>Its output was larger than the preview; read the output file.</note>\n</task-notification>" }], { outcome: "completed" });
+  const note = b.background.find((entry) => entry.handle === "bsh7")!.note!;
+  expect(note).toMatchObject({ always: true, kind: "background" });
+  expect(note.text).toContain("Note: Its output was larger than the preview; read the output file.");
+  expect(note.text).not.toContain("Excerpt");
+});
