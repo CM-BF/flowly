@@ -6,7 +6,8 @@ import { CaptureRecords, lineHint, captureLimits, type PendingCaptureCall } from
 
 export { captureLimits };
 export type CaptureSource = { agentId: string; provider: string; fileId?: string; sessionId?: string; offset?: number; end?: number; messageId?: string };
-export type CaptureMessage = { id: string; source: CaptureSource; text: string; at: string; atSource: "provider" | "captured"; messageId?: string; via: "session" | "agent"; senderId?: string; senderTitle?: string; redacted?: boolean; status: "open" | "received" };
+/** `unlinked`: Codex's own copy of a message (item_completed UserMessage), without Paseo's message id; the observer dedupes it by text against what the card already holds. */
+export type CaptureMessage = { id: string; source: CaptureSource; text: string; at: string; atSource: "provider" | "captured"; messageId?: string; via: "session" | "agent"; senderId?: string; senderTitle?: string; redacted?: boolean; status: "open" | "received"; unlinked?: true };
 export type CaptureNarration = Omit<CaptureMessage, "via" | "status"> & { truncated?: boolean };
 /**
  * `closeOnly`: a completion that may close an item already recorded (by id, call id or handle) but never creates one.

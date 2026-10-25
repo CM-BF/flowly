@@ -340,3 +340,37 @@ test("routine polls do not archive a ledger snapshot or a grouped gap version ea
   expect((await archived()).filter((entry) => entry.section === "gaps")).toHaveLength(1);
   record = await x.read(); expect(record.gaps[0].status).toBe("closed");
 }, 30_000);
+
+// ---------------------------------------------------------------- a person's words that reach only the Codex rollout (loss-F9)
+const typed = (itemId: string, text: string) => item({ type: "UserMessage", id: itemId, content: [{ type: "text", text }] });
+test("words typed into a Codex session are on the card even when the turn-end hook is lost", async () => {
+  const x = await observerFixture();
+  await x.append([typed("01a170bb-0001", "Do not touch the migrations folder."), typed("01a170bb-0002", "[Flowly automation] synthetic reminder"), typed("01a170bb-0003", "<heartbeat><automation_id>a</automation_id><instructions>synthetic</instructions></heartbeat>")]);
+  await x.poll(); await x.poll();
+  const record = await x.read();
+  expect(record.inputs).toEqual([expect.objectContaining({ via: "session", status: "open", text: "Do not touch the migrations folder." })]);
+  expect(handoffOpenIds(record)).toEqual([record.inputs[0].id]);
+});
+
+test("the turn-end timeline's copy of a provider-captured message links to it instead of duplicating it, in either order", async () => {
+  for (const order of ["provider-first", "hook-first", "same-pass"] as const) {
+    const x = await observerFixture();
+    const hook = { outcome: "completed" as const, timeline: [{ type: "user_message", text: "Keep the old endpoint", messageId: "paseo-msg-1" }, { type: "assistant_message", text: "ok" }] };
+    if (order === "provider-first") { await x.append([typed("01a170bb-0101", "Keep the old endpoint")]); await x.poll(); await x.observer.observe("card", "worker", hook); }
+    if (order === "hook-first") { await x.observer.observe("card", "worker", hook); await x.append([typed("01a170bb-0101", "Keep the old endpoint")]); await x.poll(); }
+    if (order === "same-pass") { await x.append([typed("01a170bb-0101", "Keep the old endpoint")]); await x.observer.observe("card", "worker", hook); }
+    await x.observer.observe("card", "worker", hook); // replayed hook
+    const record = await x.read();
+    expect(record.inputs, order).toEqual([expect.objectContaining({ text: "Keep the old endpoint", status: "received" })]);
+    expect(handoffOpenIds(record), order).toEqual([]);
+  }
+});
+
+test("Codex's copy of a message Flowly sent (a routed comment, a composer send) is not a second input", async () => {
+  const x = await observerFixture();
+  await x.records.appendInput("card", "project", { text: "Please rename the flag to --dry-run", via: "comment", atSource: "typed", status: "open", messageId: "comment:op-1" }, { by: { kind: "human" }, sourceId: "comment:op-1", operationId: "comment:op-1" });
+  await x.records.appendInput("card", "project", { text: "Also update the README", via: "composer", atSource: "typed", status: "open", agentId: "worker", messageId: "composer-1" }, { by: { kind: "human" }, sourceId: "message:worker:composer-1", operationId: "message:worker:composer-1" });
+  await x.append([typed("01a170bb-0201", "Please rename the flag to --dry-run"), typed("01a170bb-0202", "Also update the README\n")]);
+  await x.poll();
+  expect((await x.read()).inputs.map((input) => input.via)).toEqual(["comment", "composer"]);
+});

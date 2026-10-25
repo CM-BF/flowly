@@ -185,16 +185,29 @@ export class HandoffObserver {
     const hook = options.timeline ? captureTimeline(agentId, options.timeline, { now: () => this.clock(), outcome: options.outcome, received, sentMessageIds: state.sentMessageIds, automationTextHashes: state.automationTextHashes }) : undefined;
     const semantics = [batch, hook].filter((value): value is CaptureSemantics => !!value);
     const entries: NonNullable<HandoffCapture["entries"]> = [];
+    // Codex's own copy of a message has no Paseo id (§5.7): match it to the card's inputs by text, never store the same words twice.
+    const normalized = (text: string) => digest(text.trim().replace(/\s+/g, " "));
+    const sameText = (entry: { text?: string; sourceHash?: string; textRef?: string }, text: string) => entry.text !== undefined ? normalized(entry.text) === normalized(text) : (entry.sourceHash ?? entry.textRef) === digest(text);
+    const providerCopy = (entry: { sourceId?: string }) => !!entry.sourceId?.startsWith(`provider-user:${agentId}:`);
+    const pass: Record<string, unknown>[] = [];
     for (const source of semantics) for (const input of source.inputs) {
       const sourceId = input.messageId ? handoffMessageSource(agentId, input.messageId) : handoffSource(input.id);
       this.check();
-      const old = record.inputs.find((value) => value.sourceId === sourceId) ?? await this.deps.records.inputRecord(taskId, sourceId);
+      let old = record.inputs.find((value) => value.sourceId === sourceId) ?? await this.deps.records.inputRecord(taskId, sourceId), twin = false;
+      if (!old && input.unlinked && [...record.inputs, ...pass].some((value) => sameText(value as { text?: string }, input.text))) continue;
+      if (!old && input.messageId && !input.unlinked) {
+        const queued = pass.find((value) => providerCopy(value) && (value.messageId === input.messageId || !value.messageId && sameText(value as { text?: string }, input.text)));
+        if (queued) { queued.messageId = input.messageId; if (input.status === "received" && (received || input.via === "agent")) queued.status = "received"; continue; }
+        old = record.inputs.find((value) => providerCopy(value) && value.messageId === input.messageId) ?? record.inputs.find((value) => providerCopy(value) && !value.messageId && sameText(value, input.text)) ?? null;
+        twin = !!old;
+      }
       const status = old && old.status !== "open" ? old.status : input.status === "received" && (received || input.via === "agent") ? "received" : "open";
-      const mismatch = old?.atSource === "captured" && old.sourceHash && old.sourceHash !== digest(input.text);
-      if (old && !mismatch && (old.status === status || status !== "received")) continue;
-      const value = old ? { ...old, ...(mismatch ? { text: input.text, textRef: undefined, firstLine: undefined, sourceHash: undefined, contentRef: undefined, characters: input.text.length } : {}), status } : { id: entryId("d", sourceId), sourceId, agentId, via: role === "retired" ? "retired_session" : input.via,
+      const mismatch = !twin && old?.atSource === "captured" && old.sourceHash && old.sourceHash !== digest(input.text);
+      if (old && !mismatch && (old.status === status || status !== "received") && !(twin && !old.messageId)) continue;
+      const value = old ? { ...old, ...(mismatch ? { text: input.text, textRef: undefined, firstLine: undefined, sourceHash: undefined, contentRef: undefined, characters: input.text.length } : {}), ...(twin ? { messageId: input.messageId } : {}), status } : { id: entryId("d", sourceId), sourceId, agentId, via: role === "retired" ? "retired_session" : input.via,
         atSource: "captured", text: input.text, characters: input.text.length, status, at: input.at, ...(input.redacted ? { redacted: true } : {}),
         ...(input.messageId ? { messageId: input.messageId } : {}), ...(input.senderId || input.senderTitle ? { from: { agentId: input.senderId, title: input.senderTitle?.slice(0, 120) } } : {}) };
+      if (!old) pass.push(value);
       entries.push({ section: "inputs", value });
     }
     const meta = state;

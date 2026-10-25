@@ -226,7 +226,7 @@ export class CaptureRecords {
     this.closeHandle(task, source, timestamp, status, "agent", { late: true, note: { id: `task-notice:${task}:${status}`, text: parts.join(" ").slice(0, 2000), kind, always: status !== "completed" || details.length > 0 } });
     return true;
   }
-  private message(text: string, source: CaptureSource, timestamp: unknown, assistant = false, received = false) {
+  private message(text: string, source: CaptureSource, timestamp: unknown, assistant = false, received = false, unlinked?: string) {
     if (!text.trim()) return;
     const wrapped = assistant ? undefined : envelope(text.trim());
     if (!assistant && text.trimStart().startsWith("<paseo-system") && !wrapped) {
@@ -253,14 +253,15 @@ export class CaptureRecords {
     const messageId = source.messageId;
     const fromFlowly = !assistant && !wrapped && !messageId && this.automationTextHashes.includes(createHash("sha256").update(text).digest("hex"));
     if (!assistant && messageId && this.sent.has(messageId)) return;
-    const key = messageId ? handoffMessageSource(this.agentId, messageId) : handoffSource(`message:${sourceKey(source)}`);
+    if (unlinked && fromFlowly) return;
+    const key = messageId ? handoffMessageSource(this.agentId, messageId) : unlinked ? handoffSource(`provider-user:${this.agentId}:${unlinked}`) : handoffSource(`message:${sourceKey(source)}`);
     const safe = redactCaptureText(text), time = this.time(timestamp);
     if (assistant) {
       const excerpt = safe.slice(0, captureLimits.messageChars);
       this.result.narrationTrimmedChars += safe.length - excerpt.length;
       this.result.live.push({ id: key, source, text: excerpt, ...time, ...(safe.length > excerpt.length ? { truncated: true } : {}), ...(messageId ? { messageId } : {}) });
       while (this.result.live.length > captureLimits.live || this.result.live.reduce((n, item) => n + item.text.length, 0) > captureLimits.liveChars) { this.result.live.shift(); this.result.narrationOmitted++; }
-    } else this.result.inputs.push({ id: key, source, text: safe, ...time, ...(safe !== text ? { redacted: true } : {}), ...(messageId ? { messageId } : {}), via: fromFlowly || relay || wrapped && wrapped.kind !== "user-message" ? "agent" : "session", ...(fromFlowly ? { senderTitle: "Flowly automation" } : relay ? { senderTitle: relay } : {}), ...(wrapped?.senderId ? { senderId: wrapped.senderId } : {}), ...(wrapped?.title ? { senderTitle: redactCaptureText(wrapped.title).slice(0, 200) } : {}), status: received || fromFlowly ? "received" : "open" });
+    } else this.result.inputs.push({ id: key, source, text: safe, ...time, ...(safe !== text ? { redacted: true } : {}), ...(messageId ? { messageId } : {}), via: fromFlowly || relay || wrapped && wrapped.kind !== "user-message" ? "agent" : "session", ...(fromFlowly ? { senderTitle: "Flowly automation" } : relay ? { senderTitle: relay } : {}), ...(wrapped?.senderId ? { senderId: wrapped.senderId } : {}), ...(wrapped?.title ? { senderTitle: redactCaptureText(wrapped.title).slice(0, 200) } : {}), status: received || fromFlowly ? "received" : "open", ...(unlinked && !messageId ? { unlinked: true as const } : {}) });
   }
   private arguments(input: unknown, source: CaptureSource): RecordValue | undefined {
     if (typeof input !== "string") return object(input);
@@ -408,8 +409,14 @@ export class CaptureRecords {
       if (launch) this.push({ id: `background:${this.agentId}:${launch.kind}:${launch.handle}`, kind: launch.kind, handle: launch.handle, status: "open", label: launch.label }, source, this.time(timestamp).at);
       if (detachedCommand(command) && id(itemId)) this.attribute("detached");
       if (detachedCommand(command) && id(itemId)) this.push({ id: `background:${this.agentId}:${itemId}`, kind: "exec", callId: itemId, status: "unknown", label: `detached: ${redactCaptureText(command)}`.slice(0, 120) }, source, this.time(timestamp).at);
+    } else if (type === "UserMessage" && id(itemId)) {
+      // This Codex version writes a person's words only here (no event_msg user_message). Without Paseo's message id the
+      // observer keeps them only when no other source (Flowly send, comment, turn-end timeline) already put that text on the card.
+      // Codex's own wrappers (automation heartbeats, browser context, history summaries) are not words typed into the session.
+      const text = contentText(item.content);
+      if (!/^\s*<(?:heartbeat|in-app-browser-context|chat-history-summary)\b/.test(text)) this.message(text, source, timestamp, false, false, itemId);
     }
-    // Other items (Reasoning, FileChange, ContextCompaction, UserMessage, AgentMessage, ...) are covered elsewhere or are metadata; see SESSION-HANDOFF-SPEC §5.7.
+    // Other items (Reasoning, FileChange, ContextCompaction, AgentMessage, ...) are covered elsewhere or are metadata; see SESSION-HANDOFF-SPEC §5.7.
   }
   providerLine(provider: "codex" | "claude", raw: Buffer, source: CaptureSource): string {
     this.origin = "provider";

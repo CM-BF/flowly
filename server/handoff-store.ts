@@ -312,7 +312,9 @@ export class HandoffStore {
       if (typeof draft.text === "string") { delete next.textRef; delete next.firstLine; }
       this.replace(change, "inputs", next); return next;
     }
-    if (status !== existing.status) { const next = { ...existing, status, rev: change.record.revision }; this.replace(change, "inputs", next); return next; }
+    // Codex's copy of a message, captured before the turn-end timeline delivered it, learns Paseo's message id once.
+    const link = !existing.messageId && typeof draft.messageId === "string" && !!existing.sourceId?.startsWith("provider-user:");
+    if (status !== existing.status || link) { const next = { ...existing, status, ...(link ? { messageId: draft.messageId as string } : {}), rev: change.record.revision }; this.replace(change, "inputs", next); return next; }
     return existing;
   }
   private async append(change: Mutation, section: HandoffEntrySection, draft: Record<string, unknown>, context: HandoffContext) {
