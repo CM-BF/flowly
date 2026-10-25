@@ -341,3 +341,45 @@ test("a known missing handoff file refuses observation and registration instead 
   await expect(x.observer.ensureSession("card", "worker")).rejects.toMatchObject({ code: "HANDOFF_UNAVAILABLE" });
   expect(await x.records.read("card")).toBeNull(); expect(x.capture).not.toHaveBeenCalled();
 });
+
+// Paseo closes a turn before it publishes its turn_ended hook, so the hook's snapshot can already show the next turn (a queued
+// message starts at once), and a poll can see that next turn before the hook is handled (SESSION-HANDOFF-SPEC §21.1).
+const minutes = (n: number) => new Date(Date.parse(at) + n * 60_000).toISOString();
+const turnEnd = (...finals: string[]) => ({ timeline: finals.flatMap((text, index) => [...(index ? [{ type: "user_message", text: `next ${index}`, messageId: `m${index}` }] : []), { type: "assistant_message", text }]), outcome: "completed" as const });
+async function endedTurns(x: Awaited<ReturnType<typeof fixture>>) {
+  const record = await x.read(), facts = await x.observer.measure({ taskId: "card", agentId: "worker" });
+  return { turns: record.ledger[0].turns.map(({ startedAt, endedAt, final }) => ({ startedAt, endedAt, final })), lastWords: record.lastWords?.text, activeMs: facts.activeMs, completedTurns: facts.completedTurns, hazards: record.notes.filter((note) => note.kind === "hazard").length };
+}
+
+test("a turn-end hook whose snapshot already shows the next turn ends its own turn, and the next turn's hook records the next one", async () => {
+  const x = await fixture(); x.actor.status = "running"; x.actor.activeTurn = { turnId: "t1", startedAt: at };
+  for (let minute = 0; minute <= 20; minute++) { await x.observer.observe("card", "worker"); x.advance(60_000); }
+  x.advance(-30_000); x.actor.activeTurn = { turnId: "t2", startedAt: minutes(20.5) };
+  await x.observer.observe("card", "worker", turnEnd("T1 final words"));
+  for (let minute = 0; minute < 10; minute++) { x.advance(60_000); await x.observer.observe("card", "worker"); }
+  x.advance(30_000); x.actor.status = "idle"; x.actor.activeTurn = null;
+  await x.observer.observe("card", "worker", turnEnd("T1 final words", "T2 final words"));
+  expect(await endedTurns(x)).toEqual({ turns: [{ startedAt: at, endedAt: minutes(20.5), final: "T1 final words" }, { startedAt: minutes(20.5), endedAt: minutes(31), final: "T2 final words" }],
+    lastWords: "T2 final words", activeMs: 30 * 60_000, completedTurns: 2, hazards: 2 });
+});
+
+test("a poll that sees the next turn before the previous turn's hook keeps that turn for its hook, named or not", async () => {
+  for (const named of [true, false]) {
+    const x = await fixture(); x.actor.status = "running"; x.actor.activeTurn = { turnId: "t1", startedAt: at };
+    for (let minute = 0; minute <= 10; minute++) { await x.observer.observe("card", "worker"); x.advance(60_000); }
+    x.actor.activeTurn = { turnId: "t2", startedAt: minutes(10.5) }; await x.observer.observe("card", "worker");
+    await x.observer.observe("card", "worker", { ...turnEnd("T1 final words"), ...(named ? { turnId: "t1" } : {}) });
+    x.advance(5 * 60_000); await x.observer.observe("card", "worker"); x.actor.status = "idle"; x.actor.activeTurn = null;
+    await x.observer.observe("card", "worker", { ...turnEnd("T1 final words", "T2 final words"), ...(named ? { turnId: "t2" } : {}) });
+    expect(await endedTurns(x)).toEqual({ turns: [{ startedAt: at, endedAt: minutes(11), final: "T1 final words" }, { startedAt: minutes(10.5), endedAt: minutes(16), final: "T2 final words" }],
+      lastWords: "T2 final words", activeMs: 10 * 60_000 + 5.5 * 60_000, completedTurns: 2, hazards: 2 });
+  }
+});
+
+test("a hook that names a turn no poll saw never takes the start of an earlier turn whose hook was lost", async () => {
+  const x = await fixture(); x.actor.status = "running"; x.actor.activeTurn = { turnId: "t0", startedAt: at };
+  await x.observer.observe("card", "worker"); x.advance(60_000); await x.observer.observe("card", "worker");
+  x.advance(60_000); x.actor.status = "idle"; x.actor.activeTurn = null; await x.observer.observe("card", "worker"); // t0's hook was lost
+  x.advance(60 * 60_000); await x.observer.observe("card", "worker", { ...turnEnd("T1 final words"), turnId: "t1" }); // t1 ran between two polls
+  expect((await endedTurns(x)).turns).toEqual([{ startedAt: minutes(62), endedAt: minutes(62), final: "T1 final words" }]);
+});

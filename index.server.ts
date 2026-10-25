@@ -668,7 +668,7 @@ export default function contribute(server: PluginServerContext) {
     if (event.outcome.kind === "completed") void nextRows.turnEnded(identity, paseo);
     const auto = await autoStatusOn();
     const handoffRole = (await handoffs.role(identity))?.role;
-    await handoffObserver.observe(identity.taskId, identity.agentId, { timeline: event.timeline, outcome: event.outcome.kind, received: handoffRole !== "retired" && handoffRole !== "finalizing", forceGit: true });
+    await handoffObserver.observe(identity.taskId, identity.agentId, { timeline: event.timeline, outcome: event.outcome.kind, turnId: event.turnId, received: handoffRole !== "retired" && handoffRole !== "finalizing", forceGit: true });
     // Agent habits (WORKFLOW-INSIGHTS-SPEC §12.4): the model this turn ran on, and whether the user's message took one of the suggestions that were open.
     const model = await sessionModel(paseo, event.agent);
     const texts = userTexts(event.timeline);

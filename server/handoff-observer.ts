@@ -52,10 +52,13 @@ type GapMarks = { provider: Record<string, number>; timeline: Record<string, num
  * `heard`: digests of narration already on the card (any source), so a provider copy of the hook's words is not kept twice.
  * `ended`: digests of exec sessions (kind and ref) that started and ended within a running turn and were dropped, so the
  * turn-end timeline, which replays every start, does not bring them back (bounded).
+ * `turnStart`: the turn seen running last, until its hook. `priorTurn`: the one before it, when a poll saw the next turn
+ * running before that turn's hook came; its hook still ends it with its own start and proof.
  */
-type ObserverState = { ended?: string[]; liveIds?: string[]; heard?: string[]; providerK?: number; timelineK?: number; compactIds?: string[]; usageId?: string; usageAt?: string; ttl?: number; lastTurn?: string; lastRequest?: string; activeMs?: number; lastTimeline?: string; lastEndedTurnId?: string; turnStart?: { id: string; at: string; observedAt?: string }; sentMessageIds?: string[]; automationTextHashes?: string[]; narration?: NarrationCoverage; gaps?: GapMarks; scripts?: { provider: number; timeline: number }; merged?: { epoch: number; count: number } };
+type ObserverState = { ended?: string[]; liveIds?: string[]; heard?: string[]; providerK?: number; timelineK?: number; compactIds?: string[]; usageId?: string; usageAt?: string; ttl?: number; lastTurn?: string; lastRequest?: string; activeMs?: number; lastTimeline?: string; lastEndedTurnId?: string; turnStart?: { id: string; at: string; observedAt?: string }; priorTurn?: { id: string; at: string; observedAt?: string }; sentMessageIds?: string[]; automationTextHashes?: string[]; narration?: NarrationCoverage; gaps?: GapMarks; scripts?: { provider: number; timeline: number }; merged?: { epoch: number; count: number } };
 type Resume = Partial<CaptureCursor> & { observer?: ObserverState };
-export type HandoffObservation = { timeline?: readonly unknown[]; outcome?: "completed" | "failed" | "canceled"; received?: boolean; forceGit?: boolean };
+/** `turnId`: the turn a turn-end hook ends (Paseo's turn id, the snapshot's `activeTurn.turnId`), when the host names it. */
+export type HandoffObservation = { timeline?: readonly unknown[]; outcome?: "completed" | "failed" | "canceled"; turnId?: string | null; received?: boolean; forceGit?: boolean };
 export type HandoffSessionOptions = { role?: HandoffSession["role"]; reason?: string; model?: AgentModel; previousAgentId?: string };
 export type ManagedHandoffSession = { taskId: string; agentId: string };
 export type HandoffObserverDeps = {
@@ -83,8 +86,9 @@ export class HandoffObserver {
    * Per session: the last time a poll saw its turn running. It is the proof that the turn's active time (`activeMs`) counts up
    * to, and it is stored only when the poll writes new data anyway, so a quiet running turn writes nothing (SESSION-HANDOFF-SPEC
    * §21.1). A reload loses at most the quiet polls since the last write: those count again only when a later poll sees the turn.
+   * `over`: an observation found the session out of that turn since, so a newer turn does not keep it waiting for its hook.
    */
-  private activeSeen = new Map<string, { turnId: string; at: number }>();
+  private activeSeen = new Map<string, { turnId: string; at: number; over?: true }>();
   private polling = false;
   private next = 0;
   readonly bridge: AutomationHandoffBridge;
@@ -371,34 +375,54 @@ export class HandoffObserver {
       old.calls += value.lines; old.bytes += value.bytes; growth.set(key, old);
     }
     const turnKey = `${taskId}:${agentId}`;
-    if (actor?.activeTurn?.startedAt) {
-      const { turnId: id, startedAt } = actor.activeTurn;
-      // A turn first seen is stored with the time it was seen; later polls of the same turn only move the proof in memory.
-      if (meta.turnStart?.id !== id || meta.turnStart.at !== startedAt) meta.turnStart = { id, at: startedAt, observedAt: this.now() };
-      this.activeSeen.set(turnKey, { turnId: id, at: this.clock() });
-    }
+    const active = actor?.activeTurn?.startedAt ? { turnId: actor.activeTurn.turnId, startedAt: actor.activeTurn.startedAt } : undefined, seen = this.activeSeen.get(turnKey);
+    // Out of its turn: the turn seen running last is over, whether or not its hook still comes.
+    if (seen && actor && !inTurn) seen.over = true;
     const timelineKey = hook && digest(JSON.stringify({ inputs: hook.inputs.map((m) => m.id), live: hook.live.map((m) => m.id), background: hook.background.map((m) => [m.id, m.status]), compactions: hook.compactions.map((m) => m.id), outcome: options.outcome }));
     const turns = [...session.turns];
-    if (hook && options.outcome && (meta.turnStart ? meta.lastEndedTurnId !== meta.turnStart.id : meta.lastTimeline !== timelineKey)) {
-      const last = hook.live.at(-1), stamp = this.now();
-      // Native repeated turn-end deliveries have identical timelines. No invented start time.
-      const startedAt = meta.turnStart?.at ?? stamp;
-      const wroteHandoff = record.checkpoint?.agentId === agentId && time(record.checkpoint.at) >= time(startedAt);
-      measured.turns++; turns.push({ n: measured.turns, startedAt, endedAt: stamp, outcome: options.outcome,
-        ...(last ? { final: last.text.slice(0, 2000) } : {}), wroteHandoff });
-      // Hook delivery can be late: only count the interval proven by an active snapshot, never all session age.
-      const proven = meta.turnStart && this.provenActive(turnKey, meta.turnStart);
-      if (meta.turnStart && proven && time(meta.turnStart.at) > 0 && proven >= time(meta.turnStart.at))
-        meta.activeMs = (meta.activeMs ?? 0) + proven - time(meta.turnStart.at);
-      this.activeSeen.delete(turnKey);
-      if (!wroteHandoff && time(stamp) - time(startedAt) >= 300_000) {
-        const sourceId = handoffSource(`unwritten-turn:${agentId}:${timelineKey}`);
-        entries.push({ section: "notes", value: { id: entryId("nt", sourceId), sourceId, kind: "hazard", text: "A work turn of at least five minutes ended without an agent handoff checkpoint. Its reasoning may exist only in the session; verify the captured narration and saved outputs before continuing." } });
+    if (hook && options.outcome) {
+      // A hook ends its own turn first (SESSION-HANDOFF-SPEC §21.1): the one it names, or else the oldest stored turn this
+      // snapshot does not show running. Paseo closes a turn before it publishes the hook, so a turn the snapshot shows running
+      // is the next one (a queued message starts at once); it is adopted below, after this turn is recorded with its own start.
+      const stored = [meta.priorTurn, meta.turnStart].filter((turn): turn is NonNullable<ObserverState["turnStart"]> => !!turn);
+      const ending = options.turnId ? stored.find((turn) => turn.id === options.turnId)
+        : stored.find((turn) => turn.id !== active?.turnId) ?? (meta.lastTimeline !== timelineKey ? stored[0] : undefined);
+      const endedId = options.turnId ?? ending?.id;
+      // Native repeated turn-end deliveries have identical timelines (or name the same turn). No invented start time.
+      if (endedId ? meta.lastEndedTurnId !== endedId : meta.lastTimeline !== timelineKey) {
+        const last = hook.live.at(-1), stamp = this.now();
+        const startedAt = ending?.at ?? stamp;
+        const wroteHandoff = record.checkpoint?.agentId === agentId && time(record.checkpoint.at) >= time(startedAt);
+        measured.turns++; turns.push({ n: measured.turns, startedAt, endedAt: stamp, outcome: options.outcome,
+          ...(last ? { final: last.text.slice(0, 2000) } : {}), wroteHandoff });
+        // Hook delivery can be late: only count the interval proven by an active snapshot, never all session age.
+        const proven = ending && this.provenActive(turnKey, ending);
+        if (ending && proven && time(ending.at) > 0 && proven >= time(ending.at)) meta.activeMs = (meta.activeMs ?? 0) + proven - time(ending.at);
+        if (!wroteHandoff && time(stamp) - time(startedAt) >= 300_000) {
+          const sourceId = handoffSource(`unwritten-turn:${agentId}:${timelineKey}`);
+          entries.push({ section: "notes", value: { id: entryId("nt", sourceId), sourceId, kind: "hazard", text: "A work turn of at least five minutes ended without an agent handoff checkpoint. Its reasoning may exist only in the session; verify the captured narration and saved outputs before continuing." } });
+        }
+        if (endedId) meta.lastEndedTurnId = endedId;
+        meta.lastTurn = stamp; meta.lastTimeline = timelineKey;
       }
-      if (meta.turnStart) meta.lastEndedTurnId = meta.turnStart.id;
-      delete meta.turnStart;
-      meta.lastTurn = stamp; meta.lastTimeline = timelineKey;
+      // Hooks come in order: a stored turn older than the one ended here, or (when the hook names a turn no poll stored) one
+      // that is not running now, lost its hook.
+      if (ending && ending === meta.turnStart) { delete meta.turnStart; delete meta.priorTurn; }
+      else if (ending) delete meta.priorTurn;
+      else if (options.turnId) { if (meta.turnStart && meta.turnStart.id !== active?.turnId) delete meta.turnStart; delete meta.priorTurn; }
     }
+    if (active && active.turnId !== meta.lastEndedTurnId) {
+      const { turnId: id, startedAt } = active;
+      // A turn first seen is stored with the time it was seen; later polls of the same turn only move the proof in memory.
+      if (meta.turnStart?.id !== id || meta.turnStart.at !== startedAt) {
+        // The next turn runs before the hook of the one seen running last came (a poll saw it first): that turn waits for its hook.
+        const previous = meta.turnStart, last = this.activeSeen.get(turnKey);
+        if (previous && previous.id !== id && last?.turnId === previous.id && !last.over) meta.priorTurn = { ...previous, observedAt: new Date(this.provenActive(turnKey, previous)).toISOString() };
+        meta.turnStart = { id, at: startedAt, observedAt: this.now() };
+      }
+      this.activeSeen.set(turnKey, { turnId: id, at: this.clock() });
+    }
+    if (this.activeSeen.get(turnKey)?.turnId !== meta.turnStart?.id) this.activeSeen.delete(turnKey);
     for (const source of semantics) for (const notice of source.notices) {
       const sourceId = handoffSource(`capture-notice:${agentId}:${notice.id}`);
       entries.push({ section: "notes", value: { id: entryId("nt", sourceId), sourceId, kind: notice.kind ?? "other", at: notice.at, text: notice.text.slice(0, 2000) } });
