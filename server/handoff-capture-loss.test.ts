@@ -124,3 +124,74 @@ test("the dynamic-workflow plugin's relay of the user's Ultracode setting is kep
   expect(record.gaps).toEqual([]);
   expect(record.inputs).toEqual([expect.objectContaining({ via: "agent", from: expect.objectContaining({ title: "paseo-dynamic-workflow" }), status: "received", text: expect.stringContaining("do not launch any") })]);
 });
+
+// ---------------------------------------------------------------- script attribution and placeholders (loss-F2, noise-F1, noise-F2)
+test("restarting a dev server: the old session's completion inside the new script does not hide the server that script starts", async () => {
+  for (const variant of ["restart", "poll-build"] as const) {
+    const x = await observerFixture();
+    const [first, cmd, pid] = variant === "restart" ? ["npm run dev", "npm run dev -- --port 3001", "4242"] : ["npm run build", "npm start", "5001"];
+    await x.append([script("s1", `const r = await tools.exec_command({ cmd: ${JSON.stringify(first)}, yield_time_ms: 3000 });\ntext(r);`), scriptOutput("s1", JSON.stringify({ session_id: Number(pid), output: "started" }))]);
+    await x.poll();
+    expect(pending(await x.read()).map((entry) => entry.ref)).toEqual([pid]);
+    await x.append([script("s2", `await tools.write_stdin({ session_id: ${pid}, chars: "\\u0003", yield_time_ms: 1000 });\nconst next = await tools.exec_command({ cmd: ${JSON.stringify(cmd)}, yield_time_ms: 3000 });\ntext("ok");`),
+      commandDone(`e-${pid}`, pid, first, variant === "restart" ? 130 : 0), scriptOutput("s2", "ok")]);
+    await x.poll();
+    const record = await x.read();
+    expect(background(record).find((entry) => entry.ref === pid)).toMatchObject({ status: "closed", outcome: variant === "restart" ? "exit 130" : "exit 0" });
+    expect(pending(record)).toEqual([expect.objectContaining({ kind: "exec_session", status: "unknown", label: expect.stringContaining("completion not observed") })]);
+  }
+});
+
+test("a script's exec_command whose completion arrives after the script returned is closed by that completion", async () => {
+  const x = await observerFixture();
+  await x.append([script("s1", `await tools.exec_command({ cmd: "npm run dev", yield_time_ms: 2000 });\ntext("started");`), scriptOutput("s1", "started")]);
+  await x.poll();
+  expect(pending(await x.read())).toEqual([expect.objectContaining({ status: "unknown", label: expect.stringContaining("completion not observed") })]);
+  // The dev server exits later: Codex writes its CommandExecution completion while no script runs.
+  await x.append([commandDone("exec-late", "4242", "npm run dev", 0)]);
+  await x.poll();
+  const record = await x.read();
+  expect(pending(record)).toEqual([]); expect(handoffOpenIds(record)).toEqual([]);
+  expect(background(record)[0]).toMatchObject({ status: "closed", outcome: "exit 0" });
+});
+
+test("an ACK done or obsolete with a note settles an unknown background item for every later reader", async () => {
+  const x = await observerFixture();
+  await x.append([script("s1", `if (flag) await tools.exec_command({ cmd: "npm run dev", yield_time_ms: 2000 });\ntext("skipped");`), scriptOutput("s1", "skipped")]);
+  await x.poll();
+  expect(handoffOpenIds(await x.read())).toHaveLength(1);
+  await x.ack("done", "checked with ps: no dev server is running");
+  const record = await x.read();
+  expect(handoffOpenIds(record)).toEqual([]);
+  expect(pending(record)).toEqual([]); expect(background(record)[0]).toMatchObject({ status: "closed", outcome: expect.stringContaining("ACK") });
+  expect(record.ledger[0].ack?.complete).toBe(true);
+  // Replays and later polls do not reopen it.
+  await x.poll(); expect(handoffOpenIds(await x.read())).toEqual([]);
+});
+
+test("41 scripts whose exec_commands never report completion do not stop capture: the person's next words are still stored", async () => {
+  const x = await observerFixture();
+  for (let n = 0; n < 41; n++) await x.append([script(`s${n}`, `await tools.exec_command({ cmd: "npm run watch-${n}", yield_time_ms: 1000 });\ntext("ok");`), scriptOutput(`s${n}`, "ok")]);
+  await x.poll();
+  await x.observer.observe("card", "worker", { outcome: "completed", timeline: [{ type: "user_message", text: "Please also keep the old endpoint", messageId: "human-1" }] });
+  const record = await x.read(), entries = pending(record);
+  expect(record.inputs.map((input) => input.text)).toEqual(["Please also keep the old endpoint"]);
+  expect(entries.length).toBeLessThanOrEqual(40);
+  // Nothing is silently dropped: the merged items are counted on one open entry and listed in a note.
+  expect(entries).toContainEqual(expect.objectContaining({ label: expect.stringMatching(/^\d+ more background items merged/) }));
+  const merged = Number(/^(\d+)/.exec(entries.find((entry) => /merged/.test(entry.label))!.label)![1]);
+  expect(entries.length - 1 + merged).toBe(41);
+  expect(record.notes.some((note) => note.text.includes("npm run watch-0") || note.text.includes("completion not observed"))).toBe(true);
+});
+
+test("a wait in flight when a poll lands leaves no placeholder once it returns", async () => {
+  const x = await observerFixture();
+  await x.append([script("s1", "await longTask();"), response("custom_tool_call_output", { call_id: "s1", output: [{ type: "input_text", text: "Script running with cell ID 3\nWall time 10 seconds\nOutput:\n" }] }),
+    response("function_call", { name: "wait", call_id: "w1", arguments: JSON.stringify({ cell_id: 3, yield_time_ms: 30000 }) })]);
+  await x.poll();
+  expect(pending(await x.read()).map((entry) => entry.ref)).toEqual(["cell:3"]);
+  await x.append([response("function_call_output", { call_id: "w1", output: "Script completed\nWall time 31 seconds\nOutput:\n" })]);
+  await x.poll();
+  const record = await x.read();
+  expect(pending(record)).toEqual([]); expect(handoffOpenIds(record)).toEqual([]);
+});

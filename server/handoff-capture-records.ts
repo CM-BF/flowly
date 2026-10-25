@@ -72,7 +72,8 @@ function outputBlocks(raw: unknown): string[] {
 /** A background handle announced in plain text: Claude's backgrounded Bash and Workflow, the dynamic-workflow MCP tool. */
 const announcedHandle = (text: string) => id(/\b(?:running in background with ID|Task ID|Run ID):\s*([\w-]+(?:\.[\w-]+)*)/i.exec(text)?.[1]);
 const pluginMetadata = new Set([summaryRowKind, nextRowKind, "activity-list", "guard-decision", "learning-update", "async-shell-task", "dynamic-workflow-run"]);
-type ScriptEvidence = { workflow?: boolean; timeline?: boolean; starts: string[]; execCalls: number; seen: Record<string, number>; detached?: string };
+/** `known`: exec session ids the script text names (write_stdin to an earlier session): their completions are not this script's starts. */
+type ScriptEvidence = { workflow?: boolean; timeline?: boolean; starts: string[]; execCalls: number; seen: Record<string, number>; detached?: string; known?: string[] };
 export type PendingCaptureCall = { callId: string; kind: CaptureBackground["kind"]; action: "start" | "close" | "poll"; source: CaptureSource; at: string; handle?: string; label?: string; detached?: boolean; script?: ScriptEvidence; wait?: { terminate?: boolean } };
 
 /** Keep task paths and prose, remove credential values and inline binary data before any excerpt is made. */
@@ -137,6 +138,8 @@ export class CaptureRecords {
   private done = new Set<string>();
   /** Unified exec sessions proven finished (CommandExecution process_id); a later printed copy of the start result cannot reopen them. */
   private closed: string[] = [];
+  /** Unified exec sessions known to be running (printed by a script, or a top-level exec_command still running): their completions close them, never count toward a later script. */
+  private sessions: string[] = [];
   /** Aggregation per kind and type hint: a flood of one unknown record type is one gap with a count. */
   private groups = new Map<string, CaptureGap>();
   private origin: "provider" | "timeline" = "provider";
@@ -145,9 +148,11 @@ export class CaptureRecords {
   firstUsageAvailable = true;
   identityMismatch = false;
   constructor(private agentId: string, private capturedAt: string, sentMessageIds: readonly string[] = [], private automationTextHashes: readonly string[] = []) { this.sent = new Set(sentMessageIds); }
-  restore(calls: PendingCaptureCall[], sawUsage: boolean, firstUsageAvailable: boolean, closed: readonly string[] = []) { this.calls = new Map(calls.slice(-captureLimits.calls).map((call) => [call.callId, call])); this.sawUsage = sawUsage; this.firstUsageAvailable = firstUsageAvailable; this.closed = closed.slice(-captureLimits.closed); }
+  restore(calls: PendingCaptureCall[], sawUsage: boolean, firstUsageAvailable: boolean, closed: readonly string[] = [], sessions: readonly string[] = []) { this.calls = new Map(calls.slice(-captureLimits.calls).map((call) => [call.callId, call])); this.sawUsage = sawUsage; this.firstUsageAvailable = firstUsageAvailable; this.closed = closed.slice(-captureLimits.closed); this.sessions = sessions.slice(-captureLimits.closed); }
   pending() { return [...this.calls.values()]; }
   closedSessions() { return [...this.closed]; }
+  runningSessions() { return [...this.sessions]; }
+  private running(session: string) { if (!this.closed.includes(session)) this.sessions = [...this.sessions.filter((value) => value !== session), session].slice(-captureLimits.closed); }
   gap(value: CaptureGap) {
     if (["parse_failed", "unknown_record_type", "unknown_event_type", "unknown_response_type", "session_identity_mismatch"].includes(value.kind)) this.firstUsageAvailable = false;
     const at = value.at ?? this.lineAt ?? this.capturedAt;
@@ -282,12 +287,20 @@ export class CaptureRecords {
     const bases = [...text.matchAll(nestedCalls)].map((match) => toolBase(match[1] ?? match[3]));
     const starts = [...new Set(bases.filter((base) => nestedStart(base)))].slice(0, 16);
     const command = [...text.matchAll(commandLiterals)].map((match) => unescapeLiteral(match[1] ?? match[2] ?? match[3])).find(detachedCommand) ?? (/\brun_in_background["']?\s*:\s*true\b/.test(text) ? "run_in_background" : undefined);
-    this.register({ callId, kind: "exec", action: "start", source, at, label: "script running", script: { ...(this.origin === "timeline" ? { timeline: true } : {}), starts, execCalls: bases.filter((base) => base === "exec_command").length, seen: {}, ...(command ? { detached: redactCaptureText(command).slice(0, 100) } : {}) } }, source);
+    const known = [...new Set([...text.matchAll(/\bsession_id["']?\s*:\s*["']?(\d{1,12})\b/g)].map((match) => match[1]))].slice(0, 16);
+    this.register({ callId, kind: "exec", action: "start", source, at, label: "script running", script: { ...(this.origin === "timeline" ? { timeline: true } : {}), starts, execCalls: bases.filter((base) => base === "exec_command").length, seen: {}, ...(command ? { detached: redactCaptureText(command).slice(0, 100) } : {}), ...(known.length ? { known } : {}) } }, source);
   }
-  /** Nested completion items count toward the newest unfinished script; they show that a started call ended within it. */
-  private attribute(base: string) {
+  /**
+   * Nested completion items count toward the newest unfinished script; they show that a started call ended within it.
+   * A completion of an exec session known before (running or finished, or named in the script text) is not that script's
+   * start: counting it would hide an exec_command the script left running (restart a dev server, poll a build then start one).
+   * Returns whether the completion was credited to a running script.
+   */
+  private attribute(base: string, session?: string) {
     const script = [...this.calls.values()].reverse().find((call) => call.script && !call.script.workflow)?.script;
-    if (script && (base === "exec_command" || base === "detached" || script.starts.includes(base))) script.seen[base] = (script.seen[base] ?? 0) + 1;
+    if (!script || !(base === "exec_command" || base === "detached" || script.starts.includes(base))) return false;
+    if (base === "exec_command" && session && (this.sessions.includes(session) || this.closed.includes(session) || script.known?.includes(session))) return false;
+    script.seen[base] = (script.seen[base] ?? 0) + 1; return true;
   }
   private push(item: Omit<CaptureBackground, "source" | "at">, source: CaptureSource, at: string) { this.result.background.push({ ...item, source, at }); }
   private scriptOutput(call: PendingCaptureCall, raw: unknown, source: CaptureSource, failed: boolean) {
@@ -305,11 +318,13 @@ export class CaptureRecords {
     const header = /^Script (completed|failed|running with cell ID ([\w.-]+))/.exec(blocks[0] ?? "");
     if (header?.[2]) { const handle = `cell:${header[2]}`; this.push({ id: `background:${this.agentId}:exec:${handle}`, kind: "exec", handle, status: "open", label: `script cell ${header[2]} still running` }, source, call.at); return; }
     const running = runningSessions(blocks.slice(blocks.length > 1 ? 1 : 0)).filter((session) => !this.closed.includes(session));
-    for (const handle of running) this.push({ id: `background:${this.agentId}:exec:${handle}`, kind: "exec", handle, status: "open", label: "exec session started by a script" }, source, call.at);
+    for (const handle of running) { this.running(handle); this.push({ id: `background:${this.agentId}:exec:${handle}`, kind: "exec", handle, status: "open", label: "exec session started by a script" }, source, call.at); }
     if (script.detached && !script.seen.detached) this.push({ id: `background:${this.agentId}:${call.callId}:detached`, kind: "exec", callId: `${call.callId}:detached`, status: "unknown", label: `detached in script: ${script.detached}`.slice(0, 120) }, source, call.at);
     if (script.timeline) return; // Paseo's timeline shows nested calls as their own rows.
     for (const base of script.starts) if (!script.seen[base]) this.push({ id: `background:${this.agentId}:${call.callId}:${base}`, kind: nestedStart(base)!, callId: `${call.callId}:${base}`, status: "unknown", label: `${base} called in a script; result not observed` }, source, call.at);
-    if (script.execCalls > (script.seen.exec_command ?? 0) + running.length) this.push({ id: `background:${this.agentId}:${call.callId}:exec`, kind: "exec", callId: `${call.callId}:exec`, status: "unknown", label: "exec_command in a script; completion not observed" }, source, call.at);
+    // One placeholder per exec_command call site still unaccounted for (at most 4): each later unattributed completion settles the oldest.
+    const missing = Math.min(4, script.execCalls - (script.seen.exec_command ?? 0) - running.length);
+    for (let n = 1; n <= missing; n++) this.push({ id: `background:${this.agentId}:${call.callId}:exec${n > 1 ? `:${n}` : ""}`, kind: "exec", callId: `${call.callId}:exec${n > 1 ? `:${n}` : ""}`, status: "unknown", label: "exec_command in a script; completion not observed" }, source, call.at);
   }
   private output(callId: string, raw: unknown, source: CaptureSource, failed = false) {
     const call = this.calls.get(callId);
@@ -318,6 +333,8 @@ export class CaptureRecords {
     if (call.script) { this.scriptOutput(call, raw, source, failed); return; }
     if (call.wait) {
       const ended = /^Script (completed|failed)/.exec(outputBlocks(raw)[0] ?? "")?.[1];
+      // The wait itself is never background work: close any placeholder an earlier poll left for it while it was in flight.
+      this.push({ id: `background:${this.agentId}:${callId}`, kind: "exec", callId, status: "closed", closeOnly: true }, source, call.at);
       if (call.wait.terminate || ended) this.closeHandle(call.handle!, source, undefined, call.wait.terminate ? "terminated" : ended, "exec");
       return;
     }
@@ -340,6 +357,7 @@ export class CaptureRecords {
     const header = typeof value === "string" ? id(/^Process running with session ID ([\w.-]+)/m.exec(value)?.[1]) ?? announcedHandle(value) : undefined;
     const ref = handle ?? header;
     const finishedExec = call.kind === "exec" && (number(data.exit_code) !== undefined || (typeof value === "string" && /^Process exited with code \d+/m.test(value)));
+    if (call.kind === "exec" && ref && !finishedExec) this.running(ref);
     const closed = finishedExec || call.action === "close" && (data.ok === true || data.success === true || data.cancelled === true || data.canceled === true || data.deleted === true || ["closed", "cancelled", "canceled", "deleted"].includes(string(data.status)));
     if (finishedExec && !ref) {
       if (call.detached) { this.gap({ id: `detached:${sourceKey(source)}`, kind: "detached_background_untracked", source }); this.result.background.push({ id: `background:${this.agentId}:${callId}`, source, kind: call.kind, callId, status: "unknown", at: call.at, ...(call.label ? { label: call.label } : {}) }); }
@@ -358,11 +376,13 @@ export class CaptureRecords {
       this.call(name, itemId, item.arguments, source, timestamp);
       if (this.calls.has(itemId)) this.output(itemId, item.result ?? item.error, source, !!item.error || !["completed", ""].includes(string(item.status)));
     } else if (type === "CommandExecution") {
-      this.attribute("exec_command");
       const command = Array.isArray(item.command) ? string(item.command.at(-1)) : string(item.command), session = id(item.process_id);
+      const credited = this.attribute("exec_command", session), known = !!session && this.sessions.includes(session);
       if (session) {
         this.closed = [...this.closed.filter((value) => value !== session), session].slice(-captureLimits.closed);
-        this.push({ id: `background:${this.agentId}:exec:${session}`, kind: "exec", handle: session, status: "closed", closeOnly: true, ...(number(item.exit_code) !== undefined ? { outcome: `exit ${item.exit_code}` } : {}) }, source, this.time(timestamp).at);
+        this.sessions = this.sessions.filter((value) => value !== session);
+        // Not a known session and not a start of the running script: an exec_command that outlived its script ended now.
+        this.push({ id: `background:${this.agentId}:exec:${session}`, kind: "exec", handle: session, status: "closed", closeOnly: true, ...(number(item.exit_code) !== undefined ? { outcome: `exit ${item.exit_code}` } : {}), ...(!credited && !known && !this.done.has(itemId) && !this.calls.has(itemId) ? { late: true } : {}) }, source, this.time(timestamp).at);
       }
       if (detachedCommand(command) && id(itemId)) this.attribute("detached");
       if (detachedCommand(command) && id(itemId)) this.push({ id: `background:${this.agentId}:${itemId}`, kind: "exec", callId: itemId, status: "unknown", label: `detached: ${redactCaptureText(command)}`.slice(0, 120) }, source, this.time(timestamp).at);
@@ -482,7 +502,9 @@ export class CaptureRecords {
     }
   }
   finish() {
+    // A close or poll call in flight (wait, cancel) is not background work; only a start may have left something running.
     for (const call of this.calls.values()) {
+      if (call.action !== "start") continue;
       this.gap({ id: `pending-background:${this.agentId}:${call.callId}`, kind: "background_handle_pending", source: call.source });
       if (!this.result.background.some((item) => item.callId === call.callId)) this.result.background.push({ id: `background:${this.agentId}:${call.callId}`, source: call.source, kind: call.kind, callId: call.callId, status: "unknown", at: call.at, ...(call.label ? { label: call.label } : {}) });
     }

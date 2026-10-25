@@ -31,7 +31,7 @@ type Snapshot = NonNullable<NonNullable<Awaited<ReturnType<ReturnType<PaseoApi["
 type NarrationCoverage = { nativeOmitted: number; nativeTrimmed: number; nativeRange?: string; hookOmitted: number; hookTrimmed: number; rolledOff: number };
 /** Occurrence counts per gap group (kind + type hint): provider batches add, a replayed whole timeline only raises its high-water mark. */
 type GapMarks = { provider: Record<string, number>; timeline: Record<string, number>; recent: string[] };
-type ObserverState = { liveIds?: string[]; providerK?: number; timelineK?: number; compactIds?: string[]; usageId?: string; usageAt?: string; ttl?: number; lastTurn?: string; lastRequest?: string; activeMs?: number; lastTimeline?: string; lastEndedTurnId?: string; turnStart?: { id: string; at: string; observedAt?: string }; sentMessageIds?: string[]; automationTextHashes?: string[]; narration?: NarrationCoverage; gaps?: GapMarks; scripts?: { provider: number; timeline: number } };
+type ObserverState = { liveIds?: string[]; providerK?: number; timelineK?: number; compactIds?: string[]; usageId?: string; usageAt?: string; ttl?: number; lastTurn?: string; lastRequest?: string; activeMs?: number; lastTimeline?: string; lastEndedTurnId?: string; turnStart?: { id: string; at: string; observedAt?: string }; sentMessageIds?: string[]; automationTextHashes?: string[]; narration?: NarrationCoverage; gaps?: GapMarks; scripts?: { provider: number; timeline: number }; merged?: { epoch: number; count: number } };
 type Resume = Partial<CaptureCursor> & { observer?: ObserverState };
 export type HandoffObservation = { timeline?: readonly unknown[]; outcome?: "completed" | "failed" | "canceled"; received?: boolean; forceGit?: boolean };
 export type HandoffSessionOptions = { role?: HandoffSession["role"]; reason?: string; model?: AgentModel; previousAgentId?: string };
@@ -226,14 +226,7 @@ export class HandoffObserver {
         status: item.status === "unknown" && old ? old.status : item.status, ...(item.outcome ? outcome : old?.outcome ? { outcome: old.outcome } : {}), source: old?.source ?? (source === hook ? "hook" : "live") };
       if (index >= 0) background[index] = next; else background.push(next);
     }
-    if (background.filter((item) => item.status !== "closed").length > 40) {
-      // Reject the entire new batch before publishing its cursor, rather than erase a pending identity.
-      const gap = this.gap(agentId, `background-capacity:${agentId}`, "Background observation exceeds the 40-active-handle capacity. The previous capture cursor and every saved pending handle are preserved. Resolve or verify background work before retrying; newer content is not yet captured.");
-      if (![...record.gaps, ...record.overflow].some((item) => item.sourceId === gap.value.sourceId)) {
-        this.check(); await this.deps.records.capture(taskId, project.id, { entries: [gap] }, flowly); await this.deps.syncIndex(taskId);
-      }
-      throw new HandoffError("HANDOFF_TOO_LARGE", "More than 40 active or unknown background handles were observed. Capture was refused without advancing the cursor or dropping any saved pending id; resolve background work before retrying.");
-    }
+    this.mergeBackground(agentId, session.n, background, meta, entries);
     if (background.length > 40) {
       background.sort((a, b) => Number(a.status !== "closed") - Number(b.status !== "closed"));
       background.splice(0, background.length - 40); // Only proven closed handles leave this bounded index.
@@ -404,6 +397,28 @@ export class HandoffObserver {
       const sourceId = handoffSource(`capture-gaps:${agentId}:${key}`);
       return { id: entryId("g", sourceId), sourceId, agentId, text: `Capture gap (${gap.kind})${hint ? `: ${hint}` : ""}. This content was not preserved; count, firstAt and lastAt cover every occurrence in this session.`.slice(0, 300), count: total(key), ...(gap.at ? { firstAt: gap.at } : {}), ...(gap.lastAt ? { lastAt: gap.lastAt } : {}) };
     });
+  }
+  /**
+   * At more than 40 active entries, the oldest ones (evidence-free placeholders first) are merged into one open entry per
+   * session that counts them, and a note lists each merged item. Capture never stops for background capacity: refusing
+   * the batch also refused the person's words, notes and compactions behind it (SESSION-HANDOFF-SPEC §5.7).
+   */
+  private mergeBackground(agentId: string, n: number, background: HandoffSession["background"], meta: ObserverState, entries: NonNullable<HandoffCapture["entries"]>) {
+    const active = () => background.filter((item) => item.status !== "closed");
+    if (active().length <= 40) return;
+    const merge = meta.merged ?? { epoch: 0, count: 0 };
+    let aggregateId = entryId("bg", `background-merged:${agentId}:${merge.epoch}`);
+    if (background.some((item) => item.id === aggregateId && item.status === "closed")) { merge.epoch++; merge.count = 0; aggregateId = entryId("bg", `background-merged:${agentId}:${merge.epoch}`); }
+    const aggregate = background.find((item) => item.id === aggregateId);
+    const candidates = active().filter((item) => item.id !== aggregateId).sort((a, b) => Number(!a.ref.startsWith("unknown:")) - Number(!b.ref.startsWith("unknown:")) || time(a.startedAt) - time(b.startedAt));
+    const merged = candidates.slice(0, active().length - 40 + (aggregate ? 0 : 1));
+    for (const item of merged) background.splice(background.indexOf(item), 1);
+    merge.count += merged.length; meta.merged = merge;
+    const next: HandoffSession["background"][number] = { id: aggregateId, kind: aggregate?.kind ?? merged[0].kind, ref: `merged:${agentId}:${merge.epoch}`, label: `${merge.count} more background items merged at the 40-item capacity; Flowly notes list them`.slice(0, 120), startedAt: aggregate?.startedAt ?? merged[0].startedAt, status: "unknown", source: aggregate?.source ?? merged[0].source };
+    if (aggregate) background[background.indexOf(aggregate)] = next; else background.push(next);
+    const sourceId = handoffSource(`background-merged:${agentId}:${merge.epoch}:${merge.count}`);
+    const list = merged.map((item) => `${item.kind} ${item.status} ${item.ref}: ${item.label} (since ${item.startedAt})`).join("; ");
+    entries.push({ section: "notes", value: { id: entryId("nt", sourceId), sourceId, kind: "background", text: `Session #${n} (${agentId.slice(0, 8)}) had more than 40 active background items. ${merged.length} were merged into one entry ("${next.label}"); each may still be running: ${list}`.slice(0, 2000) } });
   }
   private comparable(session: SessionDraft) {
     const { rev: _, at: _at, by: _by, contentRef: _ref, ...rest } = session as HandoffSession;

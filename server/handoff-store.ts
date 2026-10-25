@@ -454,12 +454,17 @@ export class HandoffStore {
         const items = [...new Map([...(continuation ? prior!.items : []), ...ack.items].map((item) => [item.id, item])).values()].filter((item) => required.includes(item.id));
         change.ackMissing = required.filter((id) => !items.some((item) => item.id === id));
         // Acknowledging a gap as done/obsolete settles every occurrence counted so far (§7.5); only later growth reopens it.
+        // A background entry acknowledged done/obsolete (verified ended or irrelevant, with a note) is closed for every later reader.
         for (const item of ack.items) {
           if (!["done", "obsolete"].includes(item.disposition) || !required.includes(item.id)) continue;
           const gap = await this.entry(record, "gaps", item.id) as HandoffGap | null;
-          if (gap?.status === "open") this.replace(change, "gaps", { ...gap, rev: record.revision, at: record.updatedAt, status: "closed", resolution: { by: context.by, at: record.updatedAt, note: item.note!, ...(gap.count ? { count: gap.count } : {}) } });
+          if (gap?.status === "open") { this.replace(change, "gaps", { ...gap, rev: record.revision, at: record.updatedAt, status: "closed", resolution: { by: context.by, at: record.updatedAt, note: item.note!, ...(gap.count ? { count: gap.count } : {}) } }); continue; }
+          const holder = record.ledger.find((entry) => entry.background.some((b) => b.id === item.id && b.status !== "closed"))
+            ?? await (async () => { const index = record.overflow.find((entry) => entry.section === "ledger" && entry.openIds.includes(item.id)); return index ? await this.object(record.taskId, index.contentRef) as HandoffSession : undefined; })();
+          if (holder) this.replace(change, "ledger", handoffEntrySchemas.ledger.parse({ ...holder, rev: record.revision, at: record.updatedAt, background: holder.background.map((b) => b.id === item.id ? { ...b, status: "closed", outcome: `settled by ACK (${item.disposition}): ${item.note!}`.slice(0, 120) } : b) }));
         }
-        this.replace(change, "ledger", { ...session, rev: record.revision, at: record.updatedAt, ack: { ...ack, items, at: record.updatedAt, recordRevision: record.revision, complete: !change.ackMissing.length }, understanding: ack.understanding });
+        const acknowledging = record.ledger.find((s) => s.agentId === agentId)!;
+        this.replace(change, "ledger", { ...acknowledging, rev: record.revision, at: record.updatedAt, ack: { ...ack, items, at: record.updatedAt, recordRevision: record.revision, complete: !change.ackMissing.length }, understanding: ack.understanding });
       }
     });
   }

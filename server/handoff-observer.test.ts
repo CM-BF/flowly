@@ -286,13 +286,18 @@ test("two distinct abandoned rotations each reopen the old ledger lifecycle", as
   }
 });
 
-test("active background capacity refuses new observation and preserves every prior pending id and native cursor", async () => {
+test("active background capacity never stops observation: the oldest items are merged into one counted entry and listed in a note", async () => {
   const x = await fixture(), first = batch();
   first.background = Array.from({ length: 40 }, (_, n) => ({ id: `background-${n}`, callId: `call-${n}`, source, kind: "exec" as const, handle: `handle-${n}`, status: "open" as const, at })); x.setBatch(first);
   await x.observer.observe("card", "worker"); const before = await x.records.openIds("card");
   const second = batch(200); second.background.push({ id: "background-41", callId: "call-41", source, kind: "exec", handle: "handle-41", status: "open", at }); x.setBatch(second);
-  await expect(x.observer.observe("card", "worker")).rejects.toMatchObject({ code: "HANDOFF_TOO_LARGE" });
-  const record = await x.read(); expect(record.ledger[0].through?.offset).toBe(100); expect(await x.records.openIds("card")).toEqual(expect.arrayContaining(before)); expect(record.ledger[0].background).toHaveLength(40);
+  await x.observer.observe("card", "worker");
+  const record = await x.read(), active = record.ledger[0].background.filter((item) => item.status !== "closed");
+  expect(record.ledger[0].through?.offset).toBe(200); expect(active).toHaveLength(40);
+  const after = await x.records.openIds("card"), dropped = before.filter((id) => !after.includes(id));
+  expect(dropped).toHaveLength(2);
+  expect(active).toContainEqual(expect.objectContaining({ status: "unknown", label: expect.stringMatching(/^2 more background items merged/) }));
+  expect(record.notes.find((note) => note.text.includes("merged"))?.text).toMatch(/handle-0:.*handle-1:/);
 });
 
 test("narration omissions and trimmed characters remain explicit after idle polls and restart", async () => {
