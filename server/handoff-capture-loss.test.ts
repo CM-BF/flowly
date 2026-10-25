@@ -195,3 +195,58 @@ test("a wait in flight when a poll lands leaves no placeholder once it returns",
   const record = await x.read();
   expect(pending(record)).toEqual([]); expect(handoffOpenIds(record)).toEqual([]);
 });
+
+// ---------------------------------------------------------------- launches announced by CLIs and plugin rows (loss-F3, loss-F4)
+const registered = JSON.stringify({ task: { taskId: "task-0123456789ab", description: "dev server", status: "running", active: true, origin: "cli", commandPreview: "npm run dev" }, duplicate: false }, null, 2);
+test("an async shell registered with the paseo-shell CLI is open background work until its finished notice", async () => {
+  const x = await observerFixture();
+  await x.observer.observe("card", "worker", { outcome: "completed", timeline: [
+    { type: "tool_call", name: "shell", callId: "sh-2", status: "completed", detail: { type: "shell", command: "paseo-shell register --description 'dev server' --command 'npm run dev'", output: registered } },
+    { type: "plugin", id: "async-shell-task-0123456789ab", pluginId: "paseo-async-shell", kind: "async-shell-task", version: 1, data: { taskId: "task-0123456789ab", description: "dev server", status: "running", commandPreview: "npm run dev", startedAt: at, finishedAt: null, exitCode: null } },
+    // Only the plugin's row is left of a second shell (its register output was not kept).
+    { type: "plugin", id: "async-shell-task-00000000beef", pluginId: "paseo-async-shell", kind: "async-shell-task", version: 1, data: { taskId: "task-00000000beef", description: "watch", status: "pending", commandPreview: "npm run watch", startedAt: null, finishedAt: null, exitCode: null } },
+  ] });
+  let record = await x.read();
+  expect(pending(record)).toEqual([
+    expect.objectContaining({ kind: "async_shell", ref: "task-0123456789ab", status: "open" }),
+    expect.objectContaining({ kind: "async_shell", ref: "task-00000000beef", status: "open", label: expect.stringContaining("watch") })]);
+  await x.observer.observe("card", "worker", { outcome: "completed", timeline: [{ type: "user_message", text: "[async-shell failed task-0123456789ab] exit 1\nsynthetic tail" }] });
+  record = await x.read();
+  expect(background(record).find((entry) => entry.ref === "task-0123456789ab")).toMatchObject({ status: "closed", outcome: "failed" });
+  // A row whose shell already ended at registration is not open work.
+  const ended = captureTimeline("agent", [{ type: "plugin", id: "r", pluginId: "paseo-async-shell", kind: "async-shell-task", version: 1, data: { taskId: "task-0000000000aa", description: "x", status: "succeeded", commandPreview: "true", startedAt: at, finishedAt: at, exitCode: 0 } }], { outcome: "completed" });
+  expect(ended.background).toEqual([expect.objectContaining({ handle: "task-0000000000aa", status: "closed", outcome: "succeeded" })]);
+});
+
+test("provider path: async shells registered through paseo-shell or the MCP tool get their real task id", async () => {
+  const x = await codex();
+  await x.write([
+    script("s1", `await tools.exec_command({ cmd: "paseo-shell register --description dev --command 'npm run dev'" });\nawait tools.mcp__async_shell__register_async_shell({ command: "make watch", description: "watch" });\ntext("ok");`),
+    commandDone("e1", "31002", "paseo-shell register --description dev --command 'npm run dev'", 0, registered),
+    item({ type: "McpToolCall", id: "mcp-1", server: "async_shell", tool: "register_async_shell", arguments: { command: "make watch", description: "watch" }, status: "completed", result: { content: [{ type: "text", text: JSON.stringify({ task: { taskId: "task-0000000000cd", status: "running" } }, null, 2) }] } }),
+    scriptOutput("s1", "ok"),
+  ]);
+  const v = visible(await x.capture());
+  expect(v.background).toEqual(["async_shell:open:task-0123456789ab:async shell: paseo-shell register --description dev --command 'npm run dev'", expect.stringMatching(/^async_shell:open:task-0000000000cd:/)]);
+  expect(v.gaps).toEqual([]);
+});
+
+test("a dynamic workflow launched with the paseo-workflow CLI is open until its notice, from a shell row or a Codex script", async () => {
+  const launched = "Workflow launched in background. Run ID: wf_cli2\nSummary: synthetic audit\nScript file: /tmp/wf/audit.js";
+  const b = captureTimeline("agent", [
+    { type: "tool_call", name: "shell", callId: "sh-1", status: "completed", detail: { type: "shell", command: "paseo-workflow run --script-path /tmp/wf/audit.js", output: launched.replace("wf_cli2", "wf_cli1") } },
+    // Printing a log that quotes a launch is not a launch.
+    { type: "tool_call", name: "shell", callId: "sh-2", status: "completed", detail: { type: "shell", command: "cat /tmp/notes.txt", output: launched.replace("wf_cli2", "wf_old") } },
+  ], { outcome: "completed" });
+  expect(b.background.filter((entry) => !entry.closeOnly)).toEqual([expect.objectContaining({ kind: "agent", handle: "wf_cli1", status: "open", label: expect.stringContaining("paseo-workflow run") })]);
+  const x = await codex();
+  await x.write([
+    script("s1", `const r = await tools.exec_command({ cmd: "paseo-workflow run --script-path /tmp/wf/audit.js", yield_time_ms: 5000 });\ntext("launched");`),
+    commandDone("e1", "31001", "paseo-workflow run --script-path /tmp/wf/audit.js", 0, launched),
+    scriptOutput("s1", "launched"),
+  ]);
+  const c = await x.capture();
+  expect(visible(c).background).toEqual([expect.stringMatching(/^agent:open:wf_cli2:/)]);
+  await x.append([event("user_message", { message: "[paseo-dynamic-workflow] A background workflow you launched has ended.\n<task-notification>\n<task-id>wf_cli2</task-id>\n<status>completed</status>\n<summary>synthetic</summary>\n<result>null</result>\n</task-notification>" })]);
+  expect((await x.capture(c.cursor)).background).toContainEqual(expect.objectContaining({ handle: "wf_cli2", status: "closed", closeOnly: true, outcome: "completed" }));
+});

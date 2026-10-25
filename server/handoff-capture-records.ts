@@ -71,7 +71,24 @@ function outputBlocks(raw: unknown): string[] {
 }
 /** A background handle announced in plain text: Claude's backgrounded Bash and Workflow, the dynamic-workflow MCP tool. */
 const announcedHandle = (text: string) => id(/\b(?:running in background with ID|Task ID|Run ID):\s*([\w-]+(?:\.[\w-]+)*)/i.exec(text)?.[1]);
-const pluginMetadata = new Set([summaryRowKind, nextRowKind, "activity-list", "guard-decision", "learning-update", "async-shell-task", "dynamic-workflow-run"]);
+/**
+ * Background started by a CLI from a shell, seen only in the command's output: `paseo-workflow run` prints its run id,
+ * `paseo-shell register` prints the registered task as JSON. The command must be that CLI: quoting a launch is not one.
+ */
+function cliLaunch(command: string, output: string): { kind: "agent" | "async_shell"; handle: string; label: string } | undefined {
+  const text = output.length > captureLimits.chunk ? output.slice(0, captureLimits.chunk) : output, label = redactCaptureText(command).slice(0, 100);
+  if (/\bpaseo-workflow\b[^\n]*\brun\b/.test(command) && /(?:^|\n)Workflow launched in background\./.test(text)) {
+    const handle = announcedHandle(text);
+    return handle ? { kind: "agent", handle, label: `Workflow: ${label}` } : undefined;
+  }
+  if (/\bpaseo-shell\b[^\n]*\bregister\b/.test(command)) {
+    const data = object(parseJson(text.trim())), task = object(data.task);
+    const handle = id(task.taskId ?? data.task_id ?? data.taskId) ?? id(/"(?:taskId|task_id)"\s*:\s*"([\w.-]{1,200})"/.exec(text)?.[1]);
+    return handle ? { kind: "async_shell", handle, label: `async shell: ${label}` } : undefined;
+  }
+}
+const pluginMetadata = new Set([summaryRowKind, nextRowKind, "activity-list", "guard-decision", "learning-update", "dynamic-workflow-run"]);
+const asyncShellRunning = new Set(["pending", "running"]);
 /** `known`: exec session ids the script text names (write_stdin to an earlier session): their completions are not this script's starts. */
 type ScriptEvidence = { workflow?: boolean; timeline?: boolean; starts: string[]; execCalls: number; seen: Record<string, number>; detached?: string; known?: string[] };
 export type PendingCaptureCall = { callId: string; kind: CaptureBackground["kind"]; action: "start" | "close" | "poll"; source: CaptureSource; at: string; handle?: string; label?: string; detached?: boolean; script?: ScriptEvidence; wait?: { terminate?: boolean } };
@@ -353,7 +370,7 @@ export class CaptureRecords {
     failed ||= data.isError === true || data.is_error === true || !!data.error;
     if (failed) { this.gap({ id: `failed-result:${sourceKey(source)}`, kind: "background_tool_failed", source }); this.result.background.push({ id: `background:${this.agentId}:${callId}`, source, kind: call.kind, callId, ...(call.handle ? { handle: call.handle } : {}), status: "unknown", at: call.at }); return; }
     const specific = object(data[call.kind === "async_shell" ? "task" : call.kind]);
-    const handle = id(data.session_id ?? data.task_id ?? data.taskId ?? data.agentId ?? data.agent_id ?? data.tabId ?? data.tab_id ?? data.terminalId ?? data.terminal_id ?? data.runId ?? data.scheduleId ?? data.heartbeatId ?? specific.id ?? data.id) ?? call.handle;
+    const handle = id(data.session_id ?? data.task_id ?? data.taskId ?? data.agentId ?? data.agent_id ?? data.tabId ?? data.tab_id ?? data.terminalId ?? data.terminal_id ?? data.runId ?? data.scheduleId ?? data.heartbeatId ?? specific.taskId ?? specific.id ?? data.id) ?? call.handle;
     const header = typeof value === "string" ? id(/^Process running with session ID ([\w.-]+)/m.exec(value)?.[1]) ?? announcedHandle(value) : undefined;
     const ref = handle ?? header;
     const finishedExec = call.kind === "exec" && (number(data.exit_code) !== undefined || (typeof value === "string" && /^Process exited with code \d+/m.test(value)));
@@ -384,6 +401,8 @@ export class CaptureRecords {
         // Not a known session and not a start of the running script: an exec_command that outlived its script ended now.
         this.push({ id: `background:${this.agentId}:exec:${session}`, kind: "exec", handle: session, status: "closed", closeOnly: true, ...(number(item.exit_code) !== undefined ? { outcome: `exit ${item.exit_code}` } : {}), ...(!credited && !known && !this.done.has(itemId) && !this.calls.has(itemId) ? { late: true } : {}) }, source, this.time(timestamp).at);
       }
+      const launch = number(item.exit_code) === 0 || item.exit_code === undefined ? cliLaunch(command, string(item.aggregated_output)) : undefined;
+      if (launch) this.push({ id: `background:${this.agentId}:${launch.kind}:${launch.handle}`, kind: launch.kind, handle: launch.handle, status: "open", label: launch.label }, source, this.time(timestamp).at);
       if (detachedCommand(command) && id(itemId)) this.attribute("detached");
       if (detachedCommand(command) && id(itemId)) this.push({ id: `background:${this.agentId}:${itemId}`, kind: "exec", callId: itemId, status: "unknown", label: `detached: ${redactCaptureText(command)}`.slice(0, 120) }, source, this.time(timestamp).at);
     }
@@ -461,8 +480,11 @@ export class CaptureRecords {
     const input = object(detail.input ?? item.input), command = string(detail.command ?? input.command ?? input.cmd), status = string(item.status), at = this.time(timestamp).at;
     const label = redactCaptureText(command).slice(0, 100) || "shell";
     if (status === "running") { this.push({ id: `background:${this.agentId}:${callId}`, kind: "exec", callId, status: "open", label: `running at turn end: ${label}` }, source, at); return; }
+    const output = detail.output ?? item.output, outputText = typeof output === "string" ? output : outputBlocks(output).join("\n");
+    const launch = status === "completed" ? cliLaunch(command, outputText) : undefined;
+    if (launch) this.push({ id: `background:${this.agentId}:${launch.kind}:${launch.handle}`, kind: launch.kind, handle: launch.handle, status: "open", label: launch.label }, source, at);
     if (input.run_in_background === true || detachedCommand(command)) {
-      const output = detail.output ?? item.output, handle = announcedHandle(typeof output === "string" ? output : JSON.stringify(output ?? ""));
+      const handle = announcedHandle(outputText);
       this.push({ id: `background:${this.agentId}:${callId}`, kind: "exec", callId, ...(handle ? { handle, status: "open" } : { status: "unknown" }), label: `detached: ${label}` }, source, at);
       return;
     }
@@ -472,6 +494,13 @@ export class CaptureRecords {
   private plugin(item: RecordValue, source: CaptureSource, timestamp: unknown, received: boolean) {
     const kind = redactCaptureText(string(item.kind)).slice(0, 60), plugin = redactCaptureText(string(item.pluginId)).slice(0, 60), data = object(item.data);
     if (pluginMetadata.has(kind)) return;
+    if (kind === "async-shell-task") {
+      // paseo-async-shell appends this row once, at registration; for `paseo-shell register` it is the only structural trace.
+      const handle = id(data.taskId), status = string(data.status), what = redactCaptureText(string(data.description) || string(data.commandPreview)).slice(0, 100);
+      if (handle) this.push({ id: `background:${this.agentId}:async_shell:${handle}`, kind: "async_shell", handle, ...(asyncShellRunning.has(status) ? { status: "open" as const } : { status: "closed" as const, outcome: status.slice(0, 40) }), label: `async shell: ${what || handle}` }, source, this.time(timestamp).at);
+      else this.gap({ id: `timeline:${sourceKey(source)}`, kind: "background_handle_unknown", source });
+      return;
+    }
     if (kind === "goal-status") {
       const goal = (string(data.goal) || string(object(data.goal).objective) || string(object(data.goal).text)).trim();
       if (goal) this.message(goal, { ...source, messageId: `goal:${digest(goal)}` }, timestamp, false, received);
