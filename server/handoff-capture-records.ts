@@ -89,11 +89,24 @@ function cliLaunch(command: string, output: string): { kind: "agent" | "async_sh
 }
 /** paseo-async-shell's header grammar (shared/message-format.ts MESSAGE_EVENTS); the plugin's ids are task-<12 hex>, other ids are accepted. */
 const asyncShellHeader = /^\[async-shell (finished|failed|timed_out|lost|still_running|sendback|message|request) ([\w.-]{1,200})\] ([^\n]*)(?:\n([\s\S]*))?$/;
+/**
+ * A Codex sub-agent's path. A Flowly-managed session is the root thread (`/root`): a bare task name or target is relative
+ * to it, so `docs_owner` and `/root/docs_owner` are the same agent.
+ */
+function agentPath(value: unknown): string | undefined {
+  const text = string(value).trim();
+  if (!/^\/?[\w.-]{1,100}(?:\/[\w.-]{1,100}){0,7}$/.test(text) || text.length > 200 || /(?:^|\/)(?:sk-|gh[pousr]_|github_pat_|glpat-|npm_|xox[abprs]-)/.test(text)) return undefined;
+  return text.startsWith("/") ? text : `/root/${text}`;
+}
+const subagentTools = new Set(["spawn_agent", "followup_task", "interrupt_agent"]);
+/** Codex item_completed types that are metadata or covered elsewhere (narration comes from the timeline; files from git). */
+const metadataItems = new Set(["Reasoning", "FileChange", "ContextCompaction", "AgentMessage", "Extension", "ImageView", "CollabAgentToolCall", "FunctionCallOutput"]);
 const pluginMetadata = new Set([summaryRowKind, nextRowKind, "activity-list", "guard-decision", "learning-update", "dynamic-workflow-run"]);
 const asyncShellRunning = new Set(["pending", "running"]);
 /** `known`: exec session ids the script text names (write_stdin to an earlier session): their completions are not this script's starts. */
 type ScriptEvidence = { workflow?: boolean; timeline?: boolean; starts: string[]; execCalls: number; seen: Record<string, number>; detached?: string; known?: string[] };
-export type PendingCaptureCall = { callId: string; kind: CaptureBackground["kind"]; action: "start" | "close" | "poll"; source: CaptureSource; at: string; handle?: string; label?: string; detached?: boolean; script?: ScriptEvidence; wait?: { terminate?: boolean } };
+/** `subagent`: a Codex native sub-agent tool (multi-agent mode); its handle is the agent path `/root/<task_name>`. */
+export type PendingCaptureCall = { callId: string; kind: CaptureBackground["kind"]; action: "start" | "close" | "poll"; source: CaptureSource; at: string; handle?: string; label?: string; detached?: boolean; script?: ScriptEvidence; wait?: { terminate?: boolean }; subagent?: "spawn_agent" | "followup_task" | "interrupt_agent" };
 
 /** Keep task paths and prose, remove credential values and inline binary data before any excerpt is made. */
 export function redactCaptureText(text: string): string {
@@ -342,6 +355,8 @@ export class CaptureRecords {
       if (cell && id(callId)) this.register({ callId, kind: "exec", action: "close", source, at: this.time(timestamp).at, handle: `cell:${cell}`, wait: data?.terminate === true ? { terminate: true } : {} }, source);
       return;
     }
+    const base = toolBase(name);
+    if (subagentTools.has(base)) { this.subagentCall(base as NonNullable<PendingCaptureCall["subagent"]>, callId, input, source, timestamp); return; }
     const tool = knownTool(name);
     if (!tool) return;
     if (!id(callId)) { this.gap({ id: `call:${sourceKey(source)}`, kind: "tool_call_identity_unknown", source }); return; }
@@ -351,6 +366,25 @@ export class CaptureRecords {
     const handle = id(data.session_id ?? data.task_id ?? data.taskId ?? data.agentId ?? data.agent_id ?? data.tabId ?? data.tab_id ?? data.terminalId ?? data.scheduleId ?? data.heartbeatId ?? data.id);
     const label = redactCaptureText(string(data.cmd ?? data.command ?? data.title ?? data.name)).slice(0, 120);
     this.register({ callId, ...tool, source, at: this.time(timestamp).at, ...(handle ? { handle } : {}), ...(label ? { label } : {}), ...(detached ? { detached: true } : {}) }, source);
+  }
+  /**
+   * Codex native sub-agents: spawn_agent {task_name, message} starts one, followup_task {target, message} gives it new work,
+   * interrupt_agent {target} stops it. The label is the task name and the start of what it was told.
+   */
+  private subagentCall(tool: NonNullable<PendingCaptureCall["subagent"]>, callId: string, input: unknown, source: CaptureSource, timestamp: unknown) {
+    if (!id(callId)) { this.gap({ id: `call:${sourceKey(source)}`, kind: "tool_call_identity_unknown", source }); return; }
+    const data = this.arguments(input, source) ?? {}, handle = agentPath(tool === "spawn_agent" ? data.task_name : data.target);
+    const told = redactCaptureText(string(data.message).replace(/\s+/g, " ").trim()).slice(0, 80), name = handle?.split("/").pop() ?? "sub-agent";
+    this.register({ callId, kind: "agent", action: tool === "interrupt_agent" ? "close" : "start", source, at: this.time(timestamp).at, subagent: tool, ...(handle ? { handle } : {}), label: told ? `${name}: ${told}` : name }, source);
+  }
+  private subagentOutput(call: PendingCaptureCall, raw: unknown, source: CaptureSource, failed: boolean) {
+    const text = outputBlocks(raw).join("\n").trim();
+    // "collab spawn failed: …" / "collab tool failed: …": nothing was started or re-tasked.
+    if (failed || /^collab (?:spawn|tool) failed\b/i.test(text)) { this.push({ id: `background:${this.agentId}:${call.callId}`, kind: "agent", callId: call.callId, status: "closed", closeOnly: true }, source, call.at); return; }
+    if (call.subagent === "interrupt_agent") { if (call.handle) this.closeHandle(call.handle, source, undefined, "interrupted"); return; }
+    const handle = (call.subagent === "spawn_agent" ? agentPath(object(parseJson(text)).task_name) : undefined) ?? call.handle;
+    if (!handle) { this.gap({ id: `handle:${sourceKey(source)}`, kind: "background_handle_unknown", source }); this.push({ id: `background:${this.agentId}:${call.callId}`, kind: "agent", callId: call.callId, status: "unknown", label: call.label }, source, call.at); return; }
+    this.push({ id: `background:${this.agentId}:agent:${handle}`, kind: "agent", handle, callId: call.callId, status: "open", label: call.label, ...(call.subagent === "followup_task" ? { reopen: true } : {}) }, source, call.at);
   }
   /** Scripts and workflows are counted, not itemized: only background work they evidently leave running becomes an item (see SESSION-HANDOFF-SPEC §5.7). */
   private script(type: "script" | "workflow", callId: string, input: unknown, source: CaptureSource, timestamp: unknown) {
@@ -412,6 +446,7 @@ export class CaptureRecords {
     if (!call) return;
     this.calls.delete(callId); this.done.add(callId);
     if (call.script) { this.scriptOutput(call, raw, source, failed); return; }
+    if (call.subagent) { this.subagentOutput(call, raw, source, failed); return; }
     if (call.wait) {
       const ended = /^Script (completed|failed)/.exec(outputBlocks(raw)[0] ?? "")?.[1];
       // The wait itself is never background work: close any placeholder an earlier poll left for it while it was in flight.
@@ -475,8 +510,16 @@ export class CaptureRecords {
       // Codex's own wrappers (automation heartbeats, browser context, history summaries) are not words typed into the session.
       const text = contentText(item.content);
       if (!/^\s*<(?:heartbeat|in-app-browser-context|chat-history-summary)\b/.test(text)) this.message(text, source, timestamp, false, false, itemId);
-    }
-    // Other items (Reasoning, FileChange, ContextCompaction, AgentMessage, ...) are covered elsewhere or are metadata; see SESSION-HANDOFF-SPEC §5.7.
+    } else if (type === "SubAgentActivity") {
+      // A native sub-agent's lifecycle: completed / interrupted end it; started / interacted show it exists (the root's own path is not an item).
+      const path = agentPath(item.agent_path), kind = string(item.kind), at = this.time(timestamp).at;
+      if (!path || !path.slice(1).includes("/")) return;
+      if (kind === "completed" || kind === "interrupted") this.closeHandle(path, source, timestamp, kind);
+      else if (kind === "started" || kind === "interacted") {
+        if (kind === "started") this.attribute("spawn_agent");
+        this.push({ id: `background:${this.agentId}:agent:${path}`, kind: "agent", handle: path, status: "open", label: `${path.split("/").pop()}: sub-agent`, keepLabel: true }, source, at);
+      } else this.gap({ id: `item:${sourceKey(source)}`, kind: "unknown_item_type", source, typeHint: `SubAgentActivity/${redactCaptureText(kind).slice(0, 40) || "unknown"}` });
+    } else if (!metadataItems.has(type)) this.gap({ id: `item:${sourceKey(source)}`, kind: "unknown_item_type", source, typeHint: redactCaptureText(type).slice(0, 80) || "unknown" });
   }
   providerLine(provider: "codex" | "claude", raw: Buffer, source: CaptureSource): string {
     this.origin = "provider";
@@ -537,7 +580,9 @@ export class CaptureRecords {
     if (type === "response_item") {
       if (["function_call", "custom_tool_call"].includes(string(payload.type))) this.call(string(payload.name), string(payload.call_id), payload.arguments ?? payload.input, source, timestamp);
       else if (["function_call_output", "custom_tool_call_output"].includes(string(payload.type))) this.output(string(payload.call_id), payload.output, source, payload.is_error === true);
-      else if (!["message", "reasoning", "web_search_call", "local_shell_call", "compaction"].includes(string(payload.type))) this.gap({ id: `response:${sourceKey(source)}`, kind: "unknown_response_type", source, typeHint: redactCaptureText(string(payload.type)).slice(0, 80) || "unknown" });
+      // agent_message: the native sub-agent channel (the root's instructions to its sub-agents and their reports, like a tool's
+      // arguments and output); the sub-agent items cover it and the raw history holds the text.
+      else if (!["message", "reasoning", "web_search_call", "local_shell_call", "compaction", "agent_message"].includes(string(payload.type))) this.gap({ id: `response:${sourceKey(source)}`, kind: "unknown_response_type", source, typeHint: redactCaptureText(string(payload.type)).slice(0, 80) || "unknown" });
       // Native user/assistant text is represented by event_msg too; never capture that alias twice.
       return `response_item/${redactCaptureText(string(payload.type)).slice(0, 80) || "unknown"}`;
     }

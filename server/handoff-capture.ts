@@ -13,8 +13,10 @@ export type CaptureNarration = Omit<CaptureMessage, "via" | "status"> & { trunca
  * `closeOnly`: a completion that may close an item already recorded (by id, call id or handle) but never creates one.
  * `late`: a completion whose start was never itemized; when no item matches its handle it settles the oldest evidence-free placeholder of its kind.
  * `note`: what the completion said (status, result, recovery); written when `always`, or when no recorded item matches it.
+ * `reopen`: new work for an item that had ended (a follow-up task to a sub-agent): it opens a closed item again.
+ * `keepLabel`: evidence that something runs, not what it is: an existing item keeps its label.
  */
-export type CaptureBackground = { id: string; source: CaptureSource; kind: "async_shell" | "exec" | "browser" | "terminal" | "workspace_script" | "agent" | "schedule" | "heartbeat"; handle?: string; callId?: string; status: "open" | "closed" | "unknown"; label?: string; outcome?: string; at: string; closeOnly?: boolean; late?: boolean; note?: { id: string; text: string; kind: "background" | "hazard"; always: boolean } };
+export type CaptureBackground = { id: string; source: CaptureSource; kind: "async_shell" | "exec" | "browser" | "terminal" | "workspace_script" | "agent" | "schedule" | "heartbeat"; handle?: string; callId?: string; status: "open" | "closed" | "unknown"; label?: string; outcome?: string; at: string; closeOnly?: boolean; late?: boolean; reopen?: boolean; keepLabel?: boolean; note?: { id: string; text: string; kind: "background" | "hazard"; always: boolean } };
 /**
  * One gap per kind and type hint in a batch: `id`/`source`/`from` are its first occurrence, `count` all of them, `at`/`lastAt` the first and last time.
  * Location-bearing kinds (`locatedGapKinds`) are never merged: each keeps its byte range and message id. `occurrences`: stable identities of timeline rows (bounded).

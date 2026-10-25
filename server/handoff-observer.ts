@@ -239,10 +239,16 @@ export class HandoffObserver {
       let index = background.findIndex((entry) => entry.id === entryId("bg", item.id) || item.callId && entry.callId === item.callId || item.handle && entry.kind === kind && entry.ref === item.handle);
       if (index < 0 && item.late && item.status === "closed") index = placeholder(kind);
       const old = index >= 0 ? background[index] : undefined;
-      if (old?.status === "closed" && item.status !== "closed") continue;
+      // A reprinted start never reopens what was proven ended; only new work (a sub-agent's follow-up task) does.
+      if (old?.status === "closed" && item.status !== "closed" && !item.reopen) {
+        // A placeholder settled before its result arrived learns the real handle, so later evidence about it finds it.
+        if (old.ref.startsWith("unknown:") && item.handle) background[index] = { ...old, ref: item.handle, ...(item.label && !item.keepLabel ? { label: item.label.slice(0, 120) } : {}) };
+        continue;
+      }
+      const reopened = old?.status === "closed" && !!item.reopen;
       const next: HandoffSession["background"][number] = { id: old?.id ?? entryId("bg", item.id), ...(item.callId ? { callId: item.callId.slice(0, 200) } : old?.callId ? { callId: old.callId } : {}), kind,
-        ref: item.handle ?? old?.ref ?? `unknown:${item.callId ?? item.id}`, label: (item.label ?? old?.label ?? kind).slice(0, 120), startedAt: old?.startedAt ?? item.at,
-        status: item.status === "unknown" && old ? old.status : item.status, ...(item.outcome ? outcome : old?.outcome ? { outcome: old.outcome } : {}), source: old?.source ?? (source === hook ? "hook" : "live") };
+        ref: item.handle ?? old?.ref ?? `unknown:${item.callId ?? item.id}`, label: ((item.keepLabel && old?.label) || item.label || old?.label || kind).slice(0, 120), startedAt: reopened ? item.at : old?.startedAt ?? item.at,
+        status: item.status === "unknown" && old ? old.status : item.status, ...(item.outcome ? outcome : old?.outcome && !reopened ? { outcome: old.outcome } : {}), source: old?.source ?? (source === hook ? "hook" : "live") };
       if (index >= 0) background[index] = next; else background.push(next);
     }
     this.mergeBackground(agentId, session.n, background, meta, entries);
