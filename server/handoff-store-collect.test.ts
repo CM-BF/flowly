@@ -75,6 +75,9 @@ test("an observation write rewrites only the card file and keeps the entry's bod
   await store.appendGap("card", "project", { kind: "flowly", text: "One repository was not inspected.", status: "open" }, { ...flowly, sourceId: "gap:1" });
   const before = await read(), files = await tree(folder);
   for (let offset = 100; offset <= 1000; offset += 100) await expect(store.capture("card", "project", observation(offset), flowly)).resolves.toMatchObject({ stored: "observation" });
+  // Also when the caller's draft names some other body: the record names the body of its revision.
+  await expect(store.capture("card", "project", { session: { ...observation(1000).session, contentRef: "f".repeat(64) } }, flowly)).resolves.toMatchObject({ stored: "none" });
+  await expect(store.capture("card", "project", { session: { ...observation(1000).session, measured: { C: 41_001, turns: 0 }, contentRef: "f".repeat(64) } }, flowly)).resolves.toMatchObject({ stored: "observation" });
   const observed = await read();
   expect(observed).toMatchObject({ revision: before.revision, ledger: [{ through: { offset: 1000 }, contentRef: before.ledger[0].contentRef }] });
   expect(await tree(folder)).toEqual(files);
