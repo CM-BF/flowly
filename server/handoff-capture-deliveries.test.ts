@@ -7,7 +7,7 @@
 import { afterEach, expect, test } from "vitest";
 import { captureTimeline } from "./handoff-capture";
 import { handoffRefusalFingerprint } from "./handoff-requirements";
-import { cleanupObserverFixtures, codexTyped, observerFixture, successorView } from "./handoff-observer-fixture";
+import { claudeBase, cleanupObserverFixtures, codexTyped, observerFixture, successorView } from "./handoff-observer-fixture";
 
 afterEach(cleanupObserverFixtures);
 
@@ -154,4 +154,75 @@ test("without a provider copy, the 0.12 rows alone keep the message, and an erro
   expect(view.inputs).toEqual([`agent:open:Orchestrator:${steer}`, "agent:open:Orchestrator:Agent child-9 needs permission to run rm -rf build"]);
   expect(view.notes).toEqual(['hazard:Agent "Orchestrator" (agent-child-9) errored: Agent child-9 errored: synthetic crash']);
   expect(view.background).toEqual([expect.stringMatching(/^subagent:closed:agent-child-9:.*:errored$/)]);
+});
+
+// ---------------------------------------------------------------- Claude Code through the SDK: deliveries during a turn are attachment records (loss-r2-L1)
+const queued = (n: number, mode: string, prompt: unknown) => ({ ...claudeBase, type: "attachment", uuid: `att-${n}`, parentUuid: null, attachment: { type: "queued_command", commandMode: mode, prompt, ...(mode === "task-notification" ? { origin: { kind: "task-notification", producer: "session-task" } } : {}), delivery_id: `d-${n}`, source_uuid: `q-${n}`, timestamp: claudeBase.timestamp } });
+const routine = (n: number) => [
+  ...["total_tokens_reminder", "deferred_tools_delta", "deferred_tools_record", "environment", "date", "model", "skill_listing", "instructions", "session_context", "credential_org", "remote_session_change", "silent_turn_reminder", "prompt_snapshot", "mcp_instructions_delta", "agent_listing_delta", "auto_mode", "task_reminder", "edited_text_file", "budget_usd", "command_permissions", "nested_memory", "ultra_effort_enter", "ultra_effort_exit", "thinking_drop", "file", "compact_file_reference", "invoked_skills", "read_truncation_notice", "workflow_size_guideline_change"]
+    .map((type, k) => ({ ...claudeBase, type: "attachment", uuid: `r-${n}-${k}`, attachment: { type, text: "synthetic" } })),
+  { ...claudeBase, type: "atis-latch", atis: {} }, { ...claudeBase, type: "cost-state", totalCostUSD: n }, { ...claudeBase, type: "mode", mode: "default" },
+  { ...claudeBase, type: "file-history-delta", messageId: `m-${n}`, trackingPath: "/tmp/synthetic/a.ts" }, { ...claudeBase, type: "permission-mode", permissionMode: "bypassPermissions" }, { ...claudeBase, type: "agent-name", agentName: "synthetic" },
+  { ...claudeBase, type: "last-prompt", lastPrompt: "synthetic" }, { ...claudeBase, type: "queue-operation", operation: "enqueue", content: "synthetic" }];
+
+test("R2-D1 a background task's failure delivered mid-turn as a queued_command attachment closes its item and leaves its note", async () => {
+  const x = await observerFixture({ provider: "claude" });
+  await x.append([
+    { ...claudeBase, type: "assistant", uuid: "a1", message: { id: "r1", content: [{ type: "tool_use", id: "tu-1", name: "Bash", input: { command: "npm test", run_in_background: true } }] } },
+    { ...claudeBase, type: "user", uuid: "u1", message: { content: [{ type: "tool_result", tool_use_id: "tu-1", content: "Command running in background with ID: bsh1. Output is being written to: /tmp/synthetic/bsh1.output" }] } },
+    queued(1, "task-notification", "<task-notification>\n<task-id>bsh1</task-id>\n<tool-use-id>tu-1</tool-use-id>\n<output-file>/tmp/synthetic/bsh1.output</output-file>\n<status>failed</status>\n<summary>Background command \"npm test\" failed with exit code 1</summary>\n</task-notification>"),
+  ]);
+  await x.poll();
+  const view = successorView(await x.read());
+  expect(view.background).toEqual([expect.stringMatching(/^exec_session:closed:bsh1:.*:failed$/)]);
+  expect(view.notes).toEqual([expect.stringMatching(/^hazard:Background task bsh1 ended with status failed: Background command "npm test" failed with exit code 1\. Output file: \/tmp\/synthetic\/bsh1\.output\./)]);
+  expect(view.gaps).toEqual([]); expect(view.inputs).toEqual([]);
+});
+
+test("R2-D2 words a person typed while Claude was working (queued prompt) are on the card, and the turn-end copy links to them", async () => {
+  const x = await observerFixture({ provider: "claude" });
+  await x.append([queued(2, "prompt", [{ type: "text", text: "Also keep the old endpoint working" }]), queued(3, "prompt", "And do not touch the migrations")]);
+  await x.poll();
+  expect(successorView(await x.read()).inputs).toEqual(["session:open:-:Also keep the old endpoint working", "session:open:-:And do not touch the migrations"]);
+  await x.hook([{ type: "user_message", text: "Also keep the old endpoint working", messageId: "paseo-1" }, { type: "user_message", text: "And do not touch the migrations", messageId: "paseo-2" }, { type: "assistant_message", text: "ok" }]);
+  const view = successorView(await x.read());
+  expect(view.inputs).toEqual(["session:received:-:Also keep the old endpoint working", "session:received:-:And do not touch the migrations"]);
+  expect(view.gaps).toEqual([]);
+});
+
+test("queued deliveries follow their own rules: another agent's envelope, an async-shell notice, a workflow notice, an image", async () => {
+  const x = await observerFixture({ provider: "claude" });
+  await x.append([
+    queued(4, "prompt", '<paseo-system version="1" kind="agent-message" source-agent-id="agent-parent-1" message-id="pm-1" source-agent-title="Orchestrator">\nPause before the release step.\n</paseo-system>'),
+    queued(5, "prompt", `[async-shell request ${other}] Request from agent "Planner" (agent-synthetic-1) via its async shell "ask". It is not from the user. Answer it in this turn; your final message is returned to that shell.\n\nWhich port does the dev server use?`),
+    queued(6, "prompt", "[paseo-dynamic-workflow] A background workflow you launched has ended.\n<task-notification>\n<task-id>wf_q1</task-id>\n<status>failed</status>\n<summary>Dynamic workflow \"lint\" failed: synthetic</summary>\n<error>synthetic lint crash</error>\n</task-notification>"),
+    queued(7, "prompt", [{ type: "text", text: "See the screenshot" }, { type: "image", source: { type: "base64", media_type: "image/png", data: "AAAA" } }]),
+  ]);
+  await x.poll();
+  const view = successorView(await x.read());
+  expect(view.inputs).toEqual(["agent:open:Orchestrator:Pause before the release step.", expect.stringMatching(/^agent:open:Planner:\[async-shell request task-00000000feed\]/), "session:open:-:See the screenshot"]);
+  expect(view.notes).toEqual([expect.stringMatching(/^hazard:Background task wf_q1 ended with status failed: .*Error: synthetic lint crash/)]);
+  expect(view.gaps).toEqual([expect.stringMatching(/^open:1:Capture gap \(image_not_captured\)/)]);
+});
+
+test("R2-D3 Claude's routine host records are metadata, not gaps that grow every turn; an unknown attachment subtype is still a gap", async () => {
+  const x = await observerFixture({ provider: "claude" });
+  await x.append(routine(1)); await x.poll();
+  expect(successorView(await x.read()).gaps).toEqual([]);
+  await x.append(routine(2)); await x.poll();
+  let view = successorView(await x.read());
+  expect(view.gaps).toEqual([]); expect(view.open).toBe(0);
+  await x.append([{ ...claudeBase, type: "attachment", uuid: "fut-1", attachment: { type: "teammate_mailbox", text: "synthetic" } }, { ...claudeBase, type: "attachment", uuid: "fut-2", attachment: { type: "teammate_mailbox", text: "synthetic" } }]);
+  await x.poll();
+  view = successorView(await x.read());
+  expect(view.gaps).toEqual([expect.stringMatching(/^open:2:Capture gap \(unknown_record_type\): attachment\/teammate_mailbox\./)]);
+});
+
+test("a pull request Claude Code linked to the session is kept as an anchor of its ledger entry", async () => {
+  const x = await observerFixture({ provider: "claude" });
+  await x.append([{ ...claudeBase, type: "pr-link", prNumber: 12, prRepository: "synthetic/repo", prUrl: "https://github.com/synthetic/repo/pull/12" }]);
+  await x.poll(); await x.poll();
+  const record = await x.read();
+  expect(record.ledger[0].anchors).toEqual(["https://github.com/synthetic/repo/pull/12"]);
+  expect(record.gaps).toEqual([]);
 });

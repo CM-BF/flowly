@@ -164,7 +164,7 @@ function tokenUsageMetadata(entry: RecordValue, sessionId: string | undefined) {
 }
 
 export class CaptureRecords {
-  readonly result: CaptureSemantics = { inputs: [], live: [], background: [], usage: [], compactions: [], gaps: [], notices: [], omittedGaps: 0, narrationOmitted: 0, narrationTrimmedChars: 0, scriptCalls: 0 };
+  readonly result: CaptureSemantics = { inputs: [], live: [], background: [], usage: [], compactions: [], gaps: [], notices: [], anchors: [], omittedGaps: 0, narrationOmitted: 0, narrationTrimmedChars: 0, scriptCalls: 0 };
   private calls = new Map<string, PendingCaptureCall>();
   private sent: Set<string>;
   /** Calls whose result this batch already handled: Codex repeats a top-level call as an item_completed with the same id. */
@@ -521,6 +521,23 @@ export class CaptureRecords {
       } else this.gap({ id: `item:${sourceKey(source)}`, kind: "unknown_item_type", source, typeHint: `SubAgentActivity/${redactCaptureText(kind).slice(0, 40) || "unknown"}` });
     } else if (!metadataItems.has(type)) this.gap({ id: `item:${sourceKey(source)}`, kind: "unknown_item_type", source, typeHint: redactCaptureText(type).slice(0, 80) || "unknown" });
   }
+  /**
+   * Claude Code run through the SDK (Paseo's entrypoint) delivers what arrives during a turn as an `attachment` of type
+   * queued_command; no user record repeats it. Its text goes through message() like any delivery (a person's words, a task
+   * notification, an envelope, an async-shell notice), deduplicated by text against the turn-end timeline copy. Routine
+   * attachments are host metadata; an unknown subtype stays a grouped gap `attachment/<subtype>`.
+   */
+  private attachment(entry: RecordValue, source: CaptureSource, timestamp: unknown) {
+    const attachment = object(entry.attachment), subtype = redactCaptureText(string(attachment.type)).slice(0, 60);
+    if (subtype === "queued_command") {
+      const prompt = attachment.prompt, uuid = id(entry.uuid) ?? id(attachment.source_uuid);
+      if (Array.isArray(prompt) && prompt.some((block) => object(block).type === "image")) this.gap({ id: `image:${sourceKey(source)}`, kind: "image_not_captured", source });
+      if (!uuid) { this.gap({ id: `type:${sourceKey(source)}`, kind: "unknown_record_type", source, typeHint: "attachment/queued_command" }); return; }
+      this.message(contentText(prompt), source, timestamp, false, false, uuid);
+      return;
+    }
+    if (!claudeRoutineAttachments.has(subtype)) this.gap({ id: `type:${sourceKey(source)}`, kind: "unknown_record_type", source, typeHint: `attachment/${subtype || "unknown"}` });
+  }
   providerLine(provider: "codex" | "claude", raw: Buffer, source: CaptureSource): string {
     this.origin = "provider";
     try { return this.line(provider, raw, source); } finally { this.lineAt = undefined; }
@@ -538,6 +555,7 @@ export class CaptureRecords {
       if (entry.isSidechain === true) return "claude/sidechain";
       const message = object(entry.message), content = message.content;
       if (Array.isArray(content) && content.some((block) => object(block).type === "image")) this.gap({ id: `image:${sourceKey(source)}`, kind: "image_not_captured", source });
+      if (type === "attachment") { this.attachment(entry, source, timestamp); return "claude/attachment"; }
       source = { ...source, ...(id(entry.uuid) ? { messageId: id(entry.uuid) } : {}) };
       if (type === "user" && !entry.isMeta && !entry.isCompactSummary) {
         if (Array.isArray(content)) for (const item of content) { const block = object(item); if (block.type === "tool_result") this.output(string(block.tool_use_id), block.content, source, block.is_error === true); }
@@ -557,7 +575,13 @@ export class CaptureRecords {
         }
       } else if (type === "system" && entry.subtype === "compact_boundary") this.result.compactions.push({ id: `compact:${sourceKey(source)}`, source, at: this.time(timestamp).at, ...(number(object(entry.compactMetadata).preTokens) !== undefined ? { preTokens: number(object(entry.compactMetadata).preTokens) } : {}) });
       else if (type === "system" && !["turn_duration", "api_error", "local_command", "stop_hook_summary"].includes(string(entry.subtype))) this.gap({ id: `system:${sourceKey(source)}`, kind: "unknown_system_type", source, typeHint: redactCaptureText(string(entry.subtype)).slice(0, 80) || "unknown" });
-      else if (!["progress", "file-history-snapshot", "queue-operation", "summary", "custom-title", "ai-title", "last-prompt", "system"].includes(type)) this.gap({ id: `type:${sourceKey(source)}`, kind: "unknown_record_type", source, typeHint: type.slice(0, 80) || "unknown" });
+      else if (type === "pr-link") {
+        // Claude Code noting the pull request of this session: an external identifier for the ledger entry's anchors.
+        const url = /^https?:\/\/[^\s"<>]{1,300}$/.exec(string(entry.prUrl))?.[0], repository = /^[\w.-]{1,100}\/[\w.-]{1,100}$/.exec(string(entry.prRepository))?.[0];
+        const anchor = url ? redactCaptureText(url) : repository && number(entry.prNumber) !== undefined ? `${repository}#${entry.prNumber}` : undefined;
+        if (anchor) { if (!this.result.anchors.includes(anchor)) this.result.anchors.push(anchor); }
+        else this.gap({ id: `type:${sourceKey(source)}`, kind: "unknown_record_type", source, typeHint: "pr-link" });
+      } else if (!claudeMetadataRecords.has(type)) this.gap({ id: `type:${sourceKey(source)}`, kind: "unknown_record_type", source, typeHint: type.slice(0, 80) || "unknown" });
       return `claude/${type.slice(0, 80) || "unknown"}`;
     }
     if (type === "token_usage_record" && tokenUsageMetadata(entry, source.sessionId)) return "token_usage_record";
@@ -671,4 +695,11 @@ export class CaptureRecords {
   }
 }
 const metadataRecords = new Set(["session_meta", "turn_context", "world_state", "inter_agent_communication_metadata"]);
+/** Claude Code bookkeeping records (titles, cost and mode state, file-history backups, queue operations, request debug copies). */
+const claudeMetadataRecords = new Set(["progress", "file-history-snapshot", "file-history-delta", "queue-operation", "summary", "custom-title", "ai-title", "agent-name", "last-prompt", "system", "atis-latch", "cost-state", "mode", "permission-mode", "api-request", "api-request-blob", "api-request-shape"]);
+/**
+ * Attachments the Claude Code host adds on its own (reminders, tool and skill listings, environment, model and date,
+ * prompt snapshots, files and memories re-read from disk, effort and mode switches): re-injected or on disk, never a delivery.
+ */
+const claudeRoutineAttachments = new Set(["total_tokens_reminder", "deferred_tools_record", "deferred_tools_delta", "environment", "date", "model", "skill_listing", "instructions", "session_context", "credential_org", "remote_session_change", "silent_turn_reminder", "prompt_snapshot", "mcp_instructions_delta", "agent_listing_delta", "auto_mode", "task_reminder", "edited_text_file", "budget_usd", "command_permissions", "nested_memory", "ultra_effort_enter", "ultra_effort_exit", "thinking_drop", "file", "compact_file_reference", "invoked_skills", "read_truncation_notice", "workflow_size_guideline_change"]);
 const metadataEvents = new Set(["task_started", "task_complete", "turn_aborted", "agent_reasoning", "agent_reasoning_raw_content", "item_started", "warning", "error", "context_compacted", "thread_settings_applied"]);
