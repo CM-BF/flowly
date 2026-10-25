@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import type { PaseoApi } from "@getpaseo/client";
 import { BoardStore } from "./store";
-import { AutomationService } from "./automation";
+import { AutomationService, type AutomationDeps } from "./automation";
 import type { AutomationSettings } from "../shared/automation";
 import type { AgentModel } from "../shared/agent-defaults";
 import { reviewerJob } from "../shared/automation";
@@ -35,7 +35,7 @@ type WorkspaceSnapshot = { workspaceDirectory: string; archivingAt?: string | nu
 type Created = { images?: { data: string; mimeType: string }[]; clientMessageId?: string; featureValues?: Record<string, boolean | string>; workspaceId: string; agentId: string; provider: string; modeId?: string; prompt: string; title: string; labels: Record<string, string> };
 
 /** A board with cards a, b (todo) and a fake Paseo that records created sessions and sent messages. */
-export async function automationFixture(automation: Partial<AutomationSettings> | null = { enabled: true }) {
+export async function automationFixture(automation: Partial<AutomationSettings> | null = { enabled: true }, handoff?: AutomationDeps["handoff"]) {
   const root = await mkdtemp(join(tmpdir(), "flowly-automation-test-"));
   roots.push(root);
   const store = new BoardStore(join(root, "data"));
@@ -146,6 +146,7 @@ export async function automationFixture(automation: Partial<AutomationSettings> 
   let now = Date.parse(stamp);
   let globalModel: AgentModel | null = null;
   const deps = {
+    handoff,
     classifyReview: async (taskId: string) => hooks.classifyReview?.(taskId),
     clock: () => now,
     historyBytes: async (agent: { id?: string }) => (agent.id ? (hooks.history?.(agent.id) ?? null) : null),

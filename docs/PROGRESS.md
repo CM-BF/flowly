@@ -1,8 +1,16 @@
 # Implementation progress
 
-## Hybrid handoff P1 implementation started — 2026-10-24
+## Hybrid handoff P1: implementation and independent review — 2026-10-24
 
-Review levels PR #11 is merged at 2e471e6 and installed on the real daemon; all 18 original jobs retained their lifecycle fields. SESSION-HANDOFF-SPEC is the authorized target. P1 work is divided among records/persistence, bounded provider capture, existing automation rotation, and tool/UI integration; new automatic thresholds stay shadow-only until reliable P1 passes and is installed. The first Git observation helper detects further edits to already-dirty paths, reports unavailable status as unknown and exposes uninspected repositories; three focused behavior tests pass. No P1 code has been installed or described as complete. Full original questions/delivery notes will be retained rather than treating bounded previews as full evidence.
+- [x] Card-owned, bounded current handoff plus append-only changed entries and original-text blobs; questions and review delivery notes retain the full 10,000-character contract. Full records page without silently dropping unresolved items. IDs are checked across sections, overflow and archived latest entries before acknowledgment.
+- [x] Human text and attachment originals are recorded before sending with the same native message identity. Comment/queue retries preserve identity and original wording. Board acceptance has a durable confirmation outbox, so recovery works even after the original writer retires.
+- [x] Existing automation replacement paths now share one recoverable rotation: preserve launch model, instruction, review round/plan/seat and child state; finalize only when safe; retain unknown create identity; reject retired/finalizing card writes. A successor must acknowledge the current revision, actual Git state and every pending obligation.
+- [x] Codex/Claude bounded incremental capture persists complete resume state, raw-source coverage and background handles. Redacted inputs are labelled. Truncated narration is a labelled preview, while skipped/unknown source ranges remain visible gaps. Git observations detect further edits to already-dirty files without treating unknown as clean.
+- [x] Drawer handoff, original inputs, pending questions/findings, session ledger, gaps and fresh/manual continuation; stable drafts across refresh; nine catalogs, skills and turn checklists. Destructive deletion backs up the full record first; local restore holds per-card observation until that record is restored.
+- [x] Three module authors and independent cross-reviews verified crash recovery, two successive rotation rollbacks, ownership, image retries, archive ID collisions and board/record interleavings. Reports: local `~/.paseo/verification/flowly-session-handoff-20261024/`.
+- [x] Exact-tree typecheck and full suite: **185 files / 1855 tests passed**. Three final guard mutations each failed with the guard removed and passed when restored. Test-only classifier waits now use observable creation before superseding a helper; real filesystem writes no longer compete with a 10 ms fake-model deadline.
+- [ ] Daemon installation and full-access Luna desktop/compact continuation drill. No P1 code installed yet. See [verification report](verification/session-handoff.md).
+- [ ] P2 follows real P1 acceptance: 64 MiB/context/compaction/cold boundaries, comment routing and new-cycle reviewer freshness. P1 retains the existing 200 MiB guard; new automatic boundaries remain disabled. No auto-stop or steer is introduced.
 
 ## Review levels real verification complete — 2026-10-24
 

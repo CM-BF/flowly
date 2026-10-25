@@ -169,6 +169,7 @@ const tipText: Record<TipId, () => string> = {
   "session-history": () => t("A session's output now starts at the beginning of its current turn. Press Load earlier at the top to read further back."),
   "card-comments": () => t("Ask about progress or request changes right on the card: comments are saved here and sent to the card's agent."),
   "review-risks": () => t("A reviewer noted risks the acceptance criteria don't cover. The card shows how many; open it and read them under Agent automation before you accept the work."),
+  "card-handoff": () => t("Open Handoff on a card to see the current state, next steps, original instructions, review findings and information gaps. New agents continue from this record and acknowledge it."),
   "settings-entry": () => t("Turn features on or off and change settings here."),
   "first-workpad": () => t("This card has a workpad: the agent's acceptance criteria and checks. The card shows how many checks passed; open it to see which ran on which commit, and tick items yourself."),
 };
@@ -980,6 +981,7 @@ function BoardContent(
   }, [board?.links, board?.tasks]);
   // Agent automation jobs by card (AUTOMATION-SPEC §6.1).
   const automationIndex = useMemo(() => new Map((board?.automation || []).map((j) => [j.taskId, j] as const)), [board?.automation]);
+  const handoffIndex = useMemo(() => new Map((board?.handoffIndex || []).map(entry => [entry.taskId, entry] as const)), [board?.handoffIndex]);
   // Open and stuck blockers per card in one pass: "Waiting on", Held and the queue chip (CARD-LINKS-SPEC §5.1, CARD-TREE-SPEC §2.5).
   const blockers = useMemo(() => (tree ? blockerIndex(tree, projectTasksById, automationIndex) : noBlockers), [tree, projectTasksById, automationIndex]);
   // Per-card flags and the roll-up of what Levels hides onto the nearest card on screen (CARD-TREE-SPEC §2.4).
@@ -1259,6 +1261,7 @@ function BoardContent(
           hasSubCards: !task && projectTasks.some((x) => subCardIndex.has(x.id)),
           hasCardTree: !task && deepTree,
           reviewRisks: !task && reviewRisksTipDue(projectTasks, board.automation),
+          handoffAvailable: !!task && !!board.handoffIndex?.some(entry => entry.taskId === task.id),
         },
         blocked: !onboarding.values || welcomeOpen || welcome === "show" || dialogOpen || settingsHint,
       });
@@ -1301,7 +1304,7 @@ function BoardContent(
   // card of the lane in the same frame as its animation.
   const cardDerived = useMemo(
     () => new WeakMap<Task, Omit<LiveTaskCardProps, "selected" | "flash" | "drag" | "dragging" | "disabled" | "display" | "onOpen" | "onActions" | "menuFor">>(),
-    [cardIndex, receipts, summaryState, attentionByTask, managedIds, summaries.data, !!board, openIdeaCount, externalKeys, project, workpadIndex, blockers, automationIndex, subCardIndex],
+    [cardIndex, receipts, summaryState, attentionByTask, managedIds, summaries.data, !!board, openIdeaCount, externalKeys, project, workpadIndex, blockers, automationIndex, subCardIndex, handoffIndex],
   );
   const derivedFor = (t: Task) => {
     let derived = cardDerived.get(t);
@@ -1330,6 +1333,7 @@ function BoardContent(
       heldBy: blockers.get(t.id)?.held ? blockers.get(t.id)!.stuckTitles[0] : "",
       heldMore: blockers.get(t.id)?.held ? blockers.get(t.id)!.stuckTitles.length - 1 : 0,
       automation: automationSignal(automationIndex.get(t.id), t, blockers.get(t.id)),
+      handoff: handoffIndex.get(t.id),
       subCards: subCardIndex.get(t.id) ?? null,
     };
     cardDerived.set(t, derived);

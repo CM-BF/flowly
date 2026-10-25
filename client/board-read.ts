@@ -16,6 +16,7 @@ const patchKeys = {
   workpads: (x: { taskId: string }) => x.taskId,
   attentionDismissals: (x: { taskId: string }) => x.taskId,
   automation: (x: { taskId: string }) => x.taskId,
+  handoffIndex: (x: { taskId: string }) => x.taskId,
 } as const;
 
 /** Replaced and added items, removed ids, and (only when it differs) the final order; unchanged items keep their objects. */
@@ -43,7 +44,7 @@ export function applyBoardPatch(board: Board, patch: BoardPatch): Board {
   const held = dropped ? board.events.filter((e) => !dropped.has(e.id)) : board.events;
   const next = { ...board, revision: patch.revision, events: patch.events.length ? [...held, ...patch.events] : held, plans: patch.plans ?? board.plans } as Record<string, unknown>;
   for (const name of Object.keys(patchKeys) as (keyof typeof patchKeys)[])
-    next[name] = patchItems(board[name] as never[], patch[name] as never, patchKeys[name] as never);
+    next[name] = patchItems((board[name] ?? []) as never[], patch[name] as never, patchKeys[name] as never);
   return next as Board;
 }
 

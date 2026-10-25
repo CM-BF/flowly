@@ -32,7 +32,8 @@ async function fixture(options: { waitMs?: number; modelMs?: number; runMs?: num
     } } }) },
   } as unknown as PaseoApi;
   const settings = vi.fn(async () => summarySettingsValues({ summaryModels: ["one/a", "two/b"] }));
-  const service = new ReviewClassifier(x.store, settings, { debounceMs: 5, modelMs: 100, runMs: 500, waitMs: 200, stopGraceMs: 10, ...options, newHelperId: () => `helper-${helperIds++}`, remove: async (agent) => { await beforeRemove(agent.id); removed.push(agent.id); native.delete(agent.id); } });
+  // Real durable ownership writes also run here; their latency must not decide a model's verdict.
+  const service = new ReviewClassifier(x.store, settings, { debounceMs: 5, modelMs: 500, runMs: 3000, waitMs: 2000, stopGraceMs: 10, ...options, newHelperId: () => `helper-${helperIds++}`, remove: async (agent) => { await beforeRemove(agent.id); removed.push(agent.id); native.delete(agent.id); } });
   stops.push(() => service.stop());
   const card = async () => (await x.store.read()).tasks.find((t) => t.id === "a")!;
   const edit = (change: (task: Task, board: Board) => void) => x.store.mutate((b) => { change(b.tasks.find((t) => t.id === "a")!, b); });
@@ -71,7 +72,7 @@ test("cache invalidates independently for title, description, acceptance, tags a
 });
 
 test.each(["create", "bad-json", "permission", "idle-error", "timeout"])("%s failure tries the next configured summary model and cleans each created helper", async (mode) => {
-  const x = await fixture({ modelMs: 10 });
+  const x = await fixture({ modelMs: 250 });
   if (mode === "create") { let calls = 0; x.creating(async () => { if (!calls++) throw new Error("create failed"); }); }
   x.output(async (model) => {
     if (model === "two/b" || mode === "create") return good("deep", "This card designs the persisted board format.");
@@ -106,6 +107,7 @@ test("an unavailable inventory falls back without creating helpers", async () =>
 test("concurrent review/background requests share a helper; the review wait is bounded and a late verdict is cached for next round", async () => {
   const x = await fixture({ waitMs: 10 }); const result = deferred<Result>(); x.output(() => result.promise);
   await Promise.all([x.service.forReview("a", x.api), x.service.forReview("a", x.api)]);
+  await vi.waitFor(() => expect(x.created).toHaveLength(1));
   expect(x.created).toHaveLength(1); expect((await x.card()).reviewClassification?.status).toBe("pending");
   result.resolve(good("light", "This card changes a local label."));
   await vi.waitFor(async () => expect((await x.card()).reviewClassification?.status).toBe("ready"));
@@ -171,7 +173,7 @@ test("a stuck provider inventory obeys the total deadline without creating a hel
 });
 
 test("a stuck create times out to the next model and its late session is removed", async () => {
-  const x = await fixture({ modelMs: 10, waitMs: 100 }); const first = deferred<void>(); let attempts = 0;
+  const x = await fixture({ modelMs: 250 }); const first = deferred<void>(); let attempts = 0;
   x.creating(() => attempts++ === 0 ? first.promise : Promise.resolve());
   await x.service.forReview("a", x.api);
   expect((await x.card()).reviewClassification?.verdict?.model).toBe("two/b");
@@ -195,6 +197,7 @@ test("stop waits for a superseded worker already inside removal, even after scan
   x.output(() => output.promise); let removing = false;
   x.removing(async () => { removing = true; await removed.promise; });
   await x.service.forReview("a", x.api);
+  await vi.waitFor(() => expect(x.created).toHaveLength(1));
   await x.edit((t) => { t.reviewLevel = "standard"; }); await x.service.scan();
   await vi.waitFor(() => expect(removing).toBe(true));
   let stopped = false; const stopping = x.service.stop().then(() => { stopped = true; });

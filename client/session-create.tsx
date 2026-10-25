@@ -148,6 +148,7 @@ export function SessionCreate({
         : await prepare({
             id: task.id,
             operationId: attempt.current.operationId,
+            launch: { text: newPrompt, messageId, model: { provider, model: chosen, modeId: chosenMode, thinking: choice.chosenThinking, featureValues: choice.chosenFeatureValues }, ...(images.length ? { images } : {}) },
           });
       if (preparation) {
         attempt.current.prepared = preparation;
@@ -177,7 +178,8 @@ export function SessionCreate({
           : { idempotencyKey: attempt.current.operationId }),
         title: newTitle.trim() || task.title,
         labels: { "flowly-task": task.id },
-        prompt: newPrompt.trim(),
+        prompt: newPrompt,
+        clientMessageId: messageId,
         ...(images.length ? { images, clientMessageId: messageId } : {}),
       };
       const created = preparation

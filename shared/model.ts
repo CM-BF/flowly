@@ -405,6 +405,7 @@ export const eventSchema = z.object({
   operationId: z.string().max(200).optional(),
   at: timestamp,
 });
+export const handoffIndexSchema = z.object({ taskId: z.string(), fresh: z.boolean(), staleSince: z.string().optional(), open: z.number().int().nonnegative(), sessions: z.number().int().nonnegative() });
 export const boardSchema = z.object({
   version: z.literal(5),
   revision: z.number().int().nonnegative(),
@@ -424,6 +425,8 @@ export const boardSchema = z.object({
   attentionDismissals: z.array(attentionDismissalSchema).max(attentionDismissLimits.records).default([]),
   /** One automation job per queued card (AUTOMATION-SPEC §3); absent in older files. */
   automation: z.array(automationJobSchema).default([]),
+  /** A small continuity signal; original text and history remain outside board.json. */
+  handoffIndex: z.array(handoffIndexSchema).default([]),
 });
 export const previousBoardSchema = boardSchema.extend({
   version: z.literal(2),
@@ -469,6 +472,8 @@ export const receiptSchema = z.object({
 });
 export const storageSchema = boardSchema.extend({
   agentReceipts: z.array(receiptSchema).max(5000),
+  /** Durable outbox for the infrequent cross-file source writes; removed only after confirmation. */
+  handoffConfirmations: z.array(z.object({ taskId: z.string(), sourceId: z.string().max(240) })).optional(),
 });
 export const legacyBoardSchema = boardSchema.extend({
   version: z.literal(1),
@@ -492,6 +497,7 @@ export const emptyBoard = (): Board => ({
   plans: [],
   attentionDismissals: [],
   automation: [],
+  handoffIndex: [],
   agentReceipts: [],
 });
 export const projectInput = z.strictObject({

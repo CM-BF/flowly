@@ -1,6 +1,6 @@
 # 会话轮换与卡片交接：混合会话模型（SESSION-HANDOFF-SPEC）
 
-状态：第三版设计稿与 P1 实施（2026-10-24，分支 `feat/session-handoff`）；已合并 review-levels `2e471e6`，**P1 正在实现、尚未安装**。用户已经授权 hybrid 方向；本稿具体化该方向，不把常规设计取舍重新变成一串审批问题。保留 Claude 因额度中断前的第二版修订，核对两位评审的 48 条意见并补做一致性检查（§20）。实现须先合入评审级别改动，再按 §18 分阶段进行。
+状态：第三版设计稿与 P1 实施（2026-10-24，分支 `feat/session-handoff`）；已合并 review-levels `2e471e6`，**P1 已实现并通过单元检查，尚未安装验收**。用户已经授权 hybrid 方向；本稿具体化该方向，不把常规设计取舍重新变成一串审批问题。保留 Claude 因额度中断前的第二版修订，核对两位评审的 48 条意见并补做一致性检查（§20）。实现须先合入评审级别改动，再按 §18 分阶段进行。
 
 读者先看：
 - **卡片负责记住任务，session 只负责眼前这一段。** 卡片要能说明做到哪、为什么这样做、什么不能重做、谁还在运行、下一步是什么。artifact 仍是证据和产物，不能替代这份记录。
@@ -314,6 +314,7 @@ MCP 与 CLI fallback（`handoff --handoff '<JSON>'`，不需要 request file）�
   note?: { kind, text },
   inputs?: { id, status?: done|answered|superseded|declined|open, standing?: boolean, note? }[] ≤30,
   questions?: { id, status: answered|withdrawn, answerInputIds?: string[], note? }[] ≤10, // 关联回答后才关闭，不靠任意新消息推断
+  gaps?: ({ text: string(1–300), status: open } | { id, status: open|closed, note: string(1–300) })[] ≤10, // 新增缺口或附依据关闭；原描述与处置者保留
   ack?: Ack }                                   // §7.5
 → { ok, handoffRevision, replayed?, at, heads: { repo, sha | null }[], budget: { used, max },
     open: { inputs, questions, findings, running, gaps }, handoffDue: null | string, ackMissing?: id[] }   // ≤ 1 KB

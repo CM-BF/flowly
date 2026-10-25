@@ -161,7 +161,7 @@ describe("posting and sending", () => {
     const record = vi.fn(async (input: { taskId: string; text: string; operationId: string }) => {
       const replay = recorded.find((e) => e.id === `e-${input.operationId}`);
       if (replay) return { event: replay };
-      const event: BoardEvent = { id: `e-${input.operationId}`, taskId: input.taskId, actor: "human", action: "commented", note: input.text, at: at(recorded.length + 1) };
+      const event: BoardEvent = { id: `e-${input.operationId}`, taskId: input.taskId, actor: "human", action: "commented", operationId: input.operationId, note: input.text, at: at(recorded.length + 1) };
       recorded.push(event);
       return { event };
     });
@@ -181,7 +181,7 @@ describe("posting and sending", () => {
     const memory = draft(text);
     const result = await postComment(memory, x, { taskId: "t", target: target(), settings: { sendBehavior: "steer" } });
     expect(x.record).toHaveBeenCalledWith({ taskId: "t", text, operationId: expect.any(String) });
-    expect(x.send).toHaveBeenCalledWith("impl", text, undefined);
+    expect(x.send).toHaveBeenCalledWith("impl", text, undefined, `comment:${x.recorded[0].operationId}`);
     expect(x.record.mock.invocationCallOrder[0]).toBeLessThan(x.send.mock.invocationCallOrder[0]);
     expect(result).toEqual({ kind: "posted", event: x.recorded[0], delivery: { kind: "sent", agentId: "impl" } });
     expect(memory).toMatchObject({ draft: "", busy: false, failed: [], posted: [x.recorded[0]] });
@@ -191,18 +191,18 @@ describe("posting and sending", () => {
     const post = (text: string, settings: { sendBehavior?: "steer" | "queue" | "interrupt" } | undefined, extra: Partial<CommentTarget> = {}, alternate = false) =>
       postComment(draft(text), x, { taskId: "t", target: target({ running: true, ...extra }), settings, alternate });
     await post("Default", undefined);
-    expect(x.send).toHaveBeenLastCalledWith("impl", "Default", "steer");
+    expect(x.send).toHaveBeenLastCalledWith("impl", "Default", "steer", expect.stringMatching(/^comment:/));
     await post("Interrupt it", { sendBehavior: "interrupt" });
-    expect(x.send).toHaveBeenLastCalledWith("impl", "Interrupt it", "interrupt");
-    expect((await post("After the turn", { sendBehavior: "queue" })).kind === "posted" && x.queue).toHaveBeenLastCalledWith("impl", "After the turn");
+    expect(x.send).toHaveBeenLastCalledWith("impl", "Interrupt it", "interrupt", expect.stringMatching(/^comment:/));
+    expect((await post("After the turn", { sendBehavior: "queue" })).kind === "posted" && x.queue).toHaveBeenLastCalledWith("impl", "After the turn", expect.stringMatching(/^comment:/));
     // ⌘/Ctrl+Enter takes the alternative; a queued message cannot wait behind a permission prompt.
     await post("Alternate", { sendBehavior: "steer" }, {}, true);
-    expect(x.queue).toHaveBeenLastCalledWith("impl", "Alternate");
+    expect(x.queue).toHaveBeenLastCalledWith("impl", "Alternate", expect.stringMatching(/^comment:/));
     await post("Past the prompt", { sendBehavior: "queue" }, { pendingPermission: true });
-    expect(x.send).toHaveBeenLastCalledWith("impl", "Past the prompt", "interrupt");
+    expect(x.send).toHaveBeenLastCalledWith("impl", "Past the prompt", "interrupt", expect.stringMatching(/^comment:/));
     // An idle session just gets it.
     await deliverComment(x, target(), "Idle", "queue");
-    expect(x.send).toHaveBeenLastCalledWith("impl", "Idle", undefined);
+    expect(x.send).toHaveBeenLastCalledWith("impl", "Idle", undefined, undefined);
   });
   test("no recipient: the comment is only saved", async () => {
     const x = deps();
@@ -259,7 +259,7 @@ describe("posting and sending", () => {
     await post;
     expect(listener).toHaveBeenCalled();
     expect(memory.failed).toEqual([
-      { eventId: x.recorded[0].id, text: "Please rerun the checks", agentId: "impl", title: "Implementer", error: "This session's provider is unavailable." },
+      { eventId: x.recorded[0].id, text: "Please rerun the checks", agentId: "impl", title: "Implementer", error: "This session's provider is unavailable.", messageId: `comment:${x.recorded[0].operationId}` },
     ]);
   });
   test("every failed delivery keeps its own notice; resending one only sends it, and the others stay", async () => {
@@ -280,7 +280,7 @@ describe("posting and sending", () => {
     const recordedBefore = x.record.mock.calls.length;
     const sent = await resendComment(memory, x, memory.failed[0].eventId, target({ id: "other", title: "Other" }), { sendBehavior: "steer" });
     expect(sent).toEqual({ kind: "sent", agentId: "other" });
-    expect(x.send).toHaveBeenLastCalledWith("other", "First: rename the flag", undefined);
+    expect(x.send).toHaveBeenLastCalledWith("other", "First: rename the flag", undefined, `comment:${x.recorded[0].operationId}`);
     expect(x.record.mock.calls.length).toBe(recordedBefore);
     expect(memory.failed.map((f) => f.text)).toEqual(["Second: and add a test"]);
     // A resend that fails again keeps its entry with the new reason.
@@ -347,7 +347,7 @@ describe("the transport (the session composer's send path)", () => {
   test("queues through the daemon queue for this card", async () => {
     const x = fixture({ id: "impl", workspaceId: "w", status: "running", archivedAt: null });
     await x.transport.queue("impl", "After the turn");
-    expect(x.queue).toHaveBeenCalledWith("t", "impl", "After the turn");
+    expect(x.queue).toHaveBeenCalledWith("t", "impl", "After the turn", undefined);
     expect(x.send).not.toHaveBeenCalled();
   });
 });

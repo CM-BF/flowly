@@ -56,6 +56,8 @@ export function setTags(task: Task, tags: Task["tags"]) {
 }
 
 export class BoardStore {
+  /** Source files are copied before a destructive board commit; the board backup names the sibling folder. */
+  handoffBackup?: (taskIds: readonly string[], destination: string) => Promise<void>;
   private tail: Promise<unknown> = Promise.resolve();
   /** Events created by the running transaction; appended to the flow log once it commits. */
   private pending: BoardEvent[] = [];
@@ -390,6 +392,7 @@ export class BoardStore {
       const folder = join(this.directory, "removed");
       await mkdir(folder, { recursive: true, mode: 0o700 });
       const backup = join(folder, `${project.id}-${removed.removedAt.replace(/[:.]/g, "-")}.json`);
+      await this.handoffBackup?.([...taskIds], backup + ".handoffs");
       await writeFile(backup, JSON.stringify(removed, null, 2), { mode: 0o600, flag: "wx" });
       board.projects = board.projects.filter((p) => p.id !== project.id);
       board.tasks = board.tasks.filter((t) => !taskIds.has(t.id));
@@ -402,6 +405,8 @@ export class BoardStore {
       board.plans = board.plans.filter((p) => !taskIds.has(p.taskId));
       board.attentionDismissals = board.attentionDismissals.filter((d) => !taskIds.has(d.taskId));
       board.automation = board.automation.filter((j) => !taskIds.has(j.taskId));
+      board.handoffIndex = board.handoffIndex.filter((entry) => !taskIds.has(entry.taskId));
+      if (board.handoffConfirmations) board.handoffConfirmations = board.handoffConfirmations.filter((entry) => !taskIds.has(entry.taskId));
       return { id: project.id, removedTasks: taskIds.size, backup };
     });
   }
@@ -490,6 +495,7 @@ export class BoardStore {
       const folder = join(this.directory, "removed");
       await mkdir(folder, { recursive: true, mode: 0o700 });
       const backup = join(folder, `task-${task.id}-${removed.removedAt.replace(/[:.]/g, "-")}.json`);
+      await this.handoffBackup?.([task.id], backup + ".handoffs");
       await writeFile(backup, JSON.stringify(removed, null, 2), { mode: 0o600, flag: "wx" });
       board.tasks = board.tasks.filter((t) => t !== task);
       board.events = board.events.filter((e) => e.taskId !== task.id);
@@ -512,6 +518,8 @@ export class BoardStore {
       board.plans = board.plans.filter((p) => p.taskId !== task.id);
       board.attentionDismissals = board.attentionDismissals.filter((d) => d.taskId !== task.id);
       board.automation = board.automation.filter((j) => j.taskId !== task.id);
+      board.handoffIndex = board.handoffIndex.filter((entry) => entry.taskId !== task.id);
+      if (board.handoffConfirmations) board.handoffConfirmations = board.handoffConfirmations.filter((entry) => entry.taskId !== task.id);
       return { id: task.id, backup };
     });
   }

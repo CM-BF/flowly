@@ -61,6 +61,7 @@ import { PendingRequests } from "./session-question";
 import { pendingRequests, type PendingRequest, type PermissionReply } from "../shared/permission-question";
 import { workspaceSession } from "./session";
 import { TaskProgress } from "./task-progress";
+import { TaskHandoff } from "./task-handoff";
 import { TaskUsage } from "./task-usage";
 import { SessionMarkdown } from "./session-content";
 import { TaskIdeas } from "./task-ideas";
@@ -701,6 +702,8 @@ function TaskDrawerView({
         return (
           <TaskProgress taskId={task.id} active={active} section={sectionStates.progress} />
         );
+      case "handoff":
+        return <TaskHandoff key={task.id} taskId={task.id} active={ready} disabled={!active || unavailable || !!task.archivedAt || !!project.archivedAt} section={sectionStates.handoff} index={automationCache.getQueryData<Board>(boardKey)?.handoffIndex?.find(entry => entry.taskId === task.id)} onStartSession={startSession} onOpenSession={openCardSession} />;
       case "comments":
         return (
           <TaskComments

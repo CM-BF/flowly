@@ -59,6 +59,20 @@ export const failureTakenBack = (job: Pick<AutomationJob, "taskId" | "state" | "
 export const activeAgent = (job: Pick<AutomationJob, "role" | "implementerId" | "reviewerId">) =>
   job.role === "reviewer" ? job.reviewerId : job.implementerId;
 
+/** One role/retirement gate for tools, hooks and card management. Never infer retirement from a title. */
+export function automationSessionRole(board: Pick<Board, "automation">, agentId: string, taskId?: string, priorSessions: readonly { agentId: string; role: string; endedAt?: string }[] = []): { job: AutomationJob; role: "implementer" | "reviewer" | "retired" | "finalizing" } | null {
+  for (const job of board.automation) {
+    if (taskId && job.taskId !== taskId) continue;
+    if (job.rotation?.fromAgentId === agentId && ["finalizing", "sealing"].includes(job.rotation.stage)) return { job, role: "finalizing" };
+    if (job.rotation?.fromAgentId === agentId && job.rotation.stage === "creating") return { job, role: job.implementerId === agentId || job.reviewerId === agentId ? "finalizing" : "retired" };
+    if (job.implementerId === agentId) return { job, role: "implementer" };
+    if (job.reviewerId === agentId) return { job, role: "reviewer" };
+    if (job.retired?.some((s) => s.agentId === agentId) || job.reviewers?.includes(agentId)) return { job, role: "retired" };
+    if (taskId && priorSessions.some(s => s.agentId === agentId && !!s.endedAt && (s.role === "implementer" || s.role === "reviewer"))) return { job, role: "retired" };
+  }
+  return null;
+}
+
 /**
  * The job this session is the reviewer of, while that job runs or its delivery waits for the user.
  * The reviewer's turns are not work on the card, in its round or outside it (a person asking it about

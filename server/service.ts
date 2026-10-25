@@ -151,6 +151,8 @@ export async function directory(path: string): Promise<string> {
 }
 
 export class BoardService {
+  restoreLock?: <T>(taskIds: readonly string[], action: () => Promise<T>) => Promise<T>;
+  restoreHandoffs?: (taskIds: readonly string[]) => Promise<void>;
   automation?: AutomationService;
   private provision = Promise.resolve<unknown>(undefined);
   /** Reads external items added at creation (EXTERNAL-TRACKER-SPEC §5.4); set by the plugin entry. */
@@ -406,6 +408,7 @@ export class BoardService {
         throw new Error(e instanceof SnapshotInvalidError ? "The project file in this folder is invalid; it was left unchanged." : String(e));
       });
       if (!snapshot) throw new Error("This folder has no saved Flowly project.");
+      const restore = async () => {
       const board = await this.store.read();
       if (board.projects.some((p) => p.id === snapshot.project.id)) throw new Error("This project is already on the board.");
       const native = await this.nativeProject(primaryPath, paseo);
@@ -421,7 +424,10 @@ export class BoardService {
             if (p) p.links = kept;
           });
       }
+      await this.restoreHandoffs?.(snapshot.tasks.map((task) => task.id));
       return { ...restored, snapshot };
+      };
+      return this.restoreLock ? this.restoreLock(snapshot.tasks.map((task) => task.id), restore) : restore();
     });
   }
   private async registerProject(

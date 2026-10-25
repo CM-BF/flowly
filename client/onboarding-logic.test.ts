@@ -227,6 +227,14 @@ test("reviewer risks are pointed out once, on a delivered card In review, before
   expect(reviewRisksTipDue(cards, [{ taskId: "a", state: "reviewing", risks: ["x"] }, { taskId: "b", state: "delivered", risks: ["x"] }, { taskId: "c", state: "delivered", risks: ["x"] }])).toBe(false);
 });
 
+test("Handoff is announced once for an available card record and waits behind a question", () => {
+  const facts = { handoffAvailable: true } as TipFacts;
+  expect(nextTip({ tipsSeen: [], facts, blocked: false })).toBe("card-handoff");
+  expect(nextTip({ tipsSeen: ["card-handoff"], facts, blocked: false })).toBeNull();
+  expect(nextTip({ tipsSeen: [], facts: { ...facts, agentQuestion: true }, blocked: false })).toBe("agent-question");
+  expect(nextTip({ tipsSeen: [], facts, blocked: true })).toBeNull();
+});
+
 test("sub-cards are explained once a card of the project has them, before Paseo subagents", () => {
   const none: TipFacts = { hasCard: false, needsYou: false, openIdea: false, movedToFinished: false, hasArtifact: false, hasAgentTag: false, agentQuestion: false, olderHidden: false, nextMove: false, hasTicket: false, noConnection: false, projectTabs: false, hasWorkpad: false, busyBoard: false, hasSubagent: false, workflowSuggestion: false, crowdedAttention: false, fullSidebar: false, cardOpen: false, cardWithSession: false, hasSummary: false, memoryCandidate: false, automationCandidate: false, hasSubCards: false, cardCommentable: false };
   expect(nextTip({ tipsSeen: [], facts: { ...none, hasSubCards: true, hasSubagent: true }, blocked: false })).toBe("sub-cards");
@@ -283,7 +291,7 @@ describe("tour setup (ONBOARDING-SETUP-SPEC)", () => {
     expect(settingsHintDue({ tipsSeen: ["settings-entry"], tourClosed: true, blocked: false })).toBe(false);
   });
   test("the settings callout is never a banner tip", () => {
-    const facts: Array<keyof TipFacts> = ["hasCard", "needsYou", "openIdea", "movedToFinished", "hasArtifact", "hasAgentTag", "agentQuestion", "olderHidden", "nextMove", "hasTicket", "noConnection", "projectTabs", "hasWorkpad", "busyBoard", "hasSubagent", "workflowSuggestion", "crowdedAttention", "fullSidebar", "cardOpen", "cardWithSession", "hasSummary", "memoryCandidate", "taskIntake", "automationCandidate", "hasSubCards", "hasCardTree", "cardCommentable", "reviewRisks"];
+    const facts: Array<keyof TipFacts> = ["hasCard", "needsYou", "openIdea", "movedToFinished", "hasArtifact", "hasAgentTag", "agentQuestion", "olderHidden", "nextMove", "hasTicket", "noConnection", "projectTabs", "hasWorkpad", "busyBoard", "hasSubagent", "workflowSuggestion", "crowdedAttention", "fullSidebar", "cardOpen", "cardWithSession", "hasSummary", "memoryCandidate", "taskIntake", "automationCandidate", "hasSubCards", "hasCardTree", "cardCommentable", "reviewRisks", "handoffAvailable"];
     const all = Object.fromEntries(facts.map((k) => [k, true])) as unknown as TipFacts;
     const seen: string[] = [];
     for (let tip = nextTip({ tipsSeen: seen, facts: all, blocked: false }); tip; tip = nextTip({ tipsSeen: seen, facts: all, blocked: false })) seen.push(tip);

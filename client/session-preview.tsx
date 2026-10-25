@@ -159,12 +159,16 @@ function SessionPreviewView({
     { colors } = theme,
     paseo = usePaseo(),
     contextRead = useRpc(rpc.taskContext),
+    recordHandoff = useRpc(rpc.recordHandoffInput),
+    sendHandoff = useRpc(rpc.sendHandoffInput),
+    confirmHandoff = useRpc(rpc.confirmHandoffInput),
     healthRead = useRpc(rpc.toolsHealth),
     prepareExisting = useRpc(rpc.prepareExisting),
     accessRead = useRpc(rpc.accessState);
   const reads = useSessionReads();
   const toast = useToast();
   const [draftBuffer] = useState(() => createDraftBuffer(draft));
+  const instructionAttempt = useRef<{ sessionId: string; text: string; images: string; id: string } | null>(null);
   // Native (phone) typing: the input owns its text. Pushing every keystroke
   // through the drawer's state and back as a controlled value re-renders the
   // whole session view and can reset the IME's composition, so the screen
@@ -429,11 +433,16 @@ function SessionPreviewView({
     const images = attached.map(({ data, mimeType }) => ({ data, mimeType }));
     if (!mounted.current || !writable || (!instruction.trim() && !images.length)) return;
     const action = resolveSend(behavior, { running: busyTurn, alternate, pendingPermission });
+    const imageKey = attached.map((image) => image.uri).join("\n");
+    if (!instructionAttempt.current || instructionAttempt.current.sessionId !== sessionId || instructionAttempt.current.text !== instruction || instructionAttempt.current.images !== imageKey)
+      instructionAttempt.current = { sessionId, text: instruction, images: imageKey, id: newMessageId() };
+    const messageId = instructionAttempt.current.id;
     if (action.kind === "queue") {
       // Paseo parity: queued messages are sent when the current turn ends.
-      void composer.queue(task.id, sessionId, instruction, images).then((item) =>
-        rememberSentImages(item.id, attached.map((a) => a.uri)),
-      ).catch((e) => {
+      void composer.queue(task.id, sessionId, instruction, images, messageId).then((item) => {
+        rememberSentImages(item.id, attached.map((a) => a.uri));
+        if (instructionAttempt.current?.id === messageId) instructionAttempt.current = null;
+      }).catch((e) => {
         // Never lose the text or images: put them back in the composer.
         flushReport();
         onDraftChange(sessionId, restoredDraft(instruction, draftBuffer.read()));
@@ -446,7 +455,6 @@ function SessionPreviewView({
       return;
     }
     await perform(async () => {
-      const messageId = newMessageId();
       rememberSentImages(messageId, attached.map((a) => a.uri));
       // Clear at once, so text typed while the send is in flight is never
       // erased by it; a failed send puts the text back (PERFORMANCE-SPEC §2).
@@ -454,7 +462,8 @@ function SessionPreviewView({
       onDraftChange(sessionId, "", instruction);
       setAttachments(attachmentsRef.current.filter((a) => !attached.includes(a)));
       try {
-        await sendCardInstruction(paseo, task, sessionId, contextRead, instruction, action.activeTurnBehavior, images, messageId);
+        await sendCardInstruction(paseo, task, sessionId, contextRead, instruction, action.activeTurnBehavior, images, messageId, { record: recordHandoff, send: sendHandoff, confirm: confirmHandoff });
+        if (instructionAttempt.current?.id === messageId) instructionAttempt.current = null;
       } catch (e) {
         flushReport();
         const typed = draftBuffer.read();

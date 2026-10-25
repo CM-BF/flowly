@@ -9,7 +9,7 @@ import type { BoardEvent } from "../shared/model";
 import { commentsOf, type CommentInput } from "../shared/comments";
 import { sessionTree, type SubagentSource } from "../shared/subagents";
 import { preferredSend, resolveSend, type SendBehavior } from "./send-queue";
-import { sendCardInstruction, workspaceSession } from "./session";
+import { sendCardInstruction, workspaceSession, type HandoffSend } from "./session";
 
 /** Comments shown before "Show all". */
 export const commentPreviewCount = 3;
@@ -140,8 +140,8 @@ export type CommentDelivery =
 
 /** The session composer's send path (sendCardInstruction and the daemon queue). */
 export interface CommentTransport {
-  send(agentId: string, text: string, mode?: "steer" | "interrupt"): Promise<void>;
-  queue(agentId: string, text: string): Promise<unknown>;
+  send(agentId: string, text: string, mode?: "steer" | "interrupt", messageId?: string): Promise<void>;
+  queue(agentId: string, text: string, messageId?: string): Promise<unknown>;
 }
 
 /**
@@ -154,16 +154,17 @@ export function commentTransport(
   deps: {
     paseo: PaseoApi;
     contextRead(input: { id: string }): Promise<{ available: boolean; reason: string; context: string }>;
-    queue(taskId: string, agentId: string, text: string): Promise<unknown>;
+    queue(taskId: string, agentId: string, text: string, messageId?: string): Promise<unknown>;
+    handoff?: HandoffSend;
   },
   card: { taskId: string; workspaceId: string },
 ): CommentTransport {
   return {
-    send: async (agentId, text, mode) => {
+    send: async (agentId, text, mode, messageId) => {
       await workspaceSession(deps.paseo, agentId, card.workspaceId, true);
-      await sendCardInstruction(deps.paseo, { id: card.taskId, workspaceId: card.workspaceId }, agentId, deps.contextRead, text, mode);
+      await sendCardInstruction(deps.paseo, { id: card.taskId, workspaceId: card.workspaceId }, agentId, deps.contextRead, text, mode, [], messageId, deps.handoff);
     },
-    queue: (agentId, text) => deps.queue(card.taskId, agentId, text),
+    queue: (agentId, text, messageId) => deps.queue(card.taskId, agentId, text, messageId),
   };
 }
 
@@ -178,15 +179,16 @@ export async function deliverComment(
   text: string,
   behavior: SendBehavior,
   alternate = false,
+  messageId?: string,
 ): Promise<CommentDelivery> {
   if (!target) return { kind: "saved" };
   const action = resolveSend(behavior, { running: target.running, alternate, pendingPermission: target.pendingPermission });
   try {
     if (action.kind === "queue") {
-      await transport.queue(target.id, text);
+      await transport.queue(target.id, text, messageId);
       return { kind: "queued", agentId: target.id };
     }
-    await transport.send(target.id, text, action.activeTurnBehavior);
+    await transport.send(target.id, text, action.activeTurnBehavior, messageId);
     return { kind: "sent", agentId: target.id };
   } catch (error) {
     return { kind: "failed", agentId: target.id, error: error instanceof Error ? error.message : String(error) };
@@ -194,7 +196,7 @@ export async function deliverComment(
 }
 
 /** A recorded comment whose delivery failed: Resend only sends it again (CARD-COMMENTS-SPEC §7.6). */
-export type FailedDelivery = { eventId: string; text: string; agentId: string; title: string; error: string };
+export type FailedDelivery = { eventId: string; text: string; agentId: string; title: string; error: string; messageId?: string };
 
 /**
  * What a card's comment composer keeps while the drawer shows a session instead
@@ -297,9 +299,10 @@ export async function postComment(
     memory.posted = [...memory.posted, event];
     if (memory.draft === text) memory.draft = "";
     changed(memory);
-    const delivery = await deliverComment(deps, input.target, text, preferredSend(input.settings), input.alternate);
+    const messageId = `comment:${event.operationId ?? operationId}`;
+    const delivery = await deliverComment(deps, input.target, text, preferredSend(input.settings), input.alternate, messageId);
     if (delivery.kind === "failed")
-      memory.failed = [...memory.failed, { eventId: event.id, text, agentId: delivery.agentId, title: input.target?.title ?? "", error: delivery.error }];
+      memory.failed = [...memory.failed, { eventId: event.id, text, agentId: delivery.agentId, title: input.target?.title ?? "", error: delivery.error, messageId }];
     return { kind: "posted", event, delivery };
   } finally {
     memory.busy = false;
@@ -324,7 +327,7 @@ export async function resendComment(
   memory.busy = true;
   changed(memory);
   try {
-    const delivery = await deliverComment(transport, target, entry.text, preferredSend(settings));
+    const delivery = await deliverComment(transport, target, entry.text, preferredSend(settings), false, entry.messageId);
     memory.failed =
       delivery.kind === "failed"
         ? memory.failed.map((f) => (f.eventId === eventId ? { ...f, agentId: delivery.agentId, title: target.title, error: delivery.error } : f))

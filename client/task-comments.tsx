@@ -87,6 +87,8 @@ export const TaskComments = memo(function TaskComments({
   const paseo = usePaseo();
   const record = useRpc(rpc.commentTask);
   const contextRead = useRpc(rpc.taskContext);
+  const handoffRecord = useRpc(rpc.recordHandoffInput), handoffConfirm = useRpc(rpc.confirmHandoffInput);
+  const handoffSend = useRpc(rpc.sendHandoffInput);
   // Queues through the daemon like the session composer; no polling of its own.
   const composer = useComposer(false);
   const view = useBoardView();
@@ -103,7 +105,7 @@ export const TaskComments = memo(function TaskComments({
   const note = composerNote(targets, target, { loading, archivedKnown });
   const locked = !!lockedReason || !active;
   const busy = memory.busy;
-  const transport = commentTransport({ paseo, contextRead, queue: (task, agentId, text) => composer.queue(task, agentId, text) }, { taskId, workspaceId });
+  const transport = commentTransport({ paseo, contextRead, handoff: { record: handoffRecord, send: handoffSend, confirm: handoffConfirm }, queue: (task, agentId, text, messageId) => composer.queue(task, agentId, text, [], messageId) }, { taskId, workspaceId });
   // A failed delivery shows in the list below instead.
   const announce = (delivery: CommentDelivery, to: CommentTarget | null) => {
     if (delivery.kind === "failed") return;

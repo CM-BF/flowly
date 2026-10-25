@@ -49,7 +49,7 @@ export function useComposer(enabled = true) {
       if (immediate) return flush();
       timers.current.set(agentId, { timer: setTimeout(flush, 500), flush });
     },
-    async queue(taskId: string, agentId: string, text: string, images: OutgoingImage[] = []) {
+    async queue(taskId: string, agentId: string, text: string, images: OutgoingImage[] = [], messageId?: string) {
       const temp = {
         id: `pending-${Date.now()}`,
         text,
@@ -67,7 +67,7 @@ export function useComposer(enabled = true) {
         },
       }));
       try {
-        return await push({ taskId, agentId, text, ...(images.length ? { images } : {}) });
+        return await push({ taskId, agentId, text, ...(images.length ? { images } : {}), ...(messageId ? { messageId } : {}) });
       } finally {
         refresh();
       }

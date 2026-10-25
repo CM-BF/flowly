@@ -1,6 +1,7 @@
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
+import type { HandoffService } from "./handoff-service";
 import type { PaseoApi } from "@getpaseo/client";
 import type { BoardStore } from "./store";
 import { composerStateSchema, type ComposerState, type OutgoingImage } from "../shared/composer";
@@ -99,6 +100,7 @@ const defaultSend: Send = async (paseo, agentId, text, steer, images, messageId)
 const tooLarge = (bytes: number) => `This session's history is ${megabytes(bytes)} MB, too large for Paseo to load safely; the message stays queued. Send it to a new session instead.`;
 
 export class ComposerService {
+  handoffs?: HandoffService;
   private draining = new Set<string>();
   private lastDrain = new Map<string, number>();
   constructor(
@@ -122,6 +124,11 @@ export class ComposerService {
     const agent = (await paseo.agents.ref(agentId).refresh())?.agent;
     if (!agent || agent.workspaceId !== task.workspaceId)
       throw new Error("Session is unavailable or belongs to a different workspace.");
+    if (this.handoffs) {
+      this.handoffs.attach(paseo);
+      await this.handoffs.assertWriter({ taskId, agentId, workspaceId: task.workspaceId }, board);
+      if (board.automation.some((job) => job.taskId === taskId && job.rotation?.fromAgentId === agentId)) throw new Error("This session is being replaced. The message stays queued; continue in the new session.");
+    }
     return agent;
   }
 
@@ -138,14 +145,21 @@ export class ComposerService {
     });
   }
 
-  async push(input: { taskId: string; agentId: string; text: string; images?: OutgoingImage[] }, paseo: PaseoApi) {
-    await this.verify(input.taskId, input.agentId, paseo);
-    const id = randomUUID();
+  async push(input: { taskId: string; agentId: string; text: string; images?: OutgoingImage[]; messageId?: string }, paseo: PaseoApi) {
+    const actor = await this.verify(input.taskId, input.agentId, paseo);
+    const id = input.messageId ? /^[A-Za-z0-9-]+$/.test(input.messageId) ? input.messageId : createHash("sha256").update(input.messageId).digest("hex") : randomUUID();
+    const previous = (await this.store.read()).sessions[input.agentId]?.queue.find((item) => item.id === id);
+    if (previous) {
+      if (previous.text !== input.text || JSON.stringify(await this.store.readImages(previous.images)) !== JSON.stringify(input.images ?? [])) throw new Error("This queued message identity already has different content.");
+      return previous;
+    }
+    if (this.handoffs) await this.handoffs.recordInput({ ...input, workspaceId: actor.workspaceId!, messageId: input.messageId ?? id, via: input.messageId?.startsWith("comment:") ? "comment" : "session" });
     const images = await this.store.writeImages(id, input.images || []);
-    const item = { id, text: input.text, at: new Date(this.clock()).toISOString(), ...(images.length ? { images } : {}) };
+    const item = { id, text: input.text, ...(input.messageId ? { messageId: input.messageId } : {}), at: new Date(this.clock()).toISOString(), ...(images.length ? { images } : {}) };
     try {
       await this.store.mutate((state) => {
         const entry = this.entry(state, input.agentId, input.taskId);
+        if (entry.queue.some((existing) => existing.id === id)) return;
         if (entry.queue.length >= 50) throw new Error("Queue is full (50 messages).");
         entry.queue.push(item);
         entry.lastError = null;
@@ -160,6 +174,8 @@ export class ComposerService {
   }
 
   async remove(input: { agentId: string; id: string }) {
+    const entry = (await this.store.read()).sessions[input.agentId], item = entry?.queue.find((message) => message.id === input.id);
+    if (item && this.handoffs) await this.handoffs.withdrawQueued(entry.taskId, input.agentId, item.messageId ?? item.id);
     const removed = await this.store.mutate((state) => {
       const entry = state.sessions[input.agentId];
       const found = entry?.queue.find((m) => m.id === input.id);
@@ -184,7 +200,10 @@ export class ComposerService {
     });
     const running = agent.status === "running" || agent.status === "initializing";
     try {
-      await this.send(paseo, input.agentId, item.text, running, await this.store.readImages(item.images), item.id);
+      const images = await this.store.readImages(item.images);
+      const send = (busy: boolean) => this.send(paseo, input.agentId, item.text, busy, images, item.messageId ?? item.id);
+      if (this.handoffs) await this.handoffs.send({ taskId: input.taskId, workspaceId: agent.workspaceId!, agentId: input.agentId, messageId: item.messageId ?? item.id, text: item.text, images, via: item.messageId?.startsWith("comment:") ? "comment" : "session" }, "steer", send);
+      else await send(running);
       await this.store.removeImages(item.images);
     } catch (error) {
       await this.store.mutate((state) => {
@@ -226,6 +245,13 @@ export class ComposerService {
       const board = await this.board.read();
       const task = board.tasks.find((t) => t.id === entry.taskId);
       if (!task || task.archivedAt || agent.workspaceId !== task.workspaceId) return false;
+      try { await this.verify(task.id, agentId, paseo); }
+      catch (error) {
+        const text = error instanceof Error ? error.message : String(error);
+        this.lastDrain.set(agentId, this.clock());
+        if (entry.lastError !== text) await this.store.mutate((s) => { if (s.sessions[agentId]) s.sessions[agentId].lastError = text; });
+        return false;
+      }
       const item = await this.store.mutate((s) => {
         const e = s.sessions[agentId];
         return e?.queue.shift() ?? null;
@@ -233,7 +259,10 @@ export class ComposerService {
       if (!item) return false;
       this.lastDrain.set(agentId, this.clock());
       try {
-        await this.send(paseo, agentId, item.text, false, await this.store.readImages(item.images), item.id);
+        const images = await this.store.readImages(item.images);
+        const send = (busy: boolean) => this.send(paseo, agentId, item.text, busy, images, item.messageId ?? item.id);
+        if (this.handoffs) await this.handoffs.send({ taskId: task.id, workspaceId: task.workspaceId, agentId, messageId: item.messageId ?? item.id, text: item.text, images, via: item.messageId?.startsWith("comment:") ? "comment" : "session" }, "steer", send);
+        else await send(false);
         await this.store.removeImages(item.images);
         await this.store.mutate((s) => {
           const e = s.sessions[agentId];
