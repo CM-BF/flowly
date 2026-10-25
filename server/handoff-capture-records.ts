@@ -312,9 +312,10 @@ export class CaptureRecords {
    * bounded, redacted note, also for a plain completion: the output file is the only way to its result, and only the
    * session that launched it gets the notice. A Monitor event (a task id and an <event>, no <status>) is progress of a task
    * that still runs: it ends nothing and keeps no note, and the task's real end still gets its own (returns true). Any
-   * other text without a task id and a status is not a notice (returns false).
+   * other text without a task id and a status is not a notice (returns false). `metadataOnly`: the text was rebuilt from
+   * a Paseo timeline row's metadata; the note says so, and the notice's own copy, read later, replaces it.
    */
-  private taskNotice(text: string, source: CaptureSource, timestamp: unknown): boolean {
+  private taskNotice(text: string, source: CaptureSource, timestamp: unknown, metadataOnly = false): boolean {
     const block = (name: string) => new RegExp(`<${name}>([\\s\\S]*?)</${name}>`).exec(text)?.[1]?.trim();
     const task = id(block("task-id")), status = /^[\w-]{1,40}$/.exec(block("status") ?? "")?.[0];
     if (task && !status && block("event") !== undefined) { this.progress(task, block("summary"), block("event"), source, timestamp); return true; }
@@ -344,6 +345,7 @@ export class CaptureRecords {
     const kept = new Set<string>(["task-id", "tool-use-id", "status", "summary", "output-file", ...details.map(([name]) => name)]);
     const omitted = [...new Set([...inner.matchAll(/<([a-z][\w-]{0,40})>[\s\S]*?<\/\1>/g)].map((match) => match[1]).filter((name) => !kept.has(name)))].slice(0, 12);
     const marker = "(Excerpt; the whole notice is in that session's raw history.)", parts = [...header];
+    if (metadataOnly) parts.push("(Rebuilt from Paseo's timeline row: the notice's own text, with any error, failures, result or last event, is in that session's raw history.)");
     // Room for the marker and for naming every block, including any that the 2,000-character note has no room for.
     let room = 2000 - parts.join(" ").length - marker.length - `Not kept here: ${[...omitted, ...details.map(([name]) => name)].join(", ")}.`.length - 3;
     for (const [name, label, value, max] of details) {
@@ -356,7 +358,7 @@ export class CaptureRecords {
     if (cut || omitted.length) parts.push(marker);
     const kind = status === "completed" ? "background" as const : "hazard" as const;
     // Not `late`: a notice cannot tell a workflow from a background command, so an unmatched one never settles a placeholder; its note keeps it.
-    this.closeHandle(task, source, timestamp, status, "agent", { note: { id: `task-notice:${task}:${status}`, text: parts.join(" ").slice(0, 2000), kind } });
+    this.closeHandle(task, source, timestamp, status, "agent", { note: { id: `task-notice:${task}:${status}`, text: parts.join(" ").slice(0, 2000), kind, ...(metadataOnly ? { metadataOnly: true as const } : {}) } });
     return true;
   }
   /**
@@ -821,7 +823,8 @@ export class CaptureRecords {
   /**
    * Paseo 0.12 projects every Claude task notice (delivered, queued or absorbed mid-turn) into a `task_notification`
    * tool_call row: the raw notice in detail.text when Paseo had it, otherwise its task id, status and output file in
-   * metadata and its summary as the label (the error message on failure). Read like the notice itself.
+   * metadata and its summary as the label (the error message on failure). Read like the notice itself; a note rebuilt from
+   * metadata is marked, so the provider's copy of the same notice (its error, failures, result, last event) wins.
    */
   private taskRow(item: RecordValue, source: CaptureSource, timestamp: unknown) {
     const detail = object(item.detail), metadata = object(item.metadata), raw = string(detail.text);
@@ -833,7 +836,7 @@ export class CaptureRecords {
     const tag = (name: string, value: string) => value.trim() ? `<${name}>${value.trim()}</${name}>` : "";
     const summary = string(detail.label) || string(object(item.error).message);
     const rebuilt = `<task-notification>${tag("task-id", string(metadata.taskId))}${tag("status", status)}${tag("summary", summary)}${tag("output-file", string(metadata.outputFile))}</task-notification>`;
-    if (!this.taskNotice(rebuilt, source, timestamp)) this.gap({ id: `timeline:${sourceKey(source)}`, kind: "unknown_timeline_type", source, typeHint: "tool_call/task_notification" });
+    if (!this.taskNotice(rebuilt, source, timestamp, true)) this.gap({ id: `timeline:${sourceKey(source)}`, kind: "unknown_timeline_type", source, typeHint: "tool_call/task_notification" });
   }
   timeline(items: readonly unknown[], received: boolean) {
     this.origin = "timeline";

@@ -393,6 +393,15 @@ export class HandoffStore {
       const existing = handoffEntrySections.flatMap((s) => list(record, s)).find((e) => e.sourceId === sourceId) ?? (pointer ? await this.object(record.taskId, pointer.ref) : undefined);
       if (existing) {
         if (section === "inputs") return this.mergeInput(change, existing as HandoffInput, draft, context, sourceId, sourceHash);
+        // Flowly's notes are copies of one notice read on several paths (SESSION-HANDOFF-SPEC §5.7): another copy (another
+        // time, or rebuilt from a timeline row) is no conflict and keeps the note, except that the notice's own text
+        // replaces a note rebuilt from row metadata, also one already archived. A conflict here refused the whole capture.
+        if (section === "notes" && context.by.kind === "flowly" && existing.sourceHash !== sourceHash) {
+          if (!(existing as HandoffNote).metadataOnly || draft.metadataOnly) return existing;
+          const { metadataOnly: _rebuilt, contentRef: _ref, ...kept } = existing as HandoffNote;
+          const upgraded = handoffEntrySchemas.notes.parse({ ...kept, kind: draft.kind, text: draft.text, rev: record.revision, by: context.by, sourceId, sourceHash });
+          this.replace(change, "notes", upgraded, false); return upgraded;
+        }
         if (existing.sourceHash && existing.sourceHash !== sourceHash) throw new HandoffError("HANDOFF_CONFLICT", "The source id already refers to different original content.", { sourceId });
         return existing;
       }

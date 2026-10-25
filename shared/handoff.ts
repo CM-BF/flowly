@@ -26,7 +26,8 @@ export const handoffReviewSchema = base.extend({
   findings: z.array(z.object({ id, text: text(1000), status: z.enum(["open", "done", "obsolete"]) })).max(20), risks: z.array(text(500)).max(10), gaps: z.array(text(300)).max(5),
   delivery: z.object({ event: z.string().optional(), text: text(10000) }).optional(),
 });
-export const handoffNoteSchema = base.extend({ kind: z.enum(noteKinds), text: text(2000) });
+/** `metadataOnly`: Flowly rebuilt this note from Paseo's timeline row without the notice's own text; that text, read later from the provider file, replaces it (SESSION-HANDOFF-SPEC §5.7). Older versions drop it. */
+export const handoffNoteSchema = base.extend({ kind: z.enum(noteKinds), text: text(2000), metadataOnly: z.literal(true).optional() });
 /** Flowly capture gaps are aggregated per session, kind and type hint: count, first/last occurrence. `resolution.count` is the count that was acknowledged; growth past it reopens the gap. */
 export const handoffGapSchema = base.extend({ kind: z.enum(["reviewer", "successor", "answerer", "flowly"]).optional(), agentId: z.string().optional(), text: text(300), status: z.enum(["open", "closed"]), count: z.number().int().positive().optional(), firstAt: z.string().optional(), lastAt: z.string().optional(), resolution: z.object({ by: handoffActorSchema, at: z.string(), note: text(300).min(1), count: z.number().int().positive().optional() }).optional() });
 export const handoffGitSchema = z.object({ repo: z.string(), sha: z.string().nullable(), branch: z.string().optional(), dirty: z.boolean(), dirtyHash: z.string().optional(), files: z.array(z.string()).max(50).optional(), filesTotal: z.number().int().nonnegative().optional(), diffstat: text(1000).optional(), upstream: z.string().optional(), at: z.string(), error: z.string().optional() });

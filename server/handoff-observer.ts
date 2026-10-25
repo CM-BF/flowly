@@ -244,7 +244,7 @@ export class HandoffObserver {
         // What a background notice said stays on the card, matched or not (SESSION-HANDOFF-SPEC §5.7, §9.3).
         if (item.note) {
           const sourceId = handoffSource(`capture-notice:${agentId}:${item.note.id}`);
-          entries.push({ section: "notes", value: { id: entryId("nt", sourceId), sourceId, kind: item.note.kind, at: item.at, text: item.note.text.slice(0, 2000) } });
+          entries.push({ section: "notes", value: { id: entryId("nt", sourceId), sourceId, kind: item.note.kind, at: item.at, text: item.note.text.slice(0, 2000), ...(item.note.metadataOnly ? { metadataOnly: true } : {}) } });
         }
         continue;
       }
@@ -395,7 +395,16 @@ export class HandoffObserver {
       live: [...live.values()], turns: turns.slice(-10), through, ...(scriptCalls ? { scriptCalls } : {}), ...(anchors.length ? { anchors } : {}), ...(coverageText ? { skeleton: `Current capture coverage: ${coverageText}. Narration is a bounded excerpt, not the full transcript.${scriptText}`.slice(0, 2000) } : { skeleton: `Current capture reached the available source. Narration is a bounded excerpt, not the full transcript; skipped or unsupported content is listed separately in gaps.${scriptText}` }) };
     // Stable ids let the store deduplicate archived entries, but avoid even a no-op transaction for current records.
     const existingSources = new Set([...record.gaps, ...record.notes, ...record.overflow].map((entry) => entry.sourceId));
-    const unique = new Map(entries.filter((entry) => entry.section === "inputs" || !existingSources.has(entry.value.sourceId as string)).map((entry) => [String(entry.value.sourceId), entry]));
+    // One notice, two copies (SESSION-HANDOFF-SPEC §5.7): a note Flowly rebuilt from a timeline row's metadata never replaces
+    // the note from the notice's own text, and that text replaces a rebuilt note already on the card.
+    const rebuilt = new Set(record.notes.filter((note) => note.metadataOnly).map((note) => note.sourceId));
+    const unique = new Map<string, (typeof entries)[number]>();
+    for (const entry of entries) {
+      const key = String(entry.value.sourceId), prior = unique.get(key), own = entry.section === "notes" && !entry.value.metadataOnly;
+      if (entry.section !== "inputs" && existingSources.has(key) && !(own && rebuilt.has(key))) continue;
+      if (prior?.section === "notes" && !prior.value.metadataOnly && entry.value.metadataOnly) continue;
+      unique.set(key, entry);
+    }
     let git: HandoffGitSnapshot[] | undefined;
     // Repositories are polled for a session in a turn (SESSION-HANDOFF-SPEC §4 item 2), at most once per card every 2 minutes,
     // also when the read fails. An idle card is read at its turn ends, rotations and handoff writes (forceGit), and an ACK

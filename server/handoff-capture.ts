@@ -12,13 +12,14 @@ export type CaptureNarration = Omit<CaptureMessage, "via" | "status"> & { trunca
 /**
  * `closeOnly`: a completion that may close an item already recorded (by id, call id or handle) but never creates one.
  * `late`: a completion whose start was never itemized; when no item matches its handle it settles the oldest evidence-free placeholder of its kind.
- * `note`: what the completion said (status, summary, output file, result, recovery); always written as a card note.
+ * `note`: what the completion said (status, summary, output file, result, recovery); always written as a card note. `metadataOnly`: rebuilt from
+ *   a timeline row without the notice's own text; it never replaces a note from that text, and that text replaces it.
  * `reopen`: new work for an item that had ended (a follow-up task to a sub-agent): it opens a closed item again.
  * `keepLabel`: evidence that something runs, not what it is: an existing item keeps its label.
  * `inFlight`: a start call whose result has not been read yet: a placeholder without evidence, until its result arrives.
  * `event`: the latest progress a running task reported (a Claude Monitor event): kept on its item, never a note or an end.
  */
-export type CaptureBackground = { id: string; source: CaptureSource; kind: "async_shell" | "exec" | "browser" | "terminal" | "workspace_script" | "agent" | "schedule" | "heartbeat"; handle?: string; callId?: string; status: "open" | "closed" | "unknown"; label?: string; outcome?: string; at: string; closeOnly?: boolean; late?: boolean; reopen?: boolean; keepLabel?: boolean; inFlight?: true; event?: string; note?: { id: string; text: string; kind: "background" | "hazard" } };
+export type CaptureBackground = { id: string; source: CaptureSource; kind: "async_shell" | "exec" | "browser" | "terminal" | "workspace_script" | "agent" | "schedule" | "heartbeat"; handle?: string; callId?: string; status: "open" | "closed" | "unknown"; label?: string; outcome?: string; at: string; closeOnly?: boolean; late?: boolean; reopen?: boolean; keepLabel?: boolean; inFlight?: true; event?: string; note?: { id: string; text: string; kind: "background" | "hazard"; metadataOnly?: true } };
 /**
  * One gap per kind and type hint in a batch: `id`/`source`/`from` are its first occurrence, `count` all of them, `at`/`lastAt` the first and last time.
  * Location-bearing kinds (`locatedGapKinds`) are never merged: each keeps its byte range and message id. `occurrences`: stable identities of timeline rows (bounded).
