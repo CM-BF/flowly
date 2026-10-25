@@ -763,26 +763,31 @@ export class CaptureRecords {
     this.notice(`failed-call:${call.callId}`, `${call.name ?? call.kind} failed (call ${call.callId})${what}${error ? `: ${error}` : "."}`, call.at, "background", 600);
     if (call.action === "start") this.push({ id: `background:${this.agentId}:${call.callId}`, kind: call.kind, callId: call.callId, status: "closed", closeOnly: true }, source, call.at);
   }
-  /** Codex item_completed: nested calls of a code-mode script appear only here (top-level ones repeat their call id). */
+  /**
+   * Codex item_completed: nested calls of a code-mode script appear only here, under ids of their own. A top-level call's
+   * item repeats that call's id (exec_command, MCP tools, spawn_agent) and arrives while the call is pending, before its
+   * output: it is never a completion of the scripts' pool, or a quick top-level `git status` while a yielded cell runs
+   * would settle the dev server a script next to it left running.
+   */
   private item(raw: unknown, source: CaptureSource, timestamp: unknown) {
-    const item = object(raw), type = string(item.type), itemId = string(item.id);
+    const item = object(raw), type = string(item.type), itemId = string(item.id), topLevel = !!id(itemId) && (this.calls.has(itemId) || this.done.has(itemId));
     if (type === "McpToolCall") {
       const name = `${string(item.server)}.${string(item.tool)}`;
-      this.attribute(toolBase(name));
+      if (!topLevel) this.attribute(toolBase(name));
       this.call(name, itemId, item.arguments, source, timestamp);
       if (this.calls.has(itemId)) this.output(itemId, item.result ?? item.error, source, !!item.error || !["completed", ""].includes(string(item.status)));
     } else if (type === "CommandExecution") {
       const command = Array.isArray(item.command) ? string(item.command.at(-1)) : string(item.command), session = id(item.process_id);
-      const credited = this.attribute("exec_command", session), known = !!session && this.sessions.includes(session);
+      const credited = !topLevel && this.attribute("exec_command", session), known = !!session && this.sessions.includes(session);
       if (session) {
         this.closed = [...this.closed.filter((value) => value !== session), session].slice(-captureLimits.closed);
         this.sessions = this.sessions.filter((value) => value !== session);
         // Not a known session and not a start of the running script: an exec_command that outlived its script ended now.
-        this.push({ id: `background:${this.agentId}:exec:${session}`, kind: "exec", handle: session, status: "closed", closeOnly: true, ...(number(item.exit_code) !== undefined ? { outcome: `exit ${item.exit_code}` } : {}), ...(!credited && !known && !this.done.has(itemId) && !this.calls.has(itemId) ? { late: true } : {}) }, source, this.time(timestamp).at);
+        this.push({ id: `background:${this.agentId}:exec:${session}`, kind: "exec", handle: session, status: "closed", closeOnly: true, ...(number(item.exit_code) !== undefined ? { outcome: `exit ${item.exit_code}` } : {}), ...(!credited && !known && !topLevel ? { late: true } : {}) }, source, this.time(timestamp).at);
       }
       const launch = number(item.exit_code) === 0 || item.exit_code === undefined ? cliLaunch(command, string(item.aggregated_output)) : undefined;
       if (launch) this.push({ id: `background:${this.agentId}:${launch.kind}:${launch.handle}`, kind: launch.kind, handle: launch.handle, status: "open", label: launch.label }, source, this.time(timestamp).at);
-      if (detachedCommand(command) && id(itemId)) this.attribute("detached");
+      if (detachedCommand(command) && id(itemId) && !topLevel) this.attribute("detached");
       if (detachedCommand(command) && id(itemId)) this.push({ id: `background:${this.agentId}:${itemId}`, kind: "exec", callId: itemId, status: "unknown", label: `detached: ${redactCaptureText(command)}`.slice(0, 120) }, source, this.time(timestamp).at);
     } else if (type === "ContextCompaction") this.compacted("item", source, timestamp);
     else if (type === "AgentMessage") {
@@ -801,7 +806,7 @@ export class CaptureRecords {
       if (!path || !path.slice(1).includes("/")) return;
       if (kind === "completed" || kind === "interrupted") { this.closeHandle(path, source, timestamp, kind); if (kind === "interrupted") this.interrupt(path); }
       else if (kind === "started" || kind === "interacted") {
-        if (kind === "started") { this.attribute("spawn_agent"); this.interrupted.delete(path); }
+        if (kind === "started") { if (!topLevel) this.attribute("spawn_agent"); this.interrupted.delete(path); }
         this.push({ id: `background:${this.agentId}:agent:${path}`, kind: "agent", handle: path, status: "open", label: `${path.split("/").pop()}: sub-agent`, keepLabel: true }, source, at);
       } else this.gap({ id: `item:${sourceKey(source)}`, kind: "unknown_item_type", source, typeHint: `SubAgentActivity/${redactCaptureText(kind).slice(0, 40) || "unknown"}` });
     } else if (!metadataItems.has(type)) this.gap({ id: `item:${sourceKey(source)}`, kind: "unknown_item_type", source, typeHint: redactCaptureText(type).slice(0, 80) || "unknown" });

@@ -146,6 +146,66 @@ test("a settled placeholder a running pool no longer needed closes once the last
   expect(handoffOpenIds(record)).toEqual([]);
 });
 
+// A top-level call's completion item repeats the call's own id (checked on local rollouts: function_call, then item_completed
+// with that id, then its output, for exec_command, MCP tools and spawn_agent); a script's nested items have ids of their own.
+const topCall = (id: string, name: string, args: Record<string, unknown>, namespace?: string) => codexResponse("function_call", { name, call_id: id, arguments: JSON.stringify(args), ...(namespace ? { namespace } : {}) });
+const topOut = (id: string, output: string) => codexResponse("function_call_output", { call_id: id, output });
+const topCommand = (id: string, pid: number, cmd: string) => [topCall(id, "exec_command", { cmd }), codexItem({ type: "CommandExecution", id, command: ["/bin/zsh", "-lc", cmd], process_id: String(pid), status: "completed", exit_code: 0, aggregated_output: "ok" }), topOut(id, "Chunk ID: 1\nWall time: 0.1 seconds\nProcess exited with code 0\nOriginal token count: 1\nOutput:\nok")];
+const devPlaceholder = "unknown:unknown:s1:exec:exec_command in a script; completion not observed";
+
+test("a top-level exec_command that finishes while a yielded cell runs is no completion of the cell's pool: the dev server's placeholder stays", async () => {
+  const idle = (x: Awaited<ReturnType<typeof observerFixture>>) => Object.assign(x.actor, { status: "idle", activeTurn: null });
+  // The control: the same records without the top-level git status.
+  const control = await observerFixture({ running: true }); await control.poll();
+  await control.append([watcher("s1"), out("s1", "Script running with cell ID 7"), script("s2", "npm run dev"), out("s2")]); await control.poll();
+  await control.append([wait("w1", 7), waited("w1")]); await control.poll();
+  idle(control); await control.poll();
+  const expected = await control.read();
+  expect(items(expected)).toEqual([devPlaceholder]);
+  // The cell returns in the same turn.
+  const x = await observerFixture({ running: true }); await x.poll();
+  await x.append([watcher("s1"), out("s1", "Script running with cell ID 7"), script("s2", "npm run dev"), out("s2")]); await x.poll();
+  await x.append(topCommand("c1", 9001, "git status")); await x.poll();
+  expect(items(await x.read())).toEqual(["open:cell:7:script cell 7 still running", devPlaceholder]);
+  await x.append([wait("w1", 7), waited("w1")]); await x.poll();
+  idle(x); await x.poll();
+  const over = await x.read();
+  expect([items(over), handoffOpenIds(over)]).toEqual([[devPlaceholder], handoffOpenIds(expected)]);
+  // The cell is still running at the turn end and returns in a later turn: the placeholder stays the ACK id it was.
+  const y = await observerFixture({ running: true }); await y.poll();
+  await y.append([watcher("s1"), out("s1", "Script running with cell ID 7"), script("s2", "npm run dev"), out("s2")]); await y.poll();
+  await y.append(topCommand("c1", 9001, "git status")); await y.poll();
+  idle(y); await y.poll();
+  const first = await y.read();
+  expect(handoffOpenIds(first)).toHaveLength(2);
+  Object.assign(y.actor, { status: "running", activeTurn: { turnId: "turn-2", startedAt: "2026-10-25T02:10:00.000Z" } });
+  await y.append([...topCommand("c2", 9002, "git diff --stat"), wait("w1", 7), waited("w1")]); await y.poll();
+  idle(y); await y.poll();
+  const second = await y.read();
+  expect(items(second)).toEqual(["closed:cell:7:script cell 7 still running", devPlaceholder]);
+  expect(handoffOpenIds(second)).toEqual(handoffOpenIds(expected));
+  expect(handoffOpenIds(first)).toContain(handoffOpenIds(expected)[0]);
+});
+
+test("a top-level MCP start or sub-agent spawn while a yielded cell runs keeps a script's unobserved start of the same tool", async () => {
+  const create = codexResponse("custom_tool_call", { call_id: "s2", id: "ctc_s2", status: "completed", name: "exec", input: `await tools.paseo__create_agent({ title: "helper" }); text("ok");` });
+  const spawn = codexResponse("custom_tool_call", { call_id: "s3", id: "ctc_s3", status: "completed", name: "exec", input: `await tools.spawn_agent({ task_name: "a", message: "check the build" }); text("ok");` });
+  const created = { content: [{ type: "text", text: "{\"agentId\":\"agent-9\"}" }], structuredContent: { agentId: "agent-9" } };
+  const x = await observerFixture({ running: true }); await x.poll();
+  await x.append([watcher("s1"), out("s1", "Script running with cell ID 7"), create, out("s2"), spawn, out("s3")]); await x.poll();
+  const placeholders = ["unknown:unknown:s1:create_agent:create_agent called in a script; result not observed", "unknown:unknown:s1:spawn_agent:spawn_agent called in a script; result not observed"];
+  expect(items(await x.read())).toEqual(["open:cell:7:script cell 7 still running", ...placeholders]);
+  await x.append([
+    topCall("c1", "create_agent", { title: "reviewer" }, "mcp__paseo"), codexItem({ type: "McpToolCall", id: "c1", server: "paseo", tool: "create_agent", status: "completed", arguments: { title: "reviewer" }, result: created }), topOut("c1", "{\"agentId\":\"agent-9\"}"),
+    topCall("c2", "spawn_agent", { task_name: "b", message: "review the diff" }), codexItem({ type: "SubAgentActivity", id: "c2", agent_path: "/root/b", agent_thread_id: "019a15e5-1111-7abc-8def-0123456789ab", kind: "started" }), topOut("c2", "{\"task_name\":\"/root/b\"}"),
+  ]); await x.poll();
+  await x.append([wait("w1", 7), waited("w1")]); await x.poll();
+  Object.assign(x.actor, { status: "idle", activeTurn: null }); await x.poll();
+  const over = await x.read();
+  expect(items(over).filter((item) => item.includes("called in a script"))).toEqual(placeholders);
+  expect(items(over)).toEqual(expect.arrayContaining(["open:agent-9:reviewer", "open:/root/b:b: review the diff"]));
+});
+
 test("twenty scripts started at once, all of whose commands exit 0, leave no leftover, revision or ledger version", async () => {
   const x = await handedOver({ notes: 30 });
   expect((await fullRead(x)).length).toBeGreaterThan(1);
