@@ -226,11 +226,10 @@ export class HandoffObserver {
       if (item.closeOnly) {
         // A completion closes what was recorded (for any kind: a task id names one task); it never adds an entry.
         let index = background.findIndex((entry) => entry.id === entryId("bg", item.id) || item.callId && entry.callId === item.callId || item.handle && entry.ref === item.handle);
-        const matched = index >= 0;
-        if (!matched && item.late) index = placeholder(kinds[item.kind]);
+        if (index < 0 && item.late) index = placeholder(kinds[item.kind]);
         if (index >= 0 && background[index].status !== "closed") background[index] = { ...background[index], status: "closed", ...outcome };
-        // What a background notice said stays on the card when it reports a failure or a result, or when no recorded launch matches it.
-        if (item.note && (item.note.always || !matched)) {
+        // What a background notice said stays on the card, matched or not (SESSION-HANDOFF-SPEC §5.7, §9.3).
+        if (item.note) {
           const sourceId = handoffSource(`capture-notice:${agentId}:${item.note.id}`);
           entries.push({ section: "notes", value: { id: entryId("nt", sourceId), sourceId, kind: item.note.kind, at: item.at, text: item.note.text.slice(0, 2000) } });
         }

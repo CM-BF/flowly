@@ -79,3 +79,45 @@ test("R3-S1 a sub-agent whose task text is one opaque token is labelled by its t
   expect(view.notes.join(" ")).toContain("legacy column");
 });
 
+// ---------------------------------------------------------------- a successful background completion keeps its result (loss-r3-L2)
+const task = "task-0123456789ab";
+const registered = { type: "plugin", id: `async-shell-${task}`, pluginId: "paseo-async-shell", kind: "async-shell-task", version: 1, data: { taskId: task, description: "wait for review", status: "running", commandPreview: "./synthetic-poll.sh" } };
+const logs = `Logs: /tmp/synthetic/${task}/stdout and /tmp/synthetic/${task}/stderr. Page through them with read_async_shell_output or \`paseo-shell output ${task} [--stderr] [--offset N]\`.`;
+const finished = (stdout: string, size = `${stdout.length} B`) => `[async-shell finished ${task}] "wait for review" exited with code 0 after 41m 2s.\n\nstdout (${size}):\n${stdout}\n\nstderr: (empty)\n\n${logs}\n\nContinue your work.`;
+
+test.each(["provider", "timeline"] as const)("R3-C1 an async shell's finished notice keeps its summary, output tail and logs on the card (%s path)", async (path) => {
+  const x = await observerFixture();
+  const text = finished("Review service: 3 blocking findings (auth bypass in /login); details in /tmp/synthetic/review.json");
+  await x.hook([registered]);
+  if (path === "timeline") await x.hook([registered, { type: "user_message", text, messageId: "m-fin" }, { type: "assistant_message", text: "ok" }]);
+  else { await x.append([codexTyped("01a170bb-fin", text)]); await x.poll(); }
+  const view = successorView(await x.read());
+  expect(view.background).toEqual([`async_shell:closed:${task}:async shell: wait for review:finished`]);
+  expect(view.notes).toEqual([`background:Async shell ${task} finished: "wait for review" exited with code 0 after 41m 2s. stdout (98 B): Review service: 3 blocking findings (auth bypass in /login); details in /tmp/synthetic/review.json Logs: /tmp/synthetic/${task}/stdout and /tmp/synthetic/${task}/stderr.`]);
+  expect(view.gaps).toEqual([]); expect(view.inputs).toEqual([]); expect(view.open).toBe(0);
+});
+
+test("a finished notice with a long output keeps only its last 600 characters and says so", () => {
+  const lines = Array.from({ length: 80 }, (_, n) => `line ${n} of the synthetic test log`).join("\n");
+  const b = captureTimeline("agent", [registered, { type: "user_message", text: finished(lines, "last 12.0 KiB of 40.0 KiB"), messageId: "m-1" }], { outcome: "completed" });
+  const note = b.notices.find((value) => value.id === `async-notice:${task}:finished`)!;
+  expect(note.kind).toBe("background");
+  expect(note.text).toContain("stdout (last 12.0 KiB of 40.0 KiB), last 600 characters: …");
+  expect(note.text).toContain("line 79 of the synthetic test log"); expect(note.text).not.toContain("line 3 of");
+  expect(note.text).toContain(`Logs: /tmp/synthetic/${task}/stdout and /tmp/synthetic/${task}/stderr.`);
+});
+
+const claudeBash = [
+  { ...claudeBase, type: "assistant", uuid: "a1", message: { id: "r1", content: [{ type: "tool_use", id: "toolu_bg1", name: "Bash", input: { command: "npm run migrate:staging", run_in_background: true, description: "Run the staging migration" } }] } },
+  { ...claudeBase, type: "user", uuid: "u1", message: { role: "user", content: [{ type: "tool_result", tool_use_id: "toolu_bg1", content: "Command running in background with ID: bk7p2q9x1. Output is being written to: /tmp/synthetic/tasks/bk7p2q9x1.output" }] } },
+];
+test("R3-C2 Claude: a matched background command that completed keeps its status, summary and output file on the card", async () => {
+  const x = await observerFixture({ provider: "claude" });
+  await x.append([...claudeBash, { ...claudeBase, type: "attachment", uuid: "att-9", attachment: { type: "queued_command", commandMode: "task-notification", prompt: "<task-notification>\n<task-id>bk7p2q9x1</task-id>\n<tool-use-id>toolu_bg1</tool-use-id>\n<output-file>/tmp/synthetic/tasks/bk7p2q9x1.output</output-file>\n<status>completed</status>\n<summary>Background command \"npm run migrate:staging\" completed (exit code 0)</summary>\n</task-notification>", source_uuid: "q-9" } }]);
+  await x.poll();
+  const view = successorView(await x.read());
+  expect(view.background).toEqual(["exec_session:closed:bk7p2q9x1:npm run migrate:staging:completed"]);
+  expect(view.notes).toEqual(["background:Background task bk7p2q9x1 ended with status completed: Background command \"npm run migrate:staging\" completed (exit code 0). Output file: /tmp/synthetic/tasks/bk7p2q9x1.output."]);
+  expect(view.gaps).toEqual([]); expect(view.open).toBe(0);
+});
+

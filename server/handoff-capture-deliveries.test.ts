@@ -27,7 +27,7 @@ const notices = {
 };
 type Event = keyof typeof notices;
 const expected: Record<Event, { background: string; note?: RegExp; input?: { status: "open" | "received"; title: string; text: string } }> = {
-  finished: { background: "closed:finished" },
+  finished: { background: "closed:finished", note: /^background:Async shell task-0123456789ab finished: "wait for review" exited with code 0 after 1m 2s\. stdout \(9 B\): all green Logs: \/tmp\/synthetic\/task-0123456789ab\/stdout and \/tmp\/synthetic\/task-0123456789ab\/stderr\.$/ },
   failed: { background: "closed:failed", note: /^hazard:Async shell task-0123456789ab failed: "wait for review" exited with code 2.*Error: synthetic schema mismatch at migration 0042.*\/tmp\/synthetic\/task-0123456789ab\/stdout and \/tmp\/synthetic\/task-0123456789ab\/stderr/ },
   timed_out: { background: "closed:timed_out", note: /^hazard:Async shell task-0123456789ab timed_out: .*600 s deadline.*waiting for the review service.*stderr/ },
   lost: { background: "closed:lost", note: /^hazard:Async shell task-0123456789ab lost: .*left no exit code.*Logs: \/tmp\/synthetic/ },
@@ -118,7 +118,7 @@ test("worktrees and the note keep their place in a long failed notice; the excer
 test("a Claude task notice with only the blocks it keeps is written whole, without an excerpt marker", () => {
   const b = captureTimeline("agent", [{ type: "user_message", text: "<task-notification>\n<task-id>bsh7</task-id>\n<tool-use-id>tu-7</tool-use-id>\n<output-file>/tmp/synthetic/bsh7.output</output-file>\n<status>completed</status>\n<summary>Background command \"npm run e2e\" completed (exit code 0)</summary>\n<note>Its output was larger than the preview; read the output file.</note>\n</task-notification>" }], { outcome: "completed" });
   const note = b.background.find((entry) => entry.handle === "bsh7")!.note!;
-  expect(note).toMatchObject({ always: true, kind: "background" });
+  expect(note).toMatchObject({ kind: "background" });
   expect(note.text).toContain("Note: Its output was larger than the preview; read the output file.");
   expect(note.text).not.toContain("Excerpt");
 });

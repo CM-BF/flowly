@@ -75,7 +75,7 @@ test("capture handles provider messages and real Paseo envelopes without mistaki
   // A child's finished notification closes its item and is kept as a note, not as an input to handle.
   expect(b.inputs.map((m) => [m.via, m.text])).toEqual([["session", "<paseo-system>quoted</paseo-system>"]]);
   expect(b.background.map((v) => [v.kind, v.handle, v.status])).toEqual([["async_shell", "task-owned", "closed"], ["agent", "child-1", "closed"]]);
-  expect(b.background[1].note).toMatchObject({ kind: "background", always: true, text: 'Agent "Child" (child-1) finished: Done & verified' });
+  expect(b.background[1].note).toMatchObject({ kind: "background", text: 'Agent "Child" (child-1) finished: Done & verified' });
   expect(b.live[0].text).toBe(wrapped); // assistant quotes cannot fabricate a completion notification
 });
 

@@ -102,7 +102,7 @@ test("the notice of a launch Flowly never itemized is still on the card: an inte
   expect(record.inputs).toEqual([]); expect(record.gaps).toEqual([]);
 });
 
-test("a tracked completion without result blocks only closes its item; long results are bounded and redacted in the note", () => {
+test("a tracked completion closes its item and keeps its status and summary as a note; long results are bounded and redacted", () => {
   const long = `${"synthetic finding ".repeat(1200)} token=sk-abcdefghijklmnopqrstuvwx`;
   const b = captureTimeline("agent", [
     { type: "tool_call", name: "Workflow", callId: "wf-1", status: "completed", detail: { input: { name: "lint" }, output: "Workflow launched in background. Task ID: task_lint" } },
@@ -111,8 +111,8 @@ test("a tracked completion without result blocks only closes its item; long resu
     { type: "user_message", text: `<task-notification>\n<task-id>task_audit</task-id>\n<status>completed</status>\n<summary>Workflow "audit" completed</summary>\n<result>${long}</result>\n</task-notification>` },
   ], { outcome: "completed" });
   const lint = b.background.find((entry) => entry.handle === "task_lint" && entry.closeOnly)!, audit = b.background.find((entry) => entry.handle === "task_audit" && entry.closeOnly)!;
-  expect(lint).toMatchObject({ status: "closed", outcome: "completed" }); expect(lint.note?.always).toBe(false);
-  expect(audit.note).toMatchObject({ always: true, kind: "background" });
+  expect(lint).toMatchObject({ status: "closed", outcome: "completed", note: { kind: "background", text: "Background task task_lint ended with status completed: Workflow \"lint\" completed." } });
+  expect(audit.note).toMatchObject({ kind: "background" });
   expect(audit.note!.text.length).toBeLessThanOrEqual(2000); expect(audit.note!.text).toContain("synthetic finding"); expect(audit.note!.text).not.toContain("sk-abcdefghijklmnop");
 });
 

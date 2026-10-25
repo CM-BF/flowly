@@ -262,13 +262,20 @@ export class CaptureRecords {
       return;
     }
     this.result.background.push({ id: `async-notice:${sourceKey(source)}`, source, kind: "async_shell", handle, status: "closed", outcome: event, at, late: true });
-    if (event === "finished") return;
-    // Why it ended: the summary, the first error line of the shell's primary output, the log paths and any cleanup note.
     const blocks = body.split(/\n{2,}/), tail = blocks.find((block) => /^(?:stderr|stdout)\b[^\n]*:\n/.test(block));
+    const logs = /^Logs: (.+?) and (.+?)\.(?:\s|$)/m.exec(body), cleanup = blocks.find((block) => block.startsWith("Note: "));
+    const where = [logs ? `Logs: ${logs[1].slice(0, 200)} and ${logs[2].slice(0, 200)}.` : "", cleanup ? cleanup.slice(0, 200) : ""];
+    if (event === "finished") {
+      // What it produced: often the point of the shell (CI, a review service, a long test run), and only its registrant gets the notice.
+      const [head = "", ...rest] = tail?.split("\n") ?? [], output = rest.join("\n").trim();
+      const excerpt = !tail ? "" : output.length > 600 ? `${head.replace(/:$/, "")}, last 600 characters: …${output.slice(-599)}` : `${head} ${output}`;
+      this.notice(`async-notice:${handle}:${event}`, [`Async shell ${handle} finished: ${summary.slice(0, 300)}`, excerpt, ...where].filter(Boolean).join(" "), timestamp, "background", 1500);
+      return;
+    }
+    // Why it ended: the summary, the first error line of the shell's primary output, the log paths and any cleanup note.
     const lines = tail ? tail.split("\n").slice(1).map((line) => line.trim()).filter(Boolean) : [];
     const first = lines.find((line) => /\b(?:error|errors|fail(?:ed|ure)?|fatal|exception|panic|denied|refused|cannot|unable|not found)\b/i.test(line)) ?? lines[0];
-    const logs = /^Logs: (.+?) and (.+?)\.(?:\s|$)/m.exec(body), cleanup = blocks.find((block) => block.startsWith("Note: "));
-    const note = [`Async shell ${handle} ${event}: ${summary.slice(0, 300)}`, first ? `From its ${tail!.split(/[\s:(]/)[0]}: ${first.slice(0, 300)}` : "", logs ? `Logs: ${logs[1].slice(0, 200)} and ${logs[2].slice(0, 200)}.` : "", cleanup ? cleanup.slice(0, 200) : ""].filter(Boolean).join(" ");
+    const note = [`Async shell ${handle} ${event}: ${summary.slice(0, 300)}`, first ? `From its ${tail!.split(/[\s:(]/)[0]}: ${first.slice(0, 300)}` : "", ...where].filter(Boolean).join(" ");
     this.notice(`async-notice:${handle}:${event}`, note, timestamp, "hazard", 1200);
   }
   private time(value: unknown) { return typeof value === "string" && Number.isFinite(Date.parse(value)) ? { at: value, atSource: "provider" as const } : { at: this.capturedAt, atSource: "captured" as const }; }
@@ -279,8 +286,8 @@ export class CaptureRecords {
   /**
    * Claude task notifications and paseo-dynamic-workflow run notices: close the item with its status, and keep what the
    * notice said (status, summary, output file, the start of result/error/failures/recovery/interrupted agents) as a
-   * bounded, redacted note. The note is always written for a failure or a result, and otherwise only when no recorded
-   * launch matches (the observer decides). A text without a task id and a status is not a notice (returns false).
+   * bounded, redacted note, also for a plain completion: the output file is the only way to its result, and only the
+   * session that launched it gets the notice. A text without a task id and a status is not a notice (returns false).
    */
   private taskNotice(text: string, source: CaptureSource, timestamp: unknown): boolean {
     const block = (name: string) => new RegExp(`<${name}>([\\s\\S]*?)</${name}>`).exec(text)?.[1]?.trim();
@@ -321,7 +328,7 @@ export class CaptureRecords {
     if (cut || omitted.length) parts.push(marker);
     const kind = status === "completed" ? "background" as const : "hazard" as const;
     // Not `late`: a notice cannot tell a workflow from a background command, so an unmatched one never settles a placeholder; its note keeps it.
-    this.closeHandle(task, source, timestamp, status, "agent", { note: { id: `task-notice:${task}:${status}`, text: parts.join(" ").slice(0, 2000), kind, always: status !== "completed" || details.length > 0 } });
+    this.closeHandle(task, source, timestamp, status, "agent", { note: { id: `task-notice:${task}:${status}`, text: parts.join(" ").slice(0, 2000), kind } });
     return true;
   }
   /** `parsed`: an envelope Paseo already unwrapped (0.12 turn-end rows), handled exactly like its provider copy. */
@@ -336,7 +343,7 @@ export class CaptureRecords {
       if (wrapped.kind === "agent-notification" && ["finished", "errored", "closed"].includes(wrapped.event!)) {
         // A child agent's end closes its item; what it said (its last message) is a note, not an instruction to handle.
         const who = wrapped.title ? `Agent "${wrapped.title}" (${wrapped.senderId})` : `Agent ${wrapped.senderId}`;
-        this.closeHandle(wrapped.senderId!, source, timestamp, wrapped.event, "agent", { note: { id: `agent-notice:${wrapped.messageId}`, text: redactCaptureText(`${who} ${wrapped.event}: ${text.trim()}`).slice(0, 2000), kind: wrapped.event === "errored" ? "hazard" : "background", always: true } });
+        this.closeHandle(wrapped.senderId!, source, timestamp, wrapped.event, "agent", { note: { id: `agent-notice:${wrapped.messageId}`, text: redactCaptureText(`${who} ${wrapped.event}: ${text.trim()}`).slice(0, 2000), kind: wrapped.event === "errored" ? "hazard" : "background" } });
         return;
       }
     }
