@@ -122,3 +122,36 @@ test("a Claude task notice with only the blocks it keeps is written whole, witho
   expect(note.text).toContain("Note: Its output was larger than the preview; read the output file.");
   expect(note.text).not.toContain("Excerpt");
 });
+
+// ---------------------------------------------------------------- Paseo agent envelopes and their 0.12 turn-end rows (noise-r2-5)
+const envelope = (kind: string, messageId: string, body: string, event?: string) => `<paseo-system version="1" kind="${kind}" source-agent-id="agent-child-9" message-id="${messageId}" source-agent-title="Orchestrator"${event ? ` event="${event}"` : ""}>\n${body}\n</paseo-system>`;
+/** Paseo 0.12 projectAgentMessage: an envelope with a source reaches the timeline as a tool_call row named agent_message. */
+const agentRow = (messageId: string, event: string, text: string) => ({ type: "tool_call", callId: `paseo-agent-message:${messageId}`, agentMessage: { event, sender: { id: "agent-child-9", title: "Orchestrator" }, text }, name: "agent_message", status: "completed", error: null, detail: { type: "plain_text", text, icon: "bot" } });
+const steer = "Rebase on main before you continue.", finished = "Agent child-9 finished. Last message: synthetic summary of the audit";
+const created = { type: "tool_call", name: "mcp__paseo__create_agent", callId: "ca-1", status: "completed", detail: { input: { title: "audit helper" }, output: { structuredContent: { agentId: "agent-child-9" } } } };
+
+test("an agent message and a child's finished notification captured from the rollout are settled by Paseo 0.12's turn-end rows", async () => {
+  const x = await observerFixture();
+  await x.hook([created]);
+  await x.append([codexTyped("01a170bb-0401", envelope("agent-message", "msg-1", steer)), codexTyped("01a170bb-0402", envelope("agent-notification", "msg-2", finished, "finished"))]);
+  await x.poll();
+  let view = successorView(await x.read());
+  expect(view.inputs).toEqual([`agent:open:Orchestrator:${steer}`]);
+  expect(view.notes).toEqual([`background:Agent "Orchestrator" (agent-child-9) finished: ${finished}`]);
+  expect(view.background).toEqual([expect.stringMatching(/^subagent:closed:agent-child-9:.*:finished$/)]);
+  for (let n = 0; n < 2; n++) await x.hook([created, agentRow("msg-1", "message", steer), agentRow("msg-2", "finished", finished), { type: "assistant_message", text: "rebased" }]);
+  const record = await x.read(); view = successorView(record);
+  expect(view.inputs).toEqual([`agent:received:Orchestrator:${steer}`]);
+  expect(view.notes).toHaveLength(1);
+  expect(view.open).toBe(0);
+});
+
+test("without a provider copy, the 0.12 rows alone keep the message, and an errored child is a hazard note", async () => {
+  const x = await observerFixture();
+  await x.hook([created, agentRow("msg-3", "message", steer), agentRow("msg-4", "errored", "Agent child-9 errored: synthetic crash"), agentRow("msg-5", "permission-required", "Agent child-9 needs permission to run rm -rf build")], "failed");
+  const view = successorView(await x.read());
+  // The turn failed: nothing it delivered is proven handled.
+  expect(view.inputs).toEqual([`agent:open:Orchestrator:${steer}`, "agent:open:Orchestrator:Agent child-9 needs permission to run rm -rf build"]);
+  expect(view.notes).toEqual(['hazard:Agent "Orchestrator" (agent-child-9) errored: Agent child-9 errored: synthetic crash']);
+  expect(view.background).toEqual([expect.stringMatching(/^subagent:closed:agent-child-9:.*:errored$/)]);
+});

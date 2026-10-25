@@ -72,8 +72,10 @@ test("capture handles provider messages and real Paseo envelopes without mistaki
   const humanQuoted = '<paseo-system version="1" kind="user-message" message-id="human-quoted">\n&lt;paseo-system&gt;quoted&lt;/paseo-system&gt;\n</paseo-system>';
   await writeFile(x.path, [event("user_message", { message: "[Flowly automation] retry" }), event("user_message", { message: "[async-shell finished task-owned] done" }), event("user_message", { message: wrapped }), event("user_message", { message: humanQuoted }), event("user_message", { message: "already saved", message_id: "saved-1" }), event("agent_message", { message: wrapped })].map(json).join(""));
   const b = await x.capture(undefined, { sentMessageIds: ["saved-1"] });
-  expect(b.inputs.map((m) => [m.via, m.text])).toEqual([["agent", "Done & verified"], ["session", "<paseo-system>quoted</paseo-system>"]]);
+  // A child's finished notification closes its item and is kept as a note, not as an input to handle.
+  expect(b.inputs.map((m) => [m.via, m.text])).toEqual([["session", "<paseo-system>quoted</paseo-system>"]]);
   expect(b.background.map((v) => [v.kind, v.handle, v.status])).toEqual([["async_shell", "task-owned", "closed"], ["agent", "child-1", "closed"]]);
+  expect(b.background[1].note).toMatchObject({ kind: "background", always: true, text: 'Agent "Child" (child-1) finished: Done & verified' });
   expect(b.live[0].text).toBe(wrapped); // assistant quotes cannot fabricate a completion notification
 });
 

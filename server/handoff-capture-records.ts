@@ -119,8 +119,9 @@ function contentText(content: unknown): string {
   return content.flatMap((item) => { const value = object(item); return ["text", "input_text", "output_text"].includes(string(value.type)) && typeof value.text === "string" ? [value.text] : []; }).join("\n");
 }
 const unescapeXml = (text: string) => text.replace(/&(amp|lt|gt|quot|apos);/g, (_, entity: string) => ({ amp: "&", lt: "<", gt: ">", quot: '"', apos: "'" })[entity]!);
+type Envelope = { kind: string; text: string; messageId?: string; senderId?: string; title?: string; event?: string };
 /** Mirrors Paseo 0.12's versioned envelope grammar; human-quoted reserved content stays human. */
-function envelope(text: string): { kind: string; text: string; messageId?: string; senderId?: string; title?: string; event?: string } | undefined {
+function envelope(text: string): Envelope | undefined {
   const system = /^<paseo-system>\n([\s\S]*)\n<\/paseo-system>$/.exec(text);
   if (system) return { kind: "system-message", text: system[1], title: "Paseo system" };
   const match = /^<paseo-system((?:\s+[a-z-]+="[^"<>]*")+)>\n([\s\S]*)\n<\/paseo-system>$/.exec(text);
@@ -283,15 +284,21 @@ export class CaptureRecords {
     this.closeHandle(task, source, timestamp, status, "agent", { note: { id: `task-notice:${task}:${status}`, text: parts.join(" ").slice(0, 2000), kind, always: status !== "completed" || details.length > 0 } });
     return true;
   }
-  private message(text: string, source: CaptureSource, timestamp: unknown, assistant = false, received = false, unlinked?: string) {
+  /** `parsed`: an envelope Paseo already unwrapped (0.12 turn-end rows), handled exactly like its provider copy. */
+  private message(text: string, source: CaptureSource, timestamp: unknown, assistant = false, received = false, unlinked?: string, parsed?: Envelope) {
     if (!text.trim()) return;
-    const wrapped = assistant ? undefined : envelope(text.trim());
-    if (!assistant && text.trimStart().startsWith("<paseo-system") && !wrapped) {
+    const wrapped = parsed ?? (assistant ? undefined : envelope(text.trim()));
+    if (!assistant && !parsed && text.trimStart().startsWith("<paseo-system") && !wrapped) {
       this.gap({ id: `envelope:${sourceKey(source)}`, kind: "unknown_system_envelope", source }); return;
     }
     if (wrapped) {
       source = { ...source, messageId: wrapped.messageId ?? source.messageId }; text = wrapped.text;
-      if (wrapped.kind === "agent-notification" && ["finished", "errored", "closed"].includes(wrapped.event!)) this.result.background.push({ id: `notice:${this.agentId}:${wrapped.messageId}`, source, kind: "agent", handle: wrapped.senderId, status: "closed", outcome: wrapped.event, at: this.time(timestamp).at });
+      if (wrapped.kind === "agent-notification" && ["finished", "errored", "closed"].includes(wrapped.event!)) {
+        // A child agent's end closes its item; what it said (its last message) is a note, not an instruction to handle.
+        const who = wrapped.title ? `Agent "${wrapped.title}" (${wrapped.senderId})` : `Agent ${wrapped.senderId}`;
+        this.closeHandle(wrapped.senderId!, source, timestamp, wrapped.event, "agent", { note: { id: `agent-notice:${wrapped.messageId}`, text: redactCaptureText(`${who} ${wrapped.event}: ${text.trim()}`).slice(0, 2000), kind: wrapped.event === "errored" ? "hazard" : "background", always: true } });
+        return;
+      }
     }
     if (!assistant && text.trimStart().startsWith("[Flowly automation]")) return;
     // Words relayed for another agent or a plugin are kept verbatim as that sender's input, never as a person's words.
@@ -572,6 +579,17 @@ export class CaptureRecords {
     if (kind === "provider-transfer") { const to = id(data.fallbackAgentId); this.notice(`provider-transfer:${to ?? digest(JSON.stringify(data))}`, `Paseo rate-fallback moved this session's work to agent ${to ?? "(id not recorded)"}; that session is not this card's ledger entry.`, timestamp); return; }
     this.gap({ id: `timeline:${sourceKey(source)}`, kind: "unknown_timeline_type", source, typeHint: `plugin:${plugin || "?"}/${kind || "?"}`.slice(0, 80) });
   }
+  /**
+   * Paseo 0.12 projects an envelope from another agent into a `tool_call` row named agent_message (callId
+   * `paseo-agent-message:<message id>`): it is the turn-end copy of that message, with the provider copy's identity.
+   */
+  private agentRow(item: RecordValue, messageId: string, source: CaptureSource, timestamp: unknown, received: boolean) {
+    const message = object(item.agentMessage), sender = object(message.sender), event = string(message.event), text = string(message.text) || string(object(item.detail).text);
+    const id8 = id(messageId), senderId = id(sender.id);
+    if (!id8 || !senderId || !["message", "finished", "errored", "permission-required", "closed"].includes(event)) { this.gap({ id: `timeline:${sourceKey(source)}`, kind: "unknown_timeline_type", source, typeHint: "tool_call/agent_message" }); return; }
+    const parsed: Envelope = { kind: event === "message" ? "agent-message" : "agent-notification", text, messageId: id8, senderId, ...(string(sender.title) ? { title: string(sender.title) } : {}), ...(event === "message" ? {} : { event }) };
+    this.message(text, { ...source, messageId: id8 }, timestamp, false, received, undefined, parsed);
+  }
   timeline(items: readonly unknown[], received: boolean) {
     this.origin = "timeline";
     const counts = new Map<string, number>();
@@ -586,6 +604,7 @@ export class CaptureRecords {
       if (type === "user_message" || type === "assistant_message" || type === "agent_message") this.message(value, source, timestamp, type !== "user_message", received);
       else if (type === "tool_call") {
         const callId = id(item.callId) ?? `timeline:${fingerprint}:${occurrence}`, detail = object(item.detail);
+        if (string(item.name) === "agent_message" && callId.startsWith("paseo-agent-message:")) { this.agentRow(item, callId.slice("paseo-agent-message:".length), source, timestamp, received); continue; }
         if (string(detail.type) === "shell") { this.shell(item, callId, detail, source, timestamp); continue; }
         this.call(string(item.name), callId, detail.input ?? item.input, source, timestamp);
         if (["completed", "failed", "canceled"].includes(string(item.status))) this.output(callId, detail.output ?? item.output ?? item.metadata, source, item.status !== "completed");
