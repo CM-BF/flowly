@@ -1,0 +1,81 @@
+import { afterEach, expect, test } from "vitest";
+import { readFile } from "node:fs/promises";
+import { handoffOpenIds, type CardHandoff } from "../shared/handoff";
+import { cleanupObserverFixtures, codexEvent, codexResponse, fixtureUuid, observerFixture } from "./handoff-observer-fixture";
+import { cleanupRunningFixtures, fullRead, handedOver } from "./handoff-running-fixture";
+
+// Codex writes a code-mode script's nested exec_command completions as item_completed CommandExecution records that name no
+// script. When scripts overlap (parallel exec cells, or a yielded cell still running while a newer script runs), a completion
+// cannot be credited to one of them: crediting the newest script made false "completion not observed" leftovers for the
+// others (ACK work, a revision and an archived ledger version at the turn end) and hid a newer script's still-running command
+// behind an older cell's completion (SESSION-HANDOFF-SPEC §5.7). Synthetic rollouts in temporary directories only.
+afterEach(async () => { await cleanupObserverFixtures(); await cleanupRunningFixtures(); });
+
+const script = (id: string, cmd: string) => codexResponse("custom_tool_call", { call_id: id, id: `ctc_${id}`, status: "completed", name: "exec", input: `const r = await tools.exec_command({ cmd: ${JSON.stringify(cmd)} }); text(r);` });
+const out = (id: string, header = "Script completed") => codexResponse("custom_tool_call_output", { call_id: id, output: [{ type: "input_text", text: `${header}\nWall time 0.5 seconds\nOutput:\n` }, { type: "input_text", text: "ok" }] });
+const done = (pid: number, cmd: string) => codexEvent("item_completed", { thread_id: fixtureUuid, turn_id: "t", item: { type: "CommandExecution", id: `ce-${pid}`, command: ["bash", "-lc", cmd], process_id: pid, exit_code: 0, aggregated_output: "ok" } });
+const wait = (id: string, cell: number) => codexResponse("function_call", { name: "wait", call_id: id, arguments: JSON.stringify({ cell_id: cell, yield_time_ms: 30000 }) });
+const waited = (id: string) => codexResponse("function_call_output", { call_id: id, output: "Script completed\nWall time 31 seconds\nOutput:\n" });
+const items = (record: CardHandoff) => record.ledger.flatMap((session) => session.background).map((entry) => `${entry.status}:${entry.ref}:${entry.label}`);
+
+test("two overlapping scripts whose commands both finished leave nothing behind, during the turn or after it", async () => {
+  const x = await observerFixture({ running: true }); await x.poll();
+  await x.append([script("s1", "npm test"), script("s2", "git status")]); await x.poll();
+  await x.append([done(7001, "npm test"), out("s1"), done(7002, "git status"), out("s2")]); await x.poll();
+  expect(items(await x.read())).toEqual([]);
+  Object.assign(x.actor, { status: "idle", activeTurn: null }); await x.poll();
+  const record = await x.read();
+  expect([items(record), handoffOpenIds(record)]).toEqual([[], []]);
+  // The same records one script after the other (the control) were already right.
+  const y = await observerFixture({ running: true }); await y.poll();
+  await y.append([script("s1", "npm test"), done(7001, "npm test"), out("s1"), script("s2", "git status"), done(7002, "git status"), out("s2")]); await y.poll();
+  Object.assign(y.actor, { status: "idle", activeTurn: null }); await y.poll();
+  expect(handoffOpenIds(await y.read())).toEqual([]);
+});
+
+test("a yielded cell's completion does not hide a newer script's command that is still running", async () => {
+  const x = await observerFixture({ running: true }); await x.poll();
+  await x.append([script("s1", "npm test"), out("s1", "Script running with cell ID 7"), script("s2", "npm run dev")]); await x.poll();
+  await x.append([done(7001, "npm test"), out("s2")]); await x.poll();
+  const placeholder = "unknown:unknown:s1:exec:exec_command in a script; completion not observed";
+  expect(items(await x.read())).toEqual(["open:cell:7:script cell 7 still running", placeholder]);
+  Object.assign(x.actor, { status: "idle", activeTurn: null }); await x.poll();
+  const over = await x.read();
+  expect(handoffOpenIds(over)).toHaveLength(2);
+  // The cell finishes in a later turn: one of the two commands is still unaccounted for, so the placeholder stays.
+  Object.assign(x.actor, { status: "running", activeTurn: { turnId: "turn-2", startedAt: "2026-10-25T02:10:00.000Z" } });
+  await x.append([wait("w1", 7), waited("w1")]); await x.poll();
+  expect(items(await x.read())).toEqual(["closed:cell:7:script cell 7 still running", placeholder]);
+});
+
+test("once every command of the overlapping scripts is accounted for, the placeholder an earlier return needed is withdrawn", async () => {
+  const x = await observerFixture({ running: true }); await x.poll();
+  await x.append([script("s1", "npm test"), out("s1", "Script running with cell ID 7"), script("s2", "npm run build")]); await x.poll();
+  await x.append([done(7001, "npm test"), out("s2")]); await x.poll();
+  expect(items(await x.read())).toHaveLength(2);
+  await x.append([done(7002, "npm run build"), wait("w1", 7), waited("w1")]); await x.poll();
+  Object.assign(x.actor, { status: "idle", activeTurn: null }); await x.poll();
+  const record = await x.read();
+  expect([items(record), handoffOpenIds(record)]).toEqual([[], []]); // the cell ended in the turn that started it: dropped, as any such exec session
+});
+
+test("twenty scripts started at once, all of whose commands exit 0, leave no leftover, revision or ledger version", async () => {
+  const x = await handedOver({ notes: 70 });
+  await fullRead(x);
+  const read = await x.read(), archive = async () => (await readFile(x.archive, "utf8").catch(() => "")).split("\n").filter((line) => line.includes("\"ledger\"")).length;
+  const archived = await archive();
+  const stamp = () => new Date(x.now()).toISOString(), at = <T extends Record<string, unknown>>(value: T) => ({ ...value, timestamp: stamp() });
+  await x.raw(Array.from({ length: 20 }, (_, n) => at(script(`sc-${n}`, `npm run check -- --shard ${n}`))));
+  for (let minute = 0; minute < 5; minute++) await x.minute();
+  for (let n = 0; n < 20; n += 4) {
+    await x.raw(Array.from({ length: 4 }, (_, k) => [at(done(9000 + n + k, `npm run check -- --shard ${n + k}`)), at(out(`sc-${n + k}`))]).flat());
+    await x.minute();
+  }
+  const during = await x.read();
+  expect(items(during).filter((item) => item.includes("completion not observed"))).toEqual([]);
+  x.turn(false); await x.minute(); await x.minute();
+  const after = await x.read();
+  expect(items(after).filter((item) => item.includes("completion not observed"))).toEqual([]);
+  expect(handoffOpenIds(after)).toEqual(handoffOpenIds(read));
+  expect(after.revision).toBe(read.revision); expect(await archive()).toBe(archived);
+});

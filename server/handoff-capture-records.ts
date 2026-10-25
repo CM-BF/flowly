@@ -109,8 +109,21 @@ const subagentTools = new Set(["spawn_agent", "followup_task", "interrupt_agent"
 const metadataItems = new Set(["Reasoning", "FileChange", "Extension", "ImageView", "CollabAgentToolCall", "FunctionCallOutput"]);
 const pluginMetadata = new Set([summaryRowKind, nextRowKind, "activity-list", "guard-decision", "learning-update", "dynamic-workflow-run"]);
 const asyncShellRunning = new Set(["pending", "running"]);
-/** `known`: exec session ids the script text names (write_stdin to an earlier session): their completions are not this script's starts. */
-type ScriptEvidence = { workflow?: boolean; timeline?: boolean; starts: string[]; execCalls: number; seen: Record<string, number>; detached?: string; known?: string[] };
+/**
+ * `known`: exec session ids the script text names (write_stdin to an earlier session): their completions are not this script's starts.
+ * `seen`: completions credited to this script by versions before script pools (a restored cursor's calls); new ones count for the pool.
+ */
+type ScriptEvidence = { workflow?: boolean; timeline?: boolean; starts: string[]; execCalls: number; seen?: Record<string, number>; detached?: string; known?: string[] };
+/** A member of a script pool: a code-mode script whose result was not read yet (`ref`: its call id), or a yielded cell still running (`cell:<id>`). */
+export type ScriptMember = { ref: string; execCalls: number; starts: string[]; detached?: string; known?: string[] };
+/**
+ * Code-mode scripts that overlap (parallel exec cells, or a yielded cell still running while a newer script runs) share one
+ * pool until the last of them returns: Codex's nested completion items name no script, so a completion counts for the pool,
+ * never for one member (SESSION-HANDOFF-SPEC §5.7). `seen`: completions per nested tool; `done`: the members that returned,
+ * summed (`covered`: exec_commands accounted for without a completion: printed as running, or in an output not read; `known`:
+ * exec sessions they named); `placed`: the placeholders emitted so far per tool, under the first member's call id (`id`).
+ */
+export type ScriptPool = { id: string; open: ScriptMember[]; seen: Record<string, number>; done: { members: number; execCalls: number; covered: number; starts: Record<string, number>; detached: string[]; known: string[] }; placed: Record<string, number> };
 /** `subagent`: a Codex native sub-agent tool (multi-agent mode); its handle is the agent path `/root/<task_name>`. */
 /** `monitor`: Claude Code's Monitor tool (a watch that runs up to its timeout and reports events); its result names its task. */
 export type PendingCaptureCall = { callId: string; kind: CaptureBackground["kind"]; action: "start" | "close" | "poll"; source: CaptureSource; at: string; name?: string; handle?: string; label?: string; detached?: boolean; script?: ScriptEvidence; wait?: { terminate?: boolean }; subagent?: "spawn_agent" | "followup_task" | "interrupt_agent"; monitor?: true };
@@ -202,6 +215,8 @@ export class CaptureRecords {
   private closed: string[] = [];
   /** Unified exec sessions known to be running (printed by a script, or a top-level exec_command still running): their completions close them, never count toward a later script. */
   private sessions: string[] = [];
+  /** The code-mode scripts running now and those that returned while one of them still ran (see ScriptPool). */
+  private pool?: ScriptPool;
   /** The last compaction signal counted (a Codex `compacted` record or its ContextCompaction item), waiting for its twin. */
   private compaction?: { signal: "record" | "item"; at: string };
   /** Codex sub-agents interrupted in this batch (until new work), and the answer note each one wrote here. */
@@ -217,8 +232,17 @@ export class CaptureRecords {
   firstUsageAvailable = true;
   identityMismatch = false;
   constructor(private agentId: string, private capturedAt: string, sentMessageIds: readonly string[] = [], private automationTextHashes: readonly string[] = []) { this.sent = new Set(sentMessageIds); }
-  restore(calls: PendingCaptureCall[], sawUsage: boolean, firstUsageAvailable: boolean, closed: readonly string[] = [], sessions: readonly string[] = [], compaction?: { signal: "record" | "item"; at: string }) { this.calls = new Map(calls.slice(-captureLimits.calls).map((call) => [call.callId, call])); this.sawUsage = sawUsage; this.firstUsageAvailable = firstUsageAvailable; this.closed = closed.slice(-captureLimits.closed); this.sessions = sessions.slice(-captureLimits.closed); this.compaction = compaction && { ...compaction }; }
+  restore(calls: PendingCaptureCall[], sawUsage: boolean, firstUsageAvailable: boolean, closed: readonly string[] = [], sessions: readonly string[] = [], compaction?: { signal: "record" | "item"; at: string }, pool?: ScriptPool) {
+    this.calls = new Map(calls.slice(-captureLimits.calls).map((call) => [call.callId, call])); this.sawUsage = sawUsage; this.firstUsageAvailable = firstUsageAvailable; this.closed = closed.slice(-captureLimits.closed); this.sessions = sessions.slice(-captureLimits.closed); this.compaction = compaction && { ...compaction };
+    this.pool = pool && structuredClone(pool);
+    // A cursor from before script pools: its running scripts form the pool, with the completions credited to them so far.
+    if (!pool) for (const call of this.calls.values()) if (call.script && !call.script.workflow) {
+      this.join(this.member(call.callId, call.script));
+      for (const [base, count] of Object.entries(call.script.seen ?? {})) this.pool!.seen[base] = (this.pool!.seen[base] ?? 0) + count;
+    }
+  }
   pending() { return [...this.calls.values()]; }
+  pendingScripts() { return this.pool && structuredClone(this.pool); }
   pendingCompaction() { return this.compaction && { ...this.compaction }; }
   /**
    * Codex marks one compaction twice, a `compacted` record and an item_completed ContextCompaction milliseconds apart, in
@@ -426,7 +450,11 @@ export class CaptureRecords {
   }
   private register(call: PendingCaptureCall, source: CaptureSource) {
     this.calls.set(call.callId, call);
-    if (this.calls.size > captureLimits.calls) { const first = this.calls.keys().next().value!; this.calls.delete(first); this.gap({ id: `pending:${sourceKey(source)}`, kind: "pending_call_budget", source }); }
+    if (this.calls.size > captureLimits.calls) {
+      const first = this.calls.keys().next().value!; this.calls.delete(first); this.gap({ id: `pending:${sourceKey(source)}`, kind: "pending_call_budget", source });
+      // A script dropped here will never be read back: the budget gap covers what it left running.
+      const member = this.pool?.open.find((value) => value.ref === first); if (member) this.leave(member, source, call.at, { unread: true });
+    }
   }
   private call(name: string, callId: string, input: unknown, source: CaptureSource, timestamp: unknown) {
     if (this.done.has(callId)) return;
@@ -517,7 +545,7 @@ export class CaptureRecords {
     if (type === "workflow") {
       const data = typeof input === "string" ? object(parseJson(input)) : object(input);
       const name = redactCaptureText(string(data.name) || string(data.workflowName) || string(data.scriptPath).split("/").pop()?.replace(/\.[^.]+$/, "") || "").slice(0, 80);
-      this.register({ callId, kind: "agent", action: "start", source, at, label: `Workflow${name ? ` ${name}` : ""}`, script: { workflow: true, starts: [], execCalls: 0, seen: {} } }, source);
+      this.register({ callId, kind: "agent", action: "start", source, at, label: `Workflow${name ? ` ${name}` : ""}`, script: { workflow: true, starts: [], execCalls: 0 } }, source);
       return;
     }
     const raw = typeof input === "string" ? input : string(object(input).code ?? object(input).script ?? object(input).input) || JSON.stringify(input ?? "");
@@ -526,26 +554,85 @@ export class CaptureRecords {
     const starts = [...new Set(bases.filter((base) => nestedStart(base)))].slice(0, 16);
     const command = [...text.matchAll(commandLiterals)].map((match) => unescapeLiteral(match[1] ?? match[2] ?? match[3])).find(detachedCommand) ?? (/\brun_in_background["']?\s*:\s*true\b/.test(text) ? "run_in_background" : undefined);
     const known = [...new Set([...text.matchAll(/\bsession_id["']?\s*:\s*["']?(\d{1,12})\b/g)].map((match) => match[1]))].slice(0, 16);
-    this.register({ callId, kind: "exec", action: "start", source, at, label: "script running", script: { ...(this.origin === "timeline" ? { timeline: true } : {}), starts, execCalls: bases.filter((base) => base === "exec_command").length, seen: {}, ...(command ? { detached: redactCaptureText(command).slice(0, 100) } : {}), ...(known.length ? { known } : {}) } }, source);
+    const evidence: ScriptEvidence = { ...(this.origin === "timeline" ? { timeline: true } : {}), starts, execCalls: bases.filter((base) => base === "exec_command").length, ...(command ? { detached: redactCaptureText(command).slice(0, 100) } : {}), ...(known.length ? { known } : {}) };
+    this.join(this.member(callId, evidence), source, at);
+    this.register({ callId, kind: "exec", action: "start", source, at, label: "script running", script: evidence }, source);
+  }
+  private member(ref: string, script: ScriptEvidence): ScriptMember { return { ref, execCalls: script.execCalls, starts: [...script.starts], ...(script.detached ? { detached: script.detached } : {}), ...(script.known ? { known: [...script.known] } : {}) }; }
+  /** A script that starts while another one runs (or a yielded cell is still running) joins its pool; otherwise it starts one. */
+  private join(member: ScriptMember, source?: CaptureSource, at?: string) {
+    this.pool ??= { id: member.ref, open: [], seen: {}, done: { members: 0, execCalls: 0, covered: 0, starts: {}, detached: [], known: [] }, placed: {} };
+    this.pool.open = [...this.pool.open.filter((value) => value.ref !== member.ref), member];
+    // Bounded: a yielded cell that no wait ever reports finished leaves the pool at the call budget; its own item stays open.
+    const stale = this.pool.open.length > captureLimits.calls && source && at ? this.pool.open.find((value) => value.ref.startsWith("cell:")) : undefined;
+    if (stale) this.leave(stale, source!, at!, { unread: true });
   }
   /**
-   * Nested completion items count toward the newest unfinished script; they show that a started call ended within it.
-   * A completion of an exec session known before (running or finished, or named in the script text) is not that script's
-   * start: counting it would hide an exec_command the script left running (restart a dev server, poll a build then start one).
-   * Returns whether the completion was credited to a running script.
+   * Nested completion items count for the running scripts' pool; they show that a call started there ended. A completion of
+   * an exec session known before (running or finished, or named in a pool member's text) is not a start of the pool: counting
+   * it would hide an exec_command a script left running (restart a dev server, poll a build then start one). Returns whether
+   * the completion was credited to running scripts.
    */
   private attribute(base: string, session?: string) {
-    const script = [...this.calls.values()].reverse().find((call) => call.script && !call.script.workflow)?.script;
-    if (!script || !(base === "exec_command" || base === "detached" || script.starts.includes(base))) return false;
-    if (base === "exec_command" && session && (this.sessions.includes(session) || this.closed.includes(session) || script.known?.includes(session))) return false;
-    script.seen[base] = (script.seen[base] ?? 0) + 1; return true;
+    const pool = this.pool;
+    if (!pool?.open.length || !(base === "exec_command" || base === "detached" || pool.done.starts[base] || pool.open.some((member) => member.starts.includes(base)))) return false;
+    if (base === "exec_command" && session && (this.sessions.includes(session) || this.closed.includes(session) || pool.done.known.includes(session) || pool.open.some((member) => member.known?.includes(session)))) return false;
+    pool.seen[base] = (pool.seen[base] ?? 0) + 1; return true;
+  }
+  /**
+   * A pool member returned (`running`: the exec sessions its output printed as still running; `unread`: what it left is in an
+   * output Flowly could not read, covered by that gap). Its calls join the returned members' tally, and the pool's
+   * placeholders follow; the pool ends with its last member.
+   */
+  private leave(member: ScriptMember, source: CaptureSource, at: string, { running = 0, unread = false }: { running?: number; unread?: boolean } = {}) {
+    const pool = this.pool!, done = pool.done;
+    pool.open = pool.open.filter((value) => value !== member);
+    done.members++; done.execCalls += member.execCalls; done.covered += unread ? member.execCalls : Math.min(running, member.execCalls);
+    if (!unread) { for (const base of member.starts) done.starts[base] = (done.starts[base] ?? 0) + 1; if (member.detached) done.detached.push(member.detached); }
+    if (member.known) done.known = [...new Set([...done.known, ...member.known])].slice(-captureLimits.closed);
+    this.tally(source, at);
+    if (!pool.open.length) this.pool = undefined;
+  }
+  /**
+   * The pool's evidence-free placeholders: per nested tool, the returned members' calls that no completion accounts for. A
+   * completion is credited first to the members still running as yielded cells (they may run past this turn), so what a
+   * returned member may have left running surfaces now; a member whose own result is still to come is waited for. Placeholders
+   * a later tally no longer needs are withdrawn; once the last member returned, the count is exact (at most 4 exec_command
+   * placeholders per returned script, as before).
+   */
+  private tally(source: CaptureSource, at: string) {
+    const pool = this.pool!, done = pool.done, cells = pool.open.filter((member) => member.ref.startsWith("cell:"));
+    const left = (key: string, returned: number, claim: number, covered = 0) => Math.max(0, returned - Math.max(0, (pool.seen[key] ?? 0) - claim) - covered);
+    const place = (key: string, count: number, item: (suffix: string) => Omit<CaptureBackground, "source" | "at">) => {
+      const before = pool.placed[key] ?? 0;
+      for (let n = 1; n <= Math.max(before, count); n++) {
+        const value = item(n > 1 ? `:${n}` : "");
+        if (n > before) this.push(value, source, at);
+        else if (n > count) this.push({ id: value.id, kind: value.kind, callId: value.callId, status: "closed", closeOnly: true }, source, at);
+      }
+      if (count) pool.placed[key] = count; else delete pool.placed[key];
+    };
+    const detached = [...new Set(done.detached)].join(" | ");
+    place("detached", left("detached", done.detached.length, cells.filter((member) => member.detached).length), (suffix) => ({ id: `background:${this.agentId}:${pool.id}:detached${suffix}`, kind: "exec", callId: `${pool.id}:detached${suffix}`, status: "unknown", label: `detached in script: ${detached}`.slice(0, 120) }));
+    if (this.origin === "timeline") return; // Paseo's timeline shows nested calls as their own rows.
+    for (const [base, returned] of Object.entries(done.starts)) place(base, left(base, returned, cells.filter((member) => member.starts.includes(base)).length), (suffix) => ({ id: `background:${this.agentId}:${pool.id}:${base}${suffix}`, kind: nestedStart(base)!, callId: `${pool.id}:${base}${suffix}`, status: "unknown", label: `${base} called in a script; result not observed` }));
+    // One placeholder per exec_command call site still unaccounted for: each later unattributed completion settles the oldest.
+    const exec = Math.min(4 * done.members, left("exec_command", done.execCalls, cells.reduce((sum, member) => sum + member.execCalls, 0), done.covered));
+    place("exec_command", exec, (suffix) => ({ id: `background:${this.agentId}:${pool.id}:exec${suffix}`, kind: "exec", callId: `${pool.id}:exec${suffix}`, status: "unknown", label: "exec_command in a script; completion not observed" }));
+  }
+  /** Exec sessions a script's (or a finished cell's) output printed as still running: open items. Returns how many. */
+  private printed(blocks: readonly string[], source: CaptureSource, at: string) {
+    const running = runningSessions(blocks.slice(blocks.length > 1 ? 1 : 0)).filter((session) => !this.closed.includes(session));
+    for (const handle of running) { this.running(handle); this.push({ id: `background:${this.agentId}:exec:${handle}`, kind: "exec", handle, status: "open", label: "exec session started by a script" }, source, at); }
+    return running.length;
   }
   private push(item: Omit<CaptureBackground, "source" | "at">, source: CaptureSource, at: string) { this.result.background.push({ ...item, source, at }); }
   private scriptOutput(call: PendingCaptureCall, raw: unknown, source: CaptureSource, failed: boolean) {
     const script = call.script!, blocks = outputBlocks(raw), text = blocks.join("\n");
     // The in-flight placeholder (finish) closes unless evidence below keeps the work open.
     this.push({ id: `background:${this.agentId}:${call.callId}`, kind: call.kind, callId: call.callId, status: "closed", closeOnly: true }, source, call.at);
-    if (Buffer.byteLength(text) > captureLimits.line) { this.gap({ id: `large-result:${sourceKey(source)}`, kind: "large_tool_result_omitted", source }); return; }
+    const member = script.workflow ? undefined : this.pool?.open.find((value) => value.ref === call.callId) ?? (this.join(this.member(call.callId, script)), this.pool!.open.at(-1)!);
+    if (Buffer.byteLength(text) > captureLimits.line) { this.gap({ id: `large-result:${sourceKey(source)}`, kind: "large_tool_result_omitted", source }); if (member) this.leave(member, source, call.at, { unread: true }); return; }
     if (script.workflow) {
       if (failed || !(/launched in background/i.test(text) || /"status"\s*:\s*"async_launched"/.test(text))) return; // A rejected workflow started nothing.
       const handle = announcedHandle(text) ?? id(object(parseJson(text)).taskId ?? object(parseJson(text)).runId);
@@ -553,16 +640,10 @@ export class CaptureRecords {
       this.push({ id: handle ? `background:${this.agentId}:agent:${handle}` : `background:${this.agentId}:${call.callId}:workflow`, kind: "agent", callId: call.callId, ...(handle ? { handle, status: "open" } : { status: "unknown" }), label: call.label }, source, call.at);
       return;
     }
-    const header = /^Script (completed|failed|running with cell ID ([\w.-]+))/.exec(blocks[0] ?? "");
-    if (header?.[2]) { const handle = `cell:${header[2]}`; this.push({ id: `background:${this.agentId}:exec:${handle}`, kind: "exec", handle, status: "open", label: `script cell ${header[2]} still running` }, source, call.at); return; }
-    const running = runningSessions(blocks.slice(blocks.length > 1 ? 1 : 0)).filter((session) => !this.closed.includes(session));
-    for (const handle of running) { this.running(handle); this.push({ id: `background:${this.agentId}:exec:${handle}`, kind: "exec", handle, status: "open", label: "exec session started by a script" }, source, call.at); }
-    if (script.detached && !script.seen.detached) this.push({ id: `background:${this.agentId}:${call.callId}:detached`, kind: "exec", callId: `${call.callId}:detached`, status: "unknown", label: `detached in script: ${script.detached}`.slice(0, 120) }, source, call.at);
-    if (script.timeline) return; // Paseo's timeline shows nested calls as their own rows.
-    for (const base of script.starts) if (!script.seen[base]) this.push({ id: `background:${this.agentId}:${call.callId}:${base}`, kind: nestedStart(base)!, callId: `${call.callId}:${base}`, status: "unknown", label: `${base} called in a script; result not observed` }, source, call.at);
-    // One placeholder per exec_command call site still unaccounted for (at most 4): each later unattributed completion settles the oldest.
-    const missing = Math.min(4, script.execCalls - (script.seen.exec_command ?? 0) - running.length);
-    for (let n = 1; n <= missing; n++) this.push({ id: `background:${this.agentId}:${call.callId}:exec${n > 1 ? `:${n}` : ""}`, kind: "exec", callId: `${call.callId}:exec${n > 1 ? `:${n}` : ""}`, status: "unknown", label: "exec_command in a script; completion not observed" }, source, call.at);
+    const header = /^Script (completed|failed|running with cell ID ([\w.-]+))/.exec(blocks[0] ?? ""), returned = member!;
+    // A yielded cell still runs: it stays in the pool under its cell handle until a wait reports it finished.
+    if (header?.[2]) { const handle = `cell:${header[2]}`; returned.ref = handle; this.push({ id: `background:${this.agentId}:exec:${handle}`, kind: "exec", handle, status: "open", label: `script cell ${header[2]} still running` }, source, call.at); return; }
+    this.leave(returned, source, call.at, { running: this.printed(blocks, source, call.at) });
   }
   private output(callId: string, raw: unknown, source: CaptureSource, failed = false) {
     const call = this.calls.get(callId);
@@ -572,10 +653,15 @@ export class CaptureRecords {
     if (call.subagent) { this.subagentOutput(call, raw, source, failed); return; }
     if (call.monitor) { this.monitorOutput(call, raw, source, failed); return; }
     if (call.wait) {
-      const ended = /^Script (completed|failed)/.exec(outputBlocks(raw)[0] ?? "")?.[1];
+      const blocks = outputBlocks(raw), ended = /^Script (completed|failed)/.exec(blocks[0] ?? "")?.[1];
       // The wait itself is never background work: close any placeholder an earlier poll left for it while it was in flight.
       this.push({ id: `background:${this.agentId}:${callId}`, kind: "exec", callId, status: "closed", closeOnly: true }, source, call.at);
-      if (call.wait.terminate || ended) this.closeHandle(call.handle!, source, undefined, call.wait.terminate ? "terminated" : ended, "exec");
+      if (call.wait.terminate || ended) {
+        this.closeHandle(call.handle!, source, undefined, call.wait.terminate ? "terminated" : ended, "exec");
+        // The cell returned (its final output is the script's) or was terminated (what it left is not reported): it leaves its pool.
+        const member = this.pool?.open.find((value) => value.ref === call.handle);
+        if (member) this.leave(member, source, call.at, ended ? { running: this.printed(blocks, source, call.at) } : { unread: true });
+      }
       return;
     }
     let value = raw;
