@@ -33,6 +33,16 @@ const caps: Record<HandoffEntrySection, number> = { done: 30, next: 12, decision
 const list = (record: CardHandoff, section: HandoffEntrySection) => record[section] as HandoffEntry[];
 const prefix: Record<HandoffEntrySection, string> = { done: "dn", next: "nx", decisions: "dc", ruledOut: "ro", problems: "op", pitfalls: "pf", running: "rf", where: "wh", env: "ev", notes: "nt", gaps: "g", inputs: "d", questions: "q", reviews: "rv", ledger: "s" };
 
+/**
+ * What of a session's ledger entry is history: its role, end, turns, background items and acknowledgement. Observation
+ * state that changes on almost every poll (cursor, measurements, growth, narration preview, coverage text, script count)
+ * is superseded in place; archiving each version made the successor's full read page through one snapshot per minute.
+ */
+function ledgerHistory(session: HandoffSession) {
+  const { through: _through, capturedThrough: _captured, measured: _measured, growth: _growth, live: _live, skeleton: _skeleton, scriptCalls: _scripts, rev: _rev, at: _at, by: _by, contentRef: _ref, ...kept } = session;
+  return kept;
+}
+
 /** Per-card durable current record, immutable entry bodies and append-only pointers. No provider or daemon access. */
 export class HandoffStore {
   readonly root: string;
@@ -234,10 +244,11 @@ export class HandoffStore {
       return result;
     });
   }
-  private replace(change: Mutation, section: HandoffEntrySection, value: HandoffEntry) {
+  /** `archive: false` supersedes an entry without keeping its previous version in archive.jsonl (routine observation state, growing counts). */
+  private replace(change: Mutation, section: HandoffEntrySection, value: HandoffEntry, archive = true) {
     const entries = list(change.record, section), index = entries.findIndex((e) => e.id === value.id);
     if (index >= 0) {
-      const previous = entries[index]; if (previous.contentRef) change.history.push(this.pointer(section, previous));
+      const previous = entries[index]; if (previous.contentRef && archive) change.history.push(this.pointer(section, previous));
       entries[index] = value;
     } else {
       const overflow = change.record.overflow.findIndex((e) => e.section === section && e.id === value.id);
@@ -332,7 +343,8 @@ export class HandoffStore {
     if (count === (old.count ?? 1) && firstAt === old.firstAt && lastAt === old.lastAt) return;
     const reopen = old.status === "closed" && count > (old.resolution?.count ?? old.count ?? 1);
     const { rev: _rev, contentRef: _ref, ...kept } = old;
-    this.replace(change, "gaps", handoffEntrySchemas.gaps.parse({ ...kept, rev: change.record.revision, count, ...(firstAt ? { firstAt } : {}), ...(lastAt ? { lastAt } : {}), ...(reopen ? { status: "open", at: change.record.updatedAt } : {}) }));
+    // Count and time growth of the same open gap is not history worth a full-read item; a reopen is.
+    this.replace(change, "gaps", handoffEntrySchemas.gaps.parse({ ...kept, rev: change.record.revision, count, ...(firstAt ? { firstAt } : {}), ...(lastAt ? { lastAt } : {}), ...(reopen ? { status: "open", at: change.record.updatedAt } : {}) }), reopen);
   }
   private input(draft: HandoffInputDraft) { return { status: "open", atSource: "typed", ...draft, characters: draft.characters ?? draft.text?.length ?? 0 }; }
   private review(draft: HandoffReviewDraft) {
@@ -346,9 +358,9 @@ export class HandoffStore {
   appendGap(taskId: string, projectId: string, draft: Draft<HandoffGap>, context: HandoffContext) { return this.transaction(taskId, projectId, { action: "gap", draft, sourceId: context.sourceId }, context, (change) => this.append(change, "gaps", draft, context).then(() => undefined)); }
   private async session(change: Mutation, draft: Draft<HandoffSession>, context: HandoffContext) {
     const record = change.record, id = draft.id ?? `s:${hash(draft.agentId).slice(0, 32)}`;
-    const old = await this.entry(record, "ledger", id);
+    const old = await this.entry(record, "ledger", id) as HandoffSession | null;
     const entry = handoffEntrySchemas.ledger.parse({ ...(old ?? {}), ...draft, id, rev: record.revision, at: record.updatedAt, by: context.by });
-    this.replace(change, "ledger", entry);
+    this.replace(change, "ledger", entry, !old || !isDeepStrictEqual(ledgerHistory(old), ledgerHistory(entry)));
   }
   setSession(taskId: string, projectId: string, draft: Draft<HandoffSession>, context: HandoffContext) { return this.transaction(taskId, projectId, { action: "session", draft }, context, (change) => this.session(change, draft, context)); }
   capture(taskId: string, projectId: string, capture: HandoffCapture, context: HandoffContext) {
@@ -360,7 +372,7 @@ export class HandoffStore {
         const entry = await this.entry(change.record, "ledger", `s:${hash(capture.cursor.agentId).slice(0, 32)}`) as HandoffSession | null;
         if (!entry) throw new HandoffError("HANDOFF_CONFLICT", "Register the managed session before capturing its cursor.");
         if (entry.through && entry.through.identity === capture.cursor.through.identity && entry.through.offset > capture.cursor.through.offset) throw new HandoffError("HANDOFF_CONFLICT", "Capture cursor cannot move backwards for the same file.");
-        this.replace(change, "ledger", { ...entry, rev: change.record.revision, at: change.record.updatedAt, through: capture.cursor.through, capturedThrough: capture.cursor.capturedThrough ?? Date.parse(capture.cursor.through.at) });
+        this.replace(change, "ledger", { ...entry, rev: change.record.revision, at: change.record.updatedAt, through: capture.cursor.through, capturedThrough: capture.cursor.capturedThrough ?? Date.parse(capture.cursor.through.at) }, false);
       }
       if (capture.git) change.record.git = capture.git;
       if (capture.lastWords) change.record.lastWords = capture.lastWords;

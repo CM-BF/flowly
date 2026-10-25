@@ -321,3 +321,22 @@ test("unknown timeline rows without an identity are counted again once a shorter
   await x.observer.observe("card", "worker", { outcome: "completed", timeline: rows(1) });
   expect((await x.read()).gaps).toEqual([expect.objectContaining({ count: 4 })]);
 });
+
+// ---------------------------------------------------------------- full-read cost of routine observation (noise-F3)
+test("routine polls do not archive a ledger snapshot or a grouped gap version each time; semantic changes still do", async () => {
+  const x = await observerFixture();
+  const { readFile } = await import("node:fs/promises");
+  const archived = async () => (await readFile(join(x.records.root, "card", "archive.jsonl"), "utf8").catch(() => "")).split("\n").filter(Boolean).map((line) => JSON.parse(line) as { section: string });
+  await x.append([event("future_event")]); await x.poll();
+  for (let n = 0; n < 12; n++) { await x.append([event("token_count", { info: { last_token_usage: { total_tokens: 1000 + n } } }), event("future_event")]); await x.poll(); }
+  let record = await x.read();
+  expect(record.gaps).toEqual([expect.objectContaining({ count: 13, status: "open" })]);
+  expect((await archived()).filter((entry) => entry.section === "ledger" || entry.section === "gaps")).toEqual([]);
+  // A background item opening is a semantic change of the ledger entry: its previous version is archived once.
+  await x.append([script("s1", `const dev = await tools.exec_command({ cmd: "npm run dev", yield_time_ms: 2000 });\ntext(dev);`), scriptOutput("s1", JSON.stringify({ session_id: 4242, output: "listening" }))]); await x.poll();
+  expect((await archived()).filter((entry) => entry.section === "ledger")).toHaveLength(1);
+  // Closing the gap is a semantic change too.
+  await x.ack("obsolete", "checked: unknown host metadata", (id) => id.startsWith("g:"));
+  expect((await archived()).filter((entry) => entry.section === "gaps")).toHaveLength(1);
+  record = await x.read(); expect(record.gaps[0].status).toBe("closed");
+}, 30_000);
