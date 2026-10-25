@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { handoffMessageSource, handoffSource } from "./handoff-source";
 import { nextRowKind, summaryRowKind } from "../shared/native-session";
 import { detachedCommand } from "./handoff-detached";
-import type { CaptureBackground, CaptureGap, CaptureSemantics, CaptureSource } from "./handoff-capture";
+import { locatedGapKinds, type CaptureBackground, type CaptureGap, type CaptureSemantics, type CaptureSource } from "./handoff-capture";
 
 export const captureLimits = { bytes: 64 * 2 ** 20, line: 256 * 2 ** 10, chunk: 64 * 2 ** 10, records: 5000, gaps: 100, calls: 64, live: 8, liveChars: 4000, messageChars: 800, hints: 8, notices: 20, closed: 64 } as const;
 
@@ -160,6 +160,8 @@ export class CaptureRecords {
   private groups = new Map<string, CaptureGap>();
   private origin: "provider" | "timeline" = "provider";
   private lineAt?: string;
+  /** Identity of the timeline row being read (plugin row id, message id, call id, or fingerprint and occurrence). */
+  private row?: string;
   sawUsage = false;
   firstUsageAvailable = true;
   identityMismatch = false;
@@ -172,7 +174,8 @@ export class CaptureRecords {
   gap(value: CaptureGap) {
     if (["parse_failed", "unknown_record_type", "unknown_event_type", "unknown_response_type", "session_identity_mismatch"].includes(value.kind)) this.firstUsageAvailable = false;
     const at = value.at ?? this.lineAt ?? this.capturedAt;
-    let key = `${value.kind}\0${value.typeHint ?? ""}`;
+    if (this.row && !value.occurrences) value = { ...value, occurrences: [this.row] };
+    let key = locatedGapKinds.has(value.kind) ? `${value.kind}\0${value.id}` : `${value.kind}\0${value.typeHint ?? ""}`;
     if (!this.groups.has(key) && value.typeHint !== undefined && [...this.groups.values()].filter((gap) => gap.kind === value.kind && gap.typeHint !== undefined).length >= captureLimits.hints) { key = `${value.kind}\0*`; value = { ...value, typeHint: "*" }; }
     const group = this.groups.get(key);
     if (group) {
@@ -181,6 +184,7 @@ export class CaptureRecords {
       if (at > (group.lastAt ?? group.at ?? at)) group.lastAt = at;
       if (value.bytes !== undefined) group.bytes = (group.bytes ?? 0) + value.bytes;
       if (value.to !== undefined) group.to = Math.max(group.to ?? value.to, value.to);
+      if (value.occurrences) group.occurrences = [...(group.occurrences ?? []), ...value.occurrences].slice(-512);
       return;
     }
     const gap: CaptureGap = { ...value, id: stableId(value.id), at, lastAt: at, count: value.count ?? 1 };
@@ -515,6 +519,8 @@ export class CaptureRecords {
       const item = object(raw), type = string(item.type), messageId = id(item.messageId ?? item.clientMessageId);
       const value = string(item.text), fingerprint = digest(`${type}\0${value}\0${string(item.callId)}\0${string(item.name)}`), occurrence = (counts.get(fingerprint) ?? 0) + 1;
       counts.set(fingerprint, occurrence);
+      // Gap occurrences are counted by row identity, so a timeline rebuilt after a restart adds its new rows (SESSION-HANDOFF-SPEC §5.7).
+      this.row = type === "plugin" && id(item.id) ? `plugin:${string(item.pluginId)}:${string(item.id)}` : messageId ? `message:${messageId}` : id(item.callId) ? `call:${string(item.callId)}` : `pos:${fingerprint}:${occurrence}`;
       const source: CaptureSource = { agentId: this.agentId, provider: "timeline", fileId: `${fingerprint}:${occurrence}`, ...(messageId ? { messageId } : {}) };
       const timestamp = item.at ?? item.timestamp;
       if (type === "user_message" || type === "assistant_message" || type === "agent_message") this.message(value, source, timestamp, type !== "user_message", received);
@@ -528,6 +534,7 @@ export class CaptureRecords {
       else if (type === "notification") { const level = string(item.level); if (level === "warning" || level === "error") this.notice(`notification:${digest(`${level}\0${string(item.message)}`)}`, `Paseo ${level} notice in this session: ${string(item.message)}`, timestamp); }
       else if (!["reasoning", "plan", "plan_update", "todo", "error", "notice", "turn_started", "turn_completed"].includes(type)) this.gap({ id: `timeline:${sourceKey(source)}`, kind: "unknown_timeline_type", source, typeHint: type.slice(0, 80) || "unknown" });
     }
+    this.row = undefined;
   }
   finish() {
     // A close or poll call in flight (wait, cancel) is not background work; only a start may have left something running.

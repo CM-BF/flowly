@@ -280,3 +280,44 @@ test("inside a Codex script, a daemonising command surfaces even though its exec
   await x.poll();
   expect(pending(await x.read())).toEqual([]);
 });
+
+// ---------------------------------------------------------------- where skipped content is, and recurrence after a restart (loss-F6, loss-F8, noise-F5)
+test("each skipped long human message keeps its own gap with its byte range, message id and length", async () => {
+  const x = await observerFixture({ maxLineBytes: 2048 });
+  const long = (n: number) => event("user_message", { message: `synthetic long paste ${n} ` + "x".repeat(4000), message_id: `msg-long-${n}` });
+  await x.append([long(1), long(2)]);
+  await x.poll();
+  const gaps = (await x.read()).gaps.filter((gap) => gap.text.includes("long_line"));
+  expect(gaps).toHaveLength(2);
+  expect(gaps.map((gap) => gap.text)).toEqual([expect.stringMatching(/bytes \d+–\d+.*msg-long-1.*\d+ bytes/), expect.stringMatching(/bytes \d+–\d+.*msg-long-2/)]);
+  // Replays do not duplicate them.
+  await x.poll(); expect((await x.read()).gaps.filter((gap) => gap.text.includes("long_line"))).toHaveLength(2);
+});
+
+test("after a restart rebuilds the timeline, new unknown rows reopen an acknowledged gap and replays do not inflate it", async () => {
+  const x = await observerFixture();
+  const row = (n: number) => ({ type: "plugin", id: `verdict-${n}`, pluginId: "turn-check", kind: "turn-check", version: 1, data: { verdict: n } });
+  await x.observer.observe("card", "worker", { outcome: "completed", timeline: [row(1), row(2), row(3), { type: "assistant_message", text: "t1" }] });
+  await x.observer.observe("card", "worker", { outcome: "completed", timeline: [row(1), row(2), row(3), { type: "assistant_message", text: "t1" }] });
+  let gap = (await x.read()).gaps[0];
+  expect(gap).toMatchObject({ status: "open", count: 3 });
+  await x.ack("obsolete", "checked the three verdicts");
+  expect((await x.read()).gaps[0]).toMatchObject({ status: "closed", resolution: { count: 3 } });
+  // Plugin rows live only in the daemon's memory: after a restart the timeline holds only rows appended since.
+  await x.observer.observe("card", "worker", { outcome: "completed", timeline: [row(4), { type: "assistant_message", text: "t2" }] });
+  gap = (await x.read()).gaps[0];
+  expect(gap).toMatchObject({ status: "open", count: 4 });
+  await x.observer.observe("card", "worker", { outcome: "completed", timeline: [row(4), row(5), { type: "assistant_message", text: "t2" }, { type: "assistant_message", text: "t3" }] });
+  await x.observer.observe("card", "worker", { outcome: "completed", timeline: [row(4), row(5), { type: "assistant_message", text: "t2" }, { type: "assistant_message", text: "t3" }] });
+  expect((await x.read()).gaps).toEqual([expect.objectContaining({ status: "open", count: 5 })]);
+});
+
+test("unknown timeline rows without an identity are counted again once a shorter, rebuilt timeline shows them", async () => {
+  const x = await observerFixture();
+  const rows = (n: number) => Array.from({ length: n }, () => ({ type: "future_row", status: "done" }));
+  await x.observer.observe("card", "worker", { outcome: "completed", timeline: rows(3) });
+  await x.observer.observe("card", "worker", { outcome: "completed", timeline: rows(3) });
+  expect((await x.read()).gaps).toEqual([expect.objectContaining({ count: 3 })]);
+  await x.observer.observe("card", "worker", { outcome: "completed", timeline: rows(1) });
+  expect((await x.read()).gaps).toEqual([expect.objectContaining({ count: 4 })]);
+});

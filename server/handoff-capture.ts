@@ -14,8 +14,13 @@ export type CaptureNarration = Omit<CaptureMessage, "via" | "status"> & { trunca
  * `note`: what the completion said (status, result, recovery); written when `always`, or when no recorded item matches it.
  */
 export type CaptureBackground = { id: string; source: CaptureSource; kind: "async_shell" | "exec" | "browser" | "terminal" | "workspace_script" | "agent" | "schedule" | "heartbeat"; handle?: string; callId?: string; status: "open" | "closed" | "unknown"; label?: string; outcome?: string; at: string; closeOnly?: boolean; late?: boolean; note?: { id: string; text: string; kind: "background" | "hazard"; always: boolean } };
-/** One gap per kind and type hint in a batch: `id`/`source`/`from` are its first occurrence, `count` all of them, `at`/`lastAt` the first and last time. */
-export type CaptureGap = { id: string; kind: string; source?: CaptureSource; from?: number; to?: number; bytes?: number; count?: number; typeHint?: string; at?: string; lastAt?: string };
+/**
+ * One gap per kind and type hint in a batch: `id`/`source`/`from` are its first occurrence, `count` all of them, `at`/`lastAt` the first and last time.
+ * Location-bearing kinds (`locatedGapKinds`) are never merged: each keeps its byte range and message id. `occurrences`: stable identities of timeline rows (bounded).
+ */
+export type CaptureGap = { id: string; kind: string; source?: CaptureSource; from?: number; to?: number; bytes?: number; count?: number; typeHint?: string; at?: string; lastAt?: string; occurrences?: string[] };
+/** Gaps that say where skipped content is in the raw history (a long human paste, an unparsable line, a replaced file). */
+export const locatedGapKinds: ReadonlySet<string> = new Set(["long_line", "long_line_partial", "parse_failed", "file_truncated", "file_replaced", "file_moved"]);
 export type CaptureUsage = { id: string; source: CaptureSource; at: string; atSource?: "provider" | "captured"; contextTokens: number; windowTokens?: number; initialContextTokens?: number; cacheTtlSeconds?: number; messageId?: string };
 /** `notices`: host messages worth a card note (warnings, plugin transfers). `scriptCalls`: script/workflow calls seen in this batch or timeline. */
 export type CaptureSemantics = { inputs: CaptureMessage[]; live: CaptureNarration[]; background: CaptureBackground[]; usage: CaptureUsage[]; compactions: { id: string; source: CaptureSource; at: string; preTokens?: number; captured?: boolean }[]; gaps: CaptureGap[]; notices: { id: string; text: string; at: string }[]; omittedGaps: number; narrationOmitted: number; narrationTrimmedChars: number; scriptCalls: number };
@@ -87,6 +92,8 @@ export async function captureHandoff(agent: HistoryAgent & { id: string }, previ
       growth(cursor.skipping!.typeHint, fragment.length, ended ? 1 : 0);
       if (ended) {
         const skipped = cursor.skipping!;
+        // JSON writers put the id after the long text: look for it in the line's tail too.
+        if (!skipped.messageId) { const tail = lineHint(fragment.subarray(Math.max(0, fragment.length - 2048))).messageId; if (tail) skipped.messageId = tail; }
         records.gap({ id: `long:${agent.id}:${fileId}:${cursor.epoch}:${skipped.start}`, kind: "long_line", source: { ...sourceAt(skipped.start, end), ...(skipped.messageId ? { messageId: skipped.messageId } : {}) }, from: skipped.start, to: end, bytes: skipped.bytes, typeHint: skipped.typeHint, at: skipped.at });
         delete cursor.skipping; start = end; lineCount++;
       }

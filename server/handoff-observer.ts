@@ -8,7 +8,7 @@ import type { Board } from "../shared/model";
 import type { SessionPolicyFacts } from "../shared/session-measurement";
 import { handoffView } from "../shared/handoff-view";
 import type { AutomationHandoffBridge, RotationContext } from "./automation-rotation";
-import { captureHandoff, captureLimits, captureTimeline, type CaptureBatch, type CaptureCursor, type CaptureGap, type CaptureSemantics } from "./handoff-capture";
+import { captureHandoff, captureLimits, captureTimeline, locatedGapKinds, type CaptureBatch, type CaptureCursor, type CaptureGap, type CaptureSemantics } from "./handoff-capture";
 import { handoffGitDirectories, handoffGitSnapshot, type HandoffGitSnapshot } from "./handoff-git";
 import { handoffMessageSource, handoffSource } from "./handoff-source";
 import { HandoffStore, HandoffError, type HandoffCapture } from "./handoff-store";
@@ -29,8 +29,12 @@ const kinds = { async_shell: "async_shell", exec: "exec_session", browser: "brow
 type SessionDraft = NonNullable<HandoffCapture["session"]>;
 type Snapshot = NonNullable<NonNullable<Awaited<ReturnType<ReturnType<PaseoApi["agents"]["ref"]>["refresh"]>>>["agent"]>;
 type NarrationCoverage = { nativeOmitted: number; nativeTrimmed: number; nativeRange?: string; hookOmitted: number; hookTrimmed: number; rolledOff: number };
-/** Occurrence counts per gap group (kind + type hint): provider batches add, a replayed whole timeline only raises its high-water mark. */
-type GapMarks = { provider: Record<string, number>; timeline: Record<string, number>; recent: string[] };
+/**
+ * Occurrence counts per gap group (kind + type hint): provider batches add; the hook's whole timeline adds only rows whose
+ * identity was not seen (`seen`, bounded digests per group; `rows`: that group's occurrences in the last hook).
+ * `located`: location-bearing gaps written individually per kind, at most captureLimits.hints before they are grouped.
+ */
+type GapMarks = { provider: Record<string, number>; timeline: Record<string, number>; recent: string[]; seen?: Record<string, string[]>; rows?: Record<string, number>; located?: Record<string, number> };
 type ObserverState = { liveIds?: string[]; providerK?: number; timelineK?: number; compactIds?: string[]; usageId?: string; usageAt?: string; ttl?: number; lastTurn?: string; lastRequest?: string; activeMs?: number; lastTimeline?: string; lastEndedTurnId?: string; turnStart?: { id: string; at: string; observedAt?: string }; sentMessageIds?: string[]; automationTextHashes?: string[]; narration?: NarrationCoverage; gaps?: GapMarks; scripts?: { provider: number; timeline: number }; merged?: { epoch: number; count: number } };
 type Resume = Partial<CaptureCursor> & { observer?: ObserverState };
 export type HandoffObservation = { timeline?: readonly unknown[]; outcome?: "completed" | "failed" | "canceled"; received?: boolean; forceGit?: boolean };
@@ -368,7 +372,7 @@ export class HandoffObserver {
    * deduplicated by occurrence id, and the hook's whole timeline only raises its own high-water mark.
    */
   private captureGaps(agentId: string, meta: ObserverState, batch: CaptureBatch | undefined, hook: CaptureSemantics | undefined): NonNullable<HandoffCapture["gaps"]> {
-    const marks: GapMarks = { provider: { ...(meta.gaps?.provider ?? {}) }, timeline: { ...(meta.gaps?.timeline ?? {}) }, recent: [...(meta.gaps?.recent ?? [])] };
+    const marks: GapMarks = { provider: { ...(meta.gaps?.provider ?? {}) }, timeline: { ...(meta.gaps?.timeline ?? {}) }, recent: [...(meta.gaps?.recent ?? [])], seen: { ...(meta.gaps?.seen ?? {}) }, rows: { ...(meta.gaps?.rows ?? {}) }, located: { ...(meta.gaps?.located ?? {}) } };
     const total = (key: string) => Math.max(marks.provider[key] ?? 0, marks.timeline[key] ?? 0);
     const known = new Set([...Object.keys(marks.provider), ...Object.keys(marks.timeline)]), before = new Map([...known].map((key) => [key, total(key)]));
     // At most captureLimits.hints type hints per kind and session; further hints share one "other types" group.
@@ -377,26 +381,52 @@ export class HandoffObserver {
       if (known.has(key) || gap.typeHint === undefined || [...known].filter((other) => other.startsWith(`${gap.kind}\0`) && !other.endsWith("\0")).length < captureLimits.hints) { known.add(key); return key; }
       known.add(`${gap.kind}\0*`); return `${gap.kind}\0*`;
     };
-    const span = (a: CaptureGap | undefined, b: CaptureGap): CaptureGap => ({ ...(a ?? b), count: (a?.count ?? 0) + (b.count ?? 1), at: [a?.at, b.at].filter((v): v is string => !!v).sort()[0], lastAt: [a?.lastAt, b.lastAt ?? b.at].filter((v): v is string => !!v).sort().at(-1) });
+    const span = (a: CaptureGap | undefined, b: CaptureGap): CaptureGap => ({ ...(a ?? b), count: (a?.count ?? 0) + (b.count ?? 1), at: [a?.at, b.at].filter((v): v is string => !!v).sort()[0], lastAt: [a?.lastAt, b.lastAt ?? b.at].filter((v): v is string => !!v).sort().at(-1), occurrences: [...(a?.occurrences ?? []), ...(b.occurrences ?? [])].slice(-512) });
     const grouped = (gaps: readonly CaptureGap[] = []) => {
       const result = new Map<string, CaptureGap>();
-      for (const gap of gaps) if (!temporary.has(gap.kind)) { const key = groupKey(gap); result.set(key, span(result.get(key), gap)); }
+      for (const gap of gaps) if (!temporary.has(gap.kind) && !locatedGapKinds.has(gap.kind)) { const key = groupKey(gap); result.set(key, span(result.get(key), gap)); }
       return result;
     };
-    const changed = new Map<string, CaptureGap>();
+    const changed = new Map<string, CaptureGap>(), updates: NonNullable<HandoffCapture["gaps"]> = [];
+    // Where skipped content is (byte range, message id, length) stays with each occurrence: the first few per kind are their own gaps.
+    for (const gap of (batch?.gaps ?? []).filter((value) => locatedGapKinds.has(value.kind) && !temporary.has(value.kind))) {
+      if (!batch?.cursor) { if (marks.recent.includes(gap.id)) continue; marks.recent = [...marks.recent, gap.id].slice(-32); }
+      const written = marks.located![gap.kind] ?? 0;
+      if (written >= captureLimits.hints) { const key = `${gap.kind}\0${gap.typeHint ?? ""}`; marks.provider[key] = (marks.provider[key] ?? 0) + 1; changed.set(key, span(changed.get(key), { ...gap, count: 0 })); continue; }
+      marks.located![gap.kind] = written + 1;
+      const from = gap.from ?? gap.source?.offset, to = gap.to ?? gap.source?.end, messageId = gap.source?.messageId;
+      const sourceId = handoffSource(`capture-gap:${agentId}:${gap.id}`);
+      updates.push({ id: entryId("g", sourceId), sourceId, agentId, count: 1, ...(gap.at ? { firstAt: gap.at, lastAt: gap.at } : {}),
+        text: `Capture gap (${gap.kind})${from === undefined ? "" : ` in bytes ${from}–${to ?? from}`}${gap.typeHint ? `: ${gap.typeHint}` : ""}${messageId ? `, message ${messageId}` : ""}${gap.bytes === undefined ? "" : `, ${gap.bytes} bytes`}. This content was not preserved; that range of the session's raw history holds it.`.slice(0, 300) });
+    }
+    if (updates.length) meta.gaps = marks;
     for (const [key, gap] of grouped(batch?.gaps)) {
       // A committed batch is new source text; a cursorless one (identity mismatch) repeats until resolved.
       if (!batch?.cursor) { if (marks.recent.includes(gap.id)) continue; marks.recent = [...marks.recent, gap.id].slice(-32); }
       marks.provider[key] = (marks.provider[key] ?? 0) + (gap.count ?? 1); changed.set(key, gap);
     }
-    // The hook carries the whole in-memory timeline again at each turn end: only a higher count is new.
-    for (const [key, gap] of grouped(hook?.gaps)) if ((gap.count ?? 1) > (marks.timeline[key] ?? 0)) { marks.timeline[key] = gap.count ?? 1; changed.set(key, span(changed.get(key), { ...gap, count: 0 })); }
-    if (changed.size) meta.gaps = marks;
-    return [...changed].filter(([key]) => total(key) > (before.get(key) ?? 0)).map(([key, gap]) => {
+    // The hook carries the whole in-memory timeline again at each turn end, rebuilt (shorter) after a daemon restart:
+    // only rows whose identity was not seen are new. A legacy high-water mark counts as that many seen rows.
+    for (const [key, gap] of grouped(hook?.gaps)) {
+      const occurrences = gap.occurrences ?? [], ids = occurrences.map((value) => digest(value).slice(0, 10)), legacy = marks.seen![key] === undefined ? ids.slice(0, marks.timeline[key] ?? 0) : [];
+      // Rows without an identity are known only by position: a shorter timeline is a rebuilt one, so those positions are new rows.
+      const rebuilt = ids.length < (marks.rows![key] ?? 0), positional = new Set(ids.filter((_, index) => occurrences[index].startsWith("pos:")));
+      const seen = new Set([...(marks.seen![key] ?? []), ...legacy].filter((value) => !(rebuilt && positional.has(value))));
+      let fresh = [...new Set(ids)].filter((value) => !seen.has(value));
+      // A window too small for a long replayed timeline: only growth past the last hook's rows is new.
+      if (ids.length > 256 && ids.length >= (marks.rows![key] ?? 0)) fresh = fresh.slice(0, ids.length - (marks.rows![key] ?? 0));
+      marks.rows![key] = ids.length;
+      if (!fresh.length) { marks.seen![key] = [...seen].slice(-256); continue; }
+      marks.timeline[key] = (marks.timeline[key] ?? 0) + fresh.length; marks.seen![key] = [...seen, ...fresh].slice(-256);
+      changed.set(key, span(changed.get(key), { ...gap, count: 0 }));
+    }
+    if (changed.size || hook?.gaps.length) meta.gaps = marks;
+    return [...updates, ...[...changed].filter(([key]) => total(key) > (before.get(key) ?? 0)).map(([key, gap]) => {
       const hint = key.endsWith("\0*") ? "other types" : gap.typeHint;
       const sourceId = handoffSource(`capture-gaps:${agentId}:${key}`);
-      return { id: entryId("g", sourceId), sourceId, agentId, text: `Capture gap (${gap.kind})${hint ? `: ${hint}` : ""}. This content was not preserved; count, firstAt and lastAt cover every occurrence in this session.`.slice(0, 300), count: total(key), ...(gap.at ? { firstAt: gap.at } : {}), ...(gap.lastAt ? { lastAt: gap.lastAt } : {}) };
-    });
+      const where = locatedGapKinds.has(gap.kind) ? ` More than ${captureLimits.hints} occurred; each earlier one is its own gap, the first of these in bytes ${gap.from ?? gap.source?.offset ?? "?"}–${gap.to ?? gap.source?.end ?? "?"}.` : "";
+      return { id: entryId("g", sourceId), sourceId, agentId, text: `Capture gap (${gap.kind})${hint ? `: ${hint}` : ""}.${where} This content was not preserved; count, firstAt and lastAt cover every occurrence in this session.`.slice(0, 300), count: total(key), ...(gap.at ? { firstAt: gap.at } : {}), ...(gap.lastAt ? { lastAt: gap.lastAt } : {}) };
+    })];
   }
   /**
    * At more than 40 active entries, the oldest ones (evidence-free placeholders first) are merged into one open entry per
