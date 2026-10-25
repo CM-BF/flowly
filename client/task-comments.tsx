@@ -11,6 +11,7 @@ import {
   commentList,
   commentTransport,
   composerNote,
+  deliveryNote,
   dismissFailure,
   editComment,
   postComment,
@@ -107,7 +108,7 @@ export const TaskComments = memo(function TaskComments({
   const chosen = memory.chosen;
   const deliver = chosen === "route:auto" ? "auto" : chosen === "route:fresh" ? "fresh" : chosen === "route:save" ? "save" : chosen ? { agentId: chosen } : targets.managed ? "auto" : target ? { agentId: target.id } : "save";
   const picker = { shown: true, opens: true };
-  const note = deliver === "save" || typeof deliver === "object" ? composerNote(targets, target, { loading, archivedKnown }) : null;
+  const note = deliveryNote(chosen, deliver, targets, target, { loading, archivedKnown });
   const locked = !!lockedReason || !active;
   const busy = memory.busy;
   const transport = { ...commentTransport({ paseo, contextRead, handoff: { record: handoffRecord, send: handoffSend, confirm: handoffConfirm }, queue: (task, agentId, text, messageId) => composer.queue(task, agentId, text, [], messageId) }, { taskId, workspaceId }), routed: record };

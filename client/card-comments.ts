@@ -119,6 +119,22 @@ export function recipientPicker(targets: CommentTargets, target: CommentTarget |
 export type ComposerNote = "no-session" | "archived" | "reviewers";
 
 /**
+ * The composer note for a delivery choice: only when nobody receives the comment by circumstance
+ * (an unmanaged card without a live implementer, or a chosen session that is gone). A person who
+ * picked "Save on the card" gets no note: the To: row and the receipt already say it is saved.
+ */
+export function deliveryNote(
+  chosen: string | null | undefined,
+  deliver: "auto" | "fresh" | "save" | { agentId: string },
+  targets: CommentTargets,
+  target: CommentTarget | null,
+  known: { loading: boolean; archivedKnown: boolean },
+): ComposerNote | null {
+  const implicitSave = deliver === "save" && chosen !== "route:save";
+  return implicitSave || typeof deliver === "object" ? composerNote(targets, target, known) : null;
+}
+
+/**
  * The line under the composer when nobody receives the comment. None while the
  * sessions load, nor while the slow archived read has not yet told a card
  * without sessions from a wrapped-up one (the live list alone cannot).

@@ -9,6 +9,7 @@ import {
   commentTransport,
   composerNote,
   deliverComment,
+  deliveryNote,
   dismissFailure,
   editComment,
   newCommentMemory,
@@ -108,6 +109,19 @@ describe("recipients from the drawer's data", () => {
     expect(picked?.id).toBe("rev");
     expect(recipientPicker(targets, picked)).toEqual({ shown: true, opens: false });
     expect(composerNote(targets, picked, { loading: false, archivedKnown: true })).toBeNull();
+  });
+  test("an explicit Save on the card explains nothing; a save by circumstance still says why", () => {
+    // Live 2026-10-25: a managed card whose implementer is live, the person picked Save on the card,
+    // and the composer claimed "This card's only live sessions are reviewers".
+    const live = commentTargets([session("impl", 1)], { workspaceId: "w", implementerId: "impl" });
+    const known = { loading: false, archivedKnown: true };
+    expect(deliveryNote("route:save", "save", live, resolveTarget(live, "route:save"), known)).toBeNull();
+    expect(deliveryNote("route:auto", "auto", live, resolveTarget(live, "route:auto"), known)).toBeNull();
+    // An unmanaged card with only a reviewer live: nobody receives the comment, and the note says why.
+    const reviewerOnly = commentTargets([session("rev", 1, { labels: { "flowly-automation": "reviewer" } })], { workspaceId: "w" });
+    expect(deliveryNote(null, "save", reviewerOnly, resolveTarget(reviewerOnly, null), known)).toBe("reviewers");
+    // A chosen session that is gone: the explicit target is unavailable, so the note explains it.
+    expect(deliveryNote("gone", { agentId: "gone" }, reviewerOnly, resolveTarget(reviewerOnly, "gone"), known)).toBe("reviewers");
   });
   test("one or more sessions: To: opens only when there is a choice", () => {
     const one = commentTargets([session("a", 1)], { workspaceId: "w" });
