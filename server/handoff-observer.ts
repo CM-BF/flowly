@@ -196,19 +196,34 @@ export class HandoffObserver {
     const meta = state;
     const gapUpdates = this.captureGaps(agentId, meta, batch, hook);
     const background = [...session.background];
+    /** The oldest evidence-free item of a kind (no handle was ever seen): a completion whose start was not itemized settles it. Exec placeholders are only the "completion not observed" ones. */
+    const placeholder = (kind: HandoffSession["background"][number]["kind"]) => {
+      const candidates = background.map((entry, index) => ({ entry, index })).filter(({ entry }) => entry.status !== "closed" && entry.kind === kind && entry.ref.startsWith("unknown:") && (kind !== "exec_session" || /:exec(?::\d+)?$/.test(entry.callId ?? "")));
+      return candidates.sort((a, b) => time(a.entry.startedAt) - time(b.entry.startedAt) || a.index - b.index)[0]?.index ?? -1;
+    };
     for (const source of semantics) for (const item of source.background) {
+      const outcome = item.outcome ? { outcome: item.outcome.slice(0, 120) } : {};
       if (item.closeOnly) {
         // A completion closes what was recorded (for any kind: a task id names one task); it never adds an entry.
-        const index = background.findIndex((entry) => entry.id === entryId("bg", item.id) || item.callId && entry.callId === item.callId || item.handle && entry.ref === item.handle);
-        if (index >= 0 && background[index].status !== "closed") background[index] = { ...background[index], status: "closed" };
+        let index = background.findIndex((entry) => entry.id === entryId("bg", item.id) || item.callId && entry.callId === item.callId || item.handle && entry.ref === item.handle);
+        const matched = index >= 0;
+        if (!matched && item.late) index = placeholder(kinds[item.kind]);
+        if (index >= 0 && background[index].status !== "closed") background[index] = { ...background[index], status: "closed", ...outcome };
+        // What a background notice said stays on the card when it reports a failure or a result, or when no recorded launch matches it.
+        if (item.note && (item.note.always || !matched)) {
+          const sourceId = handoffSource(`capture-notice:${agentId}:${item.note.id}`);
+          entries.push({ section: "notes", value: { id: entryId("nt", sourceId), sourceId, kind: item.note.kind, at: item.at, text: item.note.text.slice(0, 2000) } });
+        }
         continue;
       }
-      const kind = kinds[item.kind], index = background.findIndex((entry) => entry.id === entryId("bg", item.id) || item.callId && entry.callId === item.callId || item.handle && entry.kind === kind && entry.ref === item.handle);
+      const kind = kinds[item.kind];
+      let index = background.findIndex((entry) => entry.id === entryId("bg", item.id) || item.callId && entry.callId === item.callId || item.handle && entry.kind === kind && entry.ref === item.handle);
+      if (index < 0 && item.late && item.status === "closed") index = placeholder(kind);
       const old = index >= 0 ? background[index] : undefined;
       if (old?.status === "closed" && item.status !== "closed") continue;
       const next: HandoffSession["background"][number] = { id: old?.id ?? entryId("bg", item.id), ...(item.callId ? { callId: item.callId.slice(0, 200) } : old?.callId ? { callId: old.callId } : {}), kind,
         ref: item.handle ?? old?.ref ?? `unknown:${item.callId ?? item.id}`, label: (item.label ?? old?.label ?? kind).slice(0, 120), startedAt: old?.startedAt ?? item.at,
-        status: item.status === "unknown" && old ? old.status : item.status, source: old?.source ?? (source === hook ? "hook" : "live") };
+        status: item.status === "unknown" && old ? old.status : item.status, ...(item.outcome ? outcome : old?.outcome ? { outcome: old.outcome } : {}), source: old?.source ?? (source === hook ? "hook" : "live") };
       if (index >= 0) background[index] = next; else background.push(next);
     }
     if (background.filter((item) => item.status !== "closed").length > 40) {

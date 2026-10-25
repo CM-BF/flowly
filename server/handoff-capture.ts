@@ -8,8 +8,12 @@ export { captureLimits };
 export type CaptureSource = { agentId: string; provider: string; fileId?: string; sessionId?: string; offset?: number; end?: number; messageId?: string };
 export type CaptureMessage = { id: string; source: CaptureSource; text: string; at: string; atSource: "provider" | "captured"; messageId?: string; via: "session" | "agent"; senderId?: string; senderTitle?: string; redacted?: boolean; status: "open" | "received" };
 export type CaptureNarration = Omit<CaptureMessage, "via" | "status"> & { truncated?: boolean };
-/** `closeOnly`: a completion that may close an item already recorded (by id, call id or handle) but never creates one. */
-export type CaptureBackground = { id: string; source: CaptureSource; kind: "async_shell" | "exec" | "browser" | "terminal" | "workspace_script" | "agent" | "schedule" | "heartbeat"; handle?: string; callId?: string; status: "open" | "closed" | "unknown"; label?: string; outcome?: string; at: string; closeOnly?: boolean };
+/**
+ * `closeOnly`: a completion that may close an item already recorded (by id, call id or handle) but never creates one.
+ * `late`: a completion whose start was never itemized; when no item matches its handle it settles the oldest evidence-free placeholder of its kind.
+ * `note`: what the completion said (status, result, recovery); written when `always`, or when no recorded item matches it.
+ */
+export type CaptureBackground = { id: string; source: CaptureSource; kind: "async_shell" | "exec" | "browser" | "terminal" | "workspace_script" | "agent" | "schedule" | "heartbeat"; handle?: string; callId?: string; status: "open" | "closed" | "unknown"; label?: string; outcome?: string; at: string; closeOnly?: boolean; late?: boolean; note?: { id: string; text: string; kind: "background" | "hazard"; always: boolean } };
 /** One gap per kind and type hint in a batch: `id`/`source`/`from` are its first occurrence, `count` all of them, `at`/`lastAt` the first and last time. */
 export type CaptureGap = { id: string; kind: string; source?: CaptureSource; from?: number; to?: number; bytes?: number; count?: number; typeHint?: string; at?: string; lastAt?: string };
 export type CaptureUsage = { id: string; source: CaptureSource; at: string; atSource?: "provider" | "captured"; contextTokens: number; windowTokens?: number; initialContextTokens?: number; cacheTtlSeconds?: number; messageId?: string };

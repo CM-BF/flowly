@@ -172,13 +172,34 @@ export class CaptureRecords {
   }
   private time(value: unknown) { return typeof value === "string" && Number.isFinite(Date.parse(value)) ? { at: value, atSource: "provider" as const } : { at: this.capturedAt, atSource: "captured" as const }; }
   /** A completion notice only closes an item already captured; it never invents one. */
-  private closeHandle(handle: string, source: CaptureSource, timestamp: unknown, outcome?: string, kind: CaptureBackground["kind"] = "agent") {
-    this.result.background.push({ id: `close:${this.agentId}:${handle}`, source, kind, handle, status: "closed", at: this.time(timestamp).at, closeOnly: true, ...(outcome ? { outcome: outcome.slice(0, 40) } : {}) });
+  private closeHandle(handle: string, source: CaptureSource, timestamp: unknown, outcome?: string, kind: CaptureBackground["kind"] = "agent", extra: Pick<CaptureBackground, "late" | "note"> = {}) {
+    this.result.background.push({ id: `close:${this.agentId}:${handle}`, source, kind, handle, status: "closed", at: this.time(timestamp).at, closeOnly: true, ...(outcome ? { outcome: outcome.slice(0, 40) } : {}), ...extra });
   }
-  private taskNotice(text: string, source: CaptureSource, timestamp: unknown) {
-    const task = id(/<task-id>\s*([^<\s]{1,200})\s*<\/task-id>/.exec(text)?.[1]), status = /<status>\s*([\w-]{1,40})\s*<\/status>/.exec(text)?.[1];
-    if (task && status) this.closeHandle(task, source, timestamp, status);
-    else this.gap({ id: `notice:${sourceKey(source)}`, kind: "unknown_background_notice", source });
+  /**
+   * Claude task notifications and paseo-dynamic-workflow run notices: close the item with its status, and keep what the
+   * notice said (status, summary, output file, the start of result/error/failures/recovery/interrupted agents) as a
+   * bounded, redacted note. The note is always written for a failure or a result, and otherwise only when no recorded
+   * launch matches (the observer decides). A text without a task id and a status is not a notice (returns false).
+   */
+  private taskNotice(text: string, source: CaptureSource, timestamp: unknown): boolean {
+    const block = (name: string) => new RegExp(`<${name}>([\\s\\S]*?)</${name}>`).exec(text)?.[1]?.trim();
+    const task = id(block("task-id")), status = /^[\w-]{1,40}$/.exec(block("status") ?? "")?.[0];
+    if (!task || !status) return false;
+    const line = (value: string | undefined, max: number) => value ? redactCaptureText(value.replace(/\s+/g, " ")).slice(0, max) : "";
+    const parts = [`Background task ${task} ended with status ${status}${block("summary") ? `: ${line(block("summary"), 300)}` : ""}.`];
+    if (block("output-file")) parts.push(`Output file: ${line(block("output-file"), 300)}.`);
+    const details = ([["result", "Result", 700], ["error", "Error", 500], ["failures", "Failures", 500], ["recovery", "Recovery", 300], ["interrupted-agents", "Interrupted agents", 600]] as const).filter(([name]) => block(name));
+    let cut = false;
+    for (const [name, label, max] of details) {
+      // The dynamic-workflow plugin lists cut-off agents after its instructions: their ids come first, they hold the partial work to re-read.
+      const raw = block(name)!, agents = name === "interrupted-agents" ? raw.split("\n").filter((row) => /:\s*(?:agent\s+\S+|not started)\s*$/.test(row)) : [];
+      const value = redactCaptureText((agents.length ? agents.join("; ") : raw).replace(/\s+/g, " "));
+      cut ||= value.length > max || agents.length > 0; parts.push(`${label}: ${value.slice(0, max)}${value.length > max ? "…" : ""}`);
+    }
+    if (cut) parts.push("(Excerpt; the whole notice is in that session's raw history.)");
+    const kind = status === "completed" ? "background" as const : "hazard" as const;
+    this.closeHandle(task, source, timestamp, status, "agent", { late: true, note: { id: `task-notice:${task}:${status}`, text: parts.join(" ").slice(0, 2000), kind, always: status !== "completed" || details.length > 0 } });
+    return true;
   }
   private message(text: string, source: CaptureSource, timestamp: unknown, assistant = false, received = false) {
     if (!text.trim()) return;
@@ -193,12 +214,17 @@ export class CaptureRecords {
     if (!assistant && text.trimStart().startsWith("[Flowly automation]")) return;
     if (!assistant && text.trimStart().startsWith("[async-shell")) {
       const notice = /^\[async-shell\s+(finished|failed|timed_out)\s+([\w.-]+)(?:\s|\])/.exec(text.trimStart());
-      if (notice) this.result.background.push({ id: `async-notice:${sourceKey(source)}`, source, kind: "async_shell", handle: notice[2], status: "closed", outcome: notice[1], at: this.time(timestamp).at });
+      if (notice) this.result.background.push({ id: `async-notice:${sourceKey(source)}`, source, kind: "async_shell", handle: notice[2], status: "closed", outcome: notice[1], at: this.time(timestamp).at, late: true });
       else this.gap({ id: `async-notice:${sourceKey(source)}`, kind: "unknown_background_notice", source });
       return;
     }
     // Background completions addressed to the agent (Claude task notifications, paseo-dynamic-workflow): close their item, never a person's words.
-    if (!assistant && (/^\s*<task-notification>/.test(text) || text.trimStart().startsWith("[paseo-dynamic-workflow]"))) { this.taskNotice(text, source, timestamp); return; }
+    // The same plugin marker also relays the user's settings (Ultracode, workflows off): those are words for the agent, kept verbatim.
+    let relay: string | undefined;
+    if (!assistant && (/^\s*<task-notification>/.test(text) || text.trimStart().startsWith("[paseo-dynamic-workflow]"))) {
+      if (this.taskNotice(text, source, timestamp)) return;
+      relay = text.trimStart().startsWith("[paseo-dynamic-workflow]") ? "paseo-dynamic-workflow" : "background task notification";
+    }
     const messageId = source.messageId;
     const fromFlowly = !assistant && !wrapped && !messageId && this.automationTextHashes.includes(createHash("sha256").update(text).digest("hex"));
     if (!assistant && messageId && this.sent.has(messageId)) return;
@@ -209,7 +235,7 @@ export class CaptureRecords {
       this.result.narrationTrimmedChars += safe.length - excerpt.length;
       this.result.live.push({ id: key, source, text: excerpt, ...time, ...(safe.length > excerpt.length ? { truncated: true } : {}), ...(messageId ? { messageId } : {}) });
       while (this.result.live.length > captureLimits.live || this.result.live.reduce((n, item) => n + item.text.length, 0) > captureLimits.liveChars) { this.result.live.shift(); this.result.narrationOmitted++; }
-    } else this.result.inputs.push({ id: key, source, text: safe, ...time, ...(safe !== text ? { redacted: true } : {}), ...(messageId ? { messageId } : {}), via: fromFlowly || wrapped && wrapped.kind !== "user-message" ? "agent" : "session", ...(fromFlowly ? { senderTitle: "Flowly automation" } : {}), ...(wrapped?.senderId ? { senderId: wrapped.senderId } : {}), ...(wrapped?.title ? { senderTitle: redactCaptureText(wrapped.title).slice(0, 200) } : {}), status: received || fromFlowly ? "received" : "open" });
+    } else this.result.inputs.push({ id: key, source, text: safe, ...time, ...(safe !== text ? { redacted: true } : {}), ...(messageId ? { messageId } : {}), via: fromFlowly || relay || wrapped && wrapped.kind !== "user-message" ? "agent" : "session", ...(fromFlowly ? { senderTitle: "Flowly automation" } : relay ? { senderTitle: relay } : {}), ...(wrapped?.senderId ? { senderId: wrapped.senderId } : {}), ...(wrapped?.title ? { senderTitle: redactCaptureText(wrapped.title).slice(0, 200) } : {}), status: received || fromFlowly ? "received" : "open" });
   }
   private arguments(input: unknown, source: CaptureSource): RecordValue | undefined {
     if (typeof input !== "string") return object(input);
