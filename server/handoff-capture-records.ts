@@ -107,7 +107,8 @@ const asyncShellRunning = new Set(["pending", "running"]);
 /** `known`: exec session ids the script text names (write_stdin to an earlier session): their completions are not this script's starts. */
 type ScriptEvidence = { workflow?: boolean; timeline?: boolean; starts: string[]; execCalls: number; seen: Record<string, number>; detached?: string; known?: string[] };
 /** `subagent`: a Codex native sub-agent tool (multi-agent mode); its handle is the agent path `/root/<task_name>`. */
-export type PendingCaptureCall = { callId: string; kind: CaptureBackground["kind"]; action: "start" | "close" | "poll"; source: CaptureSource; at: string; name?: string; handle?: string; label?: string; detached?: boolean; script?: ScriptEvidence; wait?: { terminate?: boolean }; subagent?: "spawn_agent" | "followup_task" | "interrupt_agent" };
+/** `monitor`: Claude Code's Monitor tool (a watch that runs up to its timeout and reports events); its result names its task. */
+export type PendingCaptureCall = { callId: string; kind: CaptureBackground["kind"]; action: "start" | "close" | "poll"; source: CaptureSource; at: string; name?: string; handle?: string; label?: string; detached?: boolean; script?: ScriptEvidence; wait?: { terminate?: boolean }; subagent?: "spawn_agent" | "followup_task" | "interrupt_agent"; monitor?: true };
 
 /** Keep task paths and prose, remove credential values and inline binary data before any excerpt is made. */
 export function redactCaptureText(text: string): string {
@@ -316,7 +317,7 @@ export class CaptureRecords {
   private taskNotice(text: string, source: CaptureSource, timestamp: unknown): boolean {
     const block = (name: string) => new RegExp(`<${name}>([\\s\\S]*?)</${name}>`).exec(text)?.[1]?.trim();
     const task = id(block("task-id")), status = /^[\w-]{1,40}$/.exec(block("status") ?? "")?.[0];
-    if (task && !status && block("event") !== undefined) return true;
+    if (task && !status && block("event") !== undefined) { this.progress(task, block("summary"), block("event"), source, timestamp); return true; }
     if (!task || !status) return false;
     const flat = (value: string) => redactCaptureText(value.replace(/\s+/g, " ").trim());
     let cut = false;
@@ -334,6 +335,8 @@ export class CaptureRecords {
       ["error", "Error", () => flat(block("error")!), 500],
       ["failures", "Failures", () => flat(block("failures")!), 500],
       ["result", "Result", () => flat(block("result")!), 700],
+      // A Monitor's end notice carries its last event (what the watch saw last: often the failure it was watching for).
+      ["event", "Last event", () => flat(block("event")!), 500],
       ["recovery", "Recovery", () => flat(block("recovery")!), 300],
     ] as const).filter(([name]) => block(name));
     // Any other block (diagnostics, usage, guidance, a future one) is named, and the note then says it is an excerpt.
@@ -355,6 +358,16 @@ export class CaptureRecords {
     // Not `late`: a notice cannot tell a workflow from a background command, so an unmatched one never settles a placeholder; its note keeps it.
     this.closeHandle(task, source, timestamp, status, "agent", { note: { id: `task-notice:${task}:${status}`, text: parts.join(" ").slice(0, 2000), kind } });
     return true;
+  }
+  /**
+   * A task that still runs reported progress (a Claude Monitor event: a task id and an <event>, no <status>). It ends
+   * nothing and notes nothing: its item stays open (or opens, when its start was never read) and keeps the latest event,
+   * bounded and redacted, as observation state; the task's real end closes it with its own note.
+   */
+  private progress(task: string, summary: string | undefined, event: string | undefined, source: CaptureSource, timestamp: unknown) {
+    const flat = (value: string) => redactCaptureText(value.replace(/\s+/g, " ").trim()), said = event ? flat(event) : "";
+    const label = (summary ? flat(summary) : "") || `Monitor task ${task}`;
+    this.result.background.push({ id: `background:${this.agentId}:exec:${task}`, source, kind: "exec", handle: task, status: "open", label: label.slice(0, 120), keepLabel: true, at: this.time(timestamp).at, ...(said ? { event: said.length > 200 ? `${said.slice(0, 199)}…` : said } : {}) });
   }
   /** `parsed`: an envelope Paseo already unwrapped (0.12 turn-end rows), handled exactly like its provider copy. */
   private message(text: string, source: CaptureSource, timestamp: unknown, assistant = false, received = false, unlinked?: string, parsed?: Envelope) {
@@ -416,6 +429,13 @@ export class CaptureRecords {
     }
     const base = toolBase(name);
     if (subagentTools.has(base)) { this.subagentCall(base as NonNullable<PendingCaptureCall["subagent"]>, callId, input, source, timestamp); return; }
+    if (name === "Monitor") {
+      // Claude Code's Monitor {command, description, timeout_ms}: a watch process that runs up to 30 minutes and wakes the session.
+      if (!id(callId)) { this.gap({ id: `call:${sourceKey(source)}`, kind: "tool_call_identity_unknown", source }); return; }
+      const data = this.arguments(input, source) ?? {}, what = redactCaptureText(string(data.description) || string(data.command)).replace(/\s+/g, " ").trim();
+      this.register({ callId, kind: "exec", action: "start", source, at: this.time(timestamp).at, name: "Monitor", label: `Monitor: ${what || "watch"}`.slice(0, 120), monitor: true }, source);
+      return;
+    }
     const tool = knownTool(name);
     if (!tool) return;
     if (!id(callId)) { this.gap({ id: `call:${sourceKey(source)}`, kind: "tool_call_identity_unknown", source }); return; }
@@ -539,6 +559,7 @@ export class CaptureRecords {
     this.calls.delete(callId); this.done.add(callId);
     if (call.script) { this.scriptOutput(call, raw, source, failed); return; }
     if (call.subagent) { this.subagentOutput(call, raw, source, failed); return; }
+    if (call.monitor) { this.monitorOutput(call, raw, source, failed); return; }
     if (call.wait) {
       const ended = /^Script (completed|failed)/.exec(outputBlocks(raw)[0] ?? "")?.[1];
       // The wait itself is never background work: close any placeholder an earlier poll left for it while it was in flight.
@@ -580,6 +601,14 @@ export class CaptureRecords {
     }
     if (!ref) { this.gap({ id: `handle:${sourceKey(source)}`, kind: "background_handle_unknown", source }); this.result.background.push({ id: `background:${this.agentId}:${callId}`, source, kind: call.kind, callId, status: "unknown", at: call.at, ...(call.label ? { label: call.label } : {}) }); return; }
     this.result.background.push({ id: `background:${this.agentId}:${call.kind}:${ref}`, source, kind: call.kind, handle: ref, callId, status: finishedExec ? "closed" : "open", at: call.at, ...(call.label ? { label: call.label } : {}), ...(finishedExec ? { outcome: number(data.exit_code) !== undefined ? `exit ${data.exit_code}` : "completed" } : {}) });
+  }
+  /** "Monitor started (task bn9u7frii, expires in 30m …)": the watch is open background work under its own task id, which its events and its end notice name. */
+  private monitorOutput(call: PendingCaptureCall, raw: unknown, source: CaptureSource, failed: boolean) {
+    const text = outputBlocks(raw).join("\n"), data = object(typeof raw === "string" ? parseJson(raw) : raw);
+    if (failed || data.isError === true || data.is_error === true) { this.failedCall(call, data, text, source); return; }
+    const handle = id(/\bMonitor started \(task ([\w.-]{1,200})/.exec(text)?.[1]);
+    if (!handle) { this.gap({ id: `handle:${sourceKey(source)}`, kind: "background_handle_unknown", source }); this.push({ id: `background:${this.agentId}:${call.callId}`, kind: "exec", callId: call.callId, status: "unknown", label: call.label }, source, call.at); return; }
+    this.push({ id: `background:${this.agentId}:exec:${handle}`, kind: "exec", handle, callId: call.callId, status: "open", label: call.label }, source, call.at);
   }
   /**
    * A known tool call that failed (`isError`, `ok: false`, an error): a start started nothing, as for "collab spawn failed",
@@ -800,7 +829,7 @@ export class CaptureRecords {
     // The status is the notice's own, never the row's: Paseo gives a notice without one (a Monitor event of a task that
     // still runs) the row status "completed". A task id without a status is progress: nothing ends, nothing is noted.
     const status = string(metadata.status) || (/<status>([\w-]{1,40})<\/status>/.exec(raw)?.[1] ?? "");
-    if (!status && id(string(metadata.taskId))) return;
+    if (!status && id(string(metadata.taskId))) { this.progress(id(string(metadata.taskId))!, string(detail.label) || undefined, undefined, source, timestamp); return; }
     const tag = (name: string, value: string) => value.trim() ? `<${name}>${value.trim()}</${name}>` : "";
     const summary = string(detail.label) || string(object(item.error).message);
     const rebuilt = `<task-notification>${tag("task-id", string(metadata.taskId))}${tag("status", status)}${tag("summary", summary)}${tag("output-file", string(metadata.outputFile))}</task-notification>`;

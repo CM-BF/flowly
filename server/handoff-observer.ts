@@ -264,7 +264,9 @@ export class HandoffObserver {
         ref: item.handle ?? old?.ref ?? `unknown:${item.callId ?? item.id}`, label: ((item.keepLabel && old?.label) || item.label || old?.label || kind).slice(0, 120), startedAt: reopened ? item.at : old?.startedAt ?? item.at,
         status: item.status === "unknown" && old ? old.status : item.status, ...(item.outcome ? outcome : old?.outcome && !reopened ? { outcome: old.outcome } : {}), source: old?.source ?? (source === hook ? "hook" : "live"),
         // Still only the call, its result unread: the placeholder stays observation state until evidence arrives.
-        ...(item.inFlight && (!old || old.inFlight) ? { inFlight: true as const } : {}) };
+        ...(item.inFlight && (!old || old.inFlight) ? { inFlight: true as const } : {}),
+        // A running task's latest progress event (observation state, superseded by the next one).
+        ...(item.event ? { event: item.event.slice(0, 200) } : old?.event ? { event: old.event } : {}) };
       if (index >= 0) background[index] = next; else background.push(next);
     }
     // A call is in flight only while its session is in a turn (SESSION-HANDOFF-SPEC §5.7). Once the session is idle, gone or

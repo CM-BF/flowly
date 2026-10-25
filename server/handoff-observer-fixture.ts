@@ -77,7 +77,7 @@ export function successorView(record: CardHandoff) {
     inputs: record.inputs.map((input) => `${input.via}:${input.status}:${input.from?.title ?? "-"}:${input.text ?? ""}`),
     notes: record.notes.map((note) => `${note.kind}:${note.text}`),
     gaps: record.gaps.map((gap) => `${gap.status}:${gap.count ?? 1}:${gap.text}`),
-    background: record.ledger.flatMap((session) => session.background).map((entry) => `${entry.kind}:${entry.status}:${entry.ref}:${entry.label}${entry.outcome ? `:${entry.outcome}` : ""}`),
+    background: record.ledger.flatMap((session) => session.background).map((entry) => `${entry.kind}:${entry.status}:${entry.ref}:${entry.label}${entry.outcome ? `:${entry.outcome}` : ""}${entry.event ? `:event=${entry.event}` : ""}`),
     open: handoffOpenIds(record).length,
   };
 }

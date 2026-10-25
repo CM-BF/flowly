@@ -85,41 +85,90 @@ test("other queue-operation records stay host bookkeeping; an unreadable queued 
   expect(successorView(await x.read()).gaps).toEqual([expect.stringMatching(/^open:1:Capture gap \(unknown_record_type\): queue-operation\/task-notification/)]);
 });
 
-// Claude Code's Monitor streams each event of a task that still runs as a task notice with <event> and no <status>
-// (6 enqueue and 6 absorbed_mid_turn remove records of this shape in the same 40 days of transcripts). Paseo maps it to a
-// task_notification row whose own status defaults to "completed" and whose metadata has no status.
-const event = (n: number, task = "bk7p2q9x1") => `<task-notification>\n<task-id>${task}</task-id>\n<summary>Monitor "deploy log" event</summary>\n<event>{"label":"step-${n}","ms":175}</event>\n</task-notification>`;
-const eventRow = (n: number) => ({ type: "tool_call", callId: `task_notification_u-${n}`, name: "task_notification", status: "completed", error: null,
-  detail: { type: "plain_text", label: 'Monitor "deploy log" event', icon: "wrench", text: event(n) }, metadata: { synthetic: true, source: "claude_task_notification", taskId: "bk7p2q9x1" } });
-const absorbedEvent = (n: number) => absorbed(event(n)).map((record) => record.operation === "remove" ? { ...record, commandUuid: `cmd-e${n}`, deliveryId: `del-e${n}` } : record);
+// Claude Code's Monitor tool (shapes from 7 Monitor starts in this machine's sdk-cli transcripts): a tool_use named Monitor
+// ({command, description, timeout_ms}) whose result names its own task ("Monitor started (task bn9u7frii, …"). Each event
+// is a task notice with that task id, an <event> and no <status> (absorbed mid-turn, delivered or queued through the SDK);
+// its end is a <status>completed</status> "stream ended" notice whose <event> is the last thing it saw. Paseo maps a notice
+// to a task_notification row whose own status defaults to "completed" and whose metadata has no status, and the tool call
+// to a generic tool_call row (detail type "unknown", the raw input and output).
+const monitorInput = { command: "until grep -q \"deploy exit=\" /tmp/deploy.log; do sleep 3; done; tail -5 /tmp/deploy.log", description: "watch the staging deploy", timeout_ms: 1800000 };
+const monitorStarted = "Monitor started (task bn9u7frii, expires in 30m unless the source ends first; you get one notice at expiry — re-arm if you still need the watch). You will be notified on each event. Keep working — do not poll or sleep. Events may arrive while you are waiting for the user — an event is not their reply.";
+const monitorCall = { ...claudeBase, type: "assistant", uuid: "a-mon", message: { id: "r-mon", content: [{ type: "tool_use", id: "toolu_mon1", name: "Monitor", input: monitorInput }] } };
+const monitorResult = { ...claudeBase, type: "user", uuid: "u-mon", message: { role: "user", content: [{ type: "tool_result", tool_use_id: "toolu_mon1", content: monitorStarted }] } };
+const event = (text: string, task = "bn9u7frii") => `<task-notification>\n<task-id>${task}</task-id>\n<summary>Monitor event: "watch the staging deploy"</summary>\n<event>${text}</event>\n</task-notification>`;
+const ended = (last: string) => `<task-notification>\n<task-id>bn9u7frii</task-id>\n<tool-use-id>toolu_mon1</tool-use-id>\n<output-file>/tmp/synthetic/tasks/bn9u7frii.output</output-file>\n<status>completed</status>\n<summary>Monitor "watch the staging deploy" stream ended</summary>\n<event>${last}</event>\n</task-notification>`;
+const absorbedAs = (text: string, n: number) => absorbed(text).map((record) => record.operation === "remove" ? { ...record, commandUuid: `cmd-m${n}`, deliveryId: `del-m${n}` } : record);
+const watching = /^exec_session:open:bn9u7frii:Monitor: watch the staging deploy/;
 
-test("a Monitor event is progress: its row ends nothing, notes nothing, and the task's real end still reaches the card", async () => {
-  const x = await observerFixture({ provider: "claude" });
-  await x.hook([shell, eventRow(1), { type: "assistant_message", text: "Watching the deploy." }]);
-  let view = successorView(await x.read());
-  expect(view.background).toEqual([expect.stringMatching(/^exec_session:open:bk7p2q9x1:/)]);
-  expect(view.notes).toEqual([]); expect(view.gaps).toEqual([]); expect(view.inputs).toEqual([]);
-  // A row rebuilt from metadata alone (no raw notice) has no status either: still progress, never "ended with status completed".
-  expect(captureTimeline("agent", [{ ...eventRow(2), detail: { type: "plain_text", label: 'Monitor "deploy log" event' } }], { outcome: "completed" })).toMatchObject({ background: [], notices: [], gaps: [] });
-  const final = notice("completed", 'Monitor "deploy log" stream ended').replace("</summary>", "</summary>\n<result>3 of 4 regions updated, eu-west rolled back</result>");
-  await x.hook([shell, eventRow(1), { type: "assistant_message", text: "Watching the deploy." }, { ...row("completed", { text: final }), callId: "task_notification_u-9" }, { type: "assistant_message", text: "Done." }]);
+test("a running Monitor is open work under its own task id: events keep the latest one on it, its end closes it and keeps the last event", async () => {
+  const x = await observerFixture({ provider: "claude", running: true });
+  await x.append([monitorCall, monitorResult, ...absorbedAs(event("step 3/4 eu-west: health check failing"), 1), continuing]);
+  await x.poll();
+  let record = await x.read(), view = successorView(record);
+  expect(view.background).toEqual(["exec_session:open:bn9u7frii:Monitor: watch the staging deploy:event=step 3/4 eu-west: health check failing"]);
+  expect(view).toMatchObject({ notes: [], gaps: [], inputs: [], open: 1 });
+  // More events, absorbed, delivered as the next prompt and queued through the SDK: progress written in place, nothing else.
+  const revision = record.revision;
+  await x.append([...absorbedAs(event("step 4/4 eu-west: retrying"), 2), { ...claudeBase, type: "user", uuid: "u-e3", message: { role: "user", content: event("step 4/4 us-east: healthy") } }, { ...claudeBase, type: "attachment", uuid: "att-e4", attachment: { type: "queued_command", commandMode: "task-notification", prompt: event("step 4/4 ap-south: healthy") } }]);
+  await x.poll();
+  record = await x.read(); view = successorView(record);
+  expect(view.background).toEqual(["exec_session:open:bn9u7frii:Monitor: watch the staging deploy:event=step 4/4 ap-south: healthy"]);
+  expect(view).toMatchObject({ notes: [], gaps: [], inputs: [], open: 1 }); expect(record.revision).toBe(revision);
+  // A successor taking it over acknowledges it; later events keep it open, the end closes it with the last event in its note.
+  await x.ack("doing", "the deploy watch is still running");
+  await x.append(absorbedAs(event("step 4/4 eu-west: health check failing"), 5)); await x.poll();
+  expect(successorView(await x.read()).background).toEqual([expect.stringMatching(watching)]);
+  await x.append(absorbedAs(ended("deploy exit=1: eu-west rolled back"), 6)); await x.poll();
   view = successorView(await x.read());
-  expect(view.background).toEqual([expect.stringMatching(/^exec_session:closed:bk7p2q9x1:.*:completed$/)]);
-  expect(view.notes).toEqual([expect.stringMatching(/^background:Background task bk7p2q9x1 ended with status completed: Monitor "deploy log" stream ended\..*Result: 3 of 4 regions updated, eu-west rolled back/)]);
+  expect(view.background).toEqual([expect.stringMatching(/^exec_session:closed:bn9u7frii:Monitor: watch the staging deploy:completed/)]);
+  expect(view.notes).toEqual(['background:Background task bn9u7frii ended with status completed: Monitor "watch the staging deploy" stream ended. Output file: /tmp/synthetic/tasks/bn9u7frii.output. Last event: deploy exit=1: eu-west rolled back']);
+  expect(view).toMatchObject({ gaps: [], inputs: [], open: 0 });
+  // Events after the end never reopen it; a notice without a readable task id is still a gap.
+  await x.append([...absorbedAs(event("late"), 7), { type: "queue-operation", operation: "enqueue", timestamp: claudeBase.timestamp, sessionId: claudeBase.sessionId, content: "<task-notification>\n<summary>Monitor event</summary>\n<event>{}</event>\n</task-notification>" }]);
+  await x.poll();
+  view = successorView(await x.read());
+  expect(view.background).toEqual([expect.stringMatching(/^exec_session:closed:bn9u7frii:/)]);
+  expect(view.gaps).toEqual([expect.stringMatching(/^open:1:Capture gap \(unknown_record_type\): queue-operation\/task-notification/)]);
 });
 
-test("Monitor events absorbed mid-turn or delivered are not gaps or inputs, and later ones never reopen anything", async () => {
-  const x = await observerFixture({ provider: "claude" });
-  await x.append([...bashStart, ...absorbedEvent(1)]);
-  await x.poll();
-  expect(successorView(await x.read())).toMatchObject({ notes: [], gaps: [], inputs: [], background: [expect.stringMatching(/^exec_session:open:bk7p2q9x1:/)] });
-  await x.ack("doing", "the deploy is still running");
-  // More events: absorbed, delivered as the next turn's prompt, and queued through the SDK.
-  await x.append([...absorbedEvent(2), { ...claudeBase, type: "user", uuid: "u-e3", message: { role: "user", content: event(3) } }, { ...claudeBase, type: "attachment", uuid: "att-e4", attachment: { type: "queued_command", commandMode: "task-notification", prompt: event(4) } }]);
-  await x.poll();
-  expect(successorView(await x.read())).toMatchObject({ notes: [], gaps: [], inputs: [], background: [expect.stringMatching(/^exec_session:open:bk7p2q9x1:/)], open: 1 });
-  // A notice without a readable task id is still a gap.
-  await x.append([{ type: "queue-operation", operation: "enqueue", timestamp: claudeBase.timestamp, sessionId: claudeBase.sessionId, content: "<task-notification>\n<summary>Monitor event</summary>\n<event>{}</event>\n</task-notification>" }]);
-  await x.poll();
-  expect(successorView(await x.read()).gaps).toEqual([expect.stringMatching(/^open:1:Capture gap \(unknown_record_type\): queue-operation\/task-notification/)]);
+test("a Monitor still running when its session is sealed is on the sealed card and in the successor's ACK; a failed start leaves its error", async () => {
+  const x = await observerFixture({ provider: "claude", running: true });
+  await x.append([monitorCall]); await x.poll();
+  // Caught before its result: a call in flight, already labelled with what it watches.
+  expect(successorView(await x.read()).background).toEqual(["exec_session:unknown:unknown:toolu_mon1:Monitor: watch the staging deploy"]);
+  await x.append([monitorResult, ...absorbedAs(event("step 1/4: building"), 1)]); await x.poll();
+  const sealed = await x.seal();
+  expect(sealed.prompt).toContain("Monitor: watch the staging deploy");
+  const record = await x.read(), item = record.ledger[0].background.find((entry) => entry.ref === "bn9u7frii")!;
+  expect(item).toMatchObject({ status: "open", event: "step 1/4: building" });
+  expect(successorView(record).open).toBe(1);
+  // A Monitor that could not start started nothing: its error is a note, no item.
+  const failing = await observerFixture({ provider: "claude" });
+  await failing.append([{ ...monitorCall, uuid: "a-m2", message: { id: "r-m2", content: [{ type: "tool_use", id: "toolu_mon2", name: "Monitor", input: monitorInput }] } }, { ...claudeBase, type: "user", uuid: "u-m2", message: { role: "user", content: [{ type: "tool_result", tool_use_id: "toolu_mon2", is_error: true, content: "Monitor could not start: /tmp/deploy.log is not readable" }] } }]);
+  await failing.poll();
+  expect(successorView(await failing.read())).toMatchObject({ background: [], notes: [expect.stringContaining("Monitor failed (call toolu_mon2)")], open: 0 });
+  expect(successorView(await failing.read()).notes[0]).toContain("/tmp/deploy.log is not readable");
+});
+
+/** Paseo 0.12 turn-end rows: the Monitor call (generic detail), and its notices as task_notification rows. */
+const monitorRow = { type: "tool_call", callId: "toolu_mon1", name: "Monitor", status: "completed", error: null, detail: { type: "unknown", input: monitorInput, output: monitorStarted } };
+const noticeRow = (n: number, text?: string, label = 'Monitor event: "watch the staging deploy"') => ({ type: "tool_call", callId: `task_notification_u-${n}`, name: "task_notification", status: "completed", error: null,
+  detail: { type: "plain_text", label, icon: "wrench", ...(text ? { text } : {}) }, metadata: { synthetic: true, source: "claude_task_notification", taskId: "bn9u7frii", ...(text?.includes("<status>") ? { status: "completed", outputFile: "/tmp/synthetic/tasks/bn9u7frii.output" } : {}) } });
+
+test("the turn-end timeline's Monitor rows: its call opens the item, event rows keep it open, the end row closes it with the last event", async () => {
+  const x = await observerFixture({ provider: "claude" }); // empty transcript: only the hook speaks
+  await x.hook([monitorRow, noticeRow(1, event("step 3/4 eu-west: health check failing")), { type: "assistant_message", text: "Watching the deploy." }]);
+  let view = successorView(await x.read());
+  expect(view.background).toEqual(["exec_session:open:bn9u7frii:Monitor: watch the staging deploy:event=step 3/4 eu-west: health check failing"]);
+  expect(view).toMatchObject({ notes: [], gaps: [], inputs: [] });
+  // A row rebuilt from metadata alone has no status and no event text: still progress, never "ended with status completed".
+  const semantics = captureTimeline("agent", [noticeRow(2)], { outcome: "completed" });
+  expect(semantics).toMatchObject({ notices: [], gaps: [] });
+  expect(semantics.background).toEqual([expect.objectContaining({ handle: "bn9u7frii", status: "open", keepLabel: true })]);
+  expect(semantics.background[0].event).toBeUndefined();
+  await x.hook([monitorRow, noticeRow(1, event("step 3/4 eu-west: health check failing")), noticeRow(2), { type: "assistant_message", text: "Watching the deploy." },
+    noticeRow(9, ended("deploy exit=1: eu-west rolled back"), 'Monitor "watch the staging deploy" stream ended'), { type: "assistant_message", text: "Done." }]);
+  view = successorView(await x.read());
+  expect(view.background).toEqual([expect.stringMatching(/^exec_session:closed:bn9u7frii:Monitor: watch the staging deploy:completed/)]);
+  expect(view.notes).toEqual([expect.stringMatching(/^background:Background task bn9u7frii ended with status completed: Monitor "watch the staging deploy" stream ended\..*Last event: deploy exit=1: eu-west rolled back/)]);
 });
