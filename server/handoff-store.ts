@@ -41,6 +41,8 @@ type Observation = { version: 1; base: string; revision: number; fields: Record<
 /** The card file as stored (`base`, its bytes) and the record read from it with its observation file (`record`). */
 type Stored = { record: CardHandoff; base: CardHandoff; bytes: Buffer };
 const fixedFields = ["version", "taskId", "projectId", "revision"];
+/** The collection rules a plugin-start sweep applied to every card (§5.1): with this version recorded, a start sweeps nothing. */
+const sweepVersion = 1;
 const hash = (value: string | Buffer) => createHash("sha256").update(value).digest("hex");
 /** Every 64-hex token of a text: a superset of the body names it references, so a collection can only keep too much. */
 const tokens = (text: string, into = new Set<string>()) => { for (const [token] of text.matchAll(/[a-f0-9]{64}/g)) into.add(token); return into; };
@@ -254,6 +256,28 @@ export class HandoffStore {
     if (record) await this.collect(taskId, record, true).catch(this.collectFailed);
   }
   private collectFailed = (error: unknown) => console.error("Flowly handoff body cleanup will retry:", error instanceof Error ? error.message : String(error));
+  /**
+   * Plugin start (§5.1): every card's first-touch collection, once per collection version, also of cards nothing opens,
+   * polls or writes again (a done or stopped card would keep what older versions left). One card at a time in its queue,
+   * `pauseMs` apart; stopped, it records nothing and the next start sweeps again. Recorded in handoffs/.collected.json.
+   */
+  async sweep(options: { pauseMs?: number; stopped?: () => boolean } = {}) {
+    const marker = join(this.root, ".collected.json");
+    if (((await this.optional<{ version?: unknown }>(marker).catch(() => null))?.version ?? 0) === sweepVersion) return { cards: 0, recorded: true };
+    const names = await readdir(this.root).catch((error) => { if (absent(error)) return [] as string[]; throw error; });
+    let cards = 0;
+    for (const name of names.sort()) {
+      const taskId = /^([A-Za-z0-9][A-Za-z0-9_.-]{0,199})\.json$/.exec(name)?.[1];
+      if (!taskId || name.endsWith(".restore.json")) continue;
+      if (options.stopped?.()) return { cards, recorded: false };
+      await this.serial(taskId, () => this.recover(taskId)).catch((error) => console.error(`Flowly handoff body cleanup skipped card ${taskId}:`, error instanceof Error ? error.message : String(error)));
+      cards++;
+      if (options.pauseMs) await new Promise((resolve) => setTimeout(resolve, options.pauseMs));
+    }
+    if (options.stopped?.() || !names.length) return { cards, recorded: false };
+    await this.atomic(marker, JSON.stringify({ version: sweepVersion, at: this.now(), cards }));
+    return { cards, recorded: true };
+  }
   /** Writes `value` unless the file already holds exactly these bytes (a replayed unfinished write). */
   private async ensure(path: string, value: string) {
     const previous = await readFile(path).catch((error) => { if (absent(error)) return undefined; throw error; });

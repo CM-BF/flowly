@@ -267,6 +267,8 @@ export default function contribute(server: PluginServerContext) {
   tools.agents.handoffs = handoffs;
   tools.agents.sessionHistory = sessionHistory;
   handoffObserver.start(() => handoffPaseo ? tools.managedSessions() : Promise.resolve([]));
+  // Once per collection version: entry bodies nothing references, also on cards nothing opens again (SESSION-HANDOFF-SPEC §5.1).
+  void handoffs.sweepBodies();
   // Agent automation (AUTOMATION-SPEC): Hermes Kanban's dispatcher, supervision and review loop, per project.
   const classifier = new ReviewClassifier(store, summaries.settings);
   const folderCommit = store.onCommit;

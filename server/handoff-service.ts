@@ -48,7 +48,18 @@ export class HandoffService {
     } catch { return "Card continuity is unavailable; do not infer that its pitfalls or incidents are absent."; }
   }
   forgetRead(taskId: string, agentId: string) { this.seen.delete(`${taskId}:${agentId}`); }
-  stop() { this.stopped = true; }
+  private sweepWait?: { timer: ReturnType<typeof setTimeout>; wake: () => void };
+  /**
+   * Plugin start: the store's one-time collection of every card's unreferenced bodies (SESSION-HANDOFF-SPEC §5.1), after the
+   * first polls and `pauseMs` apart per card, so it never holds them up. A stop ends it; the next start then sweeps again.
+   */
+  async sweepBodies(options: { delayMs?: number; pauseMs?: number } = {}) {
+    await new Promise<void>((wake) => { const timer = setTimeout(wake, options.delayMs ?? 90_000); timer.unref?.(); this.sweepWait = { timer, wake }; });
+    this.sweepWait = undefined;
+    if (this.stopped) return;
+    await this.records.sweep({ pauseMs: options.pauseMs ?? 100, stopped: () => this.stopped }).catch((error) => console.error("Flowly handoff body cleanup failed:", error instanceof Error ? error.message : String(error)));
+  }
+  stop() { this.stopped = true; if (this.sweepWait) { clearTimeout(this.sweepWait.timer); this.sweepWait.wake(); } }
   private now() { return new Date(this.clock()).toISOString(); }
   serial<T>(taskId: string, action: () => Promise<T>): Promise<T> {
     const job = (this.mutations.get(taskId) ?? Promise.resolve()).then(() => {
