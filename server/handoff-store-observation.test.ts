@@ -34,7 +34,8 @@ test("observation keeps the revision, write time and entry stamps; a pinned chan
   expect(written).toMatchObject({ stored: "observation", handoffRevision: before.revision });
   expect(observed).toMatchObject({ revision: before.revision, updatedAt: before.updatedAt, updatedBy: before.updatedBy, ops: before.ops, archivedCount: before.archivedCount, git: [{ sha: "aaa" }] });
   expect(observed.ledger[0]).toMatchObject({ rev: before.ledger[0].rev, at: before.ledger[0].at, measured: { C: 40_100 }, through: { offset: 100 } });
-  expect(observed.ledger[0].contentRef).not.toBe(before.ledger[0].contentRef);
+  // The entry keeps the body of its last revision; the next revision writes the version then in the record.
+  expect(observed.ledger[0].contentRef).toBe(before.ledger[0].contentRef);
   expect(await files(dir, "ops")).toEqual(receipts); // Flowly's own passes use fresh ids: no receipt for them
   // A call caught in flight and a running task's progress event are observation too; a call that ended without a result is not.
   const flying = { id: "bg:call", callId: "c1", kind: "exec_session" as const, ref: "unknown:c1", label: "npm test", startedAt: at, status: "unknown" as const, source: "live" as const, inFlight: true as const };
@@ -116,17 +117,21 @@ test("an ACK or a close settles only the occurrences counted at the revision it 
   expect((await read()).gaps.find((gap) => gap.id === "g:words")).toMatchObject({ status: "closed", count: 2, resolution: { count: 2 } });
 });
 
-test.each(["intent-synced", "archive-synced", "current-synced", "sources-synced", "intent-removed"])("an observation write interrupted after %s recovers once, under the same revision", async (point) => {
+// Without an explicit operation id an observation write is one atomic replacement of the card file: interrupted before it
+// (bodies-synced) nothing was written, after it (current-synced) all of it. With one, its receipt rides an unfinished-write
+// record that recovers once.
+test.each([["bodies-synced", undefined], ["current-synced", undefined], ...["intent-synced", "archive-synced", "current-synced", "sources-synced", "intent-removed"].map((point) => [point, "observe:1"])] as [string, string | undefined][])("an observation write interrupted after %s (operation id %s) recovers once, under the same revision", async (point, operationId) => {
   let armed = false;
   const { dir, store } = await fixture((reached) => { if (armed && reached === point) { armed = false; throw new Error("crash"); } });
   const before = await store.read("card", "project"), archive = await readFile(join(dir, "handoffs", "card", "archive.jsonl"), "utf8").catch(() => "");
   armed = true;
-  await expect(store.capture("card", "project", observation(700), flowly)).rejects.toThrow("crash");
-  const reopened = new HandoffStore(dir), recovered = await reopened.read("card", "project");
-  expect(recovered).toMatchObject({ revision: before.revision, updatedAt: before.updatedAt, ledger: [{ through: { offset: 700 } }] });
+  await expect(store.capture("card", "project", observation(700), { ...flowly, operationId })).rejects.toThrow("crash");
+  const reopened = new HandoffStore(dir), recovered = await reopened.read("card", "project"), lost = point === "bodies-synced";
+  expect(recovered).toMatchObject({ revision: before.revision, updatedAt: before.updatedAt, ledger: [{ ...(lost ? {} : { through: { offset: 700 } }), contentRef: before.ledger[0].contentRef }] });
+  expect(recovered.ledger[0].through?.offset).toBe(lost ? before.ledger[0].through?.offset : 700);
   expect(await readFile(join(dir, "handoffs", "card", "archive.jsonl"), "utf8").catch(() => "")).toBe(archive);
   expect(await files(dir, "")).not.toContain("pending.json");
-  await expect(reopened.capture("card", "project", observation(700), flowly)).resolves.toMatchObject({ stored: "none", handoffRevision: before.revision });
+  await expect(reopened.capture("card", "project", observation(700), { ...flowly, operationId })).resolves.toMatchObject(lost ? { stored: "observation" } : operationId ? { replayed: true, handoffRevision: before.revision } : { stored: "none", handoffRevision: before.revision });
 });
 
 test("an explicit operation id keeps its receipt in place, so a replay is recognized", async () => {

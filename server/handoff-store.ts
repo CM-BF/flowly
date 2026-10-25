@@ -27,8 +27,16 @@ type Intent = { version: 1; before: number; after: CardHandoff; archiveOffset: n
 /** What a transaction stored: nothing, observation state in place (same revision), or a new revision. */
 export type HandoffStored = "none" | "observation" | "revision";
 type IdentityClaim = { kind: "entry" | "finding" | "background" | "state"; section: HandoffEntrySection | "state"; parent: string };
-type Mutation = { record: CardHandoff; history: Pointer[]; changed: Set<string>; ackMissing?: string[] };
+/**
+ * What a transaction archives: a pointer to a body already written, or a version as it is in the record. An entry written
+ * in place keeps the body of its last revision (§5.1), so a superseded version gets the body of what the record held.
+ */
+type History = Pointer | { section: HandoffEntrySection; entry: HandoffEntry; removal?: Pointer["removal"] };
+type Mutation = { record: CardHandoff; history: History[]; changed: Set<string>; ackMissing?: string[] };
 const hash = (value: string | Buffer) => createHash("sha256").update(value).digest("hex");
+/** Every 64-hex token of a text: a superset of the body names it references, so a collection can only keep too much. */
+const tokens = (text: string, into = new Set<string>()) => { for (const [token] of text.matchAll(/[a-f0-9]{64}/g)) into.add(token); return into; };
+const absent = (error: unknown) => (error as NodeJS.ErrnoException).code === "ENOENT";
 const bytes = (value: unknown) => Buffer.byteLength(JSON.stringify(value));
 const clone = <T>(value: T): T => JSON.parse(JSON.stringify(value));
 const queues = new Map<string, Promise<unknown>>();
@@ -82,12 +90,19 @@ function pinned(record: CardHandoff) {
 }
 /** Per archive file (append-only): the newest archived version of each ledger entry and the offsets of versions whose history equals the next one's. */
 type LedgerRuns = { identity: string; scanned: number; last: Map<string, { offset: number; history: string }>; superseded: Set<number> };
+/** Per archive file (append-only): the body names its complete lines reference, read once and then only what was appended. */
+type ArchiveRefs = { identity: string; scanned: number; refs: Set<string> };
+const evict = <V>(cache: Map<string, V>, key: string, value: V) => { cache.delete(key); cache.set(key, value); if (cache.size > 16) cache.delete(cache.keys().next().value!); return value; };
 
 /** Per-card durable current record, immutable entry bodies and append-only pointers. No provider or daemon access. */
 export class HandoffStore {
   readonly root: string;
   private verifiedBodies = new Map<string, string>();
   private ledgerRuns = new Map<string, LedgerRuns>();
+  private archiveRefs = new Map<string, ArchiveRefs>();
+  private sealRefs = new Map<string, Map<string, { stamp: string; refs: Set<string> }>>();
+  /** Cards whose bodies this process collected at its first touch (what older versions, crashes and refused writes left). */
+  private collected = new Set<string>();
   constructor(directory: string, private options: { now?: () => string; fault?: (point: string) => void | Promise<void> } = {}) { this.root = join(directory, "handoffs"); }
   private now() { return this.options.now?.() ?? new Date().toISOString(); }
   private paths(taskId: string) {
@@ -159,6 +174,22 @@ export class HandoffStore {
   }
   private async recover(taskId: string) {
     await this.recoverRestore(taskId);
+    await this.finish(taskId);
+    if (this.collected.has(taskId)) return;
+    // First touch in this process: what older versions (their in-place writes left a body per pass), a crash before an
+    // unfinished write was durable, or a refused write left. A body an older version's reader at this revision may still
+    // page is kept until the revision moves (`grace`).
+    this.collected.add(taskId);
+    const record = await this.current(taskId).catch(() => null);
+    if (record) await this.collect(taskId, record, true).catch(this.collectFailed);
+  }
+  private collectFailed = (error: unknown) => console.error("Flowly handoff body cleanup will retry:", error instanceof Error ? error.message : String(error));
+  /** Writes `value` unless the file already holds exactly these bytes (a replayed unfinished write). */
+  private async ensure(path: string, value: string) {
+    const previous = await readFile(path).catch((error) => { if (absent(error)) return undefined; throw error; });
+    if (!previous?.equals(Buffer.from(value))) await this.atomic(path, value);
+  }
+  private async finish(taskId: string) {
     const path = this.paths(taskId), intent = await this.optional<Intent>(path.intent);
     if (!intent) return;
     const parsed = cardHandoffSchema.safeParse(intent.after);
@@ -186,14 +217,91 @@ export class HandoffStore {
       } finally { await archive.close(); }
     }
     await this.options.fault?.("archive-synced");
-    await this.atomic(path.current, JSON.stringify(intent.after)); await this.options.fault?.("current-synced");
+    // A replay after a crash finds some files already written: they are not written again.
+    const replay = !!current && isDeepStrictEqual(current, parsed.data), write = (file: string, value: string) => replay ? this.ensure(file, value) : this.atomic(file, value);
+    if (!replay) await this.atomic(path.current, JSON.stringify(intent.after));
+    await this.options.fault?.("current-synced");
     for (const pointer of intent.pointers) {
-      await this.atomic(join(path.folder, "latest", `${hash(pointer.id)}.json`), JSON.stringify(pointer));
-      if (pointer.sourceId) await this.atomic(join(path.folder, "sources", `${hash(pointer.sourceId)}.json`), JSON.stringify(pointer));
+      await write(join(path.folder, "latest", `${hash(pointer.id)}.json`), JSON.stringify(pointer));
+      if (pointer.sourceId) await write(join(path.folder, "sources", `${hash(pointer.sourceId)}.json`), JSON.stringify(pointer));
     }
-    if (intent.receipt) await this.atomic(join(path.folder, "ops", `${hash(intent.receipt.operationId)}.json`), JSON.stringify(intent.receipt));
+    if (intent.receipt) await write(join(path.folder, "ops", `${hash(intent.receipt.operationId)}.json`), JSON.stringify(intent.receipt));
     await this.options.fault?.("sources-synced");
+    // The write is durable: the bodies it superseded go now, before the intent that would replay this step after a crash.
+    if (!inPlace) { await this.collect(taskId, parsed.data, false).catch(this.collectFailed); await this.options.fault?.("collected"); }
     await unlink(path.intent); await this.syncDirectory(path.folder); await this.options.fault?.("intent-removed");
+  }
+  /**
+   * Removes the entry bodies nothing references (§5.1). Only inside the card's queue with no unfinished write, so no
+   * transaction's new bodies are in flight. Kept: every body the current record (entries and overflow) names, every archive
+   * line, every seal, the latest-version and source pointers of the body's own entry and the source pointer of every
+   * pending operation. Receipts hold results (revision, counts, ids), never a body. A reader pages only bodies its revision
+   * names (in place, an entry keeps the body of its last revision) and a newer revision ends its view before it reads a
+   * body, so no reader can page a body this removes; an older version's reader at this revision could page what that
+   * version left of an entry at its current revision, which `grace` keeps. A body that cannot be read or fails its
+   * checksum is preserved for inspection; the temporary file of an atomic write that never completed is removed.
+   */
+  private async collect(taskId: string, record: CardHandoff, grace: boolean) {
+    const path = this.paths(taskId), folder = join(path.folder, "entries");
+    const names = await readdir(folder).catch((error) => { if (absent(error)) return [] as string[]; throw error; });
+    const live = tokens(JSON.stringify(record));
+    const candidates = names.flatMap((name) => { const match = /^([a-f0-9]{64})\.json(\.[0-9a-f-]{36}\.tmp)?$/.exec(name); return match && (match[2] || !live.has(match[1])) ? [{ name, ref: match[1], temporary: !!match[2] }] : []; });
+    if (!candidates.length) return;
+    const archived = await this.archived(taskId), sealed = await this.sealed(taskId);
+    for (const operation of record.pendingOperations) { const pointer = await this.source(taskId, operation.sourceId).catch(() => null); if (pointer) live.add(pointer.ref); }
+    const revisions = new Map(handoffEntrySections.flatMap((section) => list(record, section).map((entry) => [entry.id, entry.rev] as const)));
+    const latest = (id: string) => join(path.folder, "latest", `${hash(id)}.json`), sources = (id: string) => join(path.folder, "sources", `${hash(id)}.json`);
+    let removed = 0;
+    for (const { name, ref, temporary } of candidates) {
+      const file = join(folder, name);
+      if (!temporary) {
+        if (live.has(ref) || archived.has(ref) || sealed.has(ref)) continue;
+        const body = await readFile(file, "utf8").catch(() => undefined);
+        if (body === undefined || hash(body) !== ref) continue;
+        let entry: { id?: unknown; rev?: unknown; sourceId?: unknown }; try { entry = JSON.parse(body); } catch { continue; }
+        if (typeof entry.id !== "string" || (grace && revisions.get(entry.id) === entry.rev)) continue;
+        const pointers = [latest(entry.id), ...(typeof entry.sourceId === "string" ? [sources(entry.sourceId)] : [])];
+        if ((await Promise.all(pointers.map((pointer) => this.optional<Pointer>(pointer).catch(() => ({ ref }))))).some((pointer) => pointer?.ref === ref)) continue;
+      }
+      await unlink(file).catch((error) => { if (!absent(error)) throw error; }); removed++;
+    }
+    if (removed) await this.syncDirectory(folder);
+  }
+  /** The body names archive.jsonl references (append-only: read once, then only what was appended; a partial last line counts too). */
+  private async archived(taskId: string) {
+    const path = this.paths(taskId).archive;
+    const info = await stat(path).catch((error) => { if (absent(error)) return undefined; throw error; });
+    if (!info) { this.archiveRefs.delete(taskId); return new Set<string>(); }
+    const identity = `${info.dev}:${info.ino}:${info.birthtimeMs}`, cached = this.archiveRefs.get(taskId);
+    const index = evict(this.archiveRefs, taskId, cached && cached.identity === identity && info.size >= cached.scanned ? cached : { identity, scanned: 0, refs: new Set<string>() });
+    let tail = Buffer.alloc(0);
+    if (index.scanned < info.size) {
+      const file = await open(path, "r");
+      try {
+        const chunk = Buffer.alloc(1 << 20); let position = index.scanned;
+        while (position < info.size) {
+          const { bytesRead } = await file.read(chunk, 0, Math.min(chunk.length, info.size - position), position);
+          if (!bytesRead) break;
+          position += bytesRead;
+          const data = Buffer.concat([tail, chunk.subarray(0, bytesRead)]), end = data.lastIndexOf(10) + 1;
+          tokens(data.subarray(0, end).toString("utf8"), index.refs); index.scanned += end; tail = data.subarray(end);
+        }
+      } finally { await file.close(); }
+    }
+    return tail.length ? tokens(tail.toString("utf8"), new Set(index.refs)) : index.refs;
+  }
+  /** The body names the sealed snapshots reference (each written once at its rotation). */
+  private async sealed(taskId: string) {
+    const folder = join(this.paths(taskId).folder, "sealed"), refs = new Set<string>();
+    const names = await readdir(folder).catch((error) => { if (absent(error)) return [] as string[]; throw error; });
+    const previous = this.sealRefs.get(taskId), cache = evict(this.sealRefs, taskId, new Map<string, { stamp: string; refs: Set<string> }>());
+    for (const name of names) {
+      const info = await stat(join(folder, name)), stamp = `${info.ino}:${info.size}:${info.mtimeMs}:${info.ctimeMs}`;
+      let entry = previous?.get(name);
+      if (entry?.stamp !== stamp) entry = { stamp, refs: tokens(await readFile(join(folder, name), "utf8")) };
+      cache.set(name, entry); for (const ref of entry.refs) refs.add(ref);
+    }
+    return refs;
   }
   read(taskId: string, projectId: string): Promise<CardHandoff>;
   read(taskId: string): Promise<CardHandoff | null>;
@@ -217,9 +325,11 @@ export class HandoffStore {
     catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; await this.atomic(path, body); }
   }
   private pointer(section: HandoffEntrySection, entry: HandoffEntry): Pointer { return { section, id: entry.id, ref: entry.contentRef!, rev: entry.rev, at: entry.at, ...(entry.sourceId ? { sourceId: entry.sourceId } : {}) }; }
-  private async normalize(record: CardHandoff, history: Pointer[]) {
+  /** `inPlace`: an observation-only write keeps each entry's body of its last revision; the next revision writes the version then in the record. */
+  private async normalize(record: CardHandoff, history: History[], inPlace = false) {
     const pointers: Pointer[] = [], path = this.paths(record.taskId);
     for (const section of handoffEntrySections) for (const entry of list(record, section)) {
+      if (inPlace && entry.contentRef) continue;
       if (section === "inputs") {
         const input = entry as HandoffInput;
         if (input.text !== undefined && Buffer.byteLength(input.text) > handoffLimits.inlineBytes) {
@@ -256,6 +366,21 @@ export class HandoffStore {
     }
     return pointers;
   }
+  /** Pointers for what a transaction archives; a version as it was in the record gets its body (the one it names, when that holds the same entry). */
+  private async archivedPointers(taskId: string, history: History[]) {
+    const pointers: Pointer[] = [];
+    for (const item of history) {
+      if (!("entry" in item)) { pointers.push(item); continue; }
+      const { contentRef: named, ...plain } = item.entry, body = JSON.stringify(plain);
+      let ref = hash(body);
+      if (ref !== named) {
+        const same = named && await this.object(taskId, named).then(({ contentRef: _, ...stored }) => isDeepStrictEqual(stored, JSON.parse(body)), () => false);
+        if (same) ref = named; else await this.immutable(join(this.paths(taskId).folder, "entries", `${ref}.json`), body);
+      }
+      pointers.push({ ...this.pointer(item.section, { ...item.entry, contentRef: ref }), ...(item.removal ? { removal: item.removal } : {}) });
+    }
+    return pointers;
+  }
   private result(record: CardHandoff, ackMissing?: string[]): HandoffWriteResult {
     const open = { inputs: 0, questions: 0, findings: 0, running: 0, gaps: 0 };
     for (const section of ["inputs", "questions", "reviews", "running", "gaps"] as const) {
@@ -282,40 +407,49 @@ export class HandoffStore {
       // move the revision (a prepared ACK would fail with ACK_MISMATCH) or rewrite the file.
       if (semantic(record) === semantic(current)) return { result: this.result(current, mutation.ackMissing), stored: "none" };
       // Observation state only (§5.1): written in place under the same revision, write time and writer; each changed entry
-      // keeps the rev and time of its last pinned change.
-      let inPlace = pinned(record) === pinned(current);
-      if (inPlace) this.restamp(record, current); else this.settleCounts(record);
+      // keeps the rev, time and body of its last pinned change. Archiving (a superseded version, or an entry the 1 MiB
+      // budget moves into the archive) is history, so it takes a revision after all.
+      let inPlace = pinned(record) === pinned(current) && !mutation.history.length;
+      if (inPlace) {
+        this.restamp(record, current);
+        if (bytes(record) > handoffLimits.currentBytes) { inPlace = false; record.revision = current.revision + 1; record.updatedAt = this.now(); record.updatedBy = context.by; }
+      }
+      if (!inPlace) this.settleCounts(record);
       await this.preserveIdentities(current, record);
       const budget = agentCharacters(record); if (budget.used > budget.max) throw new HandoffError("HANDOFF_TOO_LARGE", "Agent handoff sections exceed 16000 characters.", budget);
-      const pointers = await this.normalize(record, mutation.history);
-      // The 1 MiB budget moved an entry into the archive: that is history, so it takes a revision after all.
-      if (inPlace && mutation.history.length) {
-        inPlace = false; record.revision = current.revision + 1; record.updatedAt = this.now(); record.updatedBy = context.by;
-        if (this.settleCounts(record)) pointers.push(...await this.normalize(record, mutation.history));
-      }
+      const pointers = await this.normalize(record, mutation.history, inPlace), history = await this.archivedPointers(taskId, mutation.history);
+      await this.options.fault?.("bodies-synced");
       if (!inPlace) record.ops = [...record.ops.filter((id) => id !== operationId), operationId].slice(-50);
       cardHandoffSchema.parse(record); this.identities(record);
       const result = this.result(record, mutation.ackMissing);
       const seen = new Set<string>();
-      const lines = mutation.history.filter((p) => { const key = `${p.section}:${p.id}:${p.ref}`; if (seen.has(key)) return false; seen.add(key); return true; }).map((p, i) => JSON.stringify({ eventId: `${operationId}:${i}`, ...p }) + "\n").join("");
+      const lines = history.filter((p) => { const key = `${p.section}:${p.id}:${p.ref}`; if (seen.has(key)) return false; seen.add(key); return true; }).map((p, i) => JSON.stringify({ eventId: `${operationId}:${i}`, ...p }) + "\n").join("");
       const archiveOffset = await stat(path.archive).then((s) => s.size, (e) => { if (e.code === "ENOENT") return 0; throw e; });
       record.archivedCount += lines.split("\n").length - 1;
       if (bytes(record) > handoffLimits.currentBytes) throw new HandoffError("HANDOFF_TOO_LARGE", "Unresolved handoff indexes fill the 1 MiB budget; existing data is preserved.");
       // An in-place write keeps a receipt only for an explicit operation id (a replay must still be recognized); Flowly's
-      // own observation passes use fresh ids and would only fill ops/.
+      // own observation passes use fresh ids and would only fill ops/. Then it changes the card file alone (unless an entry
+      // from before bodies existed gets its first), and one atomic replacement needs no unfinished-write record.
       const keep = !inPlace || context.operationId !== undefined;
+      if (!keep && !pointers.length) { await this.atomic(path.current, JSON.stringify(record)); await this.options.fault?.("current-synced"); return { result, stored: "observation" }; }
       const intent: Intent = { version: 1, before: current.revision, after: record, archiveOffset, archiveData: lines, pointers, ...(keep ? { receipt: { operationId, digest, result } } : {}), ...(inPlace ? { inPlace: true as const } : {}) };
       await this.atomic(path.intent, JSON.stringify(intent)); await this.options.fault?.("intent-synced");
       await this.recover(taskId);
       return { result, stored: inPlace ? "observation" : "revision" };
     });
   }
-  /** An in-place write: the record and every entry it changed keep the revision, time and writer of their last pinned change. */
+  /**
+   * An in-place write: the record and every entry it changed keep the revision, time and writer of their last pinned change,
+   * and the body of that revision (a reader of this revision pages only bodies it names; the next revision writes the body).
+   */
   private restamp(record: CardHandoff, current: CardHandoff) {
     record.revision = current.revision; record.updatedAt = current.updatedAt; record.updatedBy = current.updatedBy;
     for (const section of handoffEntrySections) {
       const before = new Map(list(current, section).map((entry) => [entry.id, entry]));
-      for (const entry of list(record, section)) { const old = before.get(entry.id); if (old) { entry.rev = old.rev; entry.at = old.at; } }
+      for (const entry of list(record, section)) {
+        const old = before.get(entry.id); if (!old) continue;
+        entry.rev = old.rev; entry.at = old.at; if (old.contentRef) entry.contentRef = old.contentRef; else delete entry.contentRef;
+      }
     }
     if (record.state && current.state) { record.state.rev = current.state.rev; record.state.at = current.state.at; }
     // Occurrences counted in place are not in the revision a reader holds: keep the count that revision had.
@@ -324,12 +458,8 @@ export class HandoffStore {
       if (gap.count !== undefined && counted !== undefined && gap.count > counted) gap.countAtRevision = counted; else delete gap.countAtRevision;
     }
   }
-  /** A new revision holds every occurrence counted so far. Returns whether a gap had counted past its revision. */
-  private settleCounts(record: CardHandoff) {
-    let changed = false;
-    for (const gap of record.gaps) if (gap.countAtRevision !== undefined) { delete gap.countAtRevision; changed = true; }
-    return changed;
-  }
+  /** A new revision holds every occurrence counted so far. */
+  private settleCounts(record: CardHandoff) { for (const gap of record.gaps) delete gap.countAtRevision; }
   /**
    * Closing a gap (an ACK's done / obsolete, or an explicit close) settles the occurrences counted at the revision its reader
    * named; ones counted in place since then keep it open, with that count acknowledged (§7.5). Returns the gap and whether it stays open.
@@ -345,7 +475,7 @@ export class HandoffStore {
   private replace(change: Mutation, section: HandoffEntrySection, value: HandoffEntry, archive = true) {
     const entries = list(change.record, section), index = entries.findIndex((e) => e.id === value.id);
     if (index >= 0) {
-      const previous = entries[index]; if (previous.contentRef && archive && section !== "ledger") change.history.push(this.pointer(section, previous));
+      const previous = entries[index]; if (previous.contentRef && archive && section !== "ledger") change.history.push({ section, entry: previous });
       entries[index] = value;
     } else {
       const overflow = change.record.overflow.findIndex((e) => e.section === section && e.id === value.id);
@@ -551,7 +681,7 @@ export class HandoffStore {
       for (const remove of update.remove ?? []) {
         const old = await this.entry(record, remove.section, remove.id); this.conflict(record, revision, old);
         if (!old) throw new HandoffError("HANDOFF_CONFLICT", "The entry to remove no longer exists.", { id: remove.id });
-        if (old.contentRef) change.history.push({ ...this.pointer(remove.section, old), removal: { reason: remove.reason, by: context.by, at: record.updatedAt, rev: record.revision } });
+        if (old.contentRef) change.history.push({ section: remove.section, entry: old, removal: { reason: remove.reason, by: context.by, at: record.updatedAt, rev: record.revision } });
         const entries = list(record, remove.section), index = entries.findIndex((e) => e.id === remove.id); if (index >= 0) entries.splice(index, 1);
         record.tombstones.push({ section: remove.section, item: remove.id, removedBy: context.by, reason: remove.reason, at: record.updatedAt, rev: record.revision });
       }
@@ -861,12 +991,14 @@ export class HandoffStore {
         return existing;
       }
       const path = this.paths(taskId), stage = path.folder + ".restore-" + randomUUID();
-      this.ledgerRuns.delete(taskId);
+      this.forget(taskId);
       await this.atomic(path.restore, JSON.stringify({ version: 1, record: parsed.data, source, stage, key: hash(JSON.stringify(parsed.data)) })); await this.options.fault?.("restore-intent");
       await this.recoverRestore(taskId); return parsed.data;
     });
   }
-  removeCard(taskId: string) { return this.serial(taskId, async () => { await this.recover(taskId); this.ledgerRuns.delete(taskId); await rm(this.paths(taskId).current, { force: true }); await rm(this.paths(taskId).folder, { recursive: true, force: true }); await stat(this.root).then(() => this.syncDirectory(this.root), (e) => { if (e.code !== "ENOENT") throw e; }); }); }
+  /** Restored data is collected at its next touch like data an older version left (a backup copies what its card held). */
+  private forget(taskId: string) { this.ledgerRuns.delete(taskId); this.archiveRefs.delete(taskId); this.sealRefs.delete(taskId); this.collected.delete(taskId); }
+  removeCard(taskId: string) { return this.serial(taskId, async () => { await this.recover(taskId); this.forget(taskId); await rm(this.paths(taskId).current, { force: true }); await rm(this.paths(taskId).folder, { recursive: true, force: true }); await stat(this.root).then(() => this.syncDirectory(this.root), (e) => { if (e.code !== "ENOENT") throw e; }); }); }
   storageBytes(taskId: string) {
     return this.serial(taskId, async () => {
       const walk = async (path: string): Promise<number> => {
