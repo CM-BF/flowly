@@ -130,7 +130,10 @@ describe("handoff archive and bounds", () => {
   test("full unresolved-index budget rejects the new operation while preserving every existing index", async () => {
     const { store, dir } = await fixture(); await store.appendInput("card", "project", { via: "comment", text: "base" }, human); const record = await store.read("card", "project"); record.inputs = [];
     const item = { section: "inputs" as const, id: "x", rev: 1, at: "2026-10-24", status: "open", firstLine: "未".repeat(160), contentRef: "a".repeat(64), openIds: ["x"] };
-    let n = 0; while (Buffer.byteLength(JSON.stringify(record)) + Buffer.byteLength(JSON.stringify(item)) + 100 < handoffLimits.currentBytes) { const id = `pending:${n++}`; record.overflow.push({ ...item, id, openIds: [id] }); }
+    // Filled in linear time: a running byte total instead of serializing the growing record on every push (about 765 MiB of JSON).
+    let n = 0, size = Buffer.byteLength(JSON.stringify(record)); const limit = handoffLimits.currentBytes - Buffer.byteLength(JSON.stringify(item)) - 100;
+    while (size < limit) { const id = `pending:${n++}`, entry = { ...item, id, openIds: [id] }; record.overflow.push(entry); size += Buffer.byteLength(JSON.stringify(entry)) + (record.overflow.length > 1 ? 1 : 0); }
+    expect(Buffer.byteLength(JSON.stringify(record))).toBe(size);
     const file = join(dir, "handoffs/card.json"); await writeFile(file, JSON.stringify(record)); const before = await readFile(file, "utf8");
     await expect(store.appendInput("card", "project", { via: "comment", text: "new".repeat(1000) }, { ...human, sourceId: "new", unconfirmed: true })).rejects.toMatchObject({ code: "HANDOFF_TOO_LARGE" });
     expect(await readFile(file, "utf8")).toBe(before); expect((await store.read("card", "project")).overflow).toHaveLength(n);
