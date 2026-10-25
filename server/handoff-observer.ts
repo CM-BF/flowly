@@ -378,8 +378,10 @@ export class HandoffObserver {
     const unique = new Map(entries.filter((entry) => entry.section === "inputs" || !existingSources.has(entry.value.sourceId as string)).map((entry) => [String(entry.value.sourceId), entry]));
     let git: HandoffGitSnapshot[] | undefined;
     if (options.forceGit || this.clock() - (this.gitAt.get(taskId) ?? -Infinity) >= 120_000) {
+      // At most once per card every 2 minutes, also when it fails: a card whose workspace is gone was read on every pass.
+      this.gitAt.set(taskId, this.clock());
       try {
-        const observed = await this.git(taskId, board, this.now()); this.check(); this.gitAt.set(taskId, this.clock());
+        const observed = await this.git(taskId, board, this.now()); this.check();
         if (!isDeepStrictEqual(observed.snapshots.map(stripAt), record.git.map(stripAt))) git = observed.snapshots;
         if (observed.unchecked.length) {
           const source = `git-coverage:${taskId}:${digest(observed.unchecked.join())}`;
@@ -390,10 +392,12 @@ export class HandoffObserver {
     this.check();
     const changedSession = !previous || !isDeepStrictEqual(stored(this.comparable(previous)), stored(this.comparable(nextSession)));
     if (!changedSession && !unique.size && !git && !compacted && !gapUpdates.length) return;
-    await this.deps.records.capture(taskId, project.id, { ...(unique.size ? { entries: [...unique.values()] } : {}), ...(gapUpdates.length ? { gaps: gapUpdates } : {}), ...(changedSession ? { session: nextSession } : {}),
+    const written = await this.deps.records.capture(taskId, project.id, { ...(unique.size ? { entries: [...unique.values()] } : {}), ...(gapUpdates.length ? { gaps: gapUpdates } : {}), ...(changedSession ? { session: nextSession } : {}),
       ...(changedThrough ? { cursor: { agentId, through, capturedThrough: this.clock() } } : {}), ...(git ? { git } : {}), ...(compacted ? { forgetSeen: [agentId] } : {}),
       ...(hook?.live.length && options.outcome && meta.lastTimeline !== (resume?.observer?.lastTimeline) ? { lastWords: { agentId, at: this.now(), since: record.checkpoint?.at ?? session.startedAt, text: hook.live.at(-1)!.text.slice(0, 2000) } } : {}) }, flowly);
     if (compacted) this.deps.onCompaction?.(taskId, agentId);
+    // Entries already stored (an archived gap observed again) change nothing; the store kept the revision and the index stands.
+    if (written.handoffRevision === record.revision) return;
     this.check(); await this.deps.syncIndex(taskId);
   }
   /**
@@ -570,9 +574,11 @@ export class HandoffObserver {
   }
   start(managedSessions: () => Promise<ManagedHandoffSession[]>) {
     if (this.timer || this.stopped) return;
-    this.timer = setInterval(() => { if (!this.polling) void this.poll(managedSessions); }, 60_000); this.timer.unref?.();
+    this.timer = setInterval(() => void this.poll(managedSessions), 60_000); this.timer.unref?.();
   }
-  private async poll(managedSessions: () => Promise<ManagedHandoffSession[]>) {
+  /** One bounded pass of the 60-second timer; a pass still running makes another one return at once. */
+  async poll(managedSessions: () => Promise<ManagedHandoffSession[]>) {
+    if (this.polling) return;
     this.polling = true;
     try {
       const sessions = await managedSessions(); this.check();

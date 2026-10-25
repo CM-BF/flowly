@@ -44,6 +44,17 @@ function ledgerHistory(session: HandoffSession) {
 }
 const canonical = (value: unknown): unknown => Array.isArray(value) ? value.map(canonical) : value !== null && typeof value === "object" ? Object.fromEntries(Object.keys(value).sort().map((key) => [key, canonical((value as Record<string, unknown>)[key])])) : value;
 const historyHash = (session: HandoffSession) => hash(JSON.stringify(canonical(ledgerHistory(session))));
+/**
+ * What a transaction must change to be written: the record without its revision, write time, writer and replay ring, its
+ * entries without the rev, time and content reference that every replace stamps, and Git snapshots without their read time.
+ * A mutation that only re-stamps (an archived source captured again, a confirmed source confirmed again) writes nothing.
+ */
+function semantic(record: CardHandoff) {
+  const { revision: _revision, updatedAt: _updated, updatedBy: _by, ops: _ops, ...rest } = record;
+  const entry = (value: object) => { const { rev: _rev, at: _at, contentRef: _ref, ...kept } = value as Record<string, unknown>; return kept; };
+  const sections = Object.fromEntries(handoffEntrySections.map((section) => [section, list(record, section).map(entry)]));
+  return JSON.stringify(canonical(JSON.parse(JSON.stringify({ ...rest, ...sections, ...(rest.state ? { state: entry(rest.state) } : {}), git: rest.git.map(({ at: _at, ...snapshot }) => snapshot) }))));
+}
 /** Per archive file (append-only): the newest archived version of each ledger entry and the offsets of versions whose history equals the next one's. */
 type LedgerRuns = { identity: string; scanned: number; last: Map<string, { offset: number; history: string }>; superseded: Set<number> };
 
@@ -231,10 +242,13 @@ export class HandoffStore {
       const current = (await this.current(taskId, projectId))!, record = clone(current);
       record.revision++; record.updatedAt = this.now(); record.updatedBy = context.by;
       const mutation: Mutation = { record, history: [], changed: new Set() }; await mutate(mutation);
+      if (context.unconfirmed && context.sourceId && [...handoffEntrySections.flatMap((section) => list(record, section)), ...record.overflow].some((e) => e.sourceId === context.sourceId && e.unconfirmed) && !record.pendingOperations.some((o) => o.id === operationId)) record.pendingOperations.push({ id: operationId, sourceId: context.sourceId, at: record.updatedAt });
+      // No semantic change: no revision, no receipt, no bytes. An idle poll re-capturing what is already stored must not
+      // move the revision (a prepared ACK would fail with ACK_MISMATCH) or rewrite the file.
+      if (semantic(record) === semantic(current)) return this.result(current, mutation.ackMissing);
       await this.preserveIdentities(current, record);
       const budget = agentCharacters(record); if (budget.used > budget.max) throw new HandoffError("HANDOFF_TOO_LARGE", "Agent handoff sections exceed 16000 characters.", budget);
       record.ops = [...record.ops.filter((id) => id !== operationId), operationId].slice(-50);
-      if (context.unconfirmed && context.sourceId && [...handoffEntrySections.flatMap((section) => list(record, section)), ...record.overflow].some((e) => e.sourceId === context.sourceId && e.unconfirmed) && !record.pendingOperations.some((o) => o.id === operationId)) record.pendingOperations.push({ id: operationId, sourceId: context.sourceId, at: record.updatedAt });
       const pointers = await this.normalize(record, mutation.history);
       cardHandoffSchema.parse(record); this.identities(record);
       const result = this.result(record, mutation.ackMissing);
