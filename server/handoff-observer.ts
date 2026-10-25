@@ -27,6 +27,8 @@ const nativeCursor = (value: unknown): CaptureCursor | undefined => value && typ
 const stripAt = <T extends { at: string }>(value: T) => { const { at: _, ...rest } = value; return rest; };
 /** Stored records are JSON: compare what would be written, so an undefined-valued key is not a change (an idle poll writes nothing). */
 const stored = <T>(value: T): T => value === undefined ? value : JSON.parse(JSON.stringify(value)) as T;
+/** The error a snapshot carries when Flowly's last read of the card's repositories failed as a whole. */
+const gitUnobserved = "Repository state could not be observed at the last read; these heads may be stale. Do not assume the checkout is clean or unchanged.";
 /** Calls in flight whose result can no longer come become ordinary evidence-free placeholders (in place). */
 const settleInFlight = (background: HandoffSession["background"]) => background.forEach((item, index) => { if (item.inFlight) { const { inFlight: _, ...settled } = item; background[index] = settled; } });
 const temporary = new Set(["partial_line", "backlog", "record_budget", "aborted", "background_handle_pending", "long_line_partial", "source_missing", "source_unreadable", "read_failed", "locator_budget", "unsupported_provider", "invalid_session"]);
@@ -65,6 +67,8 @@ export class HandoffObserver {
   private stopped = false;
   private workers = new Set<Promise<unknown>>();
   private gitAt = new Map<string, number>();
+  /** Per session: the observed turn whose end a poll already read the repositories for. */
+  private turnGit = new Map<string, string>();
   private polling = false;
   private next = 0;
   readonly bridge: AutomationHandoffBridge;
@@ -394,9 +398,15 @@ export class HandoffObserver {
     // Repositories are polled for a session in a turn (SESSION-HANDOFF-SPEC §4 item 2), at most once per card every 2 minutes,
     // also when the read fails. An idle card is read at its turn ends, rotations and handoff writes (forceGit), and an ACK
     // reads the heads itself: polling it recorded every change other cards made in a shared project root (live: about one
-    // revision per card every 2 minutes, each moving the revision a prepared ACK names).
-    if (options.forceGit || inTurn && this.clock() - (this.gitAt.get(taskId) ?? -Infinity) >= 120_000) {
+    // revision per card every 2 minutes, each moving the revision a prepared ACK names). A turn end that only a poll saw
+    // (its hook was lost to a reload or restart, or failed before it observed) is a turn end too: one read, once per turn
+    // (`meta.turnStart` stays for a hook that comes late). A card whose last read failed is read again every 2 minutes.
+    const turnKey = `${taskId}:${agentId}`, turnEnded = !!actor && !inTurn && !!meta.turnStart && this.turnGit.get(turnKey) !== meta.turnStart.id;
+    if (!meta.turnStart) this.turnGit.delete(turnKey);
+    const unobserved = record.git.some((entry) => entry.error === gitUnobserved);
+    if (options.forceGit || turnEnded || (inTurn || unobserved) && this.clock() - (this.gitAt.get(taskId) ?? -Infinity) >= 120_000) {
       this.gitAt.set(taskId, this.clock());
+      if (turnEnded) this.turnGit.set(turnKey, meta.turnStart!.id);
       try {
         const observed = await this.git(taskId, board, this.now()); this.check();
         if (!isDeepStrictEqual(observed.snapshots.map(stripAt), record.git.map(stripAt))) git = observed.snapshots;
@@ -404,7 +414,14 @@ export class HandoffObserver {
           const source = `git-coverage:${taskId}:${digest(observed.unchecked.join())}`;
           if (!existingSources.has(source)) unique.set(source, this.gap(agentId, source, `${observed.unchecked.length} repository locations were not inspected. Git coverage is partial; verify the remaining directories.`));
         }
-      } catch { this.check(); const source = `git-unavailable:${taskId}`; if (!existingSources.has(source)) unique.set(source, this.gap(agentId, source, "Repository state could not be observed. Do not assume the checkout is clean or unchanged.")); }
+      } catch {
+        this.check();
+        // The failure is state on the snapshots themselves (the last known heads, marked unobserved), so every later failure
+        // after a good read is on the card again and the card is due, even after its one gap was acknowledged.
+        const marked = (record.git.length ? record.git : [{ repo: task.sourcePath || "(workspace)", sha: null, dirty: false, at: this.now() }]).map((entry) => ({ ...entry, error: gitUnobserved }));
+        if (!isDeepStrictEqual(marked.map(stripAt), record.git.map(stripAt))) git = marked;
+        const source = `git-unavailable:${taskId}`; if (!existingSources.has(source)) unique.set(source, this.gap(agentId, source, "Repository state could not be observed. Do not assume the checkout is clean or unchanged."));
+      }
     }
     this.check();
     const changedSession = !previous || !isDeepStrictEqual(stored(this.comparable(previous)), stored(this.comparable(nextSession)));
