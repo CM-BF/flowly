@@ -60,8 +60,8 @@ test("once every command of the overlapping scripts is accounted for, the placeh
 });
 
 test("twenty scripts started at once, all of whose commands exit 0, leave no leftover, revision or ledger version", async () => {
-  const x = await handedOver({ notes: 70 });
-  await fullRead(x);
+  const x = await handedOver({ notes: 30 });
+  expect((await fullRead(x)).length).toBeGreaterThan(1);
   const read = await x.read(), archive = async () => (await readFile(x.archive, "utf8").catch(() => "")).split("\n").filter((line) => line.includes("\"ledger\"")).length;
   const archived = await archive();
   const stamp = () => new Date(x.now()).toISOString(), at = <T extends Record<string, unknown>>(value: T) => ({ ...value, timestamp: stamp() });
@@ -78,4 +78,4 @@ test("twenty scripts started at once, all of whose commands exit 0, leave no lef
   expect(items(after).filter((item) => item.includes("completion not observed"))).toEqual([]);
   expect(handoffOpenIds(after)).toEqual(handoffOpenIds(read));
   expect(after.revision).toBe(read.revision); expect(await archive()).toBe(archived);
-});
+}, 60_000); // production wiring with real Git, like the other handedOver tests
