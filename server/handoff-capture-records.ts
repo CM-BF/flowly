@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { handoffMessageSource, handoffSource } from "./handoff-source";
 import { nextRowKind, summaryRowKind } from "../shared/native-session";
 import { detachedCommand } from "./handoff-detached";
-import { locatedGapKinds, type CaptureBackground, type CaptureGap, type CaptureSemantics, type CaptureSource } from "./handoff-capture";
+import { locatedGapKinds, type CaptureBackground, type CaptureGap, type CaptureNotice, type CaptureSemantics, type CaptureSource } from "./handoff-capture";
 
 export const captureLimits = { bytes: 64 * 2 ** 20, line: 256 * 2 ** 10, chunk: 64 * 2 ** 10, records: 5000, gaps: 100, calls: 64, live: 8, liveChars: 4000, messageChars: 800, hints: 8, notices: 20, closed: 64 } as const;
 
@@ -87,6 +87,8 @@ function cliLaunch(command: string, output: string): { kind: "agent" | "async_sh
     return handle ? { kind: "async_shell", handle, label: `async shell: ${label}` } : undefined;
   }
 }
+/** paseo-async-shell's header grammar (shared/message-format.ts MESSAGE_EVENTS); the plugin's ids are task-<12 hex>, other ids are accepted. */
+const asyncShellHeader = /^\[async-shell (finished|failed|timed_out|lost|still_running|sendback|message|request) ([\w.-]{1,200})\] ([^\n]*)(?:\n([\s\S]*))?$/;
 const pluginMetadata = new Set([summaryRowKind, nextRowKind, "activity-list", "guard-decision", "learning-update", "dynamic-workflow-run"]);
 const asyncShellRunning = new Set(["pending", "running"]);
 /** `known`: exec session ids the script text names (write_stdin to an earlier session): their completions are not this script's starts. */
@@ -191,10 +193,42 @@ export class CaptureRecords {
     const gap: CaptureGap = { ...value, id: stableId(value.id), at, lastAt: at, count: value.count ?? 1 };
     if (this.result.gaps.length < captureLimits.gaps) { this.result.gaps.push(gap); this.groups.set(key, gap); } else this.result.omittedGaps++;
   }
-  private notice(key: string, text: string, timestamp: unknown) {
+  private notice(key: string, text: string, timestamp: unknown, kind: CaptureNotice["kind"] = "other", max = 600) {
     if (this.result.notices.some((notice) => notice.id === key)) return;
     if (this.result.notices.length >= captureLimits.notices) { this.gap({ id: `notices:${this.agentId}`, kind: "notice_budget" }); return; }
-    this.result.notices.push({ id: key, text: redactCaptureText(text).slice(0, 600), at: this.time(timestamp).at });
+    this.result.notices.push({ id: key, text: redactCaptureText(text).slice(0, max), at: this.time(timestamp).at, ...(kind !== "other" ? { kind } : {}) });
+  }
+  /**
+   * paseo-async-shell notices (shared/message-format.ts: `[async-shell <event> <taskId>] <summary>`, a blank line, the body).
+   * The shell's own events change its item; a failure keeps why it failed; `sendback` keeps the shell's update;
+   * `message` and `request` carry another agent's words (their task id is the sender's shell) and are returned as a sender
+   * for the caller to keep as an input. Only an unparsable header is a gap.
+   */
+  private asyncShell(text: string, source: CaptureSource, timestamp: unknown): { title?: string; id?: string; open?: boolean } | undefined {
+    const match = asyncShellHeader.exec(text.trimStart());
+    if (!match) { this.gap({ id: `async-notice:${sourceKey(source)}`, kind: "unknown_background_notice", source }); return; }
+    const [, event, handle, summary] = match, body = (match[4] ?? "").replace(/^\n/, ""), at = this.time(timestamp).at;
+    if (event === "message" || event === "request") {
+      const sender = /^(?:Message|Request) from agent ("(?:[^"\\\n]|\\.){0,400}") \(([^()\s]{1,200})\) via its async shell/.exec(summary);
+      const title = sender ? string(parseJson(sender[1])) : "";
+      return { title: title ? redactCaptureText(title).slice(0, 200) : "another agent's async shell", ...(id(sender?.[2]) ? { id: id(sender?.[2]) } : {}), ...(event === "request" ? { open: true } : {}) };
+    }
+    const described = /^(?:Update from your async shell )?"((?:[^"\\\n]|\\.){1,400})"/.exec(summary)?.[1], label = `async shell: ${redactCaptureText(described ? unescapeLiteral(described) : handle).slice(0, 100)}`;
+    if (event === "still_running" || event === "sendback") {
+      // Evidence that the shell runs; never a gap, so the two-hourly reminder does not reopen anything.
+      this.result.background.push({ id: `background:${this.agentId}:async_shell:${handle}`, source, kind: "async_shell", handle, status: "open", label, at });
+      if (event === "sendback") this.notice(`async-sendback:${handle}:${digest(body)}`, `Async shell ${handle}${described ? ` ("${unescapeLiteral(described)}")` : ""} sent an update: ${body.trim() || summary}`, timestamp, "background", 2000);
+      return;
+    }
+    this.result.background.push({ id: `async-notice:${sourceKey(source)}`, source, kind: "async_shell", handle, status: "closed", outcome: event, at, late: true });
+    if (event === "finished") return;
+    // Why it ended: the summary, the first error line of the shell's primary output, the log paths and any cleanup note.
+    const blocks = body.split(/\n{2,}/), tail = blocks.find((block) => /^(?:stderr|stdout)\b[^\n]*:\n/.test(block));
+    const lines = tail ? tail.split("\n").slice(1).map((line) => line.trim()).filter(Boolean) : [];
+    const first = lines.find((line) => /\b(?:error|errors|fail(?:ed|ure)?|fatal|exception|panic|denied|refused|cannot|unable|not found)\b/i.test(line)) ?? lines[0];
+    const logs = /^Logs: (.+?) and (.+?)\.(?:\s|$)/m.exec(body), cleanup = blocks.find((block) => block.startsWith("Note: "));
+    const note = [`Async shell ${handle} ${event}: ${summary.slice(0, 300)}`, first ? `From its ${tail!.split(/[\s:(]/)[0]}: ${first.slice(0, 300)}` : "", logs ? `Logs: ${logs[1].slice(0, 200)} and ${logs[2].slice(0, 200)}.` : "", cleanup ? cleanup.slice(0, 200) : ""].filter(Boolean).join(" ");
+    this.notice(`async-notice:${handle}:${event}`, note, timestamp, "hazard", 1200);
   }
   private time(value: unknown) { return typeof value === "string" && Number.isFinite(Date.parse(value)) ? { at: value, atSource: "provider" as const } : { at: this.capturedAt, atSource: "captured" as const }; }
   /** A completion notice only closes an item already captured; it never invents one. */
@@ -239,18 +273,14 @@ export class CaptureRecords {
       if (wrapped.kind === "agent-notification" && ["finished", "errored", "closed"].includes(wrapped.event!)) this.result.background.push({ id: `notice:${this.agentId}:${wrapped.messageId}`, source, kind: "agent", handle: wrapped.senderId, status: "closed", outcome: wrapped.event, at: this.time(timestamp).at });
     }
     if (!assistant && text.trimStart().startsWith("[Flowly automation]")) return;
-    if (!assistant && text.trimStart().startsWith("[async-shell")) {
-      const notice = /^\[async-shell\s+(finished|failed|timed_out)\s+([\w.-]+)(?:\s|\])/.exec(text.trimStart());
-      if (notice) this.result.background.push({ id: `async-notice:${sourceKey(source)}`, source, kind: "async_shell", handle: notice[2], status: "closed", outcome: notice[1], at: this.time(timestamp).at, late: true });
-      else this.gap({ id: `async-notice:${sourceKey(source)}`, kind: "unknown_background_notice", source });
-      return;
-    }
+    // Words relayed for another agent or a plugin are kept verbatim as that sender's input, never as a person's words.
+    let relay: { title?: string; id?: string; open?: boolean } | undefined;
+    if (!assistant && text.trimStart().startsWith("[async-shell")) { relay = this.asyncShell(text, source, timestamp); if (!relay) return; }
     // Background completions addressed to the agent (Claude task notifications, paseo-dynamic-workflow): close their item, never a person's words.
     // The same plugin marker also relays the user's settings (Ultracode, workflows off): those are words for the agent, kept verbatim.
-    let relay: string | undefined;
     if (!assistant && (/^\s*<task-notification>/.test(text) || text.trimStart().startsWith("[paseo-dynamic-workflow]"))) {
       if (this.taskNotice(text, source, timestamp)) return;
-      relay = text.trimStart().startsWith("[paseo-dynamic-workflow]") ? "paseo-dynamic-workflow" : "background task notification";
+      relay = { title: text.trimStart().startsWith("[paseo-dynamic-workflow]") ? "paseo-dynamic-workflow" : "background task notification" };
     }
     const messageId = source.messageId;
     const fromFlowly = !assistant && !wrapped && !messageId && this.automationTextHashes.includes(createHash("sha256").update(text).digest("hex"));
@@ -263,7 +293,7 @@ export class CaptureRecords {
       this.result.narrationTrimmedChars += safe.length - excerpt.length;
       this.result.live.push({ id: key, source, text: excerpt, ...time, ...(safe.length > excerpt.length ? { truncated: true } : {}), ...(messageId ? { messageId } : {}) });
       while (this.result.live.length > captureLimits.live || this.result.live.reduce((n, item) => n + item.text.length, 0) > captureLimits.liveChars) { this.result.live.shift(); this.result.narrationOmitted++; }
-    } else this.result.inputs.push({ id: key, source, text: safe, ...time, ...(safe !== text ? { redacted: true } : {}), ...(messageId ? { messageId } : {}), via: fromFlowly || relay || wrapped && wrapped.kind !== "user-message" ? "agent" : "session", ...(fromFlowly ? { senderTitle: "Flowly automation" } : relay ? { senderTitle: relay } : {}), ...(wrapped?.senderId ? { senderId: wrapped.senderId } : {}), ...(wrapped?.title ? { senderTitle: redactCaptureText(wrapped.title).slice(0, 200) } : {}), status: received || fromFlowly ? "received" : "open", ...(unlinked && !messageId ? { unlinked: true as const } : {}) });
+    } else this.result.inputs.push({ id: key, source, text: safe, ...time, ...(safe !== text ? { redacted: true } : {}), ...(messageId ? { messageId } : {}), via: fromFlowly || relay || wrapped && wrapped.kind !== "user-message" ? "agent" : "session", ...(fromFlowly ? { senderTitle: "Flowly automation" } : relay?.title ? { senderTitle: relay.title } : {}), ...(relay?.id ? { senderId: relay.id } : {}), ...(wrapped?.senderId ? { senderId: wrapped.senderId } : {}), ...(wrapped?.title ? { senderTitle: redactCaptureText(wrapped.title).slice(0, 200) } : {}), status: (received || fromFlowly) && !relay?.open ? "received" : "open", ...(unlinked && !messageId ? { unlinked: true as const } : {}) });
   }
   private arguments(input: unknown, source: CaptureSource): RecordValue | undefined {
     if (typeof input !== "string") return object(input);

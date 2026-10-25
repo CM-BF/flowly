@@ -56,7 +56,7 @@ export async function observerFixture(options: { provider?: "codex" | "claude"; 
   const observer = new HandoffObserver(deps); observers.push(observer);
   const read = () => records.read("card", "project");
   /** The successor's ACK of every pending id (or the filtered ones) against the revision it just read. */
-  const ack = async (disposition: "done" | "obsolete", note: string, filter: (id: string) => boolean = () => true, record?: CardHandoff) => {
+  const ack = async (disposition: "done" | "obsolete" | "doing" | "ask", note: string, filter: (id: string) => boolean = () => true, record?: CardHandoff) => {
     const read1 = record ?? await read();
     return records.update("card", "project", { handoffRevision: read1.revision, ack: { handoffRevision: read1.revision, heads: [], understanding: "synthetic", items: handoffOpenIds(read1).filter(filter).map((id) => ({ id, disposition, note })) } }, { by: { kind: "agent", agentId: "worker" } }, { agentId: "worker", actualHeads: [] });
   };

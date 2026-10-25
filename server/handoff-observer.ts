@@ -330,7 +330,7 @@ export class HandoffObserver {
     }
     for (const source of semantics) for (const notice of source.notices) {
       const sourceId = handoffSource(`capture-notice:${agentId}:${notice.id}`);
-      entries.push({ section: "notes", value: { id: entryId("nt", sourceId), sourceId, kind: "other", at: notice.at, text: notice.text } });
+      entries.push({ section: "notes", value: { id: entryId("nt", sourceId), sourceId, kind: notice.kind ?? "other", at: notice.at, text: notice.text.slice(0, 2000) } });
     }
     const scripts = { provider: (meta.scripts?.provider ?? 0) + (batch?.cursor ? batch.scriptCalls : 0), timeline: Math.max(meta.scripts?.timeline ?? 0, hook?.scriptCalls ?? 0) };
     if (scripts.provider || scripts.timeline) meta.scripts = scripts;
