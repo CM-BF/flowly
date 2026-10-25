@@ -100,8 +100,8 @@ function agentPath(value: unknown): string | undefined {
   return text.startsWith("/") ? text : `/root/${text}`;
 }
 const subagentTools = new Set(["spawn_agent", "followup_task", "interrupt_agent"]);
-/** Codex item_completed types that are metadata or covered elsewhere (narration comes from the timeline; files from git). */
-const metadataItems = new Set(["Reasoning", "FileChange", "ContextCompaction", "AgentMessage", "Extension", "ImageView", "CollabAgentToolCall", "FunctionCallOutput"]);
+/** Codex item_completed types that are metadata or covered elsewhere (files come from git). */
+const metadataItems = new Set(["Reasoning", "FileChange", "ContextCompaction", "Extension", "ImageView", "CollabAgentToolCall", "FunctionCallOutput"]);
 const pluginMetadata = new Set([summaryRowKind, nextRowKind, "activity-list", "guard-decision", "learning-update", "dynamic-workflow-run"]);
 const asyncShellRunning = new Set(["pending", "running"]);
 /** `known`: exec session ids the script text names (write_stdin to an earlier session): their completions are not this script's starts. */
@@ -149,7 +149,7 @@ export function personalLine(hint: string | undefined) {
 function contentText(content: unknown): string {
   if (typeof content === "string") return content;
   if (!Array.isArray(content)) return "";
-  return content.flatMap((item) => { const value = object(item); return ["text", "input_text", "output_text"].includes(string(value.type)) && typeof value.text === "string" ? [value.text] : []; }).join("\n");
+  return content.flatMap((item) => { const value = object(item); return ["text", "Text", "input_text", "output_text"].includes(string(value.type)) && typeof value.text === "string" ? [value.text] : []; }).join("\n");
 }
 const unescapeXml = (text: string) => text.replace(/&(amp|lt|gt|quot|apos);/g, (_, entity: string) => ({ amp: "&", lt: "<", gt: ">", quot: '"', apos: "'" })[entity]!);
 type Envelope = { kind: string; text: string; messageId?: string; senderId?: string; title?: string; event?: string };
@@ -570,6 +570,10 @@ export class CaptureRecords {
       if (launch) this.push({ id: `background:${this.agentId}:${launch.kind}:${launch.handle}`, kind: launch.kind, handle: launch.handle, status: "open", label: launch.label }, source, this.time(timestamp).at);
       if (detachedCommand(command) && id(itemId)) this.attribute("detached");
       if (detachedCommand(command) && id(itemId)) this.push({ id: `background:${this.agentId}:${itemId}`, kind: "exec", callId: itemId, status: "unknown", label: `detached: ${redactCaptureText(command)}`.slice(0, 120) }, source, this.time(timestamp).at);
+    } else if (type === "AgentMessage") {
+      // This Codex version writes the agent's words only here (no event_msg agent_message): the live narration of a turn
+      // whose turn-end hook may never come. The observer drops the hook's copy of the same words.
+      this.message(contentText(item.content), source, timestamp, true);
     } else if (type === "UserMessage" && id(itemId)) {
       // This Codex version writes a person's words only here (no event_msg user_message). Without Paseo's message id the
       // observer keeps them only when no other source (Flowly send, comment, turn-end timeline) already put that text on the card.
@@ -660,6 +664,8 @@ export class CaptureRecords {
         const info = object(payload.info), contextTokens = number(object(info.last_token_usage).total_tokens), windowTokens = number(info.model_context_window ?? payload.model_context_window);
         if (contextTokens !== undefined) { this.result.usage.push({ id: `usage:${sourceKey(source)}`, source, ...this.time(timestamp), contextTokens, ...(windowTokens ? { windowTokens } : {}), ...(this.firstUsageAvailable && !this.sawUsage ? { initialContextTokens: contextTokens } : {}) }); this.sawUsage = true; }
       } else if (event === "item_completed") this.item(payload.item, source, timestamp);
+      // The turn's final message, repeated at its end: narration when its AgentMessage was not read (the observer drops copies).
+      else if (event === "task_complete") this.message(string(payload.last_agent_message), source, timestamp, true);
       else if (event === "thread_goal_updated") {
         // A /goal objective is a person's standing instruction; repeated updates of the same objective are one input.
         const objective = string(object(payload.goal).objective).trim();
@@ -767,4 +773,4 @@ const claudeMetadataRecords = new Set(["progress", "file-history-snapshot", "fil
  * prompt snapshots, files and memories re-read from disk, effort and mode switches): re-injected or on disk, never a delivery.
  */
 const claudeRoutineAttachments = new Set(["total_tokens_reminder", "deferred_tools_record", "deferred_tools_delta", "environment", "date", "model", "skill_listing", "instructions", "session_context", "credential_org", "remote_session_change", "silent_turn_reminder", "prompt_snapshot", "mcp_instructions_delta", "agent_listing_delta", "auto_mode", "task_reminder", "edited_text_file", "budget_usd", "command_permissions", "nested_memory", "ultra_effort_enter", "ultra_effort_exit", "thinking_drop", "file", "compact_file_reference", "invoked_skills", "read_truncation_notice", "workflow_size_guideline_change"]);
-const metadataEvents = new Set(["task_started", "task_complete", "turn_aborted", "agent_reasoning", "agent_reasoning_raw_content", "item_started", "warning", "error", "context_compacted", "thread_settings_applied"]);
+const metadataEvents = new Set(["task_started", "turn_aborted", "agent_reasoning", "agent_reasoning_raw_content", "item_started", "warning", "error", "context_compacted", "thread_settings_applied"]);

@@ -38,7 +38,8 @@ type NarrationCoverage = { nativeOmitted: number; nativeTrimmed: number; nativeR
  * `located`: location-bearing gaps written individually per kind, at most captureLimits.hints before they are grouped.
  */
 type GapMarks = { provider: Record<string, number>; timeline: Record<string, number>; recent: string[]; seen?: Record<string, string[]>; rows?: Record<string, number>; located?: Record<string, number> };
-type ObserverState = { liveIds?: string[]; providerK?: number; timelineK?: number; compactIds?: string[]; usageId?: string; usageAt?: string; ttl?: number; lastTurn?: string; lastRequest?: string; activeMs?: number; lastTimeline?: string; lastEndedTurnId?: string; turnStart?: { id: string; at: string; observedAt?: string }; sentMessageIds?: string[]; automationTextHashes?: string[]; narration?: NarrationCoverage; gaps?: GapMarks; scripts?: { provider: number; timeline: number }; merged?: { epoch: number; count: number } };
+/** `heard`: digests of narration already on the card (any source), so a provider copy of the hook's words is not kept twice. */
+type ObserverState = { liveIds?: string[]; heard?: string[]; providerK?: number; timelineK?: number; compactIds?: string[]; usageId?: string; usageAt?: string; ttl?: number; lastTurn?: string; lastRequest?: string; activeMs?: number; lastTimeline?: string; lastEndedTurnId?: string; turnStart?: { id: string; at: string; observedAt?: string }; sentMessageIds?: string[]; automationTextHashes?: string[]; narration?: NarrationCoverage; gaps?: GapMarks; scripts?: { provider: number; timeline: number }; merged?: { epoch: number; count: number } };
 type Resume = Partial<CaptureCursor> & { observer?: ObserverState };
 export type HandoffObservation = { timeline?: readonly unknown[]; outcome?: "completed" | "failed" | "canceled"; received?: boolean; forceGit?: boolean };
 export type HandoffSessionOptions = { role?: HandoffSession["role"]; reason?: string; model?: AgentModel; previousAgentId?: string };
@@ -259,10 +260,20 @@ export class HandoffObserver {
     const live = new Map<string, HandoffSession["live"][number]>();
     (meta.liveIds ?? []).forEach((id, index) => { if (session.live[index]) live.set(id, session.live[index]); });
     const originalLive = new Map(live);
+    // The same words reach the card from the provider file and from the turn-end hook under different ids (§5.7): the hook's
+    // copy replaces a provider copy (keeping the timeline's order), and a provider copy of words already heard is dropped.
+    const words = (text: string) => normalized(text).slice(0, 16), heard = new Set(meta.heard ?? []), hookIds = new Set(hook?.live.map((item) => item.id) ?? []);
+    const providerAdded: HandoffSession["live"][number][] = [];
     for (const source of semantics) for (const item of source.live) {
-      const old = originalLive.get(item.id); live.delete(item.id);
-      live.set(item.id, old && old.text === item.text ? { ...old, ...(item.truncated ? { truncated: true } : {}) } : { at: item.at, text: item.text.slice(0, 800), ...(item.truncated || item.text.length > 800 ? { truncated: true } : {}) });
+      const old = originalLive.get(item.id), key = words(item.text);
+      if (source === hook) { for (const [id, value] of live) if (id !== item.id && !hookIds.has(id) && words(value.text) === key) live.delete(id); }
+      else if (!old && (heard.has(key) || [...live].some(([id, value]) => id !== item.id && words(value.text) === key))) continue;
+      heard.add(key); live.delete(item.id);
+      const next = old && old.text === item.text ? { ...old, ...(item.truncated ? { truncated: true } : {}) } : { at: item.at, text: item.text.slice(0, 800), ...(item.truncated || item.text.length > 800 ? { truncated: true as const } : {}) };
+      live.set(item.id, next);
+      if (source !== hook && !old) providerAdded.push(next);
     }
+    meta.heard = [...heard].slice(-64);
     let rolledOff = 0;
     while (live.size > 8 || [...live.values()].reduce((sum, item) => sum + item.text.length, 0) > 4000) { live.delete(live.keys().next().value!); rolledOff++; }
     meta.liveIds = [...live.keys()];
@@ -380,11 +391,16 @@ export class HandoffObserver {
       } catch { this.check(); const source = `git-unavailable:${taskId}`; if (!existingSources.has(source)) unique.set(source, this.gap(agentId, source, "Repository state could not be observed. Do not assume the checkout is clean or unchanged.")); }
     }
     this.check();
+    // §5.8: the hook's final at a turn end; otherwise new provider narration since the last handoff write, for a turn whose hook never comes.
+    const since = record.checkpoint?.at ?? session.startedAt, spoken = [...live.values()].filter((value) => !record.checkpoint || time(value.at) > time(record.checkpoint.at));
+    const newest = providerAdded.at(-1), joined = spoken.map((value) => value.text).join("\n");
+    const lastWords = hook?.live.length && options.outcome && meta.lastTimeline !== (resume?.observer?.lastTimeline) ? { agentId, at: this.now(), since, text: hook.live.at(-1)!.text.slice(0, 2000) }
+      : newest && spoken.length && (record.lastWords?.agentId !== agentId || time(newest.at) >= time(record.lastWords.at)) ? { agentId, at: newest.at, since, text: joined.length > 2000 ? `…${joined.slice(-1999)}` : joined } : undefined;
     const changedSession = !previous || !isDeepStrictEqual(stored(this.comparable(previous)), stored(this.comparable(nextSession)));
-    if (!changedSession && !unique.size && !git && !compacted && !gapUpdates.length) return;
+    if (!changedSession && !unique.size && !git && !compacted && !gapUpdates.length && !lastWords) return;
     await this.deps.records.capture(taskId, project.id, { ...(unique.size ? { entries: [...unique.values()] } : {}), ...(gapUpdates.length ? { gaps: gapUpdates } : {}), ...(changedSession ? { session: nextSession } : {}),
       ...(changedThrough ? { cursor: { agentId, through, capturedThrough: this.clock() } } : {}), ...(git ? { git } : {}), ...(compacted ? { forgetSeen: [agentId] } : {}),
-      ...(hook?.live.length && options.outcome && meta.lastTimeline !== (resume?.observer?.lastTimeline) ? { lastWords: { agentId, at: this.now(), since: record.checkpoint?.at ?? session.startedAt, text: hook.live.at(-1)!.text.slice(0, 2000) } } : {}) }, flowly);
+      ...(lastWords ? { lastWords } : {}) }, flowly);
     if (compacted) this.deps.onCompaction?.(taskId, agentId);
     this.check(); await this.deps.syncIndex(taskId);
   }

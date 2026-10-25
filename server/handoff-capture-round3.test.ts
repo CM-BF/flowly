@@ -121,3 +121,48 @@ test("R3-C2 Claude: a matched background command that completed keeps its status
   expect(view.gaps).toEqual([]); expect(view.open).toBe(0);
 });
 
+// ---------------------------------------------------------------- Codex narration without a turn-end hook (loss-r3-L3)
+const progress = "Root cause found: the session cookie is set without SameSite=None, so the login callback drops it. I changed src/auth/cookie.ts and started the e2e suite; next I will fix the Safari redirect.";
+const said = (id: string, text: string, phase = "commentary") => codexItem({ type: "AgentMessage", id, content: [{ type: "Text", text }], phase });
+
+test("R3-D1 Codex: passive capture keeps the narration of a turn that never reached its turn-end hook, and lastWords", async () => {
+  const x = await observerFixture();
+  await x.append([codexTyped("01a170bb-u1", "Fix the login bug on Safari"), said("msg-1", progress)]);
+  await x.poll();
+  const record = await x.read();
+  expect(record.ledger[0].live.map((item) => item.text)).toEqual([progress]);
+  expect(record.lastWords).toMatchObject({ agentId: "worker", text: progress });
+});
+
+test("R3-D2 comparison: Claude's passive capture keeps the same narration", async () => {
+  const x = await observerFixture({ provider: "claude" });
+  await x.append([{ ...claudeBase, type: "user", uuid: "u-1", message: { role: "user", content: "Fix the login bug on Safari" } }, { ...claudeBase, type: "assistant", uuid: "a-1", message: { id: "r-1", content: [{ type: "text", text: progress }] } }]);
+  await x.poll();
+  const record = await x.read();
+  expect(record.ledger[0].live.map((item) => item.text)).toEqual([progress]);
+  expect(record.lastWords?.text).toBe(progress);
+});
+
+test("the provider copy, the turn's task_complete final and the hook copy of the same words are one narration entry", async () => {
+  const x = await observerFixture();
+  const final = "Fixed: the cookie now sets SameSite=None; e2e green at 4f5e6d7.";
+  await x.append([codexTyped("01a170bb-u1", "Fix the login bug on Safari"), said("msg-1", progress), said("msg-2", final, "final_answer"), codexEvent("task_complete", { turn_id: "t", last_agent_message: final })]);
+  await x.poll();
+  for (let n = 0; n < 2; n++) await x.hook([{ type: "user_message", text: "Fix the login bug on Safari", messageId: "m-1" }, { type: "assistant_message", text: progress }, { type: "assistant_message", text: final }]);
+  await x.append([said("msg-3", "Next turn: checking the Firefox path.")]); await x.poll();
+  const record = await x.read();
+  expect(record.ledger[0].live.map((item) => item.text)).toEqual([progress, final, "Next turn: checking the Firefox path."]);
+  expect(record.ledger[0].turns.map((turn) => turn.final)).toEqual([final]);
+  expect(record.lastWords?.text).toBe(`${progress}\n${final}\nNext turn: checking the Firefox path.`);
+  expect(successorView(record).inputs).toEqual(["session:received:-:Fix the login bug on Safari"]);
+});
+
+test("a turn's task_complete final reaches the card when its AgentMessage was not read", async () => {
+  const x = await observerFixture();
+  await x.append([codexEvent("task_started", { turn_id: "t" }), codexEvent("task_complete", { turn_id: "t", last_agent_message: "Done: migration 0042 applied on staging." })]);
+  await x.poll();
+  const record = await x.read();
+  expect(record.ledger[0].live.map((item) => item.text)).toEqual(["Done: migration 0042 applied on staging."]);
+  expect(record.lastWords?.text).toBe("Done: migration 0042 applied on staging.");
+});
+
