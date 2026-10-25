@@ -80,7 +80,9 @@ async function idleBoard() {
   for (const s of sessions) {
     const id = uuid(s.n);
     if (s.provider === "codex") {
-      const folder = join(codexHome, "sessions", "2025", "10", "28"); await mkdir(folder, { recursive: true });
+      // The locator searches the day folders around the session's UUID v7 time (local time), as Codex writes them.
+      const stamp = new Date(parseInt(id.replace(/-/g, "").slice(0, 12), 16));
+      const folder = join(codexHome, "sessions", String(stamp.getFullYear()), String(stamp.getMonth() + 1).padStart(2, "0"), String(stamp.getDate()).padStart(2, "0")); await mkdir(folder, { recursive: true });
       const event = (type: string, data: Record<string, unknown>) => ({ timestamp: at, type: "event_msg", payload: { type, ...data } });
       await writeFile(join(folder, `rollout-idle-${id}.jsonl`), [
         { timestamp: at, type: "session_meta", payload: { id, session_id: id, cwd: s.cwd } },
@@ -118,13 +120,20 @@ async function idleBoard() {
     return { handoffs, observer, automation };
   };
   const managed = async (): Promise<ManagedHandoffSession[]> => sessions.map(({ taskId, agentId }) => ({ taskId, agentId }));
+  /** Every session that has a provider file was captured from it (its cursor names the file), so a broken fixture cannot pass silently. */
+  const providersRead = async (handoffs: HandoffService) => {
+    for (const s of sessions.filter((session) => session.agentId !== "g-gone")) {
+      const entry = (await handoffs.records.read(s.taskId, "project")).ledger.find((session) => session.agentId === s.agentId) ?? await handoffs.records.sessionRecord(s.taskId, s.agentId);
+      expect({ agentId: s.agentId, path: entry?.through?.path }).toEqual({ agentId: s.agentId, path: expect.stringContaining(uuid(s.n)) });
+    }
+  };
   /** Work of other cards in the shared project root: a commit in one repository, another edit of an already-dirty file. */
   const elsewhere = async (minute: number) => {
     if (minute === 6) { await writeFile(join(alpha, "app", "CHANGELOG.md"), "another card's change\n"); await git(join(alpha, "app"), "add", "CHANGELOG.md"); await git(join(alpha, "app"), "commit", "-q", "-m", "another card"); }
     if (minute === 9) await writeFile(join(alpha, "lib", "README.md"), "fixture, edited again by someone else\n");
     if (minute === 20) { await writeFile(join(wide, "service-3", "NOTES.md"), "x\n"); await git(join(wide, "service-3"), "add", "NOTES.md"); await git(join(wide, "service-3"), "commit", "-q", "-m", "elsewhere"); }
   };
-  return { directory, alpha, board, sessions, actors, wire, managed, elsewhere, advance: (ms: number) => { now += ms; } };
+  return { directory, alpha, board, sessions, actors, wire, managed, providersRead, elsewhere, advance: (ms: number) => { now += ms; } };
 }
 
 test("idle cards keep their revision and every file byte through the whole idle loop and a plugin reload", async () => {
@@ -137,6 +146,8 @@ test("idle cards keep their revision and every file byte through the whole idle 
     await observer.observe(s.taskId, s.agentId, { timeline: [{ type: "user_message", text: `Fix card ${s.taskId}`, messageId: `m-${s.agentId}` }, { type: "assistant_message", text: `Card ${s.taskId}: tests pass; delivered.` }], outcome: "completed", forceGit: true });
   }
   for (let minute = 0; minute < 5; minute++) { x.advance(60_000); await observer.poll(x.managed); await automation.kick(); }
+  // Every session with a provider file was really read: the loop below covers provider capture of idle sessions.
+  await x.providersRead(handoffs);
   // A real idle state also has acknowledged Flowly gaps pushed out of the 40-entry current list into the archive.
   const beta = await handoffs.records.read("beta", "project"), unavailable = beta.gaps.find((gap) => gap.sourceId === "git-unavailable:beta");
   expect(unavailable).toBeTruthy();
@@ -187,6 +198,7 @@ test("a quiet running turn writes nothing either: its repositories are read ever
   // beta's current session is in a long, quiet turn (its provider file does not grow) and its workspace cannot be read.
   Object.assign(x.actors.get("b-impl")!, { status: "running", activeTurn: { turnId: "turn-long", startedAt: at } });
   for (let minute = 0; minute < 3; minute++) { x.advance(60_000); await observer.poll(x.managed); }
+  await x.providersRead(handoffs);
   const beta = await handoffs.records.read("beta", "project"), unavailable = beta.gaps.find((gap) => gap.sourceId === "git-unavailable:beta")!;
   await handoffs.records.update("beta", "project", { handoffRevision: beta.revision, gaps: [{ id: unavailable.id, status: "closed", note: "Checked by hand: the workspace folder was archived." }] }, { by: { kind: "human" } });
   for (let batch = 0; batch < 5; batch++) {
