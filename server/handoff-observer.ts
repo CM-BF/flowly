@@ -24,6 +24,8 @@ const entryId = (prefix: string, source: string) => `${prefix}:${digest(source).
 const time = (at: string | undefined) => at && Number.isFinite(Date.parse(at)) ? Date.parse(at) : 0;
 const nativeCursor = (value: unknown): CaptureCursor | undefined => value && typeof value === "object" && (value as CaptureCursor).version === 1 ? value as CaptureCursor : undefined;
 const stripAt = <T extends { at: string }>(value: T) => { const { at: _, ...rest } = value; return rest; };
+/** Stored records are JSON: compare what would be written, so an undefined-valued key is not a change (an idle poll writes nothing). */
+const stored = <T>(value: T): T => value === undefined ? value : JSON.parse(JSON.stringify(value)) as T;
 const temporary = new Set(["partial_line", "backlog", "record_budget", "aborted", "background_handle_pending", "long_line_partial", "source_missing", "source_unreadable", "read_failed", "locator_budget", "unsupported_provider", "invalid_session"]);
 const kinds = { async_shell: "async_shell", exec: "exec_session", browser: "browser_tab", terminal: "terminal", workspace_script: "script", agent: "subagent", schedule: "schedule", heartbeat: "heartbeat" } as const;
 type SessionDraft = NonNullable<HandoffCapture["session"]>;
@@ -351,7 +353,7 @@ export class HandoffObserver {
       ...(batch?.coverage.fileBytes !== undefined ? { size: batch.coverage.fileBytes, lagBytes: batch.coverage.backlogBytes } : {}),
       gaps: currentGaps.length + unavailable.length + semantics.reduce((sum, source) => sum + source.omittedGaps, 0),
       resume: { ...(cursor ?? resume ?? {}), observer: meta } };
-    const oldThrough = session.through && stripAt(session.through), changedThrough = !isDeepStrictEqual(oldThrough, stripAt(through));
+    const oldThrough = session.through && stripAt(session.through), changedThrough = !isDeepStrictEqual(stored(oldThrough), stored(stripAt(through)));
     if (changedThrough) through.at = this.now();
     const scriptText = scriptCalls ? ` ${scriptCalls} script or workflow calls ran here; Flowly lists only background work they evidently left running, and their other inner tool calls remain in the session's raw history.` : "";
     const nextSession: SessionDraft = { ...session, ...(actor ? { provider: actor.provider, ...(actor.model ? { model: actor.model } : {}), ...(session.provider === "unknown" ? { startedAt: actor.createdAt } : {}) } : {}), sourceId: handoffSource(`session:${agentId}`), measured, growth: [...growth.values()], background,
@@ -371,7 +373,7 @@ export class HandoffObserver {
       } catch { this.check(); const source = `git-unavailable:${taskId}`; if (!existingSources.has(source)) unique.set(source, this.gap(agentId, source, "Repository state could not be observed. Do not assume the checkout is clean or unchanged.")); }
     }
     this.check();
-    const changedSession = !previous || !isDeepStrictEqual(this.comparable(previous), this.comparable(nextSession));
+    const changedSession = !previous || !isDeepStrictEqual(stored(this.comparable(previous)), stored(this.comparable(nextSession)));
     if (!changedSession && !unique.size && !git && !compacted && !gapUpdates.length) return;
     await this.deps.records.capture(taskId, project.id, { ...(unique.size ? { entries: [...unique.values()] } : {}), ...(gapUpdates.length ? { gaps: gapUpdates } : {}), ...(changedSession ? { session: nextSession } : {}),
       ...(changedThrough ? { cursor: { agentId, through, capturedThrough: this.clock() } } : {}), ...(git ? { git } : {}), ...(compacted ? { forgetSeen: [agentId] } : {}),

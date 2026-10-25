@@ -75,7 +75,9 @@ export async function captureHandoff(agent: HistoryAgent & { id: string }, previ
         cursor.firstUsageAvailable = false;
         records.gap({ id: `reset:${agent.id}:${fileId}:${cursor.epoch}`, kind: initial.size < previous.offset ? "file_truncated" : "file_replaced", from: 0, to: previous.offset });
       } else {
-        cursor = { ...previous, calls: previous.calls?.map((call) => structuredClone(call)), closed: previous.closed && [...previous.closed], sessions: previous.sessions && [...previous.sessions], skipping: previous.skipping && { ...previous.skipping }, path: location.file.path };
+        // No undefined-valued keys: the stored cursor is JSON, and a key it lacks must not look like a change on every idle poll.
+        const { calls, closed, sessions, skipping, ...rest } = previous;
+        cursor = { ...rest, ...(calls ? { calls: calls.map((call) => structuredClone(call)) } : {}), ...(closed ? { closed: [...closed] } : {}), ...(sessions ? { sessions: [...sessions] } : {}), ...(skipping ? { skipping: { ...skipping } } : {}), path: location.file.path };
         if (previous.path !== cursor.path) records.gap({ id: `moved:${agent.id}:${fileId}:${cursor.epoch}`, kind: "file_moved", from: previous.offset, to: previous.offset });
       }
     }
