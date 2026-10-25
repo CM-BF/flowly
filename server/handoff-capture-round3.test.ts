@@ -213,6 +213,11 @@ test("a start call that failed started nothing: no item and no gap, only a note 
     "background:cancel_async_shell failed (call call-cancel-9); what it targeted keeps its state: no such task"]);
 });
 
+test("a poll call that failed changes nothing and keeps nothing", () => {
+  const b = captureTimeline("agent", [{ type: "tool_call", name: "write_stdin", callId: "ws-1", status: "failed", detail: { input: { session_id: "4242", chars: "" }, output: { error: "no such session" } } }], { outcome: "completed" });
+  expect(b.background).toEqual([]); expect(b.notices).toEqual([]); expect(b.gaps).toEqual([]);
+});
+
 // ---------------------------------------------------------------- Claude host-injected user records (noise-r3-2)
 const meta = (n: number) => ({ ...claudeBase, type: "user", uuid: `meta-${n}`, isMeta: true, message: { role: "user", content: [{ type: "text", text: `Base directory for this skill: /tmp/synthetic/skill-${n}\n\nSynthetic skill body.` }] } });
 const summary = (n: number) => ({ ...claudeBase, type: "user", uuid: `sum-${n}`, isCompactSummary: true, message: { role: "user", content: "This session is being continued from a previous conversation. Synthetic summary." } });

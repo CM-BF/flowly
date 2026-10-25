@@ -579,10 +579,11 @@ export class CaptureRecords {
   }
   /**
    * A known tool call that failed (`isError`, `ok: false`, an error): a start started nothing, as for "collab spawn failed",
-   * and a close or poll left its target as it was. Not an item or a gap: a note keeps the error, and an in-flight
-   * placeholder from an earlier poll is settled.
+   * and a close left its target as it was. Not an item or a gap: a note keeps the error (a failed poll changes nothing and
+   * keeps nothing), and an in-flight placeholder from an earlier poll is settled.
    */
   private failedCall(call: PendingCaptureCall, data: RecordValue, value: unknown, source: CaptureSource) {
+    if (call.action === "poll") return;
     const reason = (raw: unknown) => typeof raw === "string" ? raw : string(object(raw).message) || string(object(raw).error);
     const error = redactCaptureText((reason(data.error) || (typeof value === "string" ? value : "") || string(data.message)).replace(/\s+/g, " ").trim()).slice(0, 300);
     const what = call.action === "start" ? ", so Flowly assumes it started nothing" : "; what it targeted keeps its state";
