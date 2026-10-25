@@ -693,6 +693,12 @@ export class CaptureRecords {
           const ttl = (number(cache.ephemeral_1h_input_tokens) ?? 0) > 0 ? 3300 : (number(cache.ephemeral_5m_input_tokens) ?? 0) > 0 ? 240 : undefined;
           this.result.usage.push({ id: `usage:${sourceKey(source)}`, source, ...this.time(timestamp), contextTokens, ...(this.firstUsageAvailable && !this.sawUsage ? { initialContextTokens: contextTokens } : {}), ...(ttl ? { cacheTtlSeconds: ttl } : {}), ...(id(message.id) ? { messageId: id(message.id) } : {}) }); this.sawUsage = true;
         }
+      } else if (type === "queue-operation") {
+        // A task notice absorbed into a running turn is written only here (enqueue, then remove with reason absorbed_mid_turn);
+        // both copies and any later delivery carry the same task id and status, so they close and note once.
+        const content = entry.content;
+        if (typeof content === "string" && content.includes("<task-notification>") && !this.taskNotice(content, source, timestamp))
+          this.gap({ id: `type:${sourceKey(source)}`, kind: "unknown_record_type", source, typeHint: "queue-operation/task-notification" });
       } else if (type === "system" && entry.subtype === "compact_boundary") this.result.compactions.push({ id: `compact:${sourceKey(source)}`, source, at: this.time(timestamp).at, ...(number(object(entry.compactMetadata).preTokens) !== undefined ? { preTokens: number(object(entry.compactMetadata).preTokens) } : {}) });
       else if (type === "system" && !["turn_duration", "api_error", "local_command", "stop_hook_summary"].includes(string(entry.subtype))) this.gap({ id: `system:${sourceKey(source)}`, kind: "unknown_system_type", source, typeHint: redactCaptureText(string(entry.subtype)).slice(0, 80) || "unknown" });
       else if (type === "pr-link") {
@@ -780,6 +786,19 @@ export class CaptureRecords {
     const parsed: Envelope = { kind: event === "message" ? "agent-message" : "agent-notification", text, messageId: id8, senderId, ...(string(sender.title) ? { title: string(sender.title) } : {}), ...(event === "message" ? {} : { event }) };
     this.message(text, { ...source, messageId: id8 }, timestamp, false, received, undefined, parsed);
   }
+  /**
+   * Paseo 0.12 projects every Claude task notice (delivered, queued or absorbed mid-turn) into a `task_notification`
+   * tool_call row: the raw notice in detail.text when Paseo had it, otherwise its task id, status and output file in
+   * metadata and its summary as the label (the error message on failure). Read like the notice itself.
+   */
+  private taskRow(item: RecordValue, source: CaptureSource, timestamp: unknown) {
+    const detail = object(item.detail), metadata = object(item.metadata), raw = string(detail.text);
+    if (raw.includes("<task-notification>") && this.taskNotice(raw, source, timestamp)) return;
+    const tag = (name: string, value: string) => value.trim() ? `<${name}>${value.trim()}</${name}>` : "";
+    const summary = string(detail.label) || string(object(item.error).message);
+    const rebuilt = `<task-notification>${tag("task-id", string(metadata.taskId))}${tag("status", string(metadata.status) || string(item.status))}${tag("summary", summary)}${tag("output-file", string(metadata.outputFile))}</task-notification>`;
+    if (!this.taskNotice(rebuilt, source, timestamp)) this.gap({ id: `timeline:${sourceKey(source)}`, kind: "unknown_timeline_type", source, typeHint: "tool_call/task_notification" });
+  }
   timeline(items: readonly unknown[], received: boolean) {
     this.origin = "timeline";
     const counts = new Map<string, number>();
@@ -795,6 +814,7 @@ export class CaptureRecords {
       else if (type === "tool_call") {
         const callId = id(item.callId) ?? `timeline:${fingerprint}:${occurrence}`, detail = object(item.detail);
         if (string(item.name) === "agent_message" && callId.startsWith("paseo-agent-message:")) { this.agentRow(item, callId.slice("paseo-agent-message:".length), source, timestamp, received); continue; }
+        if (string(item.name) === "task_notification" && string(object(item.metadata).source) === "claude_task_notification") { this.taskRow(item, source, timestamp); continue; }
         if (string(detail.type) === "shell") { this.shell(item, callId, detail, source, timestamp); continue; }
         this.call(string(item.name), callId, detail.input ?? item.input, source, timestamp);
         if (["completed", "failed", "canceled"].includes(string(item.status))) this.output(callId, detail.output ?? item.output ?? item.metadata, source, item.status !== "completed");
