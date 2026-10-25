@@ -125,6 +125,10 @@ test("a placeholder that became history while its pool outlived the turn stays o
   const ended = await y.read();
   expect(items(ended)).toEqual(["closed:cell:7:script cell 7 still running", placeholder]);
   expect(handoffOpenIds(ended)).toHaveLength(1);
+  // Read in one batch after the turn: the placeholder is history from the start, never transient.
+  const z = await observerFixture(); await z.poll();
+  await z.append([watcher("s1"), out("s1", "Script running with cell ID 7"), script("s2", "npm run dev"), out("s2"), script("s3", "npm test"), script("s4", "git status"), done(7003, "npm test"), done(7004, "git status"), out("s3"), out("s4")]); await z.poll();
+  expect(items(await z.read())).toEqual(["open:cell:7:script cell 7 still running", placeholder]);
 });
 
 test("a settled placeholder a running pool no longer needed closes once the last member returns with the exact count", async () => {
