@@ -63,14 +63,17 @@ function semantic(record: CardHandoff) {
 /**
  * What moves the revision that page cursors, ACKs and entry conflicts pin: the semantic record without its observation
  * state. Ledger observation (what ledgerHistory strips: cursor, measurements, growth, narration preview, coverage text,
- * script count, calls in flight, progress events), Git snapshots (Flowly reads them again at every turn end, rotation and
+ * script count, calls in flight, progress events), the growth of open gaps, Git snapshots (Flowly reads them again at every turn end, rotation and
  * handoff write, and an ACK checks the heads against its own fresh read) and the read cache are written in place: the
  * successor's own running turn, observed every minute, no longer restarts its full read or refuses its ACK (§5.1, §7.5).
  */
 function pinned(record: CardHandoff) {
   const { revision: _revision, updatedAt: _updated, updatedBy: _by, ops: _ops, seen: _seen, git: _git, ...rest } = record;
   const entry = (value: object) => { const { rev: _rev, at: _at, contentRef: _ref, ...kept } = value as Record<string, unknown>; return kept; };
-  const sections = Object.fromEntries(handoffEntrySections.map((section) => [section, section === "ledger" ? record.ledger.map(ledgerHistory) : list(record, section).map(entry)]));
+  // An open gap that grows (count, first and last occurrence) is the same obligation, as for the delivery gate
+  // (handoffRequirementsHash): written in place. A new gap, a reopened one and a closed one are pinned.
+  const gap = (value: HandoffGap) => { const kept = entry(value); if (value.status === "open") { delete kept.count; delete kept.firstAt; delete kept.lastAt; } return kept; };
+  const sections = Object.fromEntries(handoffEntrySections.map((section) => [section, section === "ledger" ? record.ledger.map(ledgerHistory) : section === "gaps" ? record.gaps.map(gap) : list(record, section).map(entry)]));
   return JSON.stringify(canonical(JSON.parse(JSON.stringify({ ...rest, ...sections, ...(rest.state ? { state: entry(rest.state) } : {}) }))));
 }
 /** Per archive file (append-only): the newest archived version of each ledger entry and the offsets of versions whose history equals the next one's. */

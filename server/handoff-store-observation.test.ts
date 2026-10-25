@@ -71,6 +71,23 @@ test("a page cursor and an ACK of a revision survive observation, not a new requ
   await expect(ack(third.revision)).rejects.toMatchObject({ code: "ACK_MISMATCH" });
 });
 
+test("an open grouped gap that grows is written in place; a new gap, a close and a reopen each take a revision", async () => {
+  const { store, read } = await fixture();
+  const grouped = (count: number, lastAt: string) => ({ gaps: [{ id: "g:tool", sourceId: "capture-gaps:worker:long_line", agentId: "worker", text: "Capture gap (long_line): response_item/function_call_output (tool output), first ones in bytes 10–300010.", count, firstAt: at, lastAt }] });
+  const later = (minutes: number) => new Date(Date.parse(at) + minutes * 60_000).toISOString();
+  const before = await read();
+  await expect(store.capture("card", "project", grouped(1, at), flowly)).resolves.toMatchObject({ stored: "revision", handoffRevision: before.revision + 1 });
+  const opened = await read();
+  // The same obligation, counted further: the revision a page cursor or an ACK names stands, and nothing is archived.
+  await expect(store.capture("card", "project", grouped(3, later(2)), flowly)).resolves.toMatchObject({ stored: "observation", handoffRevision: opened.revision });
+  expect(await read()).toMatchObject({ revision: opened.revision, archivedCount: opened.archivedCount, gaps: expect.arrayContaining([expect.objectContaining({ id: "g:tool", status: "open", count: 3, lastAt: later(2), rev: opened.gaps.find((gap) => gap.id === "g:tool")!.rev })]) });
+  const closed = await store.update("card", "project", { handoffRevision: opened.revision, gaps: [{ id: "g:tool", status: "closed", note: "My own test output; nothing of the card in it." }] }, { by: { kind: "agent", agentId: "worker" } }, { agentId: "worker" });
+  expect(closed.handoffRevision).toBe(opened.revision + 1);
+  // Growth past the acknowledged count reopens it: that is a requirement again.
+  await expect(store.capture("card", "project", grouped(4, later(5)), flowly)).resolves.toMatchObject({ stored: "revision", handoffRevision: opened.revision + 2 });
+  expect((await read()).gaps.find((gap) => gap.id === "g:tool")).toMatchObject({ status: "open", count: 4 });
+});
+
 test.each(["intent-synced", "archive-synced", "current-synced", "sources-synced", "intent-removed"])("an observation write interrupted after %s recovers once, under the same revision", async (point) => {
   let armed = false;
   const { dir, store } = await fixture((reached) => { if (armed && reached === point) { armed = false; throw new Error("crash"); } });

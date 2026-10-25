@@ -31,6 +31,8 @@ const stored = <T>(value: T): T => value === undefined ? value : JSON.parse(JSON
 const gitUnobserved = "Repository state could not be observed at the last read; these heads may be stale. Do not assume the checkout is clean or unchanged.";
 /** Calls in flight whose result can no longer come become ordinary evidence-free placeholders (in place). */
 const settleInFlight = (background: HandoffSession["background"]) => background.forEach((item, index) => { if (item.inFlight) { const { inFlight: _, ...settled } = item; background[index] = settled; } });
+/** Skipped content the session produced itself (tool output, its own narration): never a person's words (§5.7). */
+const ownContent = (key: string) => { const [kind, hint] = key.split("\0"); return kind === "large_tool_result_omitted" || kind === "long_line" && !personalLine(hint); };
 const temporary = new Set(["partial_line", "backlog", "record_budget", "aborted", "background_handle_pending", "long_line_partial", "source_missing", "source_unreadable", "read_failed", "locator_budget", "unsupported_provider", "invalid_session"]);
 const kinds = { async_shell: "async_shell", exec: "exec_session", browser: "browser_tab", terminal: "terminal", workspace_script: "script", agent: "subagent", schedule: "schedule", heartbeat: "heartbeat" } as const;
 type SessionDraft = NonNullable<HandoffCapture["session"]>;
@@ -40,8 +42,9 @@ type NarrationCoverage = { nativeOmitted: number; nativeTrimmed: number; nativeR
  * Occurrence counts per gap group (kind + type hint): provider batches add; the hook's whole timeline adds only rows whose
  * identity was not seen (`seen`, bounded digests per group; `rows`: that group's occurrences in the last hook).
  * `located`: location-bearing gaps written individually per kind, at most captureLimits.hints before they are grouped.
+ * `held`: skipped content the session produced itself in its running turn, per group, written as a gap when the turn is over.
  */
-type GapMarks = { provider: Record<string, number>; timeline: Record<string, number>; recent: string[]; seen?: Record<string, string[]>; rows?: Record<string, number>; located?: Record<string, number> };
+type GapMarks = { provider: Record<string, number>; timeline: Record<string, number>; recent: string[]; seen?: Record<string, string[]>; rows?: Record<string, number>; located?: Record<string, number>; held?: Record<string, CaptureGap> };
 /** `heard`: digests of narration already on the card (any source), so a provider copy of the hook's words is not kept twice. */
 type ObserverState = { liveIds?: string[]; heard?: string[]; providerK?: number; timelineK?: number; compactIds?: string[]; usageId?: string; usageAt?: string; ttl?: number; lastTurn?: string; lastRequest?: string; activeMs?: number; lastTimeline?: string; lastEndedTurnId?: string; turnStart?: { id: string; at: string; observedAt?: string }; sentMessageIds?: string[]; automationTextHashes?: string[]; narration?: NarrationCoverage; gaps?: GapMarks; scripts?: { provider: number; timeline: number }; merged?: { epoch: number; count: number } };
 type Resume = Partial<CaptureCursor> & { observer?: ObserverState };
@@ -222,7 +225,11 @@ export class HandoffObserver {
       entries.push({ section: "inputs", value });
     }
     const meta = state;
-    const gapUpdates = this.captureGaps(agentId, meta, batch, hook);
+    // The session's turn is over once it is idle, gone or ended and its provider file was read to the end (SESSION-HANDOFF-SPEC
+    // §5.7): until then its calls in flight and the output it produces that is too long to keep are observation state, so its
+    // own work never moves the revision its read and its ACK pin.
+    const turnOver = !!session.endedAt || (actor ? !inTurn && !captureFailed && !batch?.coverage.backlogBytes : !snapshotFailed);
+    const gapUpdates = this.captureGaps(agentId, meta, batch, hook, !turnOver);
     const background = [...session.background];
     /**
      * The oldest evidence-free item of a kind (no handle was ever seen): a completion whose start was not itemized settles it. Exec placeholders are only the "completion not observed" ones.
@@ -269,10 +276,10 @@ export class HandoffObserver {
         ...(item.event ? { event: item.event.slice(0, 200) } : old?.event ? { event: old.event } : {}) };
       if (index >= 0) background[index] = next; else background.push(next);
     }
-    // A call is in flight only while its session is in a turn (SESSION-HANDOFF-SPEC §5.7). Once the session is idle, gone or
-    // ended, and its provider file was read to the end, a call without its result will get none: it is leftover work like
-    // any evidence-free placeholder (it counts on the board, enters the delivery gate and is ledger history).
-    if (session.endedAt || (actor ? !inTurn && !captureFailed && !batch?.coverage.backlogBytes : !snapshotFailed)) settleInFlight(background);
+    // A call is in flight only while its session is in a turn (SESSION-HANDOFF-SPEC §5.7). Once the turn is over, a call
+    // without its result will get none: it is leftover work like any evidence-free placeholder (it counts on the board,
+    // enters the delivery gate and is ledger history).
+    if (turnOver) settleInFlight(background);
     this.mergeBackground(agentId, session.n, background, meta, entries);
     const unlisted = this.boundBackground(background);
     const live = new Map<string, HandoffSession["live"][number]>();
@@ -379,8 +386,10 @@ export class HandoffObserver {
     // A start call whose result is not written yet is its own in-flight background item; it is not missing coverage.
     const currentGaps = semantics.flatMap((source) => source.gaps).filter((gap) => temporary.has(gap.kind) && gap.kind !== "background_handle_pending");
     const unavailable = captureFailed ? ["Provider capture failed; the previous cursor is preserved."] : !actor ? [snapshotFailed ? "Session snapshot could not be refreshed." : "The managed session is unavailable; its uncaptured content is unknown."] : [];
+    const heldCount = Object.values(meta.gaps?.held ?? {}).reduce((sum, gap) => sum + (gap.count ?? 0), 0);
+    const heldText = heldCount ? [`${heldCount} ${heldCount === 1 ? "record" : "records"} of this running turn (its tool output or its own narration) ${heldCount === 1 ? "was" : "were"} too long to keep; they are listed as a capture gap when the turn ends`] : [];
     const flightText = unlisted ? [`${unlisted} ${unlisted === 1 ? "call in flight is" : "calls in flight are"} not listed (the 40 background entries are full); each stays observed while it runs, and is listed if it is still without a result when the session stops`] : [];
-    const coverageText = [...unavailable, ...flightText, ...(narrationText ? [narrationText] : []), ...currentGaps.map((gap) => `${gap.kind}${gap.bytes === undefined ? "" : ` (${gap.bytes} bytes)`}`), ...semantics.filter((source) => source.omittedGaps).map((source) => `${source.omittedGaps} additional capture gaps omitted`)].join("; ");
+    const coverageText = [...unavailable, ...flightText, ...heldText, ...(narrationText ? [narrationText] : []), ...currentGaps.map((gap) => `${gap.kind}${gap.bytes === undefined ? "" : ` (${gap.bytes} bytes)`}`), ...semantics.filter((source) => source.omittedGaps).map((source) => `${source.omittedGaps} additional capture gaps omitted`)].join("; ");
     const cursor = batch?.cursor ?? nativeCursor(resume);
     const through = { ...(session.through ?? { path: "", identity: `unavailable:${agentId}`, offset: 0, size: 0, at: this.now(), lagBytes: 0, gaps: 0 }),
       ...(cursor ? { path: cursor.path, identity: `${cursor.fileId}:${cursor.epoch}`, offset: cursor.offset } : {}),
@@ -452,8 +461,8 @@ export class HandoffObserver {
    * deduplicated by occurrence id, and the hook's whole timeline adds only rows whose identity was not seen. Location-bearing
    * gaps (a skipped long paste, an unparsable line) are their own entries, the first captureLimits.hints per kind.
    */
-  private captureGaps(agentId: string, meta: ObserverState, batch: CaptureBatch | undefined, hook: CaptureSemantics | undefined): NonNullable<HandoffCapture["gaps"]> {
-    const marks: GapMarks = { provider: { ...(meta.gaps?.provider ?? {}) }, timeline: { ...(meta.gaps?.timeline ?? {}) }, recent: [...(meta.gaps?.recent ?? [])], seen: { ...(meta.gaps?.seen ?? {}) }, rows: { ...(meta.gaps?.rows ?? {}) }, located: { ...(meta.gaps?.located ?? {}) } };
+  private captureGaps(agentId: string, meta: ObserverState, batch: CaptureBatch | undefined, hook: CaptureSemantics | undefined, hold: boolean): NonNullable<HandoffCapture["gaps"]> {
+    const marks: GapMarks = { provider: { ...(meta.gaps?.provider ?? {}) }, timeline: { ...(meta.gaps?.timeline ?? {}) }, recent: [...(meta.gaps?.recent ?? [])], seen: { ...(meta.gaps?.seen ?? {}) }, rows: { ...(meta.gaps?.rows ?? {}) }, located: { ...(meta.gaps?.located ?? {}) }, ...(meta.gaps?.held ? { held: { ...meta.gaps.held } } : {}) };
     const total = (key: string) => Math.max(marks.provider[key] ?? 0, marks.timeline[key] ?? 0);
     const known = new Set([...Object.keys(marks.provider), ...Object.keys(marks.timeline)]), before = new Map([...known].map((key) => [key, total(key)]));
     // At most captureLimits.hints type hints per kind and session; further hints share one "other types" group.
@@ -505,15 +514,36 @@ export class HandoffObserver {
       marks.timeline[key] = (marks.timeline[key] ?? 0) + fresh.length; marks.seen![key] = [...seen, ...fresh].slice(-128);
       changed.set(key, span(changed.get(key), { ...gap, count: 0 }));
     }
-    if (changed.size || hook?.gaps.length) meta.gaps = marks;
-    return [...updates, ...[...changed].filter(([key]) => total(key) > (before.get(key) ?? 0)).map(([key, gap]) => {
-      const hint = key.endsWith("\0*") ? "other types" : gap.typeHint;
-      const sourceId = handoffSource(`capture-gaps:${agentId}:${key}`);
-      const where = ranges(gap).join(", ") || `${gap.source?.offset ?? "?"}–${gap.source?.end ?? "?"}`;
-      const located = !locatedGapKinds.has(gap.kind) ? "." : gap.kind.startsWith("long_line") && !personalLine(gap.typeHint) ? ` (${/output|tool_result|CommandExecution|McpToolCall|FunctionCall|ImageView|Extension|FileChange/.test(hint ?? "") ? "tool output" : "not a person's words"}), first ones in bytes ${where}.`
-        : `. More than ${captureLimits.hints} occurred; each earlier one is its own gap; these start in bytes ${where}.`;
-      return { id: entryId("g", sourceId), sourceId, agentId, text: `Capture gap (${gap.kind})${hint ? `: ${hint}` : ""}${located} This content was not preserved; count, firstAt and lastAt cover every occurrence in this session.`.slice(0, 300), count: total(key), ...(gap.at ? { firstAt: gap.at } : {}), ...(gap.lastAt ? { lastAt: gap.lastAt } : {}) };
-    })];
+    // What the running session produced itself (its tool output, its own narration) waits for the end of its turn
+    // (SESSION-HANDOFF-SPEC §5.7): the successor's own test run must not move the revision its read and its ACK pin, nor
+    // reopen a gap it settled. Held groups keep their count, times and first byte ranges; then they are one gap as before.
+    const held = { ...(marks.held ?? {}) }, written = new Map<string, CaptureGap>(), wasHeld = !!marks.held;
+    for (const [key, gap] of [...changed].filter(([key]) => total(key) > (before.get(key) ?? 0))) {
+      if (hold && ownContent(key)) {
+        const kept = span(held[key], { ...gap, count: total(key) - (before.get(key) ?? 0) });
+        held[key] = { id: kept.id, kind: kept.kind, count: kept.count, ...(kept.typeHint !== undefined ? { typeHint: kept.typeHint } : {}), ...(kept.at ? { at: kept.at } : {}), ...(kept.lastAt ? { lastAt: kept.lastAt } : {}), ranges: ranges(kept).slice(0, captureLimits.ranges) };
+        continue;
+      }
+      written.set(key, held[key] ? span(held[key], { ...gap, count: 0 }) : gap); delete held[key];
+    }
+    if (!hold) for (const [key, gap] of Object.entries(held)) { if (!written.has(key)) written.set(key, gap); delete held[key]; }
+    if (Object.keys(held).length) marks.held = held; else delete marks.held;
+    if (changed.size || hook?.gaps.length || wasHeld || marks.held) meta.gaps = marks;
+    return [...updates, ...[...written].map(([key, gap]) => this.groupedGap(agentId, key, gap, total(key)))];
+  }
+  /** One grouped gap: its text names the kind, the type hint and, for located kinds, where the first occurrences are. */
+  private groupedGap(agentId: string, key: string, gap: CaptureGap, count: number): NonNullable<HandoffCapture["gaps"]>[number] {
+    const hint = key.endsWith("\0*") ? "other types" : gap.typeHint;
+    const sourceId = handoffSource(`capture-gaps:${agentId}:${key}`);
+    const where = (gap.ranges ?? (gap.from !== undefined ? [`${gap.from}–${gap.to ?? gap.from}`] : [])).join(", ") || `${gap.source?.offset ?? "?"}–${gap.source?.end ?? "?"}`;
+    const located = !locatedGapKinds.has(gap.kind) ? "." : gap.kind.startsWith("long_line") && !personalLine(gap.typeHint) ? ` (${/output|tool_result|CommandExecution|McpToolCall|FunctionCall|ImageView|Extension|FileChange/.test(hint ?? "") ? "tool output" : "not a person's words"}), first ones in bytes ${where}.`
+      : `. More than ${captureLimits.hints} occurred; each earlier one is its own gap; these start in bytes ${where}.`;
+    return { id: entryId("g", sourceId), sourceId, agentId, text: `Capture gap (${gap.kind})${hint ? `: ${hint}` : ""}${located} This content was not preserved; count, firstAt and lastAt cover every occurrence in this session.`.slice(0, 300), count, ...(gap.at ? { firstAt: gap.at } : {}), ...(gap.lastAt ? { lastAt: gap.lastAt } : {}) };
+  }
+  /** At a seal, what the session held for the end of its turn is a gap now (the marks lose it). */
+  private releaseHeld(agentId: string, marks: GapMarks): NonNullable<HandoffCapture["gaps"]> {
+    const updates = Object.entries(marks.held ?? {}).map(([key, gap]) => this.groupedGap(agentId, key, gap, Math.max(marks.provider[key] ?? 0, marks.timeline[key] ?? 0)));
+    delete marks.held; return updates;
   }
   /**
    * At more than 40 active entries, the oldest ones (evidence-free placeholders first) are merged into one open entry per
@@ -595,9 +625,13 @@ export class HandoffObserver {
     if (session && !session.endedAt) {
       const finalized = !!rotation?.finalize?.startedAt && record.checkpoint?.agentId === context.fromAgentId && time(record.checkpoint.at) >= time(rotation.finalize.startedAt);
       const lastWords = this.sealWords(record, session);
-      // A sealed session gets no more results: a call still in flight is leftover work from here on (§5.7).
+      // A sealed session gets no more results: a call still in flight is leftover work from here on, and output it produced
+      // that was too long to keep is a gap (§5.7).
       const background = [...session.background]; settleInFlight(background);
-      this.check(); await this.deps.records.capture(context.taskId, project.id, { session: { ...session, background, endedAt: this.now(), endReason: context.reason, finalized, abandoned: undefined, handoffRevisionAtEnd: record.revision }, ...(lastWords ? { lastWords } : {}) }, flowly);
+      const resume = session.through?.resume as Resume | undefined, marks = resume?.observer?.gaps;
+      const gaps = marks?.held ? this.releaseHeld(context.fromAgentId, marks) : [];
+      const through = gaps.length ? { ...session.through!, resume: { ...resume, observer: { ...resume!.observer, gaps: marks } } } : session.through;
+      this.check(); await this.deps.records.capture(context.taskId, project.id, { session: { ...session, background, ...(through ? { through } : {}), endedAt: this.now(), endReason: context.reason, finalized, abandoned: undefined, handoffRevisionAtEnd: record.revision }, ...(gaps.length ? { gaps } : {}), ...(lastWords ? { lastWords } : {}) }, flowly);
     }
     if (context.gap) await this.rotationGap(context, context.gap);
     this.check(); const sealed = await this.deps.records.seal(context.taskId, context.rotationId, project.id);
