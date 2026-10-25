@@ -22,7 +22,8 @@ import { resolveAiLanguage } from "./shared/ai-language";
 import { ComposerService, ComposerStore } from "./server/composer";
 import { adoptIdea } from "./server/ideas";
 import { createLink, deleteLink } from "./server/links";
-import { addComment } from "./server/comments";
+import { HandoffService } from "./server/handoff-service";
+import { HandoffObserver } from "./server/handoff-observer";
 import { ArtifactService } from "./server/artifacts";
 import { WorkpadService } from "./server/workpad";
 import { ConnectorService, migrateTicketDirectory, refKey } from "./server/connectors/service";
@@ -80,6 +81,10 @@ export default function contribute(server: PluginServerContext) {
   };
   if (!process.env.FLOWLY_DATA_DIR && !process.env.ULTRA_KANBAN_DATA_DIR) migrateLegacyPluginData();
   const store = new BoardStore(dataDirectory());
+  const handoffs = new HandoffService(store);
+  store.handoffBackup = async (taskIds, destination) => {
+    for (const taskId of taskIds) await handoffs.records.exportCard(taskId, join(destination, taskId));
+  };
   // The Next moves card in Paseo's own timeline (NATIVE-SESSION-SPEC §6.1).
   const nextRows = new NextMoveRows(store);
   // The language of everything AI writes (AI-LANGUAGE-SPEC §3); unreadable settings fall back along the chain.
@@ -163,6 +168,8 @@ export default function contribute(server: PluginServerContext) {
   server.handle(rpc.workflowInsightsOverview, () => workflow.overview());
   server.handle(rpc.purgeWorkflowCommands, async () => ({ deletedProjects: await workflow.purge() }));
   const service = new BoardService(store);
+  service.restoreLock = handoffs.withCards.bind(handoffs);
+  service.restoreHandoffs = (taskIds) => handoffs.restoreLocal(taskIds, true);
   service.insightFindings = { check: (p, id) => workflow.check(p, id), accept: (p, id, taskId) => workflow.accept(p, id, taskId) };
   // Read-only external inputs (CONNECTORS-SPEC): credentials and requests stay in the daemon.
   try {
@@ -218,6 +225,7 @@ export default function contribute(server: PluginServerContext) {
   );
   server.handle(rpc.markSessionUnread, (input, { paseo }) => readService.markUnread(input, paseo));
   const composer = new ComposerService(new ComposerStore(store.directory), store);
+  composer.handoffs = handoffs;
   server.handle(rpc.readComposer, (_, { paseo }) => {
     void composer.drainAll(paseo).catch(() => undefined);
     return composer.read();
@@ -242,25 +250,43 @@ export default function contribute(server: PluginServerContext) {
   );
   server.handle(rpc.wrapup, (input, { paseo }) => wrapups.run(input, paseo));
   const tools = new ToolServer(store);
+  let handoffPaseo: PaseoApi;
+  const handoffObserver = new HandoffObserver({
+    records: handoffs.records, board: store, paseo: () => handoffPaseo,
+    serial: handoffs.serial.bind(handoffs), syncIndex: handoffs.syncIndex.bind(handoffs),
+    onCompaction: (taskId, agentId) => handoffs.forgetRead(taskId, agentId),
+  });
+  tools.agents.handoffs = handoffs;
+  handoffObserver.start(() => handoffPaseo ? tools.managedSessions() : Promise.resolve([]));
   // Agent automation (AUTOMATION-SPEC): Hermes Kanban's dispatcher, supervision and review loop, per project.
   const classifier = new ReviewClassifier(store, summaries.settings);
   const folderCommit = store.onCommit;
   store.onCommit = () => { folderCommit?.(); classifier.schedule(); };
   const automation = new AutomationService(store, {
+    handoff: handoffObserver.bridge,
     classifyReview: (taskId, paseo) => classifier.forReview(taskId, paseo),
-    prepare: (taskId, operationId, paseo, options) => tools.prepareSession(taskId, operationId, paseo, options),
+    prepare: async (taskId, operationId, paseo, options) => {
+      handoffs.attach(paseo);
+      const prepared = await tools.prepareSession(taskId, operationId, paseo, options);
+      const board = await store.read(), task = board.tasks.find((task) => task.id === taskId), job = board.automation.find((job) => job.taskId === taskId);
+      if (task && !options?.reviewer) await handoffs.launch(taskId, prepared.agentId, { messageId: `launch:${operationId}`, text: task.brief ?? task.description, model: job?.sessionModels?.implementer ?? job?.launchModel, role: "implementer" });
+      return prepared;
+    },
     globalModel: async () => {
       const state = await modelPrefs.read().catch(() => null);
       return agentModelFromValues(state?.status === "ready" ? modelSettingsValues(state.values) : null);
     },
   });
   tools.agents.automation = automation;
+  handoffs.automation = automation;
   service.automation = automation;
   // Agents create cards and sub-cards (SUB-CARDS-SPEC §3) through the same path as New task.
   tools.agents.createTask = (input, paseo, agent) => service.createTask(input, paseo, agent);
   automation.start();
   // Every handler and hook hands its Paseo connection on: the tools use it, and the dispatcher runs on the latest.
   const attach = (paseo: PaseoApi) => {
+    handoffPaseo = paseo;
+    handoffs.attach(paseo);
     tools.attach(paseo);
     classifier.attach(paseo);
     automation.attach(paseo);
@@ -354,9 +380,12 @@ export default function contribute(server: PluginServerContext) {
     await tools.start().catch(() => undefined);
     return tools.health();
   });
-  server.handle(rpc.prepareSession, (input, { paseo }) =>
-    tools.prepareSession(input.id, input.operationId, paseo),
-  );
+  server.handle(rpc.prepareSession, async (input, { paseo }) => {
+    attach(paseo);
+    const prepared = await tools.prepareSession(input.id, input.operationId, paseo);
+    if (input.launch) await handoffs.launch(input.id, prepared.agentId, input.launch);
+    return prepared;
+  });
   server.handle(rpc.prepareExisting, (input, { paseo }) =>
     tools.prepareExisting(input.id, input.agentId, paseo),
   );
@@ -415,7 +444,17 @@ export default function contribute(server: PluginServerContext) {
   });
   server.handle(rpc.updateTaskTags, (input) => store.editTags(input));
   // Card comments (CARD-COMMENTS-SPEC §4): recorded here; the client then sends the text to a session.
-  server.handle(rpc.commentTask, async (input) => ({ event: await addComment(store, input) }));
+  server.handle(rpc.commentTask, async (input) => ({ event: await handoffs.comment(input) }));
+  server.handle(rpc.readHandoff, async ({ taskId, etag, cursor, full }, { paseo }) => {
+    attach(paseo);
+    return ifChanged(await handoffs.context(taskId, undefined, { full, cursor }), etag);
+  });
+  server.handle(rpc.recordHandoffInput, (input, { paseo }) => { attach(paseo); return handoffs.recordInput(input); });
+  server.handle(rpc.sendHandoffInput, ({ mode, ...input }, { paseo }) => { attach(paseo); return handoffs.send(input, mode); });
+  server.handle(rpc.confirmHandoffInput, (input, { paseo }) => { attach(paseo); return handoffs.confirmInput(input); });
+  server.handle(rpc.noteHandoff, (input) => handoffs.note(input));
+  server.handle(rpc.markHandoffInput, (input) => handoffs.markInput(input));
+  server.handle(rpc.continueHandoff, (input, { paseo }) => { attach(paseo); return handoffs.continue(input); });
   server.handle(rpc.placeTask, async (input, { paseo }) => {
     const previous = await statusOf(input.id);
     const task = await store.placeTask(input);
@@ -435,7 +474,7 @@ export default function contribute(server: PluginServerContext) {
   });
   server.handle(rpc.removeProject, async (input, { paseo }) => {
     const taskIds = new Set((await store.read()).tasks.filter((t) => t.projectId === input.id).map((t) => t.id));
-    const removed = await service.removeProject(input, paseo);
+    const removed = await handoffs.removeWithBackup([...taskIds], () => service.removeProject(input, paseo));
     await summaries.store.removeTasks(input.id, taskIds).catch((e) =>
       console.error("Kanban summaries not removed:", e instanceof Error ? e.message : String(e)),
     );
@@ -500,7 +539,7 @@ export default function contribute(server: PluginServerContext) {
       ? await wrapups.run({ ...input, keepCard: true, purpose: "delete" }, paseo)
       : null;
     const projectId = (await store.read()).tasks.find((t) => t.id === input.id)?.projectId;
-    const deleted = await store.deleteTask(input);
+    const deleted = await handoffs.removeWithBackup([input.id], () => store.deleteTask(input));
     attach(paseo); void automation.kick();
     if (projectId)
       await flow.removeTask(projectId, deleted.id).catch((e) =>
@@ -573,12 +612,14 @@ export default function contribute(server: PluginServerContext) {
     }
     // The previous turn's Next moves card goes (in place) as this turn starts; never blocks the hook.
     tools.agents.turnStarted(identity);
+    await handoffObserver.ensureSession(identity.taskId, identity.agentId);
+    const handoffRole = (await handoffs.role(identity))?.role;
     void nextRows.turnStarted(identity.agentId, paseo);
     const auto = await autoStatusOn();
     await store.mutate((board) => {
       recordLifecycle(store, board, identity, "agent.turn_started");
       // An automation reviewer's turn, in its round or after its verdict, is not work on the card: it stays In review (AUTOMATION-SPEC §5).
-      if (auto && !reviewerJob(board, identity.agentId)) applyTurnStarted(store, board, identity, event.agent.title);
+      if (auto && handoffRole !== "retired" && handoffRole !== "finalizing" && !reviewerJob(board, identity.agentId)) applyTurnStarted(store, board, identity, event.agent.title);
     });
     void automation.turnStarted(identity.agentId, identity.taskId).catch((e) =>
       console.error("Flowly automation turn start not handled:", e instanceof Error ? e.message : String(e)),
@@ -602,12 +643,14 @@ export default function contribute(server: PluginServerContext) {
     // events and none of those steps changes it, so the card waits for nothing. Never blocks the hook.
     if (event.outcome.kind === "completed") void nextRows.turnEnded(identity, paseo);
     const auto = await autoStatusOn();
+    const handoffRole = (await handoffs.role(identity))?.role;
+    await handoffObserver.observe(identity.taskId, identity.agentId, { timeline: event.timeline, outcome: event.outcome.kind, received: handoffRole !== "retired" && handoffRole !== "finalizing", forceGit: true });
     // Agent habits (WORKFLOW-INSIGHTS-SPEC §12.4): the model this turn ran on, and whether the user's message took one of the suggestions that were open.
     const model = await sessionModel(paseo, event.agent);
     const texts = userTexts(event.timeline);
     await store.mutate((board) => {
       recordLifecycle(store, board, identity, "agent.turn_ended", event.outcome, { model, pick: turnPick(board.events, identity.agentId, texts) });
-      if (auto) applyTurnEnded(store, board, identity, event.outcome);
+      if (auto && handoffRole !== "retired" && handoffRole !== "finalizing") applyTurnEnded(store, board, identity, event.outcome);
     });
     // After the status rules: automation reads where the card ended up (AUTOMATION-SPEC §4.2).
     void automation.turnEnded(identity.agentId).catch((e) =>
@@ -619,7 +662,7 @@ export default function contribute(server: PluginServerContext) {
       .then((board) => memory.recordTurn(identity, event.timeline, board))
       .catch((e) => console.error("Flowly memory clue not recorded:", e instanceof Error ? e.message : String(e)));
     // The session's plan and the workspace HEAD for the workpad (WORKPAD-SPEC §2.2, §5.2); never blocks the hook.
-    void workpads.recordTurn(identity, event.timeline, paseo).catch((e) =>
+    if (handoffRole !== "retired" && handoffRole !== "finalizing") void workpads.recordTurn(identity, event.timeline, paseo).catch((e) =>
       console.error("Kanban workpad plan not recorded:", e instanceof Error ? e.message : String(e)),
     );
     // Progress summary (TASK-SUMMARY-SPEC): runs after the hook returns, never blocks it.
@@ -683,6 +726,8 @@ export default function contribute(server: PluginServerContext) {
     }
   });
   return () => {
+    handoffs.stop();
+    const stoppedHandoff = handoffObserver.stop();
     const stoppedClassifier = classifier.stop();
     automation.stop();
     workflow.stop();
@@ -690,6 +735,6 @@ export default function contribute(server: PluginServerContext) {
     stopFeaturePrefs();
     folders.stop();
     tools.stop();
-    return stoppedClassifier;
+    return Promise.all([stoppedClassifier, stoppedHandoff]).then(() => undefined);
   };
 }
