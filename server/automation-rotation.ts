@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import type { SessionPolicyFacts } from "../shared/session-measurement";
 import type { AgentModel } from "../shared/agent-defaults";
 import type { AutomationJob, AutomationRotation } from "../shared/automation-schema";
 
@@ -6,9 +7,10 @@ import type { AutomationJob, AutomationRotation } from "../shared/automation-sch
 export type RotationContext = {
   taskId: string; rotationId: string; role: AutomationRotation["role"]; fromAgentId: string;
   reason: AutomationRotation["reason"]; carry: AutomationRotation["carry"];
-  model?: AgentModel; allowFinalize: boolean; gap?: string;
+  model?: AgentModel; allowFinalize: boolean; gap?: string; continuation?: { id: string; text: string; fresh: string; kind?: string };
 };
 export type AutomationHandoffBridge = {
+  measure?(context: { taskId: string; agentId: string }): Promise<SessionPolicyFacts>;
   prepare(context: RotationContext): Promise<{ finalize?: string }>;
   seal(context: RotationContext): Promise<{ prompt: string; revision?: number }>;
   committed?(context: RotationContext & { toAgentId: string }): Promise<void>;
@@ -17,7 +19,7 @@ export type AutomationHandoffBridge = {
 
 export const rotationContext = (job: AutomationJob, allowFinalize = false): RotationContext => {
   const r = job.rotation!;
-  return { taskId: job.taskId, rotationId: r.id, role: r.role, fromAgentId: r.fromAgentId, reason: r.reason, carry: r.carry, model: r.model, allowFinalize, gap: r.gap };
+  return { taskId: job.taskId, rotationId: r.id, role: r.role, fromAgentId: r.fromAgentId, reason: r.reason, carry: r.carry, model: r.model, allowFinalize, gap: r.gap, continuation: r.carry.continuation };
 };
 
 /** Begin before deleting either identity: carry and the previous owner survive every crash point. */

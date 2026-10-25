@@ -521,7 +521,7 @@ export const toolContextSchema = z.object({
       reviewLevel: reviewLevelContextSchema.optional(),
       /** `risks`: the reviewer's risks beyond the acceptance criteria (AUTOMATION-SPEC §5.2.4); `risksNote`: that they came from an earlier delivery, or were omitted to keep get_task bounded. */
       handoff: z
-        .object({ branch: z.string().optional(), directory: z.string().optional(), evidence: z.string(), blockers: z.array(z.string()), risks: z.array(z.string()).optional(), risksNote: z.string().optional() })
+        .object({ branch: z.string().optional(), directory: z.string().optional(), evidence: z.string(), blockers: z.array(z.string()), risks: z.array(z.string()).optional(), risksNote: z.string().optional(), continuity: z.string().max(1500).optional() })
         .optional(),
     }),
   ),

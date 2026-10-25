@@ -32,8 +32,69 @@ async function fixture(options: { fault?: (point: string) => void; override?: Pa
   const serial = <T>(id: string, fn: () => Promise<T>): Promise<T> => { const next = (serials.get(id) ?? Promise.resolve()).then(fn); serials.set(id, next.catch(() => undefined)); return next; };
   const deps: HandoffObserverDeps = { records, board, paseo: () => paseo, serial, syncIndex, clock: () => now, capture, git, onCompaction: compaction, ...options.override };
   const observer = new HandoffObserver(deps); observers.push(observer);
-  return { directory, board, records, actor, observer, capture, git, noTimeline, compaction, restart: () => { const next = new HandoffObserver(deps); observers.push(next); return next; }, setBatch: (b: CaptureBatch) => { current = b; }, advance: (ms: number) => { now += ms; }, read: () => records.read("card", "project") };
+  return { directory, board, records, actor, observer, capture, git, noTimeline, compaction, serial, restart: () => { const next = new HandoffObserver(deps); observers.push(next); return next; }, setBatch: (b: CaptureBatch) => { current = b; }, advance: (ms: number) => { now += ms; }, read: () => records.read("card", "project") };
 }
+
+test("policy measurement under the card service queue never recursively waits on that queue or advances capture", async () => {
+  const x = await fixture(); await x.observer.ensureSession("card", "worker");
+  Object.assign(x.actor, { lastUsage: { contextWindowUsedTokens: 170000, contextWindowMaxTokens: 258400 } });
+  const before = await x.read();
+  const facts = await x.serial("card", () => x.observer.bridge.measure!({ taskId: "card", agentId: "worker" }));
+  expect(facts).toMatchObject({ agentId: "worker", C: 170000, W: 258400, usageSource: "snapshot", ttlKind: "codex" });
+  expect((await x.read()).revision).toBe(before.revision); expect(x.capture).not.toHaveBeenCalled(); expect(x.noTimeline).not.toHaveBeenCalled();
+  x.actor.workspaceId = "other-workspace";
+  await expect(x.observer.measure({ taskId: "card", agentId: "worker" })).rejects.toThrow("does not belong");
+});
+
+test("measured work time includes only proven started-and-ended turns, not session age or repeated hooks", async () => {
+  const x = await fixture(), first = batch(); first.usage.push({ id: "initial", source, at, atSource: "provider", contextTokens: 100, initialContextTokens: 100, windowTokens: 1000 }); x.setBatch(first);
+  await x.observer.observe("card", "worker"); x.advance(24 * 3_600_000);
+  expect((await x.observer.measure({ taskId: "card", agentId: "worker" })).activeMs).toBeUndefined();
+  const startedAt = new Date(Date.parse(at) + 24 * 3_600_000).toISOString();
+  x.actor.activeTurn = { turnId: "known", startedAt }; await x.observer.observe("card", "worker");
+  x.advance(45_000); await x.observer.observe("card", "worker"); x.advance(45_000); x.actor.activeTurn = null;
+  const options = { timeline: [{ type: "assistant_message", text: "Finished known work" }], outcome: "completed" as const };
+  await x.observer.observe("card", "worker", options); await x.observer.observe("card", "worker", options);
+  const facts = await x.observer.measure({ taskId: "card", agentId: "worker" });
+  expect(facts.activeMs).toBe(45_000); expect(facts.completedTurns).toBe(1); expect(facts.lastTurnEndAt).toBe(Date.parse(startedAt) + 90_000);
+  expect(facts.lastRequestAt).toBe(Date.parse(at)); expect(facts.ttlSeconds).toBeUndefined();
+});
+
+test("equal narration on separate proven turns still counts each turn exactly once", async () => {
+  const x = await fixture(), options = { timeline: [{ type: "assistant_message", text: "Same final words" }], outcome: "completed" as const };
+  for (let n = 0; n < 2; n++) {
+    x.actor.activeTurn = { turnId: `turn-${n}`, startedAt: new Date(Date.parse(at) + n * 1000).toISOString() };
+    await x.observer.observe("card", "worker"); x.actor.activeTurn = null;
+    await x.observer.observe("card", "worker", options); await x.observer.observe("card", "worker", options); x.advance(1000);
+  }
+  expect((await x.observer.measure({ taskId: "card", agentId: "worker" })).completedTurns).toBe(2);
+});
+
+test("policy measurement retains permanent semantic gaps even after the native cursor has caught up", async () => {
+  const x = await fixture(); await x.observer.observe("card", "worker");
+  await x.records.appendGap("card", "project", { text: "An earlier long input was skipped", status: "open", kind: "flowly", agentId: "worker" }, flowly);
+  const before = await x.read(); expect(before.ledger[0].through?.gaps).toBe(0);
+  const facts = await x.observer.measure({ taskId: "card", agentId: "worker" });
+  expect(facts.coverage?.gaps).toBe(1); expect((await x.read()).revision).toBe(before.revision);
+});
+
+test("the policy cache tier is separate from P1's five-minute finalization safety budget", async () => {
+  const x = await fixture(); x.actor.provider = "claude"; x.actor.persistence.provider = "claude";
+  const first = batch(); first.usage.push({ id: "actual-request", source, at, atSource: "provider", contextTokens: 150000, windowTokens: 1000000, cacheTtlSeconds: 3300 }); x.setBatch(first);
+  await x.observer.observe("card", "worker"); x.advance(20 * 60_000);
+  expect((await x.observer.bridge.prepare(rotation())).finalize).toBeUndefined();
+  expect(await x.observer.measure({ taskId: "card", agentId: "worker" })).toMatchObject({ ttlKind: "claude-1h", ttlSeconds: 3300, lastRequestAt: Date.parse(at) });
+});
+
+test("read-only measurement is canceled during stop without waiting for an unresponsive native request", async () => {
+  let release!: () => void;
+  const x = await fixture({ override: { measure: async () => { await new Promise<void>((resolve) => { release = resolve; }); return { agentId: "worker", provider: "codex", at: Date.parse(at) }; } } });
+  await x.observer.ensureSession("card", "worker"); const before = await x.read();
+  const measuring = x.observer.measure({ taskId: "card", agentId: "worker" });
+  while (!release) await new Promise((resolve) => setTimeout(resolve, 1));
+  const started = Date.now(); await x.observer.stop(); expect(Date.now() - started).toBeLessThan(1000);
+  release(); await expect(measuring).rejects.toThrow("canceled"); expect((await x.read()).revision).toBe(before.revision);
+});
 
 test("semantic input and full native resume are committed together, including after an interrupted write", async () => {
   let armed = false;
@@ -97,6 +158,15 @@ test("missing native cursor preserves pending resume; capture failures remain vi
 });
 
 const rotation = (allowFinalize = true): RotationContext => ({ taskId: "card", rotationId: "rotation:fixture", role: "implementer", fromAgentId: "worker", reason: "run_again", allowFinalize, carry: { id: "instruction", role: "implementer", text: "Continue with exact requirements", fresh: "Continue", kind: "again" } });
+
+test("a verbatim-comment rotation seals the complete prior work instruction as Flowly provenance, once", async () => {
+  const x = await fixture(), continuation = { id: "old-instruction", text: "Exact prior work. ".repeat(500), fresh: "Exact prior fresh text", kind: "changes" };
+  const context = { ...rotation(false), continuation };
+  await x.observer.bridge.seal(context); await x.observer.bridge.seal(context);
+  const record = await x.read(); expect(record.inputs).toHaveLength(1); const entry = record.inputs[0];
+  expect(entry).toMatchObject({ via: "agent", atSource: "captured", status: "received", from: { title: "Flowly automation: pending work before this comment" } });
+  expect(JSON.parse((await x.records.inputText("card", entry.sourceId!, 20000))!)).toEqual({ type: "pending_flowly_instruction", ...continuation });
+});
 
 test("the bridge only offers finalization for a stale, demonstrably small, idle, hot session", async () => {
   const x = await fixture(); expect((await x.observer.bridge.prepare(rotation())).finalize).toContain("update the card handoff");

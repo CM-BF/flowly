@@ -193,7 +193,7 @@ export class CaptureRecords {
         if (values.some((n) => n !== undefined)) {
           const contextTokens = values.reduce<number>((sum, n) => sum + (n ?? 0), 0), cache = object(usage.cache_creation);
           const ttl = (number(cache.ephemeral_1h_input_tokens) ?? 0) > 0 ? 3300 : (number(cache.ephemeral_5m_input_tokens) ?? 0) > 0 ? 240 : undefined;
-          this.result.usage.push({ id: `usage:${sourceKey(source)}`, source, at: this.time(timestamp).at, contextTokens, ...(this.firstUsageAvailable && !this.sawUsage ? { initialContextTokens: contextTokens } : {}), ...(ttl ? { cacheTtlSeconds: ttl } : {}), ...(id(message.id) ? { messageId: id(message.id) } : {}) }); this.sawUsage = true;
+          this.result.usage.push({ id: `usage:${sourceKey(source)}`, source, ...this.time(timestamp), contextTokens, ...(this.firstUsageAvailable && !this.sawUsage ? { initialContextTokens: contextTokens } : {}), ...(ttl ? { cacheTtlSeconds: ttl } : {}), ...(id(message.id) ? { messageId: id(message.id) } : {}) }); this.sawUsage = true;
         }
       } else if (type === "system" && entry.subtype === "compact_boundary") this.result.compactions.push({ id: `compact:${sourceKey(source)}`, source, at: this.time(timestamp).at, ...(number(object(entry.compactMetadata).preTokens) !== undefined ? { preTokens: number(object(entry.compactMetadata).preTokens) } : {}) });
       else if (type === "system" && !["turn_duration", "api_error", "local_command", "stop_hook_summary"].includes(string(entry.subtype))) this.gap({ id: `system:${sourceKey(source)}`, kind: "unknown_system_type", source, typeHint: redactCaptureText(string(entry.subtype)).slice(0, 80) || "unknown" });
@@ -208,7 +208,7 @@ export class CaptureRecords {
       if (event === "user_message" || event === "agent_message") this.message(string(payload.message ?? payload.text), source, timestamp, event === "agent_message");
       else if (event === "token_count") {
         const info = object(payload.info), contextTokens = number(object(info.last_token_usage).total_tokens), windowTokens = number(info.model_context_window ?? payload.model_context_window);
-        if (contextTokens !== undefined) { this.result.usage.push({ id: `usage:${sourceKey(source)}`, source, at: this.time(timestamp).at, contextTokens, ...(windowTokens ? { windowTokens } : {}), ...(this.firstUsageAvailable && !this.sawUsage ? { initialContextTokens: contextTokens } : {}) }); this.sawUsage = true; }
+        if (contextTokens !== undefined) { this.result.usage.push({ id: `usage:${sourceKey(source)}`, source, ...this.time(timestamp), contextTokens, ...(windowTokens ? { windowTokens } : {}), ...(this.firstUsageAvailable && !this.sawUsage ? { initialContextTokens: contextTokens } : {}) }); this.sawUsage = true; }
       } else if (!["task_started", "task_complete", "turn_aborted", "agent_reasoning", "agent_reasoning_raw_content", "item_started", "item_completed", "warning", "error", "context_compacted"].includes(event)) this.gap({ id: `event:${sourceKey(source)}`, kind: "unknown_event_type", source, typeHint: event.slice(0, 80) || "unknown" });
       return `event_msg/${event.slice(0, 80) || "unknown"}`;
     }

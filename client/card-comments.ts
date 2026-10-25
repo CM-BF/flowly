@@ -6,7 +6,7 @@
  */
 import type { PaseoApi } from "@getpaseo/client";
 import type { BoardEvent } from "../shared/model";
-import { commentsOf, type CommentInput } from "../shared/comments";
+import { commentsOf, type CommentInput, type RoutedCommentDelivery } from "../shared/comments";
 import { sessionTree, type SubagentSource } from "../shared/subagents";
 import { preferredSend, resolveSend, type SendBehavior } from "./send-queue";
 import { sendCardInstruction, workspaceSession, type HandoffSend } from "./session";
@@ -48,6 +48,7 @@ export type CommentTarget = {
 };
 
 export type CommentTargets = {
+  managed?: boolean;
   /** Live main sessions of the card's workspace, most recently active first: what To: offers. */
   candidates: CommentTarget[];
   /** The recipient when nobody picked one; null: the comment is only saved on the card. */
@@ -67,10 +68,10 @@ const reviewerLabel = (s: TargetSource) => s.labels?.["flowly-automation"] === "
  */
 export function commentTargets(
   sessions: readonly TargetSource[],
-  card: { workspaceId: string; implementerId?: string; reviewerId?: string },
+  card: { workspaceId: string; implementerId?: string; reviewerId?: string; retired?: readonly { agentId: string }[] },
 ): CommentTargets {
   const here = sessions.filter((s) => s.workspaceId === card.workspaceId);
-  const live = here.filter((s) => !s.archivedAt);
+  const live = here.filter((s) => !s.archivedAt && !card.retired?.some(r => r.agentId === s.id));
   const recent = (a: TargetSource, b: TargetSource) =>
     a.updatedAt < b.updatedAt ? 1 : a.updatedAt > b.updatedAt ? -1 : a.createdAt < b.createdAt ? 1 : a.createdAt > b.createdAt ? -1 : 0;
   const mains = sessionTree(live).map((node) => node.agent).sort(recent);
@@ -93,19 +94,19 @@ export function commentTargets(
   };
 }
 
-/** The recipient: the person's choice while it is still offered, else the default. */
+/** Explicit choices never silently fall back to a different session. */
 export function resolveTarget(targets: CommentTargets, chosen: string | null | undefined): CommentTarget | null {
-  return targets.candidates.find((c) => c.id === chosen) ?? targets.candidates.find((c) => c.id === targets.defaultId) ?? null;
+  return chosen != null ? targets.candidates.find(c => c.id === chosen) ?? null : targets.candidates.find(c => c.id === targets.defaultId) ?? null;
 }
 
 /** A card's recipients: its sessions, with its automation job's implementer and reviewer read from the board. */
 export function cardRecipients(
   sessions: readonly TargetSource[],
-  board: { automation: readonly { taskId: string; implementerId?: string; reviewerId?: string }[] } | undefined,
+  board: { automation: readonly { taskId: string; implementerId?: string; reviewerId?: string; state?: string; retired?: readonly { agentId: string }[] }[] } | undefined,
   task: { id: string; workspaceId: string },
 ): CommentTargets {
   const job = board?.automation.find((j) => j.taskId === task.id);
-  return commentTargets(sessions, { workspaceId: task.workspaceId, implementerId: job?.implementerId, reviewerId: job?.reviewerId });
+  return { ...commentTargets(sessions, { workspaceId: task.workspaceId, implementerId: job?.implementerId, reviewerId: job?.reviewerId, retired: job?.retired }), managed: !!job && !["stopped", "failed"].includes(job.state ?? "") };
 }
 
 /** The To: row: shown when a live session exists; it opens when there is a choice (several, or none chosen yet). */
@@ -133,15 +134,13 @@ export function composerNote(
   return known.archivedKnown ? "no-session" : null;
 }
 
-export type CommentDelivery =
-  | { kind: "saved" }
-  | { kind: "sent" | "queued"; agentId: string }
-  | { kind: "failed"; agentId: string; error: string };
+export type CommentDelivery = RoutedCommentDelivery;
 
 /** The session composer's send path (sendCardInstruction and the daemon queue). */
 export interface CommentTransport {
   send(agentId: string, text: string, mode?: "steer" | "interrupt", messageId?: string): Promise<void>;
   queue(agentId: string, text: string, messageId?: string): Promise<unknown>;
+  routed?(input: CommentInput): Promise<{ delivery?: RoutedCommentDelivery }>;
 }
 
 /**
@@ -196,7 +195,7 @@ export async function deliverComment(
 }
 
 /** A recorded comment whose delivery failed: Resend only sends it again (CARD-COMMENTS-SPEC §7.6). */
-export type FailedDelivery = { eventId: string; text: string; agentId: string; title: string; error: string; messageId?: string };
+export type FailedDelivery = { eventId: string; text: string; agentId: string; title: string; error: string; messageId?: string; route?: CommentInput };
 
 /**
  * What a card's comment composer keeps while the drawer shows a session instead
@@ -277,8 +276,8 @@ export type PostOutcome =
  */
 export async function postComment(
   memory: CommentMemory,
-  deps: CommentTransport & { record(input: CommentInput): Promise<{ event: BoardEvent }> },
-  input: { taskId: string; target: CommentTarget | null; settings?: { sendBehavior?: SendBehavior } | null; alternate?: boolean },
+  deps: CommentTransport & { record(input: CommentInput): Promise<{ event: BoardEvent; delivery?: RoutedCommentDelivery }> },
+  input: { taskId: string; target: CommentTarget | null; settings?: { sendBehavior?: SendBehavior } | null; alternate?: boolean; deliver?: CommentInput["deliver"] },
 ): Promise<PostOutcome> {
   const text = memory.draft;
   if (memory.busy || !text.trim()) return { kind: "skipped" };
@@ -288,9 +287,10 @@ export async function postComment(
   memory.error = "";
   changed(memory);
   try {
-    let event: BoardEvent;
+    let event: BoardEvent, routed: RoutedCommentDelivery | undefined;
+    const request: CommentInput = { taskId: input.taskId, text, operationId, ...(input.deliver !== undefined ? { deliver: input.deliver, whenRunning: preferredSend(input.settings), alternate: !!input.alternate } : {}) };
     try {
-      ({ event } = await deps.record({ taskId: input.taskId, text, operationId }));
+      ({ event, delivery: routed } = await deps.record(request));
     } catch (error) {
       memory.error = errorText(error);
       return { kind: "refused", error: memory.error };
@@ -300,9 +300,9 @@ export async function postComment(
     if (memory.draft === text) memory.draft = "";
     changed(memory);
     const messageId = `comment:${event.operationId ?? operationId}`;
-    const delivery = await deliverComment(deps, input.target, text, preferredSend(input.settings), input.alternate, messageId);
+    const delivery = routed ?? await deliverComment(deps, input.target, text, preferredSend(input.settings), input.alternate, messageId);
     if (delivery.kind === "failed")
-      memory.failed = [...memory.failed, { eventId: event.id, text, agentId: delivery.agentId, title: input.target?.title ?? "", error: delivery.error, messageId }];
+      memory.failed = [...memory.failed, { eventId: event.id, text, agentId: delivery.agentId ?? "", title: input.target?.title ?? "", error: delivery.error ?? "", messageId, ...(routed ? { route: request } : {}) }];
     return { kind: "posted", event, delivery };
   } finally {
     memory.busy = false;
@@ -323,14 +323,14 @@ export async function resendComment(
   settings?: { sendBehavior?: SendBehavior } | null,
 ): Promise<CommentDelivery | null> {
   const entry = memory.failed.find((f) => f.eventId === eventId);
-  if (memory.busy || !entry || !target) return null;
+  if (memory.busy || !entry || (!target && !entry.route)) return null;
   memory.busy = true;
   changed(memory);
   try {
-    const delivery = await deliverComment(transport, target, entry.text, preferredSend(settings), false, entry.messageId);
+    const delivery = entry.route && transport.routed ? (await transport.routed(entry.route)).delivery ?? { kind: "saved" as const } : await deliverComment(transport, target, entry.text, preferredSend(settings), false, entry.messageId);
     memory.failed =
       delivery.kind === "failed"
-        ? memory.failed.map((f) => (f.eventId === eventId ? { ...f, agentId: delivery.agentId, title: target.title, error: delivery.error } : f))
+        ? memory.failed.map((f) => (f.eventId === eventId ? { ...f, agentId: delivery.agentId ?? f.agentId, title: target?.title ?? f.title, error: delivery.error ?? "" } : f))
         : memory.failed.filter((f) => f.eventId !== eventId);
     return delivery;
   } finally {

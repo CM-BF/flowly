@@ -24,6 +24,10 @@ import { adoptIdea } from "./server/ideas";
 import { createLink, deleteLink } from "./server/links";
 import { HandoffService } from "./server/handoff-service";
 import { HandoffObserver } from "./server/handoff-observer";
+import { CommentRouter } from "./server/comment-routing";
+import { fixtureRotationOverrides } from "./server/rotation-settings";
+import { SessionHistory } from "./server/session-history";
+import { homedir } from "node:os";
 import { ArtifactService } from "./server/artifacts";
 import { WorkpadService } from "./server/workpad";
 import { ConnectorService, migrateTicketDirectory, refKey } from "./server/connectors/service";
@@ -82,6 +86,7 @@ export default function contribute(server: PluginServerContext) {
   if (!process.env.FLOWLY_DATA_DIR && !process.env.ULTRA_KANBAN_DATA_DIR) migrateLegacyPluginData();
   const store = new BoardStore(dataDirectory());
   const handoffs = new HandoffService(store);
+  const sessionHistory = new SessionHistory(store.directory);
   store.handoffBackup = async (taskIds, destination) => {
     for (const taskId of taskIds) await handoffs.records.exportCard(taskId, join(destination, taskId));
   };
@@ -251,12 +256,16 @@ export default function contribute(server: PluginServerContext) {
   server.handle(rpc.wrapup, (input, { paseo }) => wrapups.run(input, paseo));
   const tools = new ToolServer(store);
   let handoffPaseo: PaseoApi;
+  const commentRouter = new CommentRouter(store, handoffs, composer, () => handoffPaseo);
+  const rotationOverrides = fixtureRotationOverrides(join(process.env.PASEO_HOME || join(homedir(), ".paseo"), "plugin-settings", "flowly", "rotation.json"))
+    .catch(error => { console.error(error instanceof Error ? error.message : "Invalid fixture rotation overrides"); return () => ({}); });
   const handoffObserver = new HandoffObserver({
     records: handoffs.records, board: store, paseo: () => handoffPaseo,
     serial: handoffs.serial.bind(handoffs), syncIndex: handoffs.syncIndex.bind(handoffs),
     onCompaction: (taskId, agentId) => handoffs.forgetRead(taskId, agentId),
   });
   tools.agents.handoffs = handoffs;
+  tools.agents.sessionHistory = sessionHistory;
   handoffObserver.start(() => handoffPaseo ? tools.managedSessions() : Promise.resolve([]));
   // Agent automation (AUTOMATION-SPEC): Hermes Kanban's dispatcher, supervision and review loop, per project.
   const classifier = new ReviewClassifier(store, summaries.settings);
@@ -264,6 +273,18 @@ export default function contribute(server: PluginServerContext) {
   store.onCommit = () => { folderCommit?.(); classifier.schedule(); };
   const automation = new AutomationService(store, {
     handoff: handoffObserver.bridge,
+    rotationLimits: async (taskId, projectId) => (await rotationOverrides)(taskId, projectId),
+    readComment: (taskId, sourceId) => commentRouter.read(taskId, sourceId),
+    sendComment: input => commentRouter.send(input),
+    commentResult: (taskId, sourceId, result) => commentRouter.result(taskId, sourceId, result),
+    commentFailed: (taskId, sourceId, error) => commentRouter.failed(taskId, sourceId, error),
+    continuity: handoffs.linkSummary.bind(handoffs),
+    lastToolAt: agentId => tools.agents.accesses.get(agentId)?.at,
+    checkpointAt: async (taskId, agentId) => {
+      const checkpoint = (await handoffs.records.read(taskId))?.checkpoint;
+      const at = checkpoint?.agentId === agentId ? Date.parse(checkpoint.at) : NaN;
+      return Number.isFinite(at) ? at : undefined;
+    },
     classifyReview: (taskId, paseo) => classifier.forReview(taskId, paseo),
     prepare: async (taskId, operationId, paseo, options) => {
       handoffs.attach(paseo);
@@ -279,6 +300,7 @@ export default function contribute(server: PluginServerContext) {
   });
   tools.agents.automation = automation;
   handoffs.automation = automation;
+  commentRouter.routeManaged = input => automation.routeComment(input);
   service.automation = automation;
   // Agents create cards and sub-cards (SUB-CARDS-SPEC §3) through the same path as New task.
   tools.agents.createTask = (input, paseo, agent) => service.createTask(input, paseo, agent);
@@ -444,7 +466,9 @@ export default function contribute(server: PluginServerContext) {
   });
   server.handle(rpc.updateTaskTags, (input) => store.editTags(input));
   // Card comments (CARD-COMMENTS-SPEC §4): recorded here; the client then sends the text to a session.
-  server.handle(rpc.commentTask, async (input) => ({ event: await handoffs.comment(input) }));
+  server.handle(rpc.commentTask, async (input, { paseo }) => { attach(paseo); return commentRouter.post(input); });
+  server.handle(rpc.readCommentDeliveries, ({ taskId }) => commentRouter.deliveries(taskId));
+  server.handle(rpc.resendRoutedComment, (input, { paseo }) => { attach(paseo); return commentRouter.resend(input.taskId, input.eventId); });
   server.handle(rpc.readHandoff, async ({ taskId, etag, cursor, full }, { paseo }) => {
     attach(paseo);
     return ifChanged(await handoffs.context(taskId, undefined, { full, cursor }), etag);
@@ -729,12 +753,13 @@ export default function contribute(server: PluginServerContext) {
     handoffs.stop();
     const stoppedHandoff = handoffObserver.stop();
     const stoppedClassifier = classifier.stop();
+    const stoppedHistory = sessionHistory.stop();
     automation.stop();
     workflow.stop();
     stopWorkflowPrefs();
     stopFeaturePrefs();
     folders.stop();
     tools.stop();
-    return Promise.all([stoppedClassifier, stoppedHandoff]).then(() => undefined);
+    return Promise.all([stoppedClassifier, stoppedHandoff, stoppedHistory]).then(() => undefined);
   };
 }

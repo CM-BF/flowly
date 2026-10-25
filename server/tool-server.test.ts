@@ -77,6 +77,7 @@ test("MCP initialize/list can precede actor creation; live calls require SDK con
     ),
   ).toEqual([
     "flowly_get_task",
+    "flowly_session_history",
     "flowly_update_handoff",
     "flowly_update_status",
     "flowly_report_progress",

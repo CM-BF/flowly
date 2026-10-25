@@ -5,6 +5,7 @@ import type { AgentModel } from "../shared/agent-defaults";
 import { automationSessionRole, isLive, jobOf } from "../shared/automation";
 import { type CardHandoff, type HandoffSession } from "../shared/handoff";
 import type { Board } from "../shared/model";
+import type { SessionPolicyFacts } from "../shared/session-measurement";
 import { handoffView } from "../shared/handoff-view";
 import type { AutomationHandoffBridge, RotationContext } from "./automation-rotation";
 import { captureHandoff, captureTimeline, type CaptureBatch, type CaptureCursor, type CaptureSemantics } from "./handoff-capture";
@@ -13,6 +14,9 @@ import { handoffMessageSource, handoffSource } from "./handoff-source";
 import { HandoffStore, HandoffError, type HandoffCapture } from "./handoff-store";
 import { BoardService } from "./service";
 import type { BoardStore } from "./store";
+import { measureSessionPolicyFacts, type ProviderUsageOptions } from "./provider-usage";
+import { claudeSidecarBytes } from "./provider-history";
+import { redactCaptureText } from "./handoff-capture-records";
 
 const flowly = { by: { kind: "flowly" as const } };
 const digest = (value: string) => createHash("sha256").update(value).digest("hex");
@@ -25,7 +29,7 @@ const kinds = { async_shell: "async_shell", exec: "exec_session", browser: "brow
 type SessionDraft = NonNullable<HandoffCapture["session"]>;
 type Snapshot = NonNullable<NonNullable<Awaited<ReturnType<ReturnType<PaseoApi["agents"]["ref"]>["refresh"]>>>["agent"]>;
 type NarrationCoverage = { nativeOmitted: number; nativeTrimmed: number; nativeRange?: string; hookOmitted: number; hookTrimmed: number; rolledOff: number };
-type ObserverState = { liveIds?: string[]; providerK?: number; timelineK?: number; compactIds?: string[]; usageId?: string; usageAt?: string; ttl?: number; lastTurn?: string; lastTimeline?: string; turnStart?: { id: string; at: string }; sentMessageIds?: string[]; automationTextHashes?: string[]; narration?: NarrationCoverage };
+type ObserverState = { liveIds?: string[]; providerK?: number; timelineK?: number; compactIds?: string[]; usageId?: string; usageAt?: string; ttl?: number; lastTurn?: string; lastRequest?: string; activeMs?: number; lastTimeline?: string; lastEndedTurnId?: string; turnStart?: { id: string; at: string; observedAt?: string }; sentMessageIds?: string[]; automationTextHashes?: string[]; narration?: NarrationCoverage };
 type Resume = Partial<CaptureCursor> & { observer?: ObserverState };
 export type HandoffObservation = { timeline?: readonly unknown[]; outcome?: "completed" | "failed" | "canceled"; received?: boolean; forceGit?: boolean };
 export type HandoffSessionOptions = { role?: HandoffSession["role"]; reason?: string; model?: AgentModel; previousAgentId?: string };
@@ -37,6 +41,8 @@ export type HandoffObserverDeps = {
   onCompaction?: (taskId: string, agentId: string) => void;
   /** Deterministic seams for isolated tests; production uses native, bounded readers. */
   capture?: typeof captureHandoff;
+  measure?: typeof measureSessionPolicyFacts;
+  usageOptions?: ProviderUsageOptions;
   git?: (taskId: string, board: Board, at: string) => Promise<{ snapshots: HandoffGitSnapshot[]; unchecked: string[] }>;
 };
 
@@ -52,6 +58,7 @@ export class HandoffObserver {
   readonly bridge: AutomationHandoffBridge;
   constructor(private readonly deps: HandoffObserverDeps) {
     this.bridge = {
+      measure: (context) => this.measure(context),
       prepare: (context) => this.run(context.taskId, () => this.prepare(context)),
       seal: (context) => this.run(context.taskId, () => this.seal(context)),
       committed: (context) => this.run(context.taskId, () => this.committed(context)),
@@ -114,6 +121,29 @@ export class HandoffObserver {
     });
   }
   observe(taskId: string, agentId: string, options: HandoffObservation = {}) { return this.run(taskId, () => this.observeNow(taskId, agentId, options)); }
+  /** Pure reads deliberately bypass the service's per-card queue: comments may already hold it. */
+  measure(context: { taskId: string; agentId: string }): Promise<SessionPolicyFacts> {
+    const worker = (async () => {
+      this.check();
+      const { board, task, project } = await this.card(context.taskId);
+      const record = await this.deps.records.read(task.id, project.id), session = await this.session(record, context.agentId);
+      const role = automationSessionRole(board, context.agentId, task.id, session ? [session] : []);
+      if (!session && !role) throw new Error("Only a managed session of this card can be measured.");
+      let actor: Snapshot | undefined;
+      try { actor = await this.snapshot(context.agentId, task.workspaceId); }
+      catch (error) { this.check(); if (String(error).includes("does not belong")) throw error; }
+      const facts = await (this.deps.measure ?? measureSessionPolicyFacts)(actor ?? { id: context.agentId, provider: session?.provider }, session,
+        { ...this.deps.usageOptions, now: () => this.clock(), signal: this.controller.signal });
+      this.check();
+      const gaps = record.gaps.filter((gap) => gap.status === "open" && !gap.unconfirmed && (!gap.agentId || gap.agentId === context.agentId)).length
+        + record.overflow.filter((item) => item.section === "gaps" && item.status === "open" && !item.unconfirmed).length;
+      if (gaps) facts.coverage = { ...facts.coverage, gaps: Math.max(facts.coverage?.gaps ?? 0, gaps) };
+      if (!actor) facts.unknown = [...facts.unknown ?? [], "session snapshot unavailable"];
+      return facts;
+    })();
+    this.workers.add(worker); void worker.finally(() => this.workers.delete(worker)).catch(() => undefined);
+    return worker;
+  }
   private async git(taskId: string, board: Board, at: string) {
     if (this.deps.git) return this.deps.git(taskId, board, at);
     const context = await new BoardService(this.deps.board).context(taskId, this.api(), board);
@@ -208,6 +238,7 @@ export class HandoffObserver {
       measured.C = latest.contextTokens; if (latest.windowTokens !== undefined) measured.W = latest.windowTokens;
       if (measured.C0 === undefined && latest.initialContextTokens !== undefined) measured.C0 = latest.initialContextTokens;
       measured.peakC = Math.max(measured.peakC ?? 0, latest.contextTokens); meta.usageId = latest.id; meta.usageAt = latest.at;
+      if (latest.atSource === "provider" && Number.isFinite(Date.parse(latest.at))) meta.lastRequest = latest.at;
       if (latest.cacheTtlSeconds !== undefined) meta.ttl = latest.cacheTtlSeconds;
     }
     if (usage.length) measured.peakC = Math.max(measured.peakC ?? 0, ...usage.map((entry) => entry.contextTokens));
@@ -225,25 +256,37 @@ export class HandoffObserver {
     const compacted = measured.K > priorK || session.measured?.C !== undefined && measured.C !== undefined && measured.C < session.measured.C * 0.6;
     newCompacts.forEach((item) => known.add(item.id)); meta.compactIds = [...known].slice(-64);
     if (batch?.coverage.fileBytes !== undefined) measured.B = batch.coverage.fileBytes;
+    if (batch?.source?.provider === "claude") {
+      const sidecars = await claudeSidecarBytes(batch.source, this.clock(), this.controller.signal); this.check();
+      if (sidecars.bytes !== undefined) measured.S = sidecars.bytes;
+      if (sidecars.bytes !== undefined && sidecars.bytes >= 512 * 2 ** 20) {
+        const sourceId = handoffSource(`claude-sidecar-warning:${agentId}`);
+        entries.push({ section: "notes", value: { id: entryId("nt", sourceId), sourceId, kind: "hazard", text: `Claude subagent/workflow files total ${Math.round(sidecars.bytes / 2 ** 20)} MiB${sidecars.limited ? " or more (stat budget reached)" : ""}. This is an observation only; these sidecars do not trigger replacement or interruption.` } });
+      }
+    }
     const growth = new Map((session.growth ?? []).map((item) => [item.kind, { ...item }]));
     for (const [kind, value] of Object.entries(batch?.cursor ? batch.growth : {})) {
       const key = growth.has(kind) || growth.size < 11 ? kind : "other", old = growth.get(key) ?? { kind: key, calls: 0, bytes: 0 };
       old.calls += value.lines; old.bytes += value.bytes; growth.set(key, old);
     }
-    if (actor?.activeTurn?.startedAt) meta.turnStart = { id: actor.activeTurn.turnId, at: actor.activeTurn.startedAt };
+    if (actor?.activeTurn?.startedAt) meta.turnStart = { id: actor.activeTurn.turnId, at: actor.activeTurn.startedAt, observedAt: this.now() };
     const timelineKey = hook && digest(JSON.stringify({ inputs: hook.inputs.map((m) => m.id), live: hook.live.map((m) => m.id), background: hook.background.map((m) => [m.id, m.status]), compactions: hook.compactions.map((m) => m.id), outcome: options.outcome }));
     const turns = [...session.turns];
-    if (hook && options.outcome && meta.lastTimeline !== timelineKey) {
+    if (hook && options.outcome && (meta.turnStart ? meta.lastEndedTurnId !== meta.turnStart.id : meta.lastTimeline !== timelineKey)) {
       const last = hook.live.at(-1), stamp = this.now();
       // Native repeated turn-end deliveries have identical timelines. No invented start time.
       const startedAt = meta.turnStart?.at ?? stamp;
       const wroteHandoff = record.checkpoint?.agentId === agentId && time(record.checkpoint.at) >= time(startedAt);
       measured.turns++; turns.push({ n: measured.turns, startedAt, endedAt: stamp, outcome: options.outcome,
         ...(last ? { final: last.text.slice(0, 2000) } : {}), wroteHandoff });
+      // Hook delivery can be late: only count the interval proven by an active snapshot, never all session age.
+      if (meta.turnStart && time(meta.turnStart.at) > 0 && time(meta.turnStart.observedAt) >= time(meta.turnStart.at))
+        meta.activeMs = (meta.activeMs ?? 0) + time(meta.turnStart.observedAt) - time(meta.turnStart.at);
       if (!wroteHandoff && time(stamp) - time(startedAt) >= 300_000) {
         const sourceId = handoffSource(`unwritten-turn:${agentId}:${timelineKey}`);
         entries.push({ section: "notes", value: { id: entryId("nt", sourceId), sourceId, kind: "hazard", text: "A work turn of at least five minutes ended without an agent handoff checkpoint. Its reasoning may exist only in the session; verify the captured narration and saved outputs before continuing." } });
       }
+      if (meta.turnStart) meta.lastEndedTurnId = meta.turnStart.id;
       delete meta.turnStart;
       meta.lastTurn = stamp; meta.lastTimeline = timelineKey;
     }
@@ -324,6 +367,13 @@ export class HandoffObserver {
   }
   private async seal(context: RotationContext) {
     await this.observeNow(context.taskId, context.fromAgentId, { forceGit: true });
+    if (context.continuation) {
+      const { project } = await this.card(context.taskId);
+      const sourceId = handoffSource(`rotation-continuation:${context.rotationId}:${context.continuation.id}`);
+      const raw = JSON.stringify({ type: "pending_flowly_instruction", ...context.continuation }), text = redactCaptureText(raw);
+      // This is an existing system work instruction, not a second human comment or a clipped direction note.
+      this.check(); await this.deps.records.appendInput(context.taskId, project.id, { text, status: "received", atSource: "captured", via: "agent", agentId: context.fromAgentId, from: { title: "Flowly automation: pending work before this comment" }, ...(text !== raw ? { redacted: true } : {}) }, { ...flowly, sourceId, operationId: sourceId });
+    }
     const { board, project } = await this.card(context.taskId), record = await this.deps.records.read(context.taskId, project.id), session = await this.session(record, context.fromAgentId);
     const rotation = jobOf(board, context.taskId)?.rotation;
     if (session && !session.endedAt) {

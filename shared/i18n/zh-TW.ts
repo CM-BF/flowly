@@ -1,6 +1,20 @@
 import type { Catalog } from "../i18n";
 
 const catalog: Catalog = {
+  "Session history {n} MB, still growing: inspect it and stop this session in Paseo": "對話紀錄 {n} MB，仍在增加：請檢查並在 Paseo 中停止此對話",
+  "Session history {n} MB: the next instruction goes to a fresh session": "對話紀錄 {n} MB：下一項指示會交給新對話",
+  "Agent has not updated the card for {n} min": "Agent 已有 {n} 分鐘未更新卡片",
+  "Comment sent to a fresh session": "留言已傳送至新對話",
+  "Comment saved; Flowly will deliver it after the current handoff or review": "留言已儲存；本次交接或審查結束後，Flowly 會送達",
+  "Card's agent (Flowly picks warm or fresh)": "卡片的 agent（Flowly 選擇原對話或新對話）",
+  "New session with the handoff": "帶交接紀錄的新對話",
+  "Save on the card (the next turn reads it)": "僅儲存在卡片上（下回合讀取）",
+  "Selected session is unavailable": "所選對話無法使用",
+  "Send result unknown; the original target and message identity are preserved": "傳送結果未知；已保留原收件者及訊息識別碼",
+  "Waiting for the current handoff or review": "等待本次交接或審查結束",
+  "Delivered to a fresh session": "已送達新對話",
+  "Sent": "已傳送",
+  "Saved on the card": "已儲存在卡片上",
   "Keep the draft and refresh the card before sending.": "保留草稿，重新整理卡片後再傳送。",
   "Handoff": "交接",
   "Handoff recorded": "已有交接記錄",
@@ -1625,7 +1639,6 @@ const catalog: Catalog = {
   "Your likely next message, one tap away.": "你最可能發送的下一則訊息，點一下就填好。",
   "{messages} messages · {permissions} permissions · {moves} moves": "訊息 {messages} · 權限 {permissions} · 移卡 {moves}",
   "{n} in one pass": "{n} 張一次通過",
-  "Session history {n} MB: too large for Paseo to load safely; the next instruction goes to a new session": "工作階段歷史 {n} MB：太大，Paseo 無法安全載入；下一則指令會交給新的工作階段",
   "Continued in a new session: the history grew too large": "在新工作階段中繼續：歷史太大",
   "Session history is getting too large": "工作階段歷史即將過大",
   "Queued after blockers": "排隊中，等待阻塞卡片",

@@ -4,6 +4,7 @@ import { connectorLimits, externalRefSchema, itemTypeSchema } from "./connectors
 import { z } from "zod";
 import { attentionDismissLimits, attentionDismissalSchema } from "./attention-dismiss";
 import { automationJobSchema, automationSettingsSchema, reviewLevelSchema, reviewClassificationSchema } from "./automation-schema";
+import { commentRouteSchema } from "./comments";
 
 export const statuses = [
   "backlog",
@@ -474,6 +475,7 @@ export const storageSchema = boardSchema.extend({
   agentReceipts: z.array(receiptSchema).max(5000),
   /** Durable outbox for the infrequent cross-file source writes; removed only after confirmation. */
   handoffConfirmations: z.array(z.object({ taskId: z.string(), sourceId: z.string().max(240) })).optional(),
+  commentRoutes: z.array(commentRouteSchema).max(5000).optional(),
 });
 export const legacyBoardSchema = boardSchema.extend({
   version: z.literal(1),

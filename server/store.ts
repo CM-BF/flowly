@@ -388,6 +388,7 @@ export class BoardStore {
         artifacts: board.artifacts.filter((a) => taskIds.has(a.taskId)),
         workpads: board.workpads.filter((w) => taskIds.has(w.taskId)),
         plans: board.plans.filter((p) => taskIds.has(p.taskId)),
+        commentRoutes: board.commentRoutes?.filter(r => taskIds.has(r.taskId)),
       };
       const folder = join(this.directory, "removed");
       await mkdir(folder, { recursive: true, mode: 0o700 });
@@ -407,6 +408,7 @@ export class BoardStore {
       board.automation = board.automation.filter((j) => !taskIds.has(j.taskId));
       board.handoffIndex = board.handoffIndex.filter((entry) => !taskIds.has(entry.taskId));
       if (board.handoffConfirmations) board.handoffConfirmations = board.handoffConfirmations.filter((entry) => !taskIds.has(entry.taskId));
+      if (board.commentRoutes) board.commentRoutes = board.commentRoutes.filter(entry => !taskIds.has(entry.taskId));
       return { id: project.id, removedTasks: taskIds.size, backup };
     });
   }
@@ -491,6 +493,7 @@ export class BoardStore {
         artifacts: board.artifacts.filter((a) => a.taskId === task.id),
         workpads: board.workpads.filter((w) => w.taskId === task.id),
         plans: board.plans.filter((p) => p.taskId === task.id),
+        commentRoutes: board.commentRoutes?.filter(r => r.taskId === task.id),
       };
       const folder = join(this.directory, "removed");
       await mkdir(folder, { recursive: true, mode: 0o700 });
@@ -520,6 +523,7 @@ export class BoardStore {
       board.automation = board.automation.filter((j) => j.taskId !== task.id);
       board.handoffIndex = board.handoffIndex.filter((entry) => entry.taskId !== task.id);
       if (board.handoffConfirmations) board.handoffConfirmations = board.handoffConfirmations.filter((entry) => entry.taskId !== task.id);
+      if (board.commentRoutes) board.commentRoutes = board.commentRoutes.filter(entry => entry.taskId !== task.id);
       return { id: task.id, backup };
     });
   }

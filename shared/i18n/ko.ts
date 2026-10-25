@@ -1,6 +1,20 @@
 import type { Catalog } from "../i18n";
 
 const catalog: Catalog = {
+  "Session history {n} MB, still growing: inspect it and stop this session in Paseo": "세션 기록 {n} MB, 계속 증가 중: 확인 후 Paseo에서 이 세션을 중지하세요",
+  "Session history {n} MB: the next instruction goes to a fresh session": "세션 기록 {n} MB: 다음 지시는 새 세션으로 전달됩니다",
+  "Agent has not updated the card for {n} min": "에이전트가 {n}분 동안 카드를 업데이트하지 않았습니다",
+  "Comment sent to a fresh session": "댓글을 새 세션으로 보냈습니다",
+  "Comment saved; Flowly will deliver it after the current handoff or review": "댓글을 저장했습니다. 현재 인계 또는 검토 후 Flowly가 전달합니다",
+  "Card's agent (Flowly picks warm or fresh)": "카드의 에이전트(Flowly가 기존 또는 새 세션 선택)",
+  "New session with the handoff": "인계 기록을 포함한 새 세션",
+  "Save on the card (the next turn reads it)": "카드에만 저장(다음 턴에서 읽기)",
+  "Selected session is unavailable": "선택한 세션을 사용할 수 없습니다",
+  "Send result unknown; the original target and message identity are preserved": "전송 결과를 알 수 없습니다. 기존 대상과 메시지 ID를 보존했습니다",
+  "Waiting for the current handoff or review": "현재 인계 또는 검토가 끝나기를 기다리는 중",
+  "Delivered to a fresh session": "새 세션으로 전달됨",
+  "Sent": "전송됨",
+  "Saved on the card": "카드에 저장됨",
   "Keep the draft and refresh the card before sending.": "초안을 보관하고 카드를 새로고침한 후 보내세요.",
   "Handoff": "인계",
   "Handoff recorded": "인계 기록 있음",
@@ -1625,7 +1639,6 @@ const catalog: Catalog = {
   "Your likely next message, one tap away.": "다음에 보낼 만한 메시지를 한 번에.",
   "{messages} messages · {permissions} permissions · {moves} moves": "메시지 {messages} · 권한 {permissions} · 이동 {moves}",
   "{n} in one pass": "{n}개 한 번에 통과",
-  "Session history {n} MB: too large for Paseo to load safely; the next instruction goes to a new session": "세션 기록 {n} MB: Paseo가 안전하게 불러오기에 너무 큽니다. 다음 지시는 새 세션으로 갑니다",
   "Continued in a new session: the history grew too large": "새 세션에서 계속: 기록이 너무 커졌습니다",
   "Session history is getting too large": "세션 기록이 너무 커지고 있습니다",
   "Queued after blockers": "차단 카드 완료 대기 중",

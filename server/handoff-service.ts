@@ -22,9 +22,10 @@ import type { OutgoingImage } from "../shared/composer";
 import type { CommentInput } from "../shared/comments";
 import { addComment } from "./comments";
 import { markHandoffCommitted } from "./handoff-commit";
+import { linkedContinuity, type ContinuityKind } from "./handoff-links";
+import { handoffRefusalFingerprint } from "./handoff-requirements";
 import { join } from "node:path";
 import { readdir, readFile, stat } from "node:fs/promises";
-import { handoffRefusalFingerprint } from "./handoff-requirements";
 
 const flowly = { by: { kind: "flowly" as const } };
 const digest = (value: unknown) => createHash("sha256").update(JSON.stringify(value)).digest("hex");
@@ -40,6 +41,12 @@ export class HandoffService {
   automation?: AutomationService;
   constructor(readonly board: BoardStore, readonly clock = () => Date.now()) { this.records = new HandoffStore(board.directory); }
   attach(paseo: PaseoApi) { this.paseo = paseo; }
+  async linkSummary(taskId: string, kind: ContinuityKind) {
+    try {
+      const record = await this.records.read(taskId);
+      return record ? linkedContinuity(record, kind) : undefined;
+    } catch { return "Card continuity is unavailable; do not infer that its pitfalls or incidents are absent."; }
+  }
   forgetRead(taskId: string, agentId: string) { this.seen.delete(`${taskId}:${agentId}`); }
   stop() { this.stopped = true; }
   private now() { return new Date(this.clock()).toISOString(); }
@@ -123,6 +130,9 @@ export class HandoffService {
     if (record.ledger.some((session) => !session.endedAt && session.through && (session.through.gaps > 0 || session.through.lagBytes > 0))) due.push("The current session's passive capture is incomplete; check its coverage before relying on the handoff.");
     const job = jobOf(board, record.taskId);
     const reader = agentId ?? job?.implementerId;
+    const pendingCheckpoint = job?.checkpoint;
+    if (pendingCheckpoint && pendingCheckpoint.agentId === reader && Date.parse(pendingCheckpoint.at) > (checkpoint && checkpoint.agentId === reader ? Date.parse(checkpoint.at) : -Infinity))
+      due.push(`${pendingCheckpoint.reason}: update the handoff now (state, next and running work).`);
     const current = record.ledger.find((session) => session.agentId === reader);
     const ackRequired = !!(reader && automationOf(board.projects.find((project) => project.id === record.projectId)) && job?.implementerId === reader && current?.role === "implementer" && current.reason !== "launch" && !current.ack?.complete);
     if (ackRequired) due.push("The successor must read the full pending record, verify the workspace and acknowledge it.");

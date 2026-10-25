@@ -42,6 +42,7 @@ import {
   type ToolPreparation,
 } from "../shared/tools";
 import { handoffGetInputSchema } from "../shared/handoff-api";
+import { sessionHistoryQuerySchema, sessionHistoryPageSchema } from "../shared/session-history";
 import { handoffUpdateSchema, handoffWriteResultSchema } from "../shared/handoff";
 import { reviewInputSchema, reviewResultSchema } from "../shared/automation-schema";
 import { reviewerOfCard } from "../shared/automation";
@@ -186,6 +187,7 @@ export class ToolServer {
         const identity = this.token(
           requestInfo?.headers.get("authorization") || undefined,
         );
+        const call = (operation: () => Promise<object>) => wrap(async () => { await this.agents.toolCalled(identity); return operation(); });
         const mcp = new McpServer({
           name: "flowly",
           version: "0.2.0",
@@ -199,7 +201,12 @@ export class ToolServer {
             outputSchema: toolContextSchema,
             annotations: { readOnlyHint: true, openWorldHint: false },
           },
-          (input) => wrap(() => this.agents.get(identity, true, true, input)),
+          (input) => call(() => this.agents.get(identity, true, true, input)),
+        );
+        mcp.registerTool(
+          "flowly_session_history",
+          { description: "Read bounded, redacted excerpts from a session in this card's handoff ledger. Select its exact agent ID or #number; search with query, around and roles, then follow nextCursor. First access may return building. Coverage, omitted and gaps describe the indexed range; no match never proves a missing detail does not exist. Original histories are not loaded through Paseo or rewritten. Changed source snapshots require an explicit rebuild; large tool/image payloads are omitted. Use original handoff inputs for exact human wording.", inputSchema: sessionHistoryQuerySchema, outputSchema: sessionHistoryPageSchema, annotations: { readOnlyHint: true, openWorldHint: false } },
+          input => call(() => this.agents.readSessionHistory(identity, input)),
         );
         mcp.registerTool(
           "flowly_update_handoff",
@@ -209,7 +216,7 @@ export class ToolServer {
             outputSchema: handoffWriteResultSchema,
             annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
           },
-          (input) => wrap(() => this.agents.updateHandoff(identity, input)),
+          (input) => call(() => this.agents.updateHandoff(identity, input)),
         );
         mcp.registerTool(
           "flowly_update_status",
@@ -225,7 +232,7 @@ export class ToolServer {
               openWorldHint: false,
             },
           },
-          (input) => wrap(() => this.agents.write(identity, "status", input)),
+          (input) => call(() => this.agents.write(identity, "status", input)),
         );
         mcp.registerTool(
           "flowly_report_progress",
@@ -241,7 +248,7 @@ export class ToolServer {
               openWorldHint: false,
             },
           },
-          (input) => wrap(() => this.agents.write(identity, "progress", input)),
+          (input) => call(() => this.agents.write(identity, "progress", input)),
         );
         mcp.registerTool(
           "flowly_propose_idea",
@@ -257,7 +264,7 @@ export class ToolServer {
               openWorldHint: false,
             },
           },
-          (input) => wrap(() => this.agents.write(identity, "idea", input)),
+          (input) => call(() => this.agents.write(identity, "idea", input)),
         );
         mcp.registerTool(
           "flowly_update_idea",
@@ -268,7 +275,7 @@ export class ToolServer {
             outputSchema: toolResultSchema,
             annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
           },
-          (input) => wrap(() => this.agents.write(identity, "idea_update", input)),
+          (input) => call(() => this.agents.write(identity, "idea_update", input)),
         );
         mcp.registerTool(
           "flowly_remove_idea",
@@ -279,7 +286,7 @@ export class ToolServer {
             outputSchema: toolResultSchema,
             annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
           },
-          (input) => wrap(() => this.agents.write(identity, "idea_remove", input)),
+          (input) => call(() => this.agents.write(identity, "idea_remove", input)),
         );
         mcp.registerTool(
           "flowly_remember",
@@ -290,7 +297,7 @@ export class ToolServer {
             outputSchema: toolResultSchema,
             annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
           },
-          (input) => wrap(() => this.agents.write(identity, "remember", input)),
+          (input) => call(() => this.agents.write(identity, "remember", input)),
         );
         mcp.registerTool(
           "flowly_recall",
@@ -301,7 +308,7 @@ export class ToolServer {
             outputSchema: recallResultSchema,
             annotations: { readOnlyHint: true, openWorldHint: false },
           },
-          (input) => wrap(() => this.agents.recall(identity, input)),
+          (input) => call(() => this.agents.recall(identity, input)),
         );
         mcp.registerTool(
           "flowly_add_artifact",
@@ -312,7 +319,7 @@ export class ToolServer {
             outputSchema: toolResultSchema,
             annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
           },
-          (input) => wrap(() => this.agents.write(identity, "artifact", input)),
+          (input) => call(() => this.agents.write(identity, "artifact", input)),
         );
         mcp.registerTool(
           "flowly_remove_artifact",
@@ -323,7 +330,7 @@ export class ToolServer {
             outputSchema: toolResultSchema,
             annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
           },
-          (input) => wrap(() => this.agents.write(identity, "artifact_remove", input)),
+          (input) => call(() => this.agents.write(identity, "artifact_remove", input)),
         );
         const readExternal = {
           description:
@@ -332,12 +339,12 @@ export class ToolServer {
           outputSchema: externalReadSchema,
           annotations: { readOnlyHint: true, openWorldHint: true },
         };
-        mcp.registerTool("flowly_read_external", readExternal, (input) => wrap(() => this.agents.readExternal(identity, input)));
+        mcp.registerTool("flowly_read_external", readExternal, (input) => call(() => this.agents.readExternal(identity, input)));
         // Older sessions' skill names the tool flowly_read_ticket (CONNECTORS-SPEC §3.3).
         mcp.registerTool(
           "flowly_read_ticket",
           { ...readExternal, description: `Deprecated alias of flowly_read_external; use that instead. ${readExternal.description}` },
-          (input) => wrap(() => this.agents.readExternal(identity, input)),
+          (input) => call(() => this.agents.readExternal(identity, input)),
         );
         mcp.registerTool(
           "flowly_set_tags",
@@ -348,7 +355,7 @@ export class ToolServer {
             outputSchema: toolResultSchema,
             annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
           },
-          (input) => wrap(() => this.agents.write(identity, "tags", input)),
+          (input) => call(() => this.agents.write(identity, "tags", input)),
         );
         mcp.registerTool(
           "flowly_update_metadata",
@@ -358,7 +365,7 @@ export class ToolServer {
             outputSchema: toolResultSchema,
             annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
           },
-          (input) => wrap(() => this.agents.write(identity, "metadata", input)),
+          (input) => call(() => this.agents.write(identity, "metadata", input)),
         );
         mcp.registerTool(
           "flowly_set_type",
@@ -369,7 +376,7 @@ export class ToolServer {
             outputSchema: toolResultSchema,
             annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
           },
-          (input) => wrap(() => this.agents.write(identity, "type", input)),
+          (input) => call(() => this.agents.write(identity, "type", input)),
         );
         mcp.registerTool(
           "flowly_suggest_next_moves",
@@ -380,7 +387,7 @@ export class ToolServer {
             outputSchema: toolResultSchema,
             annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
           },
-          (input) => wrap(() => this.agents.write(identity, "next_moves", input)),
+          (input) => call(() => this.agents.write(identity, "next_moves", input)),
         );
         mcp.registerTool(
           "flowly_update_workpad",
@@ -391,7 +398,7 @@ export class ToolServer {
             outputSchema: toolResultSchema,
             annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
           },
-          (input) => wrap(() => this.agents.write(identity, "workpad", input)),
+          (input) => call(() => this.agents.write(identity, "workpad", input)),
         );
         mcp.registerTool(
           "flowly_submit_review",
@@ -402,7 +409,7 @@ export class ToolServer {
             outputSchema: reviewResultSchema,
             annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
           },
-          (input) => wrap(() => this.agents.review(identity, input)),
+          (input) => call(() => this.agents.review(identity, input)),
         );
         mcp.registerTool(
           "flowly_create_card",
@@ -413,7 +420,7 @@ export class ToolServer {
             outputSchema: createCardResultSchema,
             annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
           },
-          (input) => wrap(() => this.agents.createCard(identity, input)),
+          (input) => call(() => this.agents.createCard(identity, input)),
         );
         mcp.registerTool(
           "flowly_update_card",
@@ -424,7 +431,7 @@ export class ToolServer {
             outputSchema: updateCardResultSchema,
             annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
           },
-          (input) => wrap(() => this.agents.updateCard(identity, input)),
+          (input) => call(() => this.agents.updateCard(identity, input)),
         );
         return mcp;
       },
@@ -511,15 +518,18 @@ export class ToolServer {
     }
     const body = z
       .strictObject({
-        action: z.enum(["get", "handoff", "status", "progress", "idea", "idea_update", "idea_remove", "remember", "recall", "artifact", "artifact_remove", "tags", "type", "metadata", "next_moves", "workpad", "external", "ticket", "review", "create_card", "update_card"]),
+        action: z.enum(["get", "handoff", "session_history", "status", "progress", "idea", "idea_update", "idea_remove", "remember", "recall", "artifact", "artifact_remove", "tags", "type", "metadata", "next_moves", "workpad", "external", "ticket", "review", "create_card", "update_card"]),
         input: z.unknown(),
       })
       .parse(JSON.parse(Buffer.concat(chunks).toString("utf8")));
+    await this.agents.toolCalled(identity);
     const value =
       body.action === "get"
         ? await this.agents.get(identity, true, true, handoffGetInputSchema.parse(body.input))
         : body.action === "handoff"
           ? await this.agents.updateHandoff(identity, handoffUpdateSchema.parse(body.input))
+        : body.action === "session_history"
+          ? await this.agents.readSessionHistory(identity, sessionHistoryQuerySchema.parse(body.input))
         : body.action === "external" || body.action === "ticket"
           ? await this.agents.readExternal(identity, readExternalInputSchema.parse(body.input))
           : body.action === "recall"
@@ -590,7 +600,12 @@ export class ToolServer {
           "SESSION_MISMATCH",
           "Prepared agent ID now belongs to an unavailable/different session.",
         );
-      return this.prepare(identity, ctx.context, "mcp");
+      const continuity = await this.agents.handoffs?.context(taskId, undefined, { recordAccess: false });
+      if (continuity?.unavailable) throw new ToolError("HANDOFF_UNAVAILABLE", continuity.unavailable);
+      const continuation = board.automation.find(job => job.taskId === taskId)?.rotation?.carry.continuation;
+      const extra = continuity && continuity.revision > 0
+        ? `\n\nCard continuity (bounded preview; not a complete transcript): ${JSON.stringify(continuity)}\nRead flowly_get_task handoff=full through every page, verify actual workspace state and acknowledge all unresolved IDs before delivering. Missing coverage is unknown, not evidence that no requirement exists.` : "";
+      return this.prepare(identity, ctx.context + extra + (continuation ? `\n\nAn earlier instruction was waiting when this comment arrived. It remains unfinished; inspect it together with the new comment and current card: ${JSON.stringify(continuation)}` : ""), "mcp");
     });
     this.preparation = job.then(
       () => undefined,

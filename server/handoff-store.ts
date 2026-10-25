@@ -245,6 +245,21 @@ export class HandoffStore {
     change.changed.add(value.id);
   }
   private async source(taskId: string, sourceId: string) { return this.optional<Pointer>(join(this.paths(taskId).folder, "sources", `${hash(sourceId)}.json`)); }
+  /** Dispatch reads an immutable original, not a clipped preview or a board event that can age out. */
+  async inputText(taskId: string, sourceId: string, maxCharacters = 20000): Promise<string | undefined> {
+    const entry = await this.inputRecord(taskId, sourceId);
+    if (!entry) return undefined;
+    if (entry.characters > maxCharacters) throw new HandoffError("HANDOFF_TOO_LARGE", "This original exceeds the dispatch text budget; it remains available through full handoff reading.");
+    let text = entry.text;
+    if (text === undefined && entry.textRef) {
+      const path = join(this.paths(taskId).folder, "inputs", `${entry.textRef}.txt`);
+      if ((await stat(path)).size > maxCharacters * 4) throw new HandoffError("HANDOFF_UNAVAILABLE", "The original text exceeds its declared bound; preserved for inspection.");
+      text = await readFile(path, "utf8");
+      if (hash(text) !== entry.textRef) throw new HandoffError("HANDOFF_UNAVAILABLE", "The original text failed its checksum; preserved for inspection.");
+    }
+    if (text === undefined || text.length !== entry.characters || text.length > maxCharacters || (entry.sourceHash && hash(text) !== entry.sourceHash)) throw new HandoffError("HANDOFF_UNAVAILABLE", "The complete original is unavailable or changed; dispatch was refused.");
+    return text;
+  }
   async inputRecord(taskId: string, sourceId: string): Promise<HandoffInput | null> {
     return this.serial(taskId, async () => {
       await this.recover(taskId); const pointer = await this.source(taskId, sourceId); if (!pointer) return null;

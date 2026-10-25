@@ -28,7 +28,7 @@ export function SessionCreate({
   task: Task;
   open: boolean;
   /** Prefill for a session started from an idea (IDEAS-SPEC §6.3); read when the form opens. */
-  seed?: { title: string; prompt: string } | null;
+  seed?: { title: string; prompt: string; messageId?: string } | null;
   /** Provider/model/mode of the latest session, reused as this form's starting point. */
   defaults?: { provider: string; model: string; mode: string } | null;
   workspaceDirectory?: string;
@@ -137,7 +137,7 @@ export function SessionCreate({
       if (!attempt.current || attempt.current.fingerprint !== fingerprint)
         attempt.current = {
           operationId: `session-${Date.now()}-${Math.random().toString(36).slice(2)}`,
-          messageId: newMessageId(),
+          messageId: seed?.messageId && newPrompt === seed.prompt ? seed.messageId : newMessageId(),
           fingerprint,
         };
       const images = attachments.images();

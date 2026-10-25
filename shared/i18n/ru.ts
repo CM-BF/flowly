@@ -1,6 +1,20 @@
 import type { Catalog } from "../i18n";
 
 const catalog: Catalog = {
+  "Session history {n} MB, still growing: inspect it and stop this session in Paseo": "История сеанса {n} МБ и продолжает расти: проверьте и остановите этот сеанс в Paseo",
+  "Session history {n} MB: the next instruction goes to a fresh session": "История сеанса {n} МБ: следующая инструкция поступит в новый сеанс",
+  "Agent has not updated the card for {n} min": "Агент не обновлял карточку {n} мин",
+  "Comment sent to a fresh session": "Комментарий отправлен в новый сеанс",
+  "Comment saved; Flowly will deliver it after the current handoff or review": "Комментарий сохранён; Flowly передаст его после текущей передачи или проверки",
+  "Card's agent (Flowly picks warm or fresh)": "Агент карточки (Flowly выбирает текущий или новый сеанс)",
+  "New session with the handoff": "Новый сеанс с передачей контекста",
+  "Save on the card (the next turn reads it)": "Сохранить в карточке (чтение на следующем ходе)",
+  "Selected session is unavailable": "Выбранный сеанс недоступен",
+  "Send result unknown; the original target and message identity are preserved": "Результат отправки неизвестен; исходный адресат и идентификатор сохранены",
+  "Waiting for the current handoff or review": "Ожидание текущей передачи или проверки",
+  "Delivered to a fresh session": "Доставлено в новый сеанс",
+  "Sent": "Отправлено",
+  "Saved on the card": "Сохранено в карточке",
   "Keep the draft and refresh the card before sending.": "Сохраните черновик и обновите карточку перед отправкой.",
   "Handoff": "Передача",
   "Handoff recorded": "Передача записана",
@@ -1625,7 +1639,6 @@ const catalog: Catalog = {
   "Your likely next message, one tap away.": "Ваше вероятное следующее сообщение — в одно касание.",
   "{messages} messages · {permissions} permissions · {moves} moves": "сообщений {messages} · разрешений {permissions} · перемещений {moves}",
   "{n} in one pass": "{n} с первого раза",
-  "Session history {n} MB: too large for Paseo to load safely; the next instruction goes to a new session": "История сессии {n} МБ: слишком велика, чтобы Paseo безопасно её загрузил; следующая инструкция уйдёт в новую сессию",
   "Continued in a new session: the history grew too large": "Продолжено в новой сессии: история стала слишком большой",
   "Session history is getting too large": "История сессии становится слишком большой",
   "Queued after blockers": "В очереди после блокирующих",

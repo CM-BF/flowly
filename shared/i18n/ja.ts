@@ -1,6 +1,20 @@
 import type { Catalog } from "../i18n";
 
 const catalog: Catalog = {
+  "Session history {n} MB, still growing: inspect it and stop this session in Paseo": "セッション履歴 {n} MB、増加中：確認して Paseo でこのセッションを停止してください",
+  "Session history {n} MB: the next instruction goes to a fresh session": "セッション履歴 {n} MB：次の指示は新しいセッションに送られます",
+  "Agent has not updated the card for {n} min": "エージェントは {n} 分間カードを更新していません",
+  "Comment sent to a fresh session": "コメントを新しいセッションに送信しました",
+  "Comment saved; Flowly will deliver it after the current handoff or review": "コメントを保存しました。引き継ぎまたはレビュー後に Flowly が届けます",
+  "Card's agent (Flowly picks warm or fresh)": "カードのエージェント（Flowly が既存か新規を選択）",
+  "New session with the handoff": "引き継ぎ付きの新しいセッション",
+  "Save on the card (the next turn reads it)": "カードに保存のみ（次のターンで読み取り）",
+  "Selected session is unavailable": "選択したセッションは利用できません",
+  "Send result unknown; the original target and message identity are preserved": "送信結果は不明です。元の送信先とメッセージ ID は保持されています",
+  "Waiting for the current handoff or review": "現在の引き継ぎまたはレビューを待っています",
+  "Delivered to a fresh session": "新しいセッションに配信済み",
+  "Sent": "送信済み",
+  "Saved on the card": "カードに保存済み",
   "Keep the draft and refresh the card before sending.": "下書きを残し、カードを再読み込みしてから送信してください。",
   "Handoff": "引き継ぎ",
   "Handoff recorded": "引き継ぎ記録あり",
@@ -1625,7 +1639,6 @@ const catalog: Catalog = {
   "Your likely next message, one tap away.": "次に送りそうなメッセージを、ワンタップで。",
   "{messages} messages · {permissions} permissions · {moves} moves": "メッセージ {messages} · 権限 {permissions} · 移動 {moves}",
   "{n} in one pass": "{n} 枚が一度で通過",
-  "Session history {n} MB: too large for Paseo to load safely; the next instruction goes to a new session": "セッション履歴 {n} MB：Paseo が安全に読み込めない大きさです。次の指示は新しいセッションに送られます",
   "Continued in a new session: the history grew too large": "新しいセッションで続行：履歴が大きくなりすぎました",
   "Session history is getting too large": "セッション履歴が大きくなりすぎています",
   "Queued after blockers": "ブロッカーの完了待ち",

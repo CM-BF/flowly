@@ -81,7 +81,7 @@ describe("who receives a comment", () => {
   test("a person's choice holds while it is still a recipient", () => {
     const targets = commentTargets([session("impl", 1), session("other", 2)], { workspaceId: "w", implementerId: "impl" });
     expect(resolveTarget(targets, "other")?.id).toBe("other");
-    expect(resolveTarget(targets, "gone")?.id).toBe("impl");
+    expect(resolveTarget(targets, "gone")).toBeNull();
     expect(resolveTarget(targets, null)?.id).toBe("impl");
     expect(resolveTarget({ candidates: [], defaultId: null, archivedOnly: false }, "other")).toBeNull();
   });
@@ -350,4 +350,14 @@ describe("the transport (the session composer's send path)", () => {
     expect(x.queue).toHaveBeenCalledWith("t", "impl", "After the turn", undefined);
     expect(x.send).not.toHaveBeenCalled();
   });
+});
+
+test("a daemon-routed pending comment never also takes the client native send path", async () => {
+  const memory = newCommentMemory(); editComment(memory, "  原文\n");
+  const record = vi.fn(async () => ({ event: { id: "route-event", taskId: "t", action: "commented", actor: "human", at: at(0), note: "  原文\n", operationId: "route-op" } as BoardEvent, delivery: { kind: "pending" as const } }));
+  const send = vi.fn(), queue = vi.fn();
+  const outcome = await postComment(memory, { record, send, queue }, { taskId: "t", target: null, deliver: "auto" });
+  expect(outcome).toMatchObject({ kind: "posted", delivery: { kind: "pending" } });
+  expect(record).toHaveBeenCalledWith(expect.objectContaining({ text: "  原文\n", deliver: "auto" }));
+  expect(send).not.toHaveBeenCalled(); expect(queue).not.toHaveBeenCalled(); expect(memory.draft).toBe("");
 });

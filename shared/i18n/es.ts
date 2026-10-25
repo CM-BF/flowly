@@ -1,6 +1,20 @@
 import type { Catalog } from "../i18n";
 
 const catalog: Catalog = {
+  "Session history {n} MB, still growing: inspect it and stop this session in Paseo": "Historial de sesión de {n} MB y creciendo: revísalo y detén esta sesión en Paseo",
+  "Session history {n} MB: the next instruction goes to a fresh session": "Historial de sesión de {n} MB: la siguiente instrucción irá a una sesión nueva",
+  "Agent has not updated the card for {n} min": "El agente lleva {n} min sin actualizar la tarjeta",
+  "Comment sent to a fresh session": "Comentario enviado a una sesión nueva",
+  "Comment saved; Flowly will deliver it after the current handoff or review": "Comentario guardado; Flowly lo entregará tras el relevo o la revisión actual",
+  "Card's agent (Flowly picks warm or fresh)": "Agente de la tarjeta (Flowly elige sesión actual o nueva)",
+  "New session with the handoff": "Sesión nueva con el relevo",
+  "Save on the card (the next turn reads it)": "Guardar en la tarjeta (se lee en el siguiente turno)",
+  "Selected session is unavailable": "La sesión seleccionada no está disponible",
+  "Send result unknown; the original target and message identity are preserved": "Resultado de envío desconocido; se conservan el destino y el identificador originales",
+  "Waiting for the current handoff or review": "Esperando al relevo o la revisión actual",
+  "Delivered to a fresh session": "Entregado a una sesión nueva",
+  "Sent": "Enviado",
+  "Saved on the card": "Guardado en la tarjeta",
   "Keep the draft and refresh the card before sending.": "Conserva el borrador y actualiza la tarjeta antes de enviarlo.",
   "Handoff": "Traspaso",
   "Handoff recorded": "Traspaso registrado",
@@ -1625,7 +1639,6 @@ const catalog: Catalog = {
   "Your likely next message, one tap away.": "Tu próximo mensaje probable, a un toque.",
   "{messages} messages · {permissions} permissions · {moves} moves": "{messages} mensajes · {permissions} permisos · {moves} movimientos",
   "{n} in one pass": "{n} a la primera",
-  "Session history {n} MB: too large for Paseo to load safely; the next instruction goes to a new session": "Historial de sesión de {n} MB: demasiado grande para que Paseo lo cargue con seguridad; la próxima instrucción irá a una sesión nueva",
   "Continued in a new session: the history grew too large": "Continúa en una sesión nueva: el historial creció demasiado",
   "Session history is getting too large": "El historial de la sesión se está volviendo demasiado grande",
   "Queued after blockers": "En cola tras sus bloqueos",

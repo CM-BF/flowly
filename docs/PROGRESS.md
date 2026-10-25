@@ -1,5 +1,16 @@
 # Implementation progress
 
+## Hybrid handoff P2: implementation and focused review — 2026-10-24
+
+- [x] Shared measured boundary policy: 64 MiB early replacement, independent 200 MiB Codex no-load guard, context/compaction/cold-cache decisions, same-cycle tight loops and fresh reviewers for new cycles. Existing recoverable rotation preserves the original instruction, launch model, cycle, round and review seat. Unknown measurements remain unknown; running sessions are not automatically stopped or steered.
+- [x] Snapshot/ledger/bounded-tail measurements with exact native identity, complete capped JSON validation and ctime-aware cache; active-duration evidence excludes idle age. Context/size/growth checkpoints and silence signals change persistent state only when meaningful data changes.
+- [x] Daemon-owned auto/fresh/save/explicit-session comment routing; original text is retained once, event and routing intent commit together, unknown native sends keep a stable message identity, and deterministic pre-send failures do not fill the pending quota. UI retains choices/drafts and shows actual receipts after refresh. Card/project removal backs up and clears its routing references.
+- [x] Authorized, bounded read-only session history: sanitized immutable derived views, explicit changed/rebuild behavior, source/response limits, current-plus-previous cache retention, recoverable publication and visible omissions. Cross-card summaries exclude human originals and share the existing total budget. Nine catalogs, CLI/MCP contracts, README, existing Handoff onboarding and implementation spec updated.
+- [x] Independent measurement and history reviews reproduced and verified fixes for wrong-session usage, malformed JSON, null compaction markers, stale same-size tail caches and short credentials inside JSON-encoded tool arguments. No-op minute polls have mutation-checked regressions. Focused policy review found optional timeline loading above 64 MiB and a send after the actor became busy during measurement; both are repaired and the original three independent probes pass.
+- [x] P1 real testing exposed a refusal loop caused by using the whole handoff revision. The repaired semantic gate passes the original five independent probes and eight formal cases, including new critical information and current-to-overflow moves. Known Codex usage-only records no longer fabricate content gaps. The same fixes are included here. Initial P2 integration caught two invalid RPC method names and two filesystem-heavy test deadlines; names now follow the SDK contract and only those tests have a larger timeout.
+- [x] Integrated source passes typecheck and **194 files / 1978 tests**. Client bundle is 1,470,818 bytes / 28,033 lines, +0.68% over P1 by the same daemon compiler options. Original failed integration log remains with the passing recheck.
+- [ ] P1 successful real continuation, P2 low-threshold fixture-only Luna desktop/compact verification, PR merge and managed installation. Earlier real P1 attempt has not established a successful replacement; its evidence is retained rather than counted as a pass.
+
 ## Hybrid handoff P1: implementation and independent review — 2026-10-24
 
 - [x] Card-owned, bounded current handoff plus append-only changed entries and original-text blobs; questions and review delivery notes retain the full 10,000-character contract. Full records page without silently dropping unresolved items. IDs are checked across sections, overflow and archived latest entries before acknowledgment.
@@ -9,8 +20,8 @@
 - [x] Drawer handoff, original inputs, pending questions/findings, session ledger, gaps and fresh/manual continuation; stable drafts across refresh; nine catalogs, skills and turn checklists. Destructive deletion backs up the full record first; local restore holds per-card observation until that record is restored.
 - [x] Three module authors and independent cross-reviews verified crash recovery, two successive rotation rollbacks, ownership, image retries, archive ID collisions and board/record interleavings. Reports: local `~/.paseo/verification/flowly-session-handoff-20261024/`.
 - [x] Exact-tree typecheck and full suite: **185 files / 1855 tests passed**. Three final guard mutations each failed with the guard removed and passed when restored. Test-only classifier waits now use observable creation before superseding a helper; real filesystem writes no longer compete with a 10 ms fake-model deadline.
-- [ ] Daemon installation and full-access Luna desktop/compact continuation drill. No P1 code installed yet. See [verification report](verification/session-handoff.md).
-- [ ] P2 follows real P1 acceptance: 64 MiB/context/compaction/cold boundaries, comment routing and new-cycle reviewer freshness. P1 retains the existing 200 MiB guard; new automatic boundaries remain disabled. No auto-stop or steer is introduced.
+- [x] Exact P1 `684a8fd` managed installation; all 18 original jobs retained their lifecycle fields. See [verification report](verification/session-handoff.md).
+- [ ] Full-access Luna desktop/compact continuation drill has not yet proved successful replacement. P1 retains the existing 200 MiB guard; the automatic P2 boundaries above remain uninstalled. No auto-stop or steer is introduced.
 
 ## Review levels real verification complete — 2026-10-24
 

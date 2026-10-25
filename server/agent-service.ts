@@ -85,6 +85,8 @@ import { createCardInputSchema, updateCardInputSchema, type CreateCardInput, typ
 import { taskInput, type Task, type TaskInput } from "../shared/model";
 import { reasonText, reviewLevelNote, type LevelBoard } from "../shared/review-levels";
 import { existsSync } from "node:fs";
+import type { SessionHistory } from "./session-history";
+import type { SessionHistoryQuery } from "../shared/session-history";
 
 /** A card's review level for get_task (AUTOMATION-SPEC §5.2.1): what it resolves to now, whether it is set on the card, and why. */
 function levelContext(board: LevelBoard, task: Task) {
@@ -112,6 +114,16 @@ export class AgentService {
     this.deliveryGate.clear(`${identity.agentId}:${identity.taskId}:${identity.workspaceId}`);
   }
   readonly accesses = new Map<string, { at: string; action: string }>();
+  async toolCalled(identity: ToolIdentity) {
+    this.accesses.set(identity.agentId, { at: new Date(this.clock()).toISOString(), action: "tool" });
+    const known = jobOf(await this.store.read(), identity.taskId);
+    if (!known?.silentSince || (known.implementerId !== identity.agentId && known.reviewerId !== identity.agentId)) return;
+    await this.store.transaction(board => {
+      const job = jobOf(board, identity.taskId);
+      if (!job?.silentSince || (job.implementerId !== identity.agentId && job.reviewerId !== identity.agentId)) return { value: undefined, changed: false };
+      delete job.silentSince; return { value: undefined, changed: true };
+    });
+  }
   /** The Ideas setting; off refuses new proposals (IDEAS-INBOX-SPEC §10). Set by the plugin entry. */
   ideasOn: () => Promise<boolean> = async () => true;
   /** The Agent artifacts setting; off refuses artifact writes (CARD-ARTIFACTS-SPEC §4.3). */
@@ -136,6 +148,20 @@ export class AgentService {
   automation?: AutomationService;
   /** Card continuity and durable source provenance; attached by the plugin entry. */
   handoffs?: HandoffService;
+  sessionHistory?: SessionHistory;
+  async readSessionHistory(identity: ToolIdentity, query: SessionHistoryQuery) {
+    if (!this.sessionHistory || !this.handoffs) throw new ToolError("HANDOFF_UNAVAILABLE", "Session history excerpts are unavailable.");
+    const { task, project, paseo } = await this.resources(identity);
+    const available = await this.handoffs.context(task.id, identity.agentId, { recordAccess: false });
+    if (available.unavailable) throw new ToolError("HANDOFF_UNAVAILABLE", available.unavailable);
+    const record = await this.handoffs.records.read(task.id, project.id);
+    const number = /^#?([1-9]\d*)$/.exec(query.session);
+    const session = number ? record.ledger.find(s => s.n === Number(number[1])) : await this.handoffs.records.sessionRecord(task.id, query.session);
+    if (!session) throw new ToolError("SESSION_MISMATCH", "Choose a session from this card's handoff ledger. For older archived entries, read the full handoff and use its exact agent ID.");
+    const actor = (await paseo.agents.ref(session.agentId).refresh())?.agent;
+    if (!actor || actor.workspaceId !== task.workspaceId) throw new ToolError("SESSION_MISMATCH", "The recorded session is missing or no longer belongs to this card's workspace.");
+    return this.sessionHistory.read(actor, query);
+  }
   async updateHandoff(identity: ToolIdentity, patch: HandoffUpdate) {
     if (!this.handoffs) throw new ToolError("HANDOFF_UNAVAILABLE", "Card continuity is unavailable in this Flowly build.");
     const result = await this.handoffs.update(identity, patch);
@@ -642,7 +668,7 @@ export class AgentService {
       },
       sessions: { entries: entries.slice(0, 20), partial, unavailableReason },
       ...(await this.store.read().then(async (board) => {
-        const { handoffs, branches } = withHandoffs ? await linkExtras(board, r.task.id, r.paseo, this.git) : { handoffs: new Map<string, LinkHandoff>(), branches: new Map<string, string>() };
+        const { handoffs, branches } = withHandoffs ? await linkExtras(board, r.task.id, r.paseo, this.git, this.handoffs?.linkSummary.bind(this.handoffs)) : { handoffs: new Map<string, LinkHandoff>(), branches: new Map<string, string>() };
         const emittedHandoffs = new Set<string>();
         setup = setupContext(setupMissing(r.task, workpadOf(board.workpads, r.task.id), workpadEnabled(r.project)), r.task.status);
         return {

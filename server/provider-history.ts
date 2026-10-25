@@ -20,7 +20,7 @@ const sessionIdPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a
 export type NativeHistoryFile = { provider: "codex" | "claude"; sessionId: string; path: string };
 export type NativeHistoryLocation = { file?: NativeHistoryFile; reason?: "unsupported_provider" | "invalid_session" | "source_missing" | "locator_budget" | "aborted" };
 
-function nativeIdentity(agent: HistoryAgent): { provider: "codex" | "claude" | undefined; sessionId: string | undefined } {
+export function nativeHistoryIdentity(agent: HistoryAgent): { provider: "codex" | "claude" | undefined; sessionId: string | undefined } {
   const persisted = agent.persistence;
   const names = [persisted?.metadata?.provider, persisted?.provider, agent.provider];
   const provider = names.includes("codex") ? "codex" : names.includes("claude") ? "claude" : undefined;
@@ -97,7 +97,7 @@ async function containedFile(path: string, home: string): Promise<string | null>
 /** Only native UUID filenames below the provider home; never treats persistence.nativeHandle as a filesystem path. */
 export async function locateProviderHistory(agent: HistoryAgent, options: { codexHome?: string; claudeHome?: string; signal?: AbortSignal } = {}): Promise<NativeHistoryLocation> {
   if (options.signal?.aborted) return { reason: "aborted" };
-  const { provider, sessionId } = nativeIdentity(agent);
+  const { provider, sessionId } = nativeHistoryIdentity(agent);
   if (!provider) return { reason: "unsupported_provider" };
   if (!sessionId || !sessionIdPattern.test(sessionId)) return { reason: "invalid_session" };
   try {
@@ -128,11 +128,52 @@ export async function locateProviderHistory(agent: HistoryAgent, options: { code
   } catch { return { reason: "source_missing" }; }
 }
 
+export type SidecarMeasurement = { at: number; bytes?: number; files: number; complete: boolean; limited: boolean };
+const sidecars = new Map<string, SidecarMeasurement>();
+/** Claude subagent/workflow bytes are an independent warning, never the parent's rotation bytes. */
+export async function claudeSidecarBytes(file: NativeHistoryFile, now = Date.now(), signal?: AbortSignal): Promise<SidecarMeasurement> {
+  const key = file.path;
+  const hit = sidecars.get(key);
+  if (hit && now >= hit.at && now - hit.at < 300_000) return hit;
+  const result: SidecarMeasurement = { at: now, bytes: 0, files: 0, complete: true, limited: false };
+  if (file.provider !== "claude" || signal?.aborted) return { ...result, bytes: undefined, complete: false };
+  const root = file.path.slice(0, -".jsonl".length), queue = [join(root, "subagents"), join(root, "workflows")];
+  const rootInfo = await lstat(root).catch((error: NodeJS.ErrnoException) => { if (error.code !== "ENOENT") result.complete = false; return null; });
+  if (!result.complete) return { ...result, bytes: undefined };
+  if (rootInfo && (!rootInfo.isDirectory() || rootInfo.isSymbolicLink())) return { ...result, bytes: undefined, complete: false };
+  let entries = 0;
+  while (queue.length && !signal?.aborted && !result.limited) {
+    const folder = queue.shift()!;
+    const info = await lstat(folder).catch((error: NodeJS.ErrnoException) => { if (error.code !== "ENOENT") result.complete = false; return null; });
+    if (!info?.isDirectory() || info.isSymbolicLink()) continue;
+    const directory = await opendir(folder).catch(() => { result.complete = false; return null; });
+    if (!directory) continue;
+    for await (const entry of directory) {
+      if (signal?.aborted) break;
+      if (++entries > 5000) { result.complete = false; result.limited = true; break; }
+      if (entry.isSymbolicLink()) continue;
+      const path = join(folder, entry.name);
+      if (entry.isDirectory()) queue.push(path);
+      else if (entry.isFile()) {
+        const info = await lstat(path).catch(() => null);
+        if (!info?.isFile() || info.isSymbolicLink()) { result.complete = false; continue; }
+        result.bytes! += info.size; result.files++;
+      }
+    }
+  }
+  if (signal?.aborted) return { ...result, bytes: undefined, complete: false };
+  if (result.limited) result.bytes = Math.max(result.bytes ?? 0, 512 * 2 ** 20);
+  if (sidecars.size >= 128) sidecars.delete(sidecars.keys().next().value!);
+  sidecars.set(key, result);
+  return result;
+}
+
 const checked = new Map<string, { at: number; bytes: number | null }>();
 /** Forgets every measurement (tests). */
 export function forgetHistory() {
   checked.clear();
   paths.clear();
+  sidecars.clear();
 }
 
 /**

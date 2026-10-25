@@ -36,7 +36,7 @@ import {
   planSnapshotSchema,
 } from "./model";
 import { healthSchema, preparationSchema } from "./tools";
-import { commentInput } from "./comments";
+import { commentInput, commentDeliverySchema } from "./comments";
 import { connectionInput, connectionSchema, externalSummarySchema } from "./connectors";
 import { composerStateSchema, composerTarget, maxImages, outgoingImageSchema, queuedMessageSchema } from "./composer";
 import {
@@ -232,7 +232,15 @@ export const updateTaskTags = defineRpc({
 export const commentTask = defineRpc({
   name: "tasks.comment",
   input: commentInput,
-  output: z.object({ event: eventSchema }),
+  output: z.object({ event: eventSchema, delivery: commentDeliverySchema.optional() }),
+});
+export const readCommentDeliveries = defineRpc({
+  name: "tasks.comment-deliveries", input: z.strictObject({ taskId: z.string().min(1).max(200) }),
+  output: z.array(z.object({ eventId: z.string(), delivery: commentDeliverySchema })),
+});
+export const resendRoutedComment = defineRpc({
+  name: "tasks.resend-comment", input: z.strictObject({ taskId: z.string().min(1).max(200), eventId: z.string().min(1).max(200) }),
+  output: z.object({ event: eventSchema, delivery: commentDeliverySchema.optional() }),
 });
 /** Dismiss or restore an idea (IDEAS-SPEC §7). */
 export const updateIdea = defineRpc({

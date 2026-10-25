@@ -1,11 +1,14 @@
+import { rotationDecision, rotationLimits, poisonedSession, checkpointObservation, type RotationDecision, type RotationLimits } from "../shared/session-rotation";
+import type { SessionPolicyFacts } from "../shared/session-measurement";
 import { resolveReviewLevel, reviewPlan, withFallback } from "./review-levels";
 import { AutomationLaunches } from "./automation-launch";
 import { beginRotation, retireRotation, rollbackRotation, rotationContext, type AutomationHandoffBridge } from "./automation-rotation";
 import type { AutomationLaunch } from "../shared/automation-launch";
 import { supportedFeatures } from "../shared/agent-features";
 import { cardHandoff, cardLocation } from "./automation-handoff";
+import type { ContinuityReader } from "./handoff-links";
 import { realpath } from "node:fs/promises";
-import { historyBytes, megabytes, oversized, type HistoryAgent } from "./provider-history";
+import { historyBytes, megabytes, type HistoryAgent } from "./provider-history";
 import { randomUUID } from "node:crypto";
 import type { PaseoApi } from "@getpaseo/client";
 import type { AgentModel } from "../shared/agent-defaults";
@@ -81,6 +84,8 @@ import type { BoardStore } from "./store";
 import { ToolError } from "./tool-error";
 
 type Role = AutomationJob["role"];
+export type RoutedComment = { taskId: string; sourceId: string; messageId: string; text: string; mode?: "steer" | "interrupt" | "queue"; fresh?: boolean };
+export type CommentRouteResult = { kind: "sent" | "queued" | "pending" | "fresh" | "saved"; agentId?: string };
 export type AutomationDeps = {
   /**
    * Prepares a Flowly-managed session of the card (ToolServer.prepareSession): its id, tools and instructions.
@@ -100,6 +105,14 @@ export type AutomationDeps = {
   historyBytes?: (agent: HistoryAgent) => Promise<number | null>;
   /** Card records/capture only; create, send, retirement and recovery stay in this dispatcher. */
   handoff?: AutomationHandoffBridge;
+  continuity?: ContinuityReader;
+  lastToolAt?: (agentId: string) => string | undefined;
+  checkpointAt?: (taskId: string, agentId: string) => Promise<number | undefined>;
+  rotationLimits?: (taskId: string, projectId: string) => Partial<RotationLimits> | Promise<Partial<RotationLimits>>;
+  readComment?: (taskId: string, sourceId: string) => Promise<{ text: string; messageId: string; mode?: "steer" | "interrupt" | "queue"; fresh?: boolean } | undefined>;
+  sendComment?: (input: Omit<RoutedComment, "fresh"> & { agentId: string }) => Promise<{ kind: "sent" | "queued" }>;
+  commentResult?: (taskId: string, sourceId: string, result: CommentRouteResult) => Promise<void>;
+  commentFailed?: (taskId: string, sourceId: string, error: unknown) => Promise<void>;
 };
 
 /** Short tail for event notes and the job's detail. */
@@ -177,6 +190,8 @@ export class AutomationService {
     await this.launches.collect(await this.store.read());
     await this.recordTakeBacks();
     await this.reconcile();
+    await this.recoverComments();
+    await this.drainComments();
     const settled = await this.store.read();
     let motion: Motion | undefined;
     for (const job of settled.automation) if (job.state === "waiting" && parentShouldWake(settled, job, (motion ??= motionOf(settled, this.clock())))) await this.wake(job);
@@ -193,28 +208,104 @@ export class AutomationService {
     return (this.deps.historyBytes ?? historyBytes)(agent).catch(() => null);
   }
 
+  private async policy(job: AutomationJob, agent: { id: string; provider?: string; status?: string; lastError?: string | null }, bytes?: number | null, kind?: string) {
+    const facts = await this.deps.handoff?.measure?.({ taskId: job.taskId, agentId: agent.id }).catch(() => undefined);
+    if (facts && facts.agentId !== agent.id) throw new Error("The rotation measurement belongs to a different session.");
+    const observed: SessionPolicyFacts = { agentId: agent.id, provider: agent.provider ?? "unknown", at: this.clock(), ...facts, ...(bytes == null ? {} : { B: bytes }) };
+    const board = await this.store.read();
+    const ended = board.events.filter(e => e.taskId === job.taskId && e.action === "agent.turn_ended").map(e => Date.parse(e.at)).filter(Number.isFinite);
+    const lastCardTurnEndAt = Math.max(observed.lastTurnEndAt ?? 0, ...ended) || undefined;
+    const cached = job.instruction?.rotationDecision;
+    const limits = await this.deps.rotationLimits?.(job.taskId, job.projectId);
+    const decision = rotationDecision({ facts: observed, now: this.clock(), role: kind === "comment" ? "implementer" : job.instruction?.role ?? job.role,
+      kind: kind ?? (job.instruction?.comment ? "comment" : job.instruction?.kind), lastCardTurnEndAt,
+      error: agent.status === "error" ? "session_error" : agent.lastError ?? undefined,
+      softCount: job.rotations?.soft, byteCount: job.rotations?.bytes,
+      abandoned: kind === undefined && job.rotationAbandoned?.instructionId === job.instruction?.id,
+      ...(kind === undefined && cached?.agentId === agent.id ? { cached } : {}),
+    }, limits);
+    return { decision, facts: observed, limits: { ...rotationLimits, ...limits } };
+  }
+
+  /** A policy result only feeds the existing recoverable rotation; it never starts another dispatcher. */
+  private async applyPolicy(job: AutomationJob, agent: { id: string; provider?: string; status?: string; lastError?: string | null }, bytes: number | null) {
+    const { decision, facts, limits } = await this.policy(job, agent, bytes);
+    const changed = await this.store.transaction(board => {
+      const j = this.current(board, job, job.instruction!.role);
+      if (!j?.instruction || activeAgent(j) !== agent.id) return { value: null, changed: false };
+      if (j.rotation) return { value: { ...j }, changed: false };
+      if (decision.action === "keep") {
+        if (j.instruction.rotationDecision?.agentId === agent.id) return { value: null, changed: false };
+        j.instruction.rotationDecision = { agentId: agent.id, ...decision };
+        return { value: null, changed: true };
+      }
+      if (decision.action === "hold") {
+        j.rotations = { soft: j.rotations?.soft ?? 0, bytes: (j.rotations?.bytes ?? 0) + 1 };
+        j.hold = "history_runaway"; j.state = "needs_human"; j.code = "interrupted";
+        j.detail = "History kept growing too large in three sessions. The next instruction is saved; inspect the card's pitfalls before Run again.";
+        j.updatedAt = this.now();
+        this.store.event(board, { taskId: j.taskId, actor: "system", action: "automation_history_runaway", note: j.detail });
+        return { value: { ...j }, changed: true };
+      }
+      beginRotation(j, "history", this.now(), { forced: decision.forced, ...(facts.B === undefined ? {} : { bytes: facts.B }) });
+      j.rotation!.policy = { rule: decision.rule, boundary: decision.boundary, reason: decision.reason, C: facts.C, W: facts.W, K: facts.K };
+      if (decision.rule === "R1" || (decision.rule === "R0" && facts.B !== undefined && facts.B >= limits.bytesNoRead))
+        j.rotations = { soft: j.rotations?.soft ?? 0, bytes: (j.rotations?.bytes ?? 0) + 1 };
+      return { value: { ...j }, changed: true };
+    });
+    if (changed?.rotation) { await this.send(changed); return true; }
+    return decision.action !== "keep";
+  }
+
   private historyCheckedAt = 0;
-  /**
-   * A running session whose provider history passes `historyLimits.warn` is flagged once on its card (§4.6): Paseo
-   * crashes when it loads such a history again. Nothing is interrupted; the next instruction goes to a new session.
-   */
+  private readonly liveHistorySamples = new Map<string, { at: number; bytes: number }[]>();
+  /** Existing minute watch: observe and show card reminders; never steer, stop or replace a running session. */
   private async watchHistory() {
     if (this.clock() - this.historyCheckedAt < 60_000) return;
     this.historyCheckedAt = this.clock();
     const board = await this.store.read();
+    const current = new Set(board.automation.filter(isLive).map(activeAgent).filter(Boolean));
+    for (const id of this.liveHistorySamples.keys()) if (!current.has(id)) this.liveHistorySamples.delete(id);
     for (const job of board.automation) {
       const agentId = isLive(job) ? activeAgent(job) : undefined;
-      if (!agentId || job.historyWarning?.agentId === agentId) continue;
+      if (!agentId) continue;
       const agent = (await this.api().agents.ref(agentId).refresh().catch(() => null))?.agent;
-      if (!agent || agent.archivedAt) continue;
+      if (!agent || agent.archivedAt || !busyAgent(agent)) continue;
       const bytes = await this.measure(agent as HistoryAgent);
-      if (bytes === null || bytes < historyLimits.warn) continue;
-      await this.store.transaction((b) => {
+      const facts = await this.deps.handoff?.measure?.({ taskId: job.taskId, agentId }).catch(() => undefined);
+      const checkpointAt = await this.deps.checkpointAt?.(job.taskId, agentId).catch(() => undefined);
+      if (facts && facts.agentId !== agentId) continue;
+      const lifecycle = latestLifecycle(board, job.taskId, agentId);
+      const turnStartedAt = busyAgent(agent) && lifecycle?.action === "agent.turn_started" ? Date.parse(lifecycle.at) : undefined;
+      const rawToolAt = this.deps.lastToolAt?.(agentId), lastToolAt = rawToolAt === undefined ? undefined : Date.parse(rawToolAt);
+      const observed = checkpointObservation({ facts: { agentId, provider: agent.provider ?? "unknown", at: this.clock(), ...facts, ...(bytes === null ? {} : { B: bytes }) }, now: this.clock(),
+        seen: job.checkpointSeen, samples: this.liveHistorySamples.get(agentId) ?? (job.historySamples?.agentId === agentId ? job.historySamples.values : undefined),
+        turnStartedAt: Number.isFinite(turnStartedAt) ? turnStartedAt : undefined, checkpointAt, lastToolAt });
+      this.liveHistorySamples.set(agentId, observed.samples);
+      const mainBytes = bytes ?? facts?.B;
+      const level = mainBytes !== undefined && mainBytes >= historyLimits.warn ? "critical" : mainBytes !== undefined && mainBytes >= 128 * 2 ** 20 ? "large" : undefined;
+      await this.store.transaction(b => {
         const j = jobOf(b, job.taskId);
-        if (!j || j.generation !== job.generation || activeAgent(j) !== agentId || j.historyWarning?.agentId === agentId) return { value: null, changed: false };
-        j.historyWarning = { agentId, bytes, at: this.now() };
-        this.store.event(b, { taskId: j.taskId, actor: "system", agentId, action: "automation_history_large", note: `This session's provider history is ${megabytes(bytes)} MB. Paseo can crash when it loads a history this large again (after a restart or a history refresh); its next instruction goes to a new session. Stop it if it keeps growing.` });
-        return { value: null, changed: true };
+        if (!j || j.generation !== job.generation || activeAgent(j) !== agentId) return { value: undefined, changed: false };
+        let changed = false;
+        if (level && (j.historyWarning?.agentId !== agentId || (j.historyWarning.level ?? "critical") !== "critical" && j.historyWarning.level !== level)) {
+          j.historyWarning = { agentId, bytes: mainBytes!, at: this.now(), level }; changed = true;
+          this.store.event(b, { taskId: j.taskId, actor: "system", agentId, action: "automation_history_large", note: `This session's provider history is ${megabytes(mainBytes!)} MB${level === "critical" ? "; it is unsafe to load again" : "; save screenshots and large outputs to files"}. Its next instruction uses a fresh session. Nothing has been interrupted.` });
+        }
+        if (this.deps.handoff?.measure) {
+          const previousBytes = j.historySamples?.agentId === agentId ? j.historySamples.values.at(-1)?.bytes : undefined;
+          // Flat minute samples help the rate estimate in memory; a timestamp alone is not a board change.
+          if (mainBytes !== undefined && previousBytes !== mainBytes) { j.historySamples = { agentId, values: observed.samples }; changed = true; }
+          const seen = Object.keys(observed.seen).length > 1 ? observed.seen : undefined;
+          if (JSON.stringify(j.checkpointSeen) !== JSON.stringify(seen)) { if (seen) j.checkpointSeen = seen; else delete j.checkpointSeen; changed = true; }
+          if (j.role === "implementer" && observed.reason && !(j.checkpoint?.agentId === agentId && j.checkpoint.reason === observed.reason && (checkpointAt === undefined || checkpointAt < Date.parse(j.checkpoint.at)))) {
+            j.checkpoint = { agentId, reason: observed.reason, at: this.now() }; changed = true;
+            this.store.event(b, { taskId: j.taskId, actor: "system", agentId, action: "automation_checkpoint", note: observed.reason });
+          }
+          const silentSince = observed.silentSince === undefined ? undefined : new Date(observed.silentSince).toISOString();
+          if (j.silentSince !== silentSince) { if (silentSince) j.silentSince = silentSince; else delete j.silentSince; changed = true; }
+        }
+        return { value: undefined, changed };
       });
     }
   }
@@ -254,7 +345,7 @@ export class AutomationService {
         // A reviewer session reviews rounds of one level (§5.2.3): one from a Light or Deep round is not carried either.
         const healthy =
           existing?.reviewerId && existing.reviewerId !== existing.implementerId && !existing.fallback?.reviewer && !seatOf(existing) && (existing.review?.level ?? "standard") === "standard";
-        const carried = healthy && (!this.deps.handoff || by) ? existing.reviewerId : undefined;
+        const carried = healthy && (!this.deps.handoff || (by && !this.deps.handoff.measure)) ? existing.reviewerId : undefined;
         // Reviewer sessions not carried stay the card's reviewers (no takeover when a person asks them later).
         const earlierReviewers = [...(existing?.reviewers ?? []), ...(existing?.reviewerId && !carried && existing.reviewerId !== existing.implementerId ? [existing.reviewerId] : [])].slice(-20);
         const held = (existing?.heldLimits ?? []).filter((limit) => Date.parse(limit.until) > this.clock());
@@ -315,6 +406,148 @@ export class AutomationService {
       this.store.event(board, { taskId, actor: "human", action: "automation_stopped" });
       return { value: job, changed: true };
     }).then((job) => { void this.kick(); return job; });
+  }
+
+  /** Human comments reuse the per-card dispatcher lock; the native sender owns the handoff mutex. */
+  routeComment(input: RoutedComment): Promise<CommentRouteResult> {
+    if (this.stopped) return Promise.reject(new ToolError("HANDOFF_UNAVAILABLE", "Automation is stopping; the original comment stays on the card."));
+    const pending = this.sending.get(input.taskId);
+    if (pending) return pending.then(() => this.routeComment(input));
+    const work = this.routeCommentNow(input);
+    const tail = work.then(() => undefined, () => undefined);
+    this.sending.set(input.taskId, tail);
+    void tail.finally(() => { if (this.sending.get(input.taskId) === tail) this.sending.delete(input.taskId); });
+    return work;
+  }
+
+  private async routeCommentNow(input: RoutedComment): Promise<CommentRouteResult> {
+    const board = await this.store.read(), job = jobOf(board, input.taskId);
+    const task = board.tasks.find(t => t.id === input.taskId), project = task && board.projects.find(p => p.id === task.projectId);
+    if (!job || !task || !project || !automationOf(project) || task.archivedAt || project.archivedAt || ["done", "cancelled"].includes(task.status)) return { kind: "saved" };
+    if (["stopped", "failed"].includes(job.state)) return { kind: "saved" };
+    if (job.rotation || job.pendingOp || job.unconfirmed || job.hold) {
+      await this.pendingComment(job, input.sourceId); return { kind: "pending" };
+    }
+    const id = job.implementerId;
+    if (!id) { await this.pendingComment(job, input.sourceId); return { kind: "pending" }; }
+    const actor = (await this.api().agents.ref(id).refresh())?.agent;
+    if (!actor || actor.workspaceId !== task.workspaceId || actor.archivedAt) { await this.pendingComment(job, input.sourceId); return { kind: "pending" }; }
+    if (input.fresh && busyAgent(actor)) throw new ToolError("SESSION_BUSY", "Wait for the current session before choosing a fresh one. The comment is saved.");
+    const observed = this.deps.handoff?.measure && !busyAgent(actor) ? await this.policy(job, actor, await this.measure(actor), "comment") : undefined;
+    const decision: RotationDecision = input.fresh && (!observed || observed.decision.action === "keep")
+      ? { action: "rotate", rule: "R5", boundary: "other", forced: false, reason: "A person chose a fresh session for this comment." }
+      : observed?.decision ?? { action: "keep", rule: "R6", boundary: "tight", forced: false, reason: "Send the person's message to the current worker." };
+    if (decision.action === "keep") {
+      if (!this.deps.sendComment) throw new ToolError("HANDOFF_UNAVAILABLE", "The durable comment sender is unavailable.");
+      const result = { ...await this.deps.sendComment({ ...input, agentId: id }), agentId: id };
+      await this.deps.commentResult?.(input.taskId, input.sourceId, result);
+      await this.removePendingComment(input.taskId, input.sourceId);
+      return result;
+    }
+    if (job.instruction?.role === "reviewer" && !job.instruction.dispatched) {
+      await this.pendingComment(job, input.sourceId); return { kind: "pending" };
+    }
+    await this.store.transaction(current => {
+      const j = jobOf(current, input.taskId);
+      if (!j || j.generation !== job.generation || j.implementerId !== id) throw new ToolError("HANDOFF_CONFLICT", "The card owner changed while the comment was being routed. Retry the same comment.");
+      this.addPendingComment(j, input.sourceId);
+      if (j.rotation || j.pendingOp || j.unconfirmed || (j.instruction?.role === "reviewer" && !j.instruction.dispatched)) return { value: undefined, changed: true };
+      if (decision.action === "hold") {
+        j.rotations = { soft: j.rotations?.soft ?? 0, bytes: (j.rotations?.bytes ?? 0) + 1 };
+        j.state = "needs_human"; j.code = "interrupted"; j.hold = "history_runaway";
+        j.detail = "History kept growing across three sessions. The comment is saved; inspect the card before Run again.";
+        return { value: undefined, changed: true };
+      }
+      const previous = j.instruction?.role === "implementer" ? j.instruction : undefined;
+      if (j.state === "delivered" || j.role === "reviewer") {
+        if (j.role === "reviewer" && ["needs_human", "retry_wait"].includes(j.state)) j.reviewPause = this.reviewPause(j);
+        if (j.role === "reviewer") delete j.verdict;
+        j.reopened = true; delete j.changes;
+        this.store.event(current, { taskId: j.taskId, actor: "system", action: "automation_resumed", agentId: id });
+      }
+      j.role = "implementer"; j.state = "working"; j.nudges = 0;
+      delete j.retryAt; delete j.code; delete j.detail;
+      j.instruction = { id: `comment:${input.sourceId}`, role: "implementer", text: input.text, fresh: input.text, kind: "requested", verbatim: true,
+        comment: { sourceId: input.sourceId, messageId: input.messageId }, ...(previous ? { continuation: { id: previous.id, text: previous.text, fresh: previous.fresh, kind: previous.kind } } : {}) };
+      beginRotation(j, input.fresh ? "requested" : "history", this.now(), { forced: decision.forced, ...(observed?.facts.B === undefined ? {} : { bytes: observed.facts.B }) });
+      j.rotation!.policy = { rule: decision.rule, boundary: decision.boundary, reason: decision.reason, C: observed?.facts.C, W: observed?.facts.W, K: observed?.facts.K };
+      if (decision.rule === "R1" || (decision.rule === "R0" && observed?.facts.B !== undefined && observed.facts.B >= observed.limits.bytesNoRead))
+        j.rotations = { soft: j.rotations?.soft ?? 0, bytes: (j.rotations?.bytes ?? 0) + 1 };
+      j.updatedAt = this.now(); return { value: undefined, changed: true };
+    });
+    void this.kick();
+    return { kind: "pending" };
+  }
+
+  private addPendingComment(job: AutomationJob, sourceId: string) {
+    if (job.pendingInputs?.includes(sourceId)) return;
+    if ((job.pendingInputs?.length ?? 0) >= 20) throw new ToolError("HANDOFF_PENDING", "Twenty inputs await dispatch. The original comment is preserved; resolve pending deliveries before retrying.");
+    job.pendingInputs = [...(job.pendingInputs ?? []), sourceId];
+  }
+  private pendingComment(job: AutomationJob, sourceId: string) {
+    return this.store.transaction(board => {
+      const j = jobOf(board, job.taskId);
+      if (!j || j.generation !== job.generation) throw new ToolError("HANDOFF_CONFLICT", "The card run changed. Retry the same saved comment.");
+      if (j.pendingInputs?.includes(sourceId)) return { value: undefined, changed: false };
+      this.addPendingComment(j, sourceId); return { value: undefined, changed: true };
+    });
+  }
+  private removePendingComment(taskId: string, sourceId: string) {
+    return this.store.transaction(board => {
+      const j = jobOf(board, taskId);
+      if (!j?.pendingInputs?.includes(sourceId)) return { value: undefined, changed: false };
+      j.pendingInputs = j.pendingInputs.filter(id => id !== sourceId); return { value: undefined, changed: true };
+    });
+  }
+  private async finishComment(job: AutomationJob, agentId: string, kind: "sent" | "fresh") {
+    const comment = job.rotation?.carry.comment ?? job.instruction?.comment;
+    if (!comment) return;
+    await this.deps.commentResult?.(job.taskId, comment.sourceId, { kind, agentId });
+    await this.removePendingComment(job.taskId, comment.sourceId);
+  }
+  /** The comment is reserved before this dispatcher sees it; recover a crash between those commits. */
+  private async recoverComments() {
+    if (!this.deps.readComment) return;
+    await this.store.transaction(board => {
+      let changed = false;
+      for (const route of board.commentRoutes ?? []) {
+        if (!["auto", "fresh"].includes(typeof route.choice === "string" ? route.choice : "") || !["prepared", "pending", "sending"].includes(route.phase)) continue;
+        const job = jobOf(board, route.taskId);
+        if (!job || ["stopped", "failed"].includes(job.state) || job.pendingInputs?.includes(route.sourceId)) continue;
+        const task = board.tasks.find(t => t.id === job.taskId), project = board.projects.find(p => p.id === job.projectId);
+        if (!task || task.archivedAt || !project || project.archivedAt || !automationOf(project) || ["done", "cancelled"].includes(task.status)) continue;
+        if ((job.pendingInputs?.length ?? 0) >= 20) {
+          // Leave every source in the durable routing outbox; never slice away the oldest obligation.
+          if (job.code !== "interrupted" || job.detail !== "More than twenty saved comments await dispatch. Resolve pending deliveries before continuing.") {
+            job.code = "interrupted"; job.detail = "More than twenty saved comments await dispatch. Resolve pending deliveries before continuing.";
+            job.state = "needs_human";
+            this.store.event(board, { taskId: job.taskId, actor: "system", action: "automation_comment_pending", note: job.detail }); changed = true;
+          }
+          continue;
+        }
+        this.addPendingComment(job, route.sourceId); changed = true;
+      }
+      return { value: undefined, changed };
+    });
+  }
+  private async drainComments() {
+    if (!this.deps.readComment) return;
+    for (const job of (await this.store.read()).automation) {
+      if (!job.pendingInputs?.length || job.rotation || job.pendingOp || job.unconfirmed || job.hold || (!isLive(job) && job.state !== "delivered") || ["queued", "starting", "stopped", "failed"].includes(job.state)) continue;
+      for (const sourceId of job.pendingInputs) {
+        const comment = await this.deps.readComment(job.taskId, sourceId).catch(error => { console.error("Flowly saved comment cannot be read:", error instanceof Error ? error.message : String(error)); return undefined; });
+        if (!comment) {
+          const route = (await this.store.read()).commentRoutes?.find(r => r.taskId === job.taskId && r.sourceId === sourceId);
+          if (route && ["sent", "queued", "saved", "fresh"].includes(route.phase)) await this.removePendingComment(job.taskId, sourceId);
+          continue; // Other captured inputs share this list; they are not comment deliveries.
+        }
+        await this.routeComment({ taskId: job.taskId, sourceId, ...comment }).catch(async error => {
+          await this.deps.commentFailed?.(job.taskId, sourceId, error);
+          console.error("Flowly saved comment still awaits dispatch:", error instanceof Error ? error.message : String(error));
+        });
+        break;
+      }
+    }
   }
 
   /**
@@ -469,6 +702,11 @@ export class AutomationService {
    */
   async turnEnded(agentId: string) {
     try {
+      await this.store.transaction(board => {
+        const job = board.automation.find(j => activeAgent(j) === agentId && !!j.silentSince);
+        if (!job) return { value: undefined, changed: false };
+        delete job.silentSince; return { value: undefined, changed: true };
+      });
       await this.judgeTurnEnd(agentId);
     } finally {
       void this.kick();
@@ -486,7 +724,7 @@ export class AutomationService {
     if (finishing) {
       const end = latestTurnEnd(board, finishing.taskId, agentId);
       if (end && end.at >= finishing.rotation!.at && latestLifecycle(board, finishing.taskId, agentId)?.action !== "agent.turn_started") {
-        const limit = providerLimited(end.note ?? "") ? end.note : end.outcome === "completed" ? await this.limitNotice(agentId) : undefined;
+        const limit = providerLimited(end.note ?? "") ? end.note : end.outcome === "completed" ? await this.limitNotice(agentId, finishing.taskId) : undefined;
         await this.finishFinalizing(finishing, end.outcome === "completed" ? undefined : `The handover turn ended ${end.outcome ?? "without an outcome"}.`, limit ?? undefined);
       }
       return;
@@ -507,7 +745,7 @@ export class AutomationService {
     const newDelivery = board.events.some((event) => event.taskId === job.taskId && event.agentId === agentId && event.actor === "agent" && event.to === "in_review" && (!job.turnAt || event.at > job.turnAt));
     // Claude Code can end a turn "completed" with its quota notice as the last row: that is a provider limit (§4.5).
     if (outcome.kind === "completed" && !newDelivery && !askedThisTurn(board, job.taskId, agentId)) {
-      const notice = await this.limitNotice(agentId);
+      const notice = await this.limitNotice(agentId, job.taskId);
       if (notice) outcome = { kind: "failed", message: notice };
     }
     if (job.instruction?.role === job.role && !job.pendingOp && outcome.kind === "completed" && !newDelivery && !askedThisTurn(board, job.taskId, agentId)) {
@@ -557,12 +795,21 @@ export class AutomationService {
       job.updatedAt = now;
       if (outcome.kind === "completed") { job.failures = 0; job.cooldowns = 0; delete job.detail; }
       const note = (action: string, text?: string) => this.store.event(board, { taskId: job.taskId, actor: "system", action, agentId, ...(text ? { note: text } : {}) });
+      if (outcome.kind === "failed" && this.deps.handoff?.measure && poisonedSession(outcome.message)) {
+        if (pendingInstruction) job.instruction = pendingInstruction;
+        else this.instruct(job, job.role, job.workInstructions?.[job.role]?.fresh ?? (job.role === "reviewer" ? roundPrompt(job, settings) : startPrompt({ review: !!settings.reviewer, again: true })), undefined, "retry");
+        job.state = job.role === "reviewer" ? "reviewing" : "working";
+        beginRotation(job, "history", now, { forced: true });
+        job.rotation!.policy = { rule: "R0", boundary: "followup", reason: "The failed turn exceeded the provider context; continue from the card in a fresh conversation." };
+        return { value: { ...job }, changed: true };
+      }
       switch (decision.kind) {
         case "ignore":
           return { value: null, changed: false };
         case "review":
           if (job.workInstructions) delete job.workInstructions.implementer;
-          if (job.reopened) {
+          const newReviewCycle = !!job.reopened;
+          if (newReviewCycle) {
             job.reviewRounds = 0;
             if (this.deps.handoff) job.cycle = (job.cycle ?? job.generation) + 1;
           }
@@ -585,9 +832,13 @@ export class AutomationService {
           const before = job.review?.level ?? "standard";
           const plan = reviewPlan(settings, board, task, job.reviewRounds);
           job.review = plan;
-          this.choosePanelSession(job, roundSeat(settings, plan), plan.level !== before);
+          this.choosePanelSession(job, roundSeat(settings, plan), plan.level !== before, newReviewCycle && !!this.deps.handoff?.measure);
           this.instruct(job, "reviewer", roundPrompt(job, settings), undefined, "round");
           job.instruction!.reviewDelivery = job.deliveryEvent;
+          if (newReviewCycle && this.deps.handoff?.measure && job.reviewerId) {
+            const model = primaryModel(settings, board.projects.find(p => p.id === job.projectId), "reviewer", job);
+            beginRotation(job, "new_cycle", now, { forced: true, ...(model ? { model: automationExecution(model, board.projects.find(p => p.id === job.projectId)?.agentModel, settings.fullAccess) } : {}) });
+          }
           this.waitOnUnconfirmed(job);
           note("automation_review_started", reviewStartNote(job.reviewRounds, plan));
           break;
@@ -759,9 +1010,18 @@ export class AutomationService {
   }
 
   /** A provider limit reported as the last row of a completed turn, or null; an unreadable timeline is no evidence. */
-  private async limitNotice(agentId: string) {
+  private async limitNotice(agentId: string, taskId?: string) {
     try {
-      if (await oversized(this.api(), agentId, this.clock(), (agent) => this.measure(agent))) return null;
+      const agent = (await this.api().agents.ref(agentId).refresh())?.agent;
+      if (!agent || agent.archivedAt) return null;
+      let bytes = await this.measure(agent as HistoryAgent);
+      if (bytes === null && taskId && this.deps.handoff?.measure) {
+        const facts = await this.deps.handoff.measure({ taskId, agentId });
+        if (facts.agentId !== agentId) return null;
+        bytes = facts.B ?? null;
+      }
+      // Unlike the global 200 MiB no-load guard, a quota tail is optional: skip it from the 64 MiB early boundary.
+      if (bytes !== null && bytes >= rotationLimits.bytesRotate) return null;
       const page = await this.api().agents.ref(agentId).timeline.refetch({ direction: "tail", limit: 30, projection: "projected" });
       return limitNotice(((page?.entries ?? []) as { item?: unknown }[]).map((entry) => entry.item).filter(Boolean));
     } catch {
@@ -788,6 +1048,7 @@ export class AutomationService {
       if (!j || !isLive(j) || !automationAllowed(board, j)) throw new Error("This card has no active automation run.");
       if (j.generation !== before?.generation || activeAgent(j) !== id) throw new Error("The card's session changed. Read the card before requesting a fresh session.");
       if (j.unconfirmed || j.reviewPause) throw new Error("Confirm the pending session before requesting a fresh one.");
+      if (j.hold === "history_runaway") throw new ToolError("NEEDS_PERSON", "History kept growing across three sessions. Inspect the card's pitfalls and choose Run again to start a new run.");
       if (j.rotation) return { value: { ...j }, changed: false };
       const settings = automationOf(board.projects.find(p => p.id === j.projectId))!;
       if (!j.instruction) this.instruct(j, j.role, j.workInstructions?.[j.role]?.text ?? (j.role === "reviewer" ? roundPrompt(j, settings) : startPrompt({ review: !!settings.reviewer, again: true })), undefined, "requested");
@@ -831,9 +1092,11 @@ export class AutomationService {
     if (!r?.confirmed || !r.toAgentId || !this.deps.handoff) return;
     try {
       await this.deps.handoff.committed?.({ ...rotationContext(seen), toAgentId: r.toAgentId });
+      if (r.carry.comment) await this.finishComment(seen, r.toAgentId, "fresh");
       await this.store.transaction(board => {
         const j = jobOf(board, seen.taskId);
         if (!j || j.generation !== seen.generation || j.rotation?.id !== r.id || !j.rotation.confirmed) return { value: null, changed: false };
+        if (j.rotation.policy && ["R2", "R3", "R4"].includes(j.rotation.policy.rule)) j.rotations = { soft: (j.rotations?.soft ?? 0) + 1, bytes: j.rotations?.bytes ?? 0 };
         delete j.rotation;
         delete j.rotateRequested;
         this.store.event(board, { taskId: j.taskId, actor: "system", action: "automation_rotated", note: `A new ${r.role} session continues after ${r.reason}${r.bytes === undefined ? "" : ` (${megabytes(r.bytes)} MB)`}; ${r.gap ?? "the card handoff was sealed"}` });
@@ -848,13 +1111,14 @@ export class AutomationService {
     const r = job.rotation!;
     const settings = automationOf(board.projects.find(p => p.id === job.projectId))!;
     const carry = r.carry;
+    if (carry.verbatim) return carry.text;
     const followup = carry.kind && ["nudge", "retry", "cooldown"].includes(carry.kind);
     const outstanding = job.workInstructions?.[r.role];
     const substantive = (followup ? outstanding?.fresh : carry.fresh)?.replace(startPrompt({ review: !!settings.reviewer, again: false }), startPrompt({ review: !!settings.reviewer, again: true }));
     const task = r.role === "reviewer"
       ? [roundPrompt(job, settings), substantive && !substantive.includes("You are the reviewer of this card") ? substantive : ""]
       : [startPrompt({ review: !!settings.reviewer, again: true }), job.feedback, job.verdict === "changes" ? job.changes : "", substantive];
-    const note = r.reason === "history" ? rotationNote(r.role, megabytes(r.bytes ?? 0)) : `[Flowly automation] The previous ${r.role} session gives way after ${r.reason}. Continue the card from its recorded state; do not redo completed work.`;
+    const note = r.reason === "history" && !r.policy ? rotationNote(r.role, megabytes(r.bytes ?? 0)) : `[Flowly automation] The previous ${r.role} session gives way after ${(r.policy?.reason ?? r.reason).replace(/\.$/, "")}. Continue the card from its recorded state; do not redo completed work.`;
     return [note, continuity, ...task].filter(Boolean).join("\n\n");
   }
 
@@ -872,7 +1136,7 @@ export class AutomationService {
       if (agent && busyAgent(agent)) return true;
       const bytes = agent && !agent.archivedAt ? await this.measure(agent as HistoryAgent) : null;
       if (r.stage === "requested") {
-        const allowFinalize = !r.forced && !!agent && !agent.archivedAt && agent.status === "idle" && bytes !== null && bytes < 64 * 2 ** 20;
+        const allowFinalize = r.role === "implementer" && !r.forced && !!agent && !agent.archivedAt && agent.status === "idle" && bytes !== null && bytes < 64 * 2 ** 20;
         const prepared = await this.deps.handoff.prepare(rotationContext(j, allowFinalize));
         await this.store.transaction(board => {
           const current = this.current(board, seen, r.role);
@@ -988,9 +1252,9 @@ export class AutomationService {
    * reviewer session's starts a new session on its model. So does a round of another level than the last one, so a
    * reviewer session reviews rounds of one level and its title ("Light review:", "Deep review:") stays true.
    */
-  private choosePanelSession(job: AutomationJob, seat: ReviewSeat, levelChanged: boolean) {
-    if (seatOf(job) === seat && !levelChanged) return;
-    this.retireReviewer(job);
+  private choosePanelSession(job: AutomationJob, seat: ReviewSeat, levelChanged: boolean, preserveOwner = false) {
+    if (seatOf(job) === seat && !levelChanged && !preserveOwner) return;
+    if (!preserveOwner) this.retireReviewer(job);
     if (job.fallback?.reviewer) {
       const { reviewer: _reviewer, ...rest } = job.fallback;
       job.fallback = rest;
@@ -1134,12 +1398,12 @@ export class AutomationService {
     const board = await this.store.read();
     const blockers = board.links.filter((l) => l.kind === "blocks" && l.to === claimed.taskId).map((l) => l.from);
     if (blockers.length) {
-      const handoffs = (await Promise.all(blockers.map((id) => cardHandoff(board, id, this.api())))).filter(Boolean);
+      const handoffs = (await Promise.all(blockers.map((id) => cardHandoff(board, id, this.api(), this.deps.continuity, "dependency")))).filter(Boolean);
       // A sub-card's parent merges its accepted siblings: its branch may hold their changes already integrated.
       const parentId = parentOf(board.links, claimed.taskId);
-      const parent = parentId ? await cardLocation(board, parentId, this.api()) : null;
+      const parent = parentId ? await cardLocation(board, parentId, this.api(), undefined, this.deps.continuity) : null;
       const integration = parent
-        ? `\n\nParent integration branch (card data): ${JSON.stringify({ id: parent.id, title: parent.title, lane: parent.lane, branch: parent.branch, directory: parent.directory })}\nThe parent card brings its accepted sub-cards together, so its branch may already hold the sibling blockers' changes with their conflicts resolved. Check it first and prefer merging it over merging each sibling branch again.`
+        ? `\n\nParent integration branch (card data): ${JSON.stringify({ id: parent.id, title: parent.title, lane: parent.lane, branch: parent.branch, directory: parent.directory, continuity: parent.continuity })}\nThe parent card brings its accepted sub-cards together, so its branch may already hold the sibling blockers' changes with their conflicts resolved. Check it first and prefer merging it over merging each sibling branch again.`
         : "";
       const context = `\n\nDependency handoffs (card data):\n${JSON.stringify(handoffs)}\nInspect and merge the relevant blocker branches into this workspace before depending on their changes; Done does not synchronize worktrees.${integration}`;
       await this.store.transaction((b) => { const j = this.current(b, claimed, "implementer"); if (!j?.instruction) return { value: null, changed: false }; j.instruction.text += context; j.instruction.fresh += context; return { value: null, changed: true }; });
@@ -1305,6 +1569,7 @@ export class AutomationService {
           if (coolingProvider(board, agent.provider, this.clock(), { except: job.taskId })) return;
           if (agent.status === "running" || agent.status === "initializing" || agent.activeTurn || agent.pendingPermissions?.length) return;
           const bytes = await this.measure(agent as HistoryAgent);
+          if (this.deps.handoff?.measure && await this.applyPolicy(current, agent, bytes)) return;
           if (bytes !== null && bytes >= historyLimits.rotate) {
             // A turn started on it while it was measured (a person's message) keeps it: never two sessions in one
             // workspace. The snapshot decides, so a lost turn-end hook cannot hold the rotation forever.
@@ -1324,9 +1589,12 @@ export class AutomationService {
           await this.store.transaction((b) => { const j = this.current(b, job, role); if (!j) return { value: null, changed: false }; j.provider = agent.provider; return { value: null, changed: true }; });
           if (!this.current(await this.store.read(), job, role)) return;
           const launch = role === "implementer" && current.launchKey && !current.launchConsumed ? await this.launches.read(task.id, current.launchKey) : undefined;
+          // Measurement, handoff capture and launch-file reads all yield: the initial idle snapshot is stale by now.
+          const finalActor = await paseo.agents.ref(id).refresh().then(ref => ref?.agent, () => undefined);
+          if (!finalActor || finalActor.archivedAt || finalActor.workspaceId !== task.workspaceId || busyAgent(finalActor)) return;
           const latest = this.current(await this.store.read(), job, role);
-          if (!latest || (launch && (latest.launchConsumed || latest.launchKey !== current.launchKey))) return;
-          const response = paseo.agents.ref(id).send(text, { messageId: launch?.clientMessageId ?? instruction.id, activeTurnBehavior: "steer", ...(launch?.images ? { images: launch.images } : {}) });
+          if (!latest || activeAgent(latest) !== id || latest.rotation || latest.pendingOp || this.unconfirmedFor(latest, role) || !["starting", "working", "reviewing"].includes(latest.state) || (launch && (latest.launchConsumed || latest.launchKey !== current.launchKey))) return;
+          const response = paseo.agents.ref(id).send(text, { messageId: launch?.clientMessageId ?? current.instruction?.comment?.messageId ?? instruction.id, activeTurnBehavior: "steer", ...(launch?.images ? { images: launch.images } : {}) });
           const dispatched = instruction.reviewDelivery ? this.store.transaction((b) => {
             const j = this.confirmation(b, job, role);
             if (!j?.instruction) return { value: null, changed: false };
@@ -1336,6 +1604,17 @@ export class AutomationService {
           await Promise.all([response, dispatched]);
           await this.consumeLaunch(current, role);
           await this.started(current, id);
+          if (current.instruction?.comment) await this.finishComment(current, id, "sent");
+          return;
+        }
+        if (this.deps.handoff?.measure && (role === "reviewer" || current.state === "starting")) {
+          const replacement = await this.store.transaction(b => {
+            const j = this.current(b, job, role);
+            if (!j?.instruction || j.rotation) return { value: null, changed: false };
+            beginRotation(j, "archived", this.now(), { forced: true });
+            return { value: { ...j }, changed: true };
+          });
+          if (replacement) await this.send(replacement);
           return;
         }
         if (role === "implementer" && current.state !== "starting") throw new SessionGone();
@@ -1364,6 +1643,7 @@ export class AutomationService {
       if (role === "reviewer") {
         if (j.reviewerId !== preparation.agentId) this.retireReviewer(j);
         j.reviewerId = preparation.agentId;
+        if (this.deps.handoff?.measure) j.reviewerCycle = j.cycle ?? j.generation;
       }
       else j.implementerId = preparation.agentId;
       if (j.rotation?.stage === "creating") j.rotation.toAgentId = preparation.agentId;
@@ -1420,7 +1700,7 @@ export class AutomationService {
       // Flowly handles provider limits of its automation sessions itself (§4.5); the rate-fallback plugin leaves them alone.
       labels: { "flowly-task": task.id, "flowly-automation": role, "paseo-rate-fallback": "off" },
       prompt,
-      ...(launch ? { images: launch.images, clientMessageId: launch.clientMessageId } : {}),
+      ...(launch ? { images: launch.images, clientMessageId: launch.clientMessageId } : job.instruction?.comment ? { clientMessageId: job.instruction.comment.messageId } : {}),
     };
     // A failed response can hide a created session (client/session.ts createPreparedSession).
     const exists = async () => {
@@ -1578,6 +1858,13 @@ export class AutomationService {
       };
       if (code === "agent_request_outcome_unknown" || message.includes("agent_request_outcome_unknown"))
         return waitForPerson("interrupted", "The daemon cannot confirm whether the instruction reached the provider. Check the session before resuming.", true);
+      if (this.deps.handoff?.measure && poisonedSession(message) && !job.pendingOp && !job.rotation && !paused && activeAgent(job)) {
+        if (!job.instruction) this.instruct(job, role, job.workInstructions?.[role]?.fresh ?? (role === "reviewer" && settings ? roundPrompt(job, settings) : startPrompt({ review: !!settings?.reviewer, again: true })), undefined, "retry");
+        beginRotation(job, "history", this.now(), { forced: true });
+        job.rotation!.policy = { rule: "R0", boundary: "followup", reason: "The conversation rejected its context and cannot safely continue." };
+        job.state = role === "reviewer" ? "reviewing" : "working"; switched = true;
+        return settle();
+      }
       // A known rejected send is not evidence that its review prompt was presented.
       if (job.instruction) delete job.instruction.dispatched;
       const gone = error instanceof SessionGone;
@@ -1781,7 +2068,7 @@ export class AutomationService {
     if (place === "unavailable") return void (await this.workspaceGone(seen));
     if (place !== "free") return;
     const project = board.projects.find((p) => p.id === seen.projectId);
-    const lines = (await Promise.all(childrenOf(board.links, seen.taskId).map((id) => cardHandoff(board, id, this.api())))).filter((line): line is SubCardLine => !!line);
+    const lines = (await Promise.all(childrenOf(board.links, seen.taskId).map((id) => cardHandoff(board, id, this.api(), this.deps.continuity)))).filter((line): line is SubCardLine => !!line);
     const signature = subCardSignature(board, seen.taskId, motion);
     const woken = await this.store.transaction((b) => {
       const job = jobOf(b, seen.taskId);
