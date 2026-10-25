@@ -81,11 +81,39 @@ test("an open grouped gap that grows is written in place; a new gap, a close and
   // The same obligation, counted further: the revision a page cursor or an ACK names stands, and nothing is archived.
   await expect(store.capture("card", "project", grouped(3, later(2)), flowly)).resolves.toMatchObject({ stored: "observation", handoffRevision: opened.revision });
   expect(await read()).toMatchObject({ revision: opened.revision, archivedCount: opened.archivedCount, gaps: expect.arrayContaining([expect.objectContaining({ id: "g:tool", status: "open", count: 3, lastAt: later(2), rev: opened.gaps.find((gap) => gap.id === "g:tool")!.rev })]) });
-  const closed = await store.update("card", "project", { handoffRevision: opened.revision, gaps: [{ id: "g:tool", status: "closed", note: "My own test output; nothing of the card in it." }] }, { by: { kind: "agent", agentId: "worker" } }, { agentId: "worker" });
+  // Closed at the revision it was read at, it settles what was counted then; the two counted since keep it open (below).
+  const counted = await read(), closed = await store.update("card", "project", { handoffRevision: counted.revision, gaps: [{ id: "g:tool", status: "closed", note: "My own test output; nothing of the card in it." }] }, { by: { kind: "agent", agentId: "worker" } }, { agentId: "worker" });
   expect(closed.handoffRevision).toBe(opened.revision + 1);
+  expect((await read()).gaps.find((gap) => gap.id === "g:tool")).toMatchObject({ status: "open", count: 3, resolution: { count: 1 } });
+  await store.update("card", "project", { handoffRevision: closed.handoffRevision, gaps: [{ id: "g:tool", status: "closed", note: "All three: my own test output." }] }, { by: { kind: "agent", agentId: "worker" } }, { agentId: "worker" });
+  expect((await read()).gaps.find((gap) => gap.id === "g:tool")).toMatchObject({ status: "closed", count: 3, resolution: { count: 3 } });
   // Growth past the acknowledged count reopens it: that is a requirement again.
-  await expect(store.capture("card", "project", grouped(4, later(5)), flowly)).resolves.toMatchObject({ stored: "revision", handoffRevision: opened.revision + 2 });
+  await expect(store.capture("card", "project", grouped(4, later(5)), flowly)).resolves.toMatchObject({ stored: "revision", handoffRevision: opened.revision + 3 });
   expect((await read()).gaps.find((gap) => gap.id === "g:tool")).toMatchObject({ status: "open", count: 4 });
+});
+
+// Growth written in place keeps the revision, so a successor that read revision R cannot have seen the occurrences counted
+// after its read: an ACK or close of R settles only the count at R, and the gap stays open for the rest (§7.5).
+test("an ACK or a close settles only the occurrences counted at the revision it names; later ones keep the gap open", async () => {
+  const { store, read } = await fixture();
+  const grouped = (count: number) => ({ gaps: [{ id: "g:words", sourceId: "capture-gaps:worker:long_line\0event_msg/user_message", agentId: "worker", text: "Capture gap (long_line): event_msg/user_message. More than 8 occurred; each earlier one is its own gap.", count, firstAt: at, lastAt: at }] });
+  const agent = { by: { kind: "agent" as const, agentId: "worker" } };
+  const ack = (revision: number, id: string) => store.update("card", "project", { handoffRevision: revision, ack: { handoffRevision: revision, heads: [], understanding: "Read every page.", items: [{ id, disposition: "done", note: "Checked the skipped messages I was shown." }] } }, agent, { agentId: "worker", actualHeads: [] });
+  await store.capture("card", "project", grouped(1), flowly);
+  const readAt = await read(), other = readAt.gaps.find((gap) => gap.id !== "g:words")!.id;
+  // A person's tenth long message is skipped while the successor prepares its ACK of what it read.
+  await expect(store.capture("card", "project", grouped(2), flowly)).resolves.toMatchObject({ stored: "observation", handoffRevision: readAt.revision });
+  expect((await read()).gaps.find((gap) => gap.id === "g:words")).toMatchObject({ count: 2, countAtRevision: 1 });
+  const first = await ack(readAt.revision, "g:words");
+  expect(first).toMatchObject({ handoffRevision: readAt.revision + 1, ackMissing: [other, "g:words"] });
+  const after = await read();
+  expect(after.gaps.find((gap) => gap.id === "g:words")).toMatchObject({ status: "open", count: 2, resolution: { count: 1, note: "Checked the skipped messages I was shown." } });
+  expect(after.gaps.find((gap) => gap.id === "g:words")!.countAtRevision).toBeUndefined();
+  expect(after.ledger[0].ack).toMatchObject({ complete: false, items: [] });
+  // Nothing new arrives: the gap stays open (no quiet poll closes it), and the next ACK, of the revision that shows all of it, settles it.
+  await expect(store.capture("card", "project", grouped(2), flowly)).resolves.toMatchObject({ stored: "none" });
+  await expect(ack(after.revision, "g:words")).resolves.toMatchObject({ handoffRevision: after.revision + 1, ackMissing: [other] });
+  expect((await read()).gaps.find((gap) => gap.id === "g:words")).toMatchObject({ status: "closed", count: 2, resolution: { count: 2 } });
 });
 
 test.each(["intent-synced", "archive-synced", "current-synced", "sources-synced", "intent-removed"])("an observation write interrupted after %s recovers once, under the same revision", async (point) => {

@@ -383,3 +383,25 @@ test("a hook that names a turn no poll saw never takes the start of an earlier t
   x.advance(60 * 60_000); await x.observer.observe("card", "worker", { ...turnEnd("T1 final words"), turnId: "t1" }); // t1 ran between two polls
   expect((await endedTurns(x)).turns).toEqual([{ startedAt: minutes(62), endedAt: minutes(62), final: "T1 final words" }]);
 });
+
+// Growth of an open grouped gap is written in place (SESSION-HANDOFF-SPEC §5.1, round 7), so an ACK of revision R must not settle
+// occurrences counted after R: from the ninth of a kind, a person's skipped long message only adds to such a count (§7.5).
+test("an ACK of the revision a successor read leaves open a grouped gap that grew after that read", async () => {
+  const x = await fixture(), agent = { by: { kind: "agent" as const, agentId: "worker" } };
+  let offset = 100;
+  const occurrence = (n: number, gap: Record<string, unknown>) => { offset += 300_000; const b = batch(offset); b.gaps.push({ id: `${gap.kind}-${n}`, source: { ...source, offset: offset - 300_000, end: offset }, at: new Date(Date.parse(at) + n * 1000).toISOString(), ...gap } as never); return b; };
+  const words = (n: number) => occurrence(n, { kind: "long_line", typeHint: "event_msg/user_message", from: offset, to: offset + 300_000, bytes: 300_000 });
+  const unknown = (n: number) => occurrence(n, { kind: "unknown_record_type", typeHint: "future-record" });
+  for (let n = 1; n <= 9; n++) { x.setBatch(words(n)); await x.observer.observe("card", "worker"); }
+  for (let n = 1; n <= 2; n++) { x.setBatch(unknown(n)); await x.observer.observe("card", "worker"); }
+  const read = await x.read(), grouped = read.gaps.filter((gap) => gap.text.includes("More than") || gap.text.includes("unknown_record_type"));
+  expect(grouped.map((gap) => gap.count)).toEqual([1, 2]);
+  // While the successor prepares its ACK, a person's tenth long message and one more unknown record are skipped.
+  x.setBatch(words(10)); await x.observer.observe("card", "worker"); x.setBatch(unknown(3)); await x.observer.observe("card", "worker");
+  expect((await x.read()).revision).toBe(read.revision);
+  const result = await x.records.update("card", "project", { handoffRevision: read.revision, ack: { handoffRevision: read.revision, heads: [], understanding: "Read every page.", items: read.gaps.filter((gap) => gap.status === "open").map((gap) => ({ id: gap.id, disposition: "done" as const, note: "Checked each skipped record I was shown." })) } }, agent, { agentId: "worker", actualHeads: [] });
+  expect(result.ackMissing).toEqual(grouped.map((gap) => gap.id));
+  x.setBatch(batch(offset)); x.advance(60_000); await x.observer.observe("card", "worker");
+  const after = await x.read();
+  expect(after.gaps.filter((gap) => gap.status === "open").map((gap) => ({ id: gap.id, count: gap.count, settled: gap.resolution?.count }))).toEqual(grouped.map((gap, index) => ({ id: gap.id, count: index ? 3 : 2, settled: 1 })));
+});

@@ -74,8 +74,9 @@ function pinned(record: CardHandoff) {
   const { revision: _revision, updatedAt: _updated, updatedBy: _by, ops: _ops, seen: _seen, git: _git, ...rest } = record;
   const entry = (value: object) => { const { rev: _rev, at: _at, contentRef: _ref, ...kept } = value as Record<string, unknown>; return kept; };
   // An open gap that grows (count, first and last occurrence) is the same obligation, as for the delivery gate
-  // (handoffRequirementsHash): written in place. A new gap, a reopened one and a closed one are pinned.
-  const gap = (value: HandoffGap) => { const kept = entry(value); if (value.status === "open") { delete kept.count; delete kept.firstAt; delete kept.lastAt; } return kept; };
+  // (handoffRequirementsHash): written in place, with the count at the revision kept (`countAtRevision`) so that an ACK or close
+  // of that revision settles only what its reader could have seen. A new gap, a reopened one and a closed one are pinned.
+  const gap = (value: HandoffGap) => { const kept = entry(value); if (value.status === "open") { delete kept.count; delete kept.countAtRevision; delete kept.firstAt; delete kept.lastAt; } return kept; };
   const sections = Object.fromEntries(handoffEntrySections.map((section) => [section, section === "ledger" ? record.ledger.map(ledgerHistory) : section === "gaps" ? record.gaps.map(gap) : list(record, section).map(entry)]));
   return JSON.stringify(canonical(JSON.parse(JSON.stringify({ ...rest, ...sections, ...(rest.state ? { state: entry(rest.state) } : {}) }))));
 }
@@ -283,12 +284,15 @@ export class HandoffStore {
       // Observation state only (§5.1): written in place under the same revision, write time and writer; each changed entry
       // keeps the rev and time of its last pinned change.
       let inPlace = pinned(record) === pinned(current);
-      if (inPlace) this.restamp(record, current);
+      if (inPlace) this.restamp(record, current); else this.settleCounts(record);
       await this.preserveIdentities(current, record);
       const budget = agentCharacters(record); if (budget.used > budget.max) throw new HandoffError("HANDOFF_TOO_LARGE", "Agent handoff sections exceed 16000 characters.", budget);
       const pointers = await this.normalize(record, mutation.history);
       // The 1 MiB budget moved an entry into the archive: that is history, so it takes a revision after all.
-      if (inPlace && mutation.history.length) { inPlace = false; record.revision = current.revision + 1; record.updatedAt = this.now(); record.updatedBy = context.by; }
+      if (inPlace && mutation.history.length) {
+        inPlace = false; record.revision = current.revision + 1; record.updatedAt = this.now(); record.updatedBy = context.by;
+        if (this.settleCounts(record)) pointers.push(...await this.normalize(record, mutation.history));
+      }
       if (!inPlace) record.ops = [...record.ops.filter((id) => id !== operationId), operationId].slice(-50);
       cardHandoffSchema.parse(record); this.identities(record);
       const result = this.result(record, mutation.ackMissing);
@@ -314,6 +318,25 @@ export class HandoffStore {
       for (const entry of list(record, section)) { const old = before.get(entry.id); if (old) { entry.rev = old.rev; entry.at = old.at; } }
     }
     if (record.state && current.state) { record.state.rev = current.state.rev; record.state.at = current.state.at; }
+    // Occurrences counted in place are not in the revision a reader holds: keep the count that revision had.
+    for (const gap of record.gaps) {
+      const old = current.gaps.find((value) => value.id === gap.id), counted = old && (old.countAtRevision ?? old.count);
+      if (gap.count !== undefined && counted !== undefined && gap.count > counted) gap.countAtRevision = counted; else delete gap.countAtRevision;
+    }
+  }
+  /** A new revision holds every occurrence counted so far. Returns whether a gap had counted past its revision. */
+  private settleCounts(record: CardHandoff) {
+    let changed = false;
+    for (const gap of record.gaps) if (gap.countAtRevision !== undefined) { delete gap.countAtRevision; changed = true; }
+    return changed;
+  }
+  /**
+   * Closing a gap (an ACK's done / obsolete, or an explicit close) settles the occurrences counted at the revision its reader
+   * named; ones counted in place since then keep it open, with that count acknowledged (§7.5). Returns the gap and whether it stays open.
+   */
+  private closeGap(gap: HandoffGap, record: CardHandoff, by: HandoffActor, note: string): [HandoffGap, boolean] {
+    const counted = gap.countAtRevision ?? gap.count, later = gap.countAtRevision !== undefined;
+    return [{ ...gap, rev: record.revision, at: record.updatedAt, status: later ? "open" : "closed", resolution: { by, at: record.updatedAt, note, ...(counted ? { count: counted } : {}) } }, later];
   }
   /**
    * `archive: false` supersedes an entry without keeping its previous version in archive.jsonl (routine observation state,
@@ -563,7 +586,7 @@ export class HandoffStore {
         }
         const old = await this.entry(record, "gaps", disposition.id) as HandoffGap | null; this.conflict(record, revision, old);
         if (!old) throw new HandoffError("HANDOFF_CONFLICT", "That information gap is unavailable.", { id: disposition.id });
-        this.replace(change, "gaps", { ...old, rev: record.revision, at: record.updatedAt, status: disposition.status, resolution: { by: context.by, at: record.updatedAt, note: disposition.note, ...(disposition.status === "closed" && old.count ? { count: old.count } : {}) } });
+        this.replace(change, "gaps", disposition.status === "closed" ? this.closeGap(old, record, context.by, disposition.note)[0] : { ...old, rev: record.revision, at: record.updatedAt, status: disposition.status, resolution: { by: context.by, at: record.updatedAt, note: disposition.note } });
       }
       if (context.by.kind === "agent" && (update.state !== undefined || update.set?.length || update.remove?.length || update.order)) {
         record.checkpoint = { agentId: context.by.agentId ?? options.agentId ?? "unknown", at: record.updatedAt, ...(options.actualHeads ? { heads: options.actualHeads.map(({ repo, sha }) => ({ repo, sha })) } : {}), ...(options.dirtyHash ? { dirtyHash: options.dirtyHash } : {}), ...(options.turnStartedAt ? { turnStartedAt: options.turnStartedAt } : {}) };
@@ -579,18 +602,21 @@ export class HandoffStore {
         if (!session) throw new HandoffError("ACK_MISMATCH", "ACK must belong to a registered managed session.");
         const prior = session.ack, observed = actual.filter((head) => head.sha !== null), priorHeads = prior?.heads.filter((head) => head.sha !== null) ?? [];
         const continuation = prior?.recordRevision === record.revision - 1 && observed.length === priorHeads.length && observed.every((head) => priorHeads.some((p) => p.repo === head.repo && p.sha === head.sha && p.dirty === head.dirty));
-        const items = [...new Map([...(continuation ? prior!.items : []), ...ack.items].map((item) => [item.id, item])).values()].filter((item) => required.includes(item.id));
-        change.ackMissing = required.filter((id) => !items.some((item) => item.id === id));
-        // Acknowledging a gap as done/obsolete settles every occurrence counted so far (§7.5); only later growth reopens it.
+        let items = [...new Map([...(continuation ? prior!.items : []), ...ack.items].map((item) => [item.id, item])).values()].filter((item) => required.includes(item.id));
+        // Acknowledging a gap as done/obsolete settles every occurrence counted at the revision acknowledged (§7.5): ones counted
+        // in place after it keep the gap open and its id pending; later growth past the settled count reopens a closed gap.
         // A background entry acknowledged done/obsolete (verified ended or irrelevant, with a note) is closed for every later reader.
+        const unread = new Set<string>();
         for (const item of ack.items) {
           if (!["done", "obsolete"].includes(item.disposition) || !required.includes(item.id)) continue;
           const gap = await this.entry(record, "gaps", item.id) as HandoffGap | null;
-          if (gap?.status === "open") { this.replace(change, "gaps", { ...gap, rev: record.revision, at: record.updatedAt, status: "closed", resolution: { by: context.by, at: record.updatedAt, note: item.note!, ...(gap.count ? { count: gap.count } : {}) } }); continue; }
+          if (gap?.status === "open") { const [settled, later] = this.closeGap(gap, record, context.by, item.note!); this.replace(change, "gaps", settled); if (later) unread.add(item.id); continue; }
           const holder = record.ledger.find((entry) => entry.background.some((b) => b.id === item.id && b.status !== "closed"))
             ?? await (async () => { const index = record.overflow.find((entry) => entry.section === "ledger" && entry.openIds.includes(item.id)); return index ? await this.object(record.taskId, index.contentRef) as HandoffSession : undefined; })();
           if (holder) this.replace(change, "ledger", handoffEntrySchemas.ledger.parse({ ...holder, rev: record.revision, at: record.updatedAt, background: holder.background.map((b) => b.id === item.id ? { ...b, status: "closed", outcome: `settled by ACK (${item.disposition}): ${item.note!}`.slice(0, 120) } : b) }));
         }
+        items = items.filter((item) => !unread.has(item.id));
+        change.ackMissing = required.filter((id) => !items.some((item) => item.id === id));
         const acknowledging = record.ledger.find((s) => s.agentId === agentId)!;
         this.replace(change, "ledger", { ...acknowledging, rev: record.revision, at: record.updatedAt, ack: { ...ack, items, at: record.updatedAt, recordRevision: record.revision, complete: !change.ackMissing.length }, understanding: ack.understanding });
       }

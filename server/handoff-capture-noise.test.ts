@@ -189,9 +189,13 @@ test("observer: a flood is one open gap, replays do not inflate it, ACK settles 
   await appendFile(path, json(event("future_event"))); await x.observer.observe("card", "worker");
   record = await x.read(); const flood = record.gaps.find((gap) => gap.text.includes("future_event"))!;
   expect(flood.count).toBe(101); expect(handoffRefusalFingerprint(record)).toBe(gate);
-  // One acknowledgement covers all 101 occurrences.
-  const pending = handoffOpenIds(record).filter((id) => id.startsWith("g:"));
-  await x.records.update("card", "project", { handoffRevision: record.revision, ack: { handoffRevision: record.revision, heads: [], understanding: "synthetic", items: pending.map((id) => ({ id, disposition: "obsolete" as const, note: "checked: unknown host metadata" })) } }, { by: { kind: "agent", agentId: "worker" } }, { agentId: "worker", actualHeads: [] });
+  // One acknowledgement covers every occurrence counted at the revision it names. The 101st was counted in place after it
+  // (same revision): that ACK settles the 100, and the next one, of the revision that holds all 101, settles the rest (§7.5).
+  const ack = (revision: number, ids: string[]) => x.records.update("card", "project", { handoffRevision: revision, ack: { handoffRevision: revision, heads: [], understanding: "synthetic", items: ids.map((id) => ({ id, disposition: "obsolete" as const, note: "checked: unknown host metadata" })) } }, { by: { kind: "agent", agentId: "worker" } }, { agentId: "worker", actualHeads: [] });
+  await expect(ack(record.revision, handoffOpenIds(record).filter((id) => id.startsWith("g:")))).resolves.toMatchObject({ ackMissing: [flood.id] });
+  record = await x.read();
+  expect(record.gaps.find((gap) => gap.id === flood.id)).toMatchObject({ status: "open", count: 101, resolution: { count: 100 } });
+  await expect(ack(record.revision, [flood.id])).resolves.not.toHaveProperty("ackMissing");
   record = await x.read();
   expect(record.gaps.every((gap) => gap.status === "closed")).toBe(true); expect(record.gaps.find((gap) => gap.id === flood.id)?.resolution?.count).toBe(101);
   // A replay of what was acknowledged stays closed; a new occurrence reopens the same single gap.
