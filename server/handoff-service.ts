@@ -1,4 +1,4 @@
-import { createHash, randomUUID } from "node:crypto";
+import { createHash } from "node:crypto";
 import type { PaseoApi } from "@getpaseo/client";
 import { automationOf, automationSessionRole, jobOf } from "../shared/automation";
 import type { Board } from "../shared/model";
@@ -186,8 +186,9 @@ export class HandoffService {
       result = await this.records.update(task.id, project.id, patch, { by: { kind: "agent", agentId: identity.agentId } }, { agentId: identity.agentId, actualHeads: git.map(({ repo, sha, dirty }) => ({ repo, sha, dirty })), dirtyHash: fingerprint({ ...before, git }), turnStartedAt: jobOf(board, task.id)?.turnAt, ...(refresh ? { git } : {}) });
     } catch (error) {
       // A refused write still records what Flowly read, so the reread it asks for shows the current heads. Its own failure
-      // must not hide the refusal.
-      if (refresh) await this.records.capture(task.id, project.id, { git }, { ...flowly, operationId: `git-before-update:${randomUUID()}` }).catch(() => undefined);
+      // must not hide the refusal. Git is observation state: an in-place write without a receipt (a fresh id would only
+      // fill ops/ with one nothing can replay).
+      if (refresh) await this.records.capture(task.id, project.id, { git }, flowly).catch(() => undefined);
       throw error;
     }
     await this.syncIndex(task.id);
