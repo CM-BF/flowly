@@ -34,7 +34,9 @@ async function fixture(options: { waitMs?: number; modelMs?: number; runMs?: num
   const settings = vi.fn(async () => summarySettingsValues({ summaryModels: ["one/a", "two/b"] }));
   // Real durable ownership writes also run here; their latency must not decide a model's verdict.
   const service = new ReviewClassifier(x.store, settings, { debounceMs: 5, modelMs: 500, runMs: 3000, waitMs: 2000, stopGraceMs: 10, ...options, newHelperId: () => `helper-${helperIds++}`, remove: async (agent) => { await beforeRemove(agent.id); removed.push(agent.id); native.delete(agent.id); } });
-  stops.push(() => service.stop());
+  // Teardown waits for the helpers' own cleanup to finish: a create that resolves after stop() is cleaned up afterwards by
+  // design (durable ownership, then removal), and deleting the data folder under those writes fails with ENOTEMPTY.
+  stops.push(() => service.stop().then(() => service.helpers.drained()));
   const card = async () => (await x.store.read()).tasks.find((t) => t.id === "a")!;
   const edit = (change: (task: Task, board: Board) => void) => x.store.mutate((b) => { change(b.tasks.find((t) => t.id === "a")!, b); });
   return { ...x, service, api, settings, created, removed, card, edit, output: (fn: typeof output) => { output = fn; }, creating: (fn: typeof creating) => { creating = fn; }, removing: (fn: typeof beforeRemove) => { beforeRemove = fn; }, native };
@@ -127,15 +129,17 @@ test("stale results and explicit overrides cannot overwrite changed cards; delet
   await x.service.forReview("a", x.api);
   await x.edit((t) => { t.reviewLevel = "light"; t.title = "new content"; });
   result.resolve(good("deep", "Old content."));
-  await x.service.stop();
+  await x.service.stop(); await x.service.helpers.drained(); // a 10 ms grace may end before the helper's removal does
   expect((await x.card()).reviewClassification?.verdict).toBeUndefined(); expect(x.removed).toEqual(["helper-0"]);
+  expect(await x.service.helpers.store.read()).toEqual([]);
 });
 
 test("stop cancels a running wait, and also removes a helper whose create finishes after cancellation", async () => {
   const x = await fixture({ waitMs: 10 }); const created = deferred<void>(), requested = deferred<void>(); x.creating(() => { requested.resolve(); return created.promise; });
   await x.service.forReview("a", x.api); await requested.promise;
   await x.service.stop(); created.resolve();
-  await vi.waitFor(() => expect(x.removed).toEqual(["helper-0"]));
+  await x.service.helpers.drained();
+  expect(x.removed).toEqual(["helper-0"]); expect(await x.service.helpers.store.read()).toEqual([]);
   expect((await x.card()).reviewClassification?.verdict).toBeUndefined();
 });
 
@@ -217,5 +221,17 @@ test("stop drains a late create and its cleanup within grace, or leaves durable 
   const y = await fixture({ waitMs: 1, stopGraceMs: 5 }); const pending = deferred<void>(), requested = deferred<void>(); y.creating(() => { requested.resolve(); return pending.promise; });
   await y.service.forReview("a", y.api); await requested.promise; await y.service.stop();
   expect(await y.service.helpers.store.read()).toMatchObject([{ id: "helper-0", confirmed: false }]);
-  pending.resolve(); await vi.waitFor(() => expect(y.removed).toEqual(["helper-0"]));
+  pending.resolve(); await y.service.helpers.drained();
+  expect(y.removed).toEqual(["helper-0"]); expect(await y.service.helpers.store.read()).toEqual([]);
+});
+
+test("drained() settles only once a late create's cleanup has finished, its ownership write included", async () => {
+  const x = await fixture({ waitMs: 1, stopGraceMs: 5 }); const pending = deferred<void>(), requested = deferred<void>(); x.creating(() => { requested.resolve(); return pending.promise; });
+  await x.service.forReview("a", x.api); await requested.promise; await x.service.stop();
+  // A loaded machine: Paseo answers the removal's absence check 100 ms after the remover returned (reviewer probe R4-P5).
+  const agents = x.api.agents as unknown as { ref: (id: string) => { refresh: () => Promise<unknown> } }, ref = agents.ref.bind(agents);
+  agents.ref = (id: string) => { const handle = ref(id); return { ...handle, refresh: async () => { await new Promise((resolve) => setTimeout(resolve, 100)); return handle.refresh(); } }; };
+  pending.resolve(); await x.service.helpers.drained();
+  expect(x.removed).toEqual(["helper-0"]);
+  expect(await x.service.helpers.store.read()).toEqual([]);
 });

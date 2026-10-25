@@ -120,6 +120,13 @@ export class ClassifierHelpers {
     this.recovery = work;
     return this.track(work);
   }
+  /**
+   * Settles once no tracked work is left (creates, removals, recoveries, including work they started). stop() stays bounded by
+   * its grace: a create that resolves later is still cleaned up (removal, then its ownership write), in production until Paseo
+   * stops the plugin subprocess (the durable record then waits for the next start's recovery). Teardown that deletes the data
+   * folder waits for this.
+   */
+  async drained() { while (this.pending.size) await Promise.allSettled([...this.pending]); }
   /** Host gives plugins two seconds. Spend at most one second draining, then keep unresolved ids for recovery. */
   async stop(workers: readonly Promise<unknown>[] = []) {
     this.stopped = true; clearInterval(this.timer);

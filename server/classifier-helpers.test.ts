@@ -25,7 +25,8 @@ async function fixture() {
     const helpers = new ClassifierHelpers(directory, async (agent) => { await beforeRemove(agent.id); deleted.push(agent.id); sessions.delete(agent.id); }, { graceMs: 5, probeMs: 10, ...options });
     stores.push(helpers); helpers.attach(api); return helpers;
   };
-  cleanups.push(async () => { await Promise.all(stores.map((h) => h.stop())); });
+  // Late cleanup (removal, ownership write) runs after stop() by design; it finishes before the folder is deleted.
+  cleanups.push(async () => { await Promise.all(stores.map((h) => h.stop().then(() => h.drained()))); });
   const record = { id: "previous-helper", workspaceId: "w", owner: "old-owner", confirmed: false };
   const store = new ClassifierHelperStore(directory);
   return { directory, api, store, record, generation, deleted, sessions, creating: (fn: typeof beforeCreate) => { beforeCreate = fn; }, removing: (fn: typeof beforeRemove) => { beforeRemove = fn; } };
