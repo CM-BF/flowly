@@ -16,6 +16,8 @@ const out = (id: string, header = "Script completed") => codexResponse("custom_t
 const done = (pid: number, cmd: string) => codexEvent("item_completed", { thread_id: fixtureUuid, turn_id: "t", item: { type: "CommandExecution", id: `ce-${pid}`, command: ["bash", "-lc", cmd], process_id: pid, exit_code: 0, aggregated_output: "ok" } });
 const wait = (id: string, cell: number, terminate = false) => codexResponse("function_call", { name: "wait", call_id: id, arguments: JSON.stringify({ cell_id: cell, yield_time_ms: 30000, ...(terminate ? { terminate: true } : {}) }) });
 const waited = (id: string, output = "Script completed\nWall time 31 seconds\nOutput:\n") => codexResponse("function_call_output", { call_id: id, output });
+/** A script that calls no exec_command and yields (a watcher). */
+const watcher = (id: string) => codexResponse("custom_tool_call", { call_id: id, id: `ctc_${id}`, status: "completed", name: "exec", input: `text("watching"); await new Promise((r) => setTimeout(r, 600000));` });
 const items = (record: CardHandoff) => record.ledger.flatMap((session) => session.background).map((entry) => `${entry.status}:${entry.ref}:${entry.label}`);
 
 test("two overlapping scripts whose commands both finished leave nothing behind, during the turn or after it", async () => {
@@ -88,6 +90,56 @@ test("a terminated cell's sub-agent start still claims the start it received: an
   await x.append([wait("w1", 7, true), waited("w1", "Script terminated\nWall time 2 seconds\nOutput:\n")]); await x.poll();
   Object.assign(x.actor, { status: "idle", activeTurn: null }); await x.poll();
   expect(items(await x.read())).toEqual(["open:/root/a:a: sub-agent", placeholder]);
+});
+
+test("a placeholder that became history while its pool outlived the turn stays open through a later dip in the count", async () => {
+  // Turn 2's completions arrive before its scripts return, so the count dips at the first return and comes back at the second.
+  const placeholder = "unknown:unknown:s1:exec:exec_command in a script; completion not observed";
+  const turn2 = (x: Awaited<ReturnType<typeof observerFixture>>) => Object.assign(x.actor, { status: "running", activeTurn: { turnId: "turn-2", startedAt: "2026-10-25T02:10:00.000Z" } });
+  const idle = (x: Awaited<ReturnType<typeof observerFixture>>) => Object.assign(x.actor, { status: "idle", activeTurn: null });
+  // The cell runs no command; the dev server started next to it never completes.
+  const x = await observerFixture({ running: true }); await x.poll();
+  await x.append([watcher("s1"), out("s1", "Script running with cell ID 7"), script("s2", "npm run dev"), out("s2")]); await x.poll();
+  idle(x); await x.poll();
+  const first = await x.read();
+  expect(items(first)).toEqual(["open:cell:7:script cell 7 still running", placeholder]);
+  expect(handoffOpenIds(first)).toHaveLength(2);
+  turn2(x);
+  await x.append([script("s3", "npm test"), script("s4", "git status"), done(7003, "npm test"), done(7004, "git status"), out("s3"), out("s4")]); await x.poll();
+  idle(x); await x.poll();
+  const second = await x.read();
+  expect(items(second)).toEqual(["open:cell:7:script cell 7 still running", placeholder]);
+  expect(handoffOpenIds(second)).toEqual(handoffOpenIds(first));
+  // The cell runs the build, which completes; the dip is seen by a poll between the two returns; the cell ends in turn 2.
+  const y = await observerFixture({ running: true }); await y.poll();
+  await y.append([script("s1", "npm run build"), out("s1", "Script running with cell ID 7"), script("s2", "npm run dev")]); await y.poll();
+  await y.append([done(7001, "npm run build"), out("s2")]); await y.poll();
+  idle(y); await y.poll();
+  expect(handoffOpenIds(await y.read())).toHaveLength(2);
+  turn2(y);
+  await y.append([script("s3", "npm test"), script("s4", "git status"), done(7003, "npm test"), done(7004, "git status"), out("s3")]); await y.poll();
+  expect(items(await y.read())).toContain(placeholder);
+  await y.append([out("s4")]); await y.poll();
+  await y.append([wait("w1", 7), waited("w1")]); await y.poll();
+  idle(y); await y.poll();
+  const ended = await y.read();
+  expect(items(ended)).toEqual(["closed:cell:7:script cell 7 still running", placeholder]);
+  expect(handoffOpenIds(ended)).toHaveLength(1);
+});
+
+test("a settled placeholder a running pool no longer needed closes once the last member returns with the exact count", async () => {
+  // The dev server's command did complete, but only after turn 1 ended; the count is exact when the cell ends.
+  const x = await observerFixture({ running: true }); await x.poll();
+  await x.append([watcher("s1"), out("s1", "Script running with cell ID 7"), script("s2", "npm run dev"), out("s2")]); await x.poll();
+  Object.assign(x.actor, { status: "idle", activeTurn: null }); await x.poll();
+  expect(handoffOpenIds(await x.read())).toHaveLength(2);
+  Object.assign(x.actor, { status: "running", activeTurn: { turnId: "turn-2", startedAt: "2026-10-25T02:10:00.000Z" } });
+  await x.append([script("s3", "npm test"), done(7002, "npm run dev"), done(7003, "npm test"), out("s3")]); await x.poll();
+  await x.append([wait("w1", 7), waited("w1")]); await x.poll();
+  Object.assign(x.actor, { status: "idle", activeTurn: null }); await x.poll();
+  const record = await x.read();
+  expect(items(record)).toEqual(["closed:cell:7:script cell 7 still running", "closed:unknown:s1:exec:exec_command in a script; completion not observed"]);
+  expect(handoffOpenIds(record)).toEqual([]);
 });
 
 test("twenty scripts started at once, all of whose commands exit 0, leave no leftover, revision or ledger version", async () => {

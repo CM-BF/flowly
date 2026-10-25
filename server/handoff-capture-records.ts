@@ -123,9 +123,11 @@ export type ScriptMember = { ref: string; execCalls: number; starts: string[]; d
  * summed (`covered`: exec_commands accounted for without a completion: printed as running, or, in pools written before
  * `claims`, in an output not read; `known`: exec sessions they named; `claims`: per nested tool, the calls of members that
  * left without their result read, a terminated cell or an output too long to read, which claim completions as a running
- * cell's do); `placed`: the placeholders emitted so far per tool, under the first member's call id (`id`).
+ * cell's do); `placed`: the placeholders the pool's count needs now per tool, under the first member's call id (`id`);
+ * `peak`: per tool, the most it placed while members still run, when that is more (a withdrawal there may have left a
+ * settled placeholder open: it is closed when the last member returns and the exact count is lower).
  */
-export type ScriptPool = { id: string; open: ScriptMember[]; seen: Record<string, number>; done: { members: number; execCalls: number; covered: number; starts: Record<string, number>; detached: string[]; known: string[]; claims?: Record<string, number> }; placed: Record<string, number> };
+export type ScriptPool = { id: string; open: ScriptMember[]; seen: Record<string, number>; done: { members: number; execCalls: number; covered: number; starts: Record<string, number>; detached: string[]; known: string[]; claims?: Record<string, number> }; placed: Record<string, number>; peak?: Record<string, number> };
 /** `subagent`: a Codex native sub-agent tool (multi-agent mode); its handle is the agent path `/root/<task_name>`. */
 /** `monitor`: Claude Code's Monitor tool (a watch that runs up to its timeout and reports events); its result names its task. */
 export type PendingCaptureCall = { callId: string; kind: CaptureBackground["kind"]; action: "start" | "close" | "poll"; source: CaptureSource; at: string; name?: string; handle?: string; label?: string; detached?: boolean; script?: ScriptEvidence; wait?: { terminate?: boolean }; subagent?: "spawn_agent" | "followup_task" | "interrupt_agent"; monitor?: true };
@@ -606,21 +608,24 @@ export class CaptureRecords {
   /**
    * The pool's evidence-free placeholders: per nested tool, the returned members' calls that no completion accounts for. A
    * completion is credited first to the members still running as yielded cells (they may run past this turn) and to those that
-   * left unread, so what a returned member may have left running surfaces now; a member whose own result is still to come is waited for. Placeholders
-   * a later tally no longer needs are withdrawn; once the last member returned, the count is exact (at most 4 exec_command
-   * placeholders per returned script, as before).
+   * left unread, so what a returned member may have left running surfaces now; a member whose own result is still to come is waited for.
+   * While members still run, the count can dip (their completions come before their results) and come back: placeholders a
+   * tally no longer needs are withdrawn, which ends only one in observation state (`withdraw`); a settled one stays until the
+   * last member returned. Then the count is exact (at most 4 exec_command placeholders per returned script, as before) and
+   * every placeholder above it closes.
    */
   private tally(source: CaptureSource, at: string) {
-    const pool = this.pool!, done = pool.done, cells = pool.open.filter((member) => member.ref.startsWith("cell:"));
+    const pool = this.pool!, done = pool.done, cells = pool.open.filter((member) => member.ref.startsWith("cell:")), exact = !pool.open.length;
     const left = (key: string, returned: number, running: number, covered = 0) => Math.max(0, returned - Math.max(0, (pool.seen[key] ?? 0) - running - (done.claims?.[key] ?? 0)) - covered);
     const place = (key: string, count: number, item: (suffix: string) => Omit<CaptureBackground, "source" | "at">) => {
-      const before = pool.placed[key] ?? 0;
-      for (let n = 1; n <= Math.max(before, count); n++) {
+      const before = pool.placed[key] ?? 0, peak = Math.max(before, pool.peak?.[key] ?? 0);
+      for (let n = 1; n <= Math.max(peak, count); n++) {
         const value = item(n > 1 ? `:${n}` : "");
-        if (n > before) this.push(value, source, at);
-        else if (n > count) this.push({ id: value.id, kind: value.kind, callId: value.callId, status: "closed", closeOnly: true }, source, at);
+        if (n > before && n <= count) this.push(value, source, at);
+        else if (n > count && (n <= before || exact)) this.push({ id: value.id, kind: value.kind, callId: value.callId, status: "closed", closeOnly: true, ...(exact ? {} : { withdraw: true as const }) }, source, at);
       }
       if (count) pool.placed[key] = count; else delete pool.placed[key];
+      if (!exact && peak > count) (pool.peak ??= {})[key] = peak; else if (pool.peak) { delete pool.peak[key]; if (!Object.keys(pool.peak).length) delete pool.peak; }
     };
     const detached = [...new Set(done.detached)].join(" | ");
     place("detached", left("detached", done.detached.length, cells.filter((member) => member.detached).length), (suffix) => ({ id: `background:${this.agentId}:${pool.id}:detached${suffix}`, kind: "exec", callId: `${pool.id}:detached${suffix}`, status: "unknown", label: `detached in script: ${detached}`.slice(0, 120) }));

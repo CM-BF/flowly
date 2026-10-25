@@ -267,9 +267,10 @@ export class HandoffObserver {
         let index = background.findIndex((entry) => entry.id === entryId("bg", item.id) || item.callId && entry.callId === item.callId || item.handle && entry.ref === item.handle);
         if (index < 0 && item.late && !(item.handle && ended.has(endedKey(kinds[item.kind], item.handle)))) index = placeholder(kinds[item.kind]);
         // An in-flight placeholder whose result started nothing that runs leaves nothing to hand over (SESSION-HANDOFF-SPEC §5.7),
-        // and neither does an exec session that ended in the turn that started it.
+        // and neither does an exec session that ended in the turn that started it. A script pool's withdrawal ends nothing
+        // settled: its count may need the placeholder again, and a closed one would not come back; the exact count closes it.
         if (index >= 0 && (background[index].inFlight || background[index].transient)) drop(index);
-        else if (index >= 0 && background[index].status !== "closed") background[index] = { ...background[index], status: "closed", ...outcome };
+        else if (index >= 0 && background[index].status !== "closed" && !item.withdraw) background[index] = { ...background[index], status: "closed", ...outcome };
         // What a background notice said stays on the card, matched or not (SESSION-HANDOFF-SPEC §5.7, §9.3).
         if (item.note) {
           const sourceId = handoffSource(`capture-notice:${agentId}:${item.note.id}`);
