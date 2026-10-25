@@ -29,7 +29,7 @@ export type CaptureUsage = { id: string; source: CaptureSource; at: string; atSo
 export type CaptureNotice = { id: string; text: string; at: string; kind?: "background" | "hazard" | "other" };
 /** `notices`: host messages worth a card note. `anchors`: external identifiers (a linked pull request). `scriptCalls`: script/workflow calls seen in this batch or timeline. */
 export type CaptureSemantics = { inputs: CaptureMessage[]; live: CaptureNarration[]; background: CaptureBackground[]; usage: CaptureUsage[]; compactions: { id: string; source: CaptureSource; at: string; preTokens?: number; captured?: boolean }[]; gaps: CaptureGap[]; notices: CaptureNotice[]; anchors: string[]; omittedGaps: number; narrationOmitted: number; narrationTrimmedChars: number; scriptCalls: number };
-export type CaptureCursor = { version: 1; provider: "codex" | "claude"; sessionId: string; fileId: string; path: string; epoch: number; offset: number; prefix?: { length: number; hash: string }; anchor?: { offset: number; length: number; hash: string }; skipping?: { start: number; bytes: number; typeHint: string; at?: string; messageId?: string }; calls?: PendingCaptureCall[]; closed?: string[]; sessions?: string[]; sawUsage?: boolean; firstUsageAvailable?: boolean };
+export type CaptureCursor = { version: 1; provider: "codex" | "claude"; sessionId: string; fileId: string; path: string; epoch: number; offset: number; prefix?: { length: number; hash: string }; anchor?: { offset: number; length: number; hash: string }; skipping?: { start: number; bytes: number; typeHint: string; at?: string; messageId?: string }; calls?: PendingCaptureCall[]; closed?: string[]; sessions?: string[]; compaction?: { signal: "record" | "item"; at: string }; sawUsage?: boolean; firstUsageAvailable?: boolean };
 export type CaptureBatch = CaptureSemantics & { provider?: string; source?: NativeHistoryFile; cursor?: CaptureCursor; growth: Record<string, { bytes: number; lines: number }>; coverage: { at: string; from: number; through: number; fileBytes?: number; readBytes: number; backlogBytes: number; partialBytes: number; skippedBytes: number; complete: boolean; aborted: boolean } };
 export type CaptureOptions = { signal?: AbortSignal; now?: () => number; codexHome?: string; claudeHome?: string; maxBytes?: number; maxLineBytes?: number; maxRecords?: number; /** Already recorded Flowly sends; the body must not be compared by text. */ sentMessageIds?: readonly string[]; automationTextHashes?: readonly string[] };
 const hash = (data: Uint8Array) => createHash("sha256").update(data).digest("hex");
@@ -42,6 +42,7 @@ function validCursor(cursor: CaptureCursor) {
   if (cursor.anchor && (!integer(cursor.anchor.length) || cursor.anchor.length > 128 || !integer(cursor.anchor.offset) || cursor.anchor.offset + cursor.anchor.length !== cursor.offset)) return false;
   if (cursor.skipping && (!integer(cursor.skipping.start) || !integer(cursor.skipping.bytes) || cursor.skipping.start + cursor.skipping.bytes !== cursor.offset)) return false;
   for (const list of [cursor.closed, cursor.sessions]) if (list && (!Array.isArray(list) || list.length > captureLimits.closed || list.some((value) => typeof value !== "string"))) return false;
+  if (cursor.compaction && (!["record", "item"].includes(cursor.compaction.signal) || !Number.isFinite(Date.parse(cursor.compaction.at)))) return false;
   return !cursor.calls || Array.isArray(cursor.calls) && cursor.calls.length <= captureLimits.calls;
 }
 
@@ -80,29 +81,32 @@ export async function captureHandoff(agent: HistoryAgent & { id: string }, previ
         records.gap({ id: `reset:${agent.id}:${fileId}:${cursor.epoch}`, kind: initial.size < previous.offset ? "file_truncated" : "file_replaced", from: 0, to: previous.offset });
       } else {
         // No undefined-valued keys: the stored cursor is JSON, and a key it lacks must not look like a change on every idle poll.
-        const { calls, closed, sessions, skipping, ...rest } = previous;
-        cursor = { ...rest, ...(calls ? { calls: calls.map((call) => structuredClone(call)) } : {}), ...(closed ? { closed: [...closed] } : {}), ...(sessions ? { sessions: [...sessions] } : {}), ...(skipping ? { skipping: { ...skipping } } : {}), path: location.file.path };
+        const { calls, closed, sessions, skipping, compaction, ...rest } = previous;
+        cursor = { ...rest, ...(calls ? { calls: calls.map((call) => structuredClone(call)) } : {}), ...(closed ? { closed: [...closed] } : {}), ...(sessions ? { sessions: [...sessions] } : {}), ...(skipping ? { skipping: { ...skipping } } : {}), ...(compaction ? { compaction: { ...compaction } } : {}), path: location.file.path };
         if (previous.path !== cursor.path) records.gap({ id: `moved:${agent.id}:${fileId}:${cursor.epoch}`, kind: "file_moved", from: previous.offset, to: previous.offset });
       }
     }
-    records.restore(cursor.calls ?? [], !!cursor.sawUsage, cursor.firstUsageAvailable !== false, cursor.closed ?? [], cursor.sessions ?? []);
+    records.restore(cursor.calls ?? [], !!cursor.sawUsage, cursor.firstUsageAvailable !== false, cursor.closed ?? [], cursor.sessions ?? [], cursor.compaction);
     const sourceAt = (start: number, end: number): CaptureSource => ({ agentId: agent.id, provider: cursor.provider, sessionId: cursor.sessionId, fileId: `${cursor.fileId}:${cursor.epoch}`, offset: start, end });
     const growth = (type: string, bytes: number, lines: number) => {
       const key = Object.keys(batch.growth).length < 64 || batch.growth[type] ? type : "other";
       const entry = batch.growth[key] ??= { bytes: 0, lines: 0 }; entry.bytes += bytes; entry.lines += lines;
     };
     let position = cursor.offset, start = cursor.skipping?.start ?? position, parts: Buffer[] = [], length = 0, lineCount = 0, tail = Buffer.alloc(0), prefix = Buffer.alloc(0), stop = false;
+    // The last bytes of the line being skipped (JSON writers put ids and small trailing fields after the long text); whole
+    // unless the skip began in an earlier poll and this one read less than the window.
+    let skipTail = Buffer.alloc(0), skipStartedHere = false;
     batch.coverage.from = position;
     const committed = (data: Buffer, end: number) => { tail = Buffer.concat([tail, data]).subarray(-128); cursor.offset = end; };
     const skip = (fragment: Buffer, end: number, ended: boolean) => {
       cursor.skipping!.bytes += fragment.length; committed(fragment, end); batch.coverage.skippedBytes += fragment.length;
       growth(cursor.skipping!.typeHint, fragment.length, ended ? 1 : 0);
+      skipTail = Buffer.concat([skipTail, fragment]).subarray(-4096);
       if (ended) {
         const skipped = cursor.skipping!;
-        // JSON writers put the id after the long text: look for it in the line's tail too.
-        if (!skipped.messageId) { const tail = lineHint(fragment.subarray(Math.max(0, fragment.length - 2048))).messageId; if (tail) skipped.messageId = tail; }
-        records.gap({ id: `long:${agent.id}:${fileId}:${cursor.epoch}:${skipped.start}`, kind: "long_line", source: { ...sourceAt(skipped.start, end), ...(skipped.messageId ? { messageId: skipped.messageId } : {}) }, from: skipped.start, to: end, bytes: skipped.bytes, typeHint: skipped.typeHint, at: skipped.at });
-        delete cursor.skipping; start = end; lineCount++;
+        if (!skipped.messageId) { const found = lineHint(skipTail.subarray(Math.max(0, skipTail.length - 2048))).messageId; if (found) skipped.messageId = found; }
+        records.longLine({ id: `long:${agent.id}:${fileId}:${cursor.epoch}:${skipped.start}`, kind: "long_line", source: { ...sourceAt(skipped.start, end), ...(skipped.messageId ? { messageId: skipped.messageId } : {}) }, from: skipped.start, to: end, bytes: skipped.bytes, typeHint: skipped.typeHint, at: skipped.at }, skipTail, skipStartedHere || skipTail.length >= 4096);
+        delete cursor.skipping; start = end; lineCount++; skipTail = Buffer.alloc(0); skipStartedHere = false;
       }
     };
     while (position < initial.size && batch.coverage.readBytes < byteBudget && lineCount < recordBudget && !stop) {
@@ -120,7 +124,7 @@ export async function captureHandoff(agent: HistoryAgent & { id: string }, previ
           const buffered = Buffer.concat([...parts, fragment]);
           const hint = lineHint(buffered.subarray(0, 2048));
           cursor.skipping = { start, bytes: 0, typeHint: hint.type, ...(hint.at ? { at: hint.at } : {}), ...(hint.messageId ? { messageId: hint.messageId } : {}) };
-          parts = []; length = 0; records.firstUsageAvailable = false; skip(buffered, absolute, newline >= 0);
+          parts = []; length = 0; records.firstUsageAvailable = false; skipStartedHere = true; skip(buffered, absolute, newline >= 0);
         } else {
           parts.push(fragment); length += fragment.length;
           if (newline >= 0) {
@@ -138,6 +142,7 @@ export async function captureHandoff(agent: HistoryAgent & { id: string }, previ
     cursor.calls = records.pending(); cursor.sawUsage = records.sawUsage; cursor.firstUsageAvailable = records.firstUsageAvailable;
     const closed = records.closedSessions(); if (closed.length) cursor.closed = closed; else delete cursor.closed;
     const sessions = records.runningSessions(); if (sessions.length) cursor.sessions = sessions; else delete cursor.sessions;
+    const compaction = records.pendingCompaction(); if (compaction) cursor.compaction = compaction; else delete cursor.compaction;
     batch.cursor = cursor;
     const final = await file.stat();
     batch.coverage.through = cursor.offset; batch.coverage.fileBytes = final.size; batch.coverage.backlogBytes = Math.max(0, final.size - cursor.offset);

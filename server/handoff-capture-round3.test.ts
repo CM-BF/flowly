@@ -234,3 +234,43 @@ test("a person's slash command is their input; a local command's output is metad
   expect(view.gaps).toEqual([]);
 });
 
+// ---------------------------------------------------------------- Codex compactions too long to read (noise-r3-3)
+const compacted = (at = "2026-10-25T02:00:00.000Z") => ({ timestamp: at, type: "compacted", payload: { message: "", replacement_history: [{ type: "message", id: "m-1", role: "user", content: [{ type: "input_text", text: "synthetic earlier request ".repeat(200) }] }], window_number: 2, latest_token_usage_record: { total_tokens: 1000 }, resume_metadata: { multi_agent_version: 1 } } });
+const compactionNotes = (notes: string[]) => notes.filter((note) => note.includes("context was compacted"));
+
+test("R3-K1 a confirmed Codex compaction is a note and counts K, also when its compacted record is too long to read", async () => {
+  const x = await observerFixture({ maxLineBytes: 2048 });
+  await x.append([compacted(), codexEvent("token_count", { info: { last_token_usage: { total_tokens: 900 } } }), codexItem({ type: "ContextCompaction", id: "cc-1" })]);
+  await x.poll();
+  const record = await x.read(), view = successorView(record);
+  expect(compactionNotes(view.notes)).toHaveLength(1);
+  expect(record.ledger[0].measured?.K).toBe(1);
+  expect(view.gaps).toEqual([]); expect(view.open).toBe(0);
+});
+
+test("a skipped compacted record alone, and a ContextCompaction item alone, each count one compaction", async () => {
+  const x = await observerFixture({ maxLineBytes: 2048 });
+  await x.append([compacted("2026-10-25T01:00:00.000Z")]); await x.poll();
+  await x.append([codexItem({ type: "ContextCompaction", id: "cc-2" })]); await x.poll();
+  const record = await x.read();
+  expect(compactionNotes(successorView(record).notes)).toHaveLength(2);
+  expect(record.ledger[0].measured?.K).toBe(2); expect(record.gaps).toEqual([]);
+});
+
+test("a compacted record and its ContextCompaction item read in different polls are one compaction", async () => {
+  const x = await observerFixture();
+  await x.append([compacted()]); await x.poll();
+  await x.append([codexItem({ type: "ContextCompaction", id: "cc-1" })]); await x.poll();
+  const record = await x.read();
+  expect(compactionNotes(successorView(record).notes)).toHaveLength(1);
+  expect(record.ledger[0].measured?.K).toBe(1);
+});
+
+test("a skipped compacted record without latest_token_usage_record (a sub-agent inheriting its parent's history) is neither a compaction nor a gap", async () => {
+  const x = await observerFixture({ maxLineBytes: 2048 });
+  const { latest_token_usage_record: _, ...inherited } = compacted().payload;
+  await x.append([{ ...compacted(), payload: inherited }]); await x.poll();
+  const record = await x.read();
+  expect(compactionNotes(successorView(record).notes)).toEqual([]);
+  expect(record.ledger[0].measured?.K ?? 0).toBe(0); expect(record.gaps).toEqual([]);
+});

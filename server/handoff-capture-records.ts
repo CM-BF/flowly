@@ -101,7 +101,7 @@ function agentPath(value: unknown): string | undefined {
 }
 const subagentTools = new Set(["spawn_agent", "followup_task", "interrupt_agent"]);
 /** Codex item_completed types that are metadata or covered elsewhere (files come from git). */
-const metadataItems = new Set(["Reasoning", "FileChange", "ContextCompaction", "Extension", "ImageView", "CollabAgentToolCall", "FunctionCallOutput"]);
+const metadataItems = new Set(["Reasoning", "FileChange", "Extension", "ImageView", "CollabAgentToolCall", "FunctionCallOutput"]);
 const pluginMetadata = new Set([summaryRowKind, nextRowKind, "activity-list", "guard-decision", "learning-update", "dynamic-workflow-run"]);
 const asyncShellRunning = new Set(["pending", "running"]);
 /** `known`: exec session ids the script text names (write_stdin to an earlier session): their completions are not this script's starts. */
@@ -193,6 +193,8 @@ export class CaptureRecords {
   private closed: string[] = [];
   /** Unified exec sessions known to be running (printed by a script, or a top-level exec_command still running): their completions close them, never count toward a later script. */
   private sessions: string[] = [];
+  /** The last compaction signal counted (a Codex `compacted` record or its ContextCompaction item), waiting for its twin. */
+  private compaction?: { signal: "record" | "item"; at: string };
   /** Codex sub-agents interrupted in this batch (until new work), and the answer note each one wrote here. */
   private interrupted = new Set<string>();
   private answers = new Map<string, { note: CaptureNotice; write: (interrupted: boolean) => string }>();
@@ -206,8 +208,28 @@ export class CaptureRecords {
   firstUsageAvailable = true;
   identityMismatch = false;
   constructor(private agentId: string, private capturedAt: string, sentMessageIds: readonly string[] = [], private automationTextHashes: readonly string[] = []) { this.sent = new Set(sentMessageIds); }
-  restore(calls: PendingCaptureCall[], sawUsage: boolean, firstUsageAvailable: boolean, closed: readonly string[] = [], sessions: readonly string[] = []) { this.calls = new Map(calls.slice(-captureLimits.calls).map((call) => [call.callId, call])); this.sawUsage = sawUsage; this.firstUsageAvailable = firstUsageAvailable; this.closed = closed.slice(-captureLimits.closed); this.sessions = sessions.slice(-captureLimits.closed); }
+  restore(calls: PendingCaptureCall[], sawUsage: boolean, firstUsageAvailable: boolean, closed: readonly string[] = [], sessions: readonly string[] = [], compaction?: { signal: "record" | "item"; at: string }) { this.calls = new Map(calls.slice(-captureLimits.calls).map((call) => [call.callId, call])); this.sawUsage = sawUsage; this.firstUsageAvailable = firstUsageAvailable; this.closed = closed.slice(-captureLimits.closed); this.sessions = sessions.slice(-captureLimits.closed); this.compaction = compaction && { ...compaction }; }
   pending() { return [...this.calls.values()]; }
+  pendingCompaction() { return this.compaction && { ...this.compaction }; }
+  /**
+   * Codex marks one compaction twice, a `compacted` record and an item_completed ContextCompaction milliseconds apart, in
+   * either order and possibly in different polls: the second signal within a minute of the first is the same compaction.
+   */
+  private compacted(signal: "record" | "item", source: CaptureSource, timestamp: unknown) {
+    const at = this.time(timestamp).at, twin = this.compaction;
+    if (twin && twin.signal !== signal && Math.abs(Date.parse(at) - Date.parse(twin.at)) <= 60_000) { this.compaction = undefined; return; }
+    this.compaction = { signal, at };
+    this.result.compactions.push({ id: `compact:${sourceKey(source)}`, source, at });
+  }
+  /**
+   * A line too long to read. A Codex `compacted` record holds the encrypted summary and copies of history already captured:
+   * not a gap, but its compaction counts. Without latest_token_usage_record (near its end) it is a sub-agent inheriting its
+   * parent's history, not a compaction; when the tail seen is too short to tell, it counts.
+   */
+  longLine(gap: CaptureGap, tail: Uint8Array, wholeTail: boolean) {
+    if (!gap.typeHint?.startsWith("compacted") || !gap.source) { this.gap(gap); return; }
+    if (!wholeTail || Buffer.from(tail).includes('"latest_token_usage_record"')) this.compacted("record", gap.source, gap.at);
+  }
   closedSessions() { return [...this.closed]; }
   runningSessions() { return [...this.sessions]; }
   private running(session: string) { if (!this.closed.includes(session)) this.sessions = [...this.sessions.filter((value) => value !== session), session].slice(-captureLimits.closed); }
@@ -588,7 +610,8 @@ export class CaptureRecords {
       if (launch) this.push({ id: `background:${this.agentId}:${launch.kind}:${launch.handle}`, kind: launch.kind, handle: launch.handle, status: "open", label: launch.label }, source, this.time(timestamp).at);
       if (detachedCommand(command) && id(itemId)) this.attribute("detached");
       if (detachedCommand(command) && id(itemId)) this.push({ id: `background:${this.agentId}:${itemId}`, kind: "exec", callId: itemId, status: "unknown", label: `detached: ${redactCaptureText(command)}`.slice(0, 120) }, source, this.time(timestamp).at);
-    } else if (type === "AgentMessage") {
+    } else if (type === "ContextCompaction") this.compacted("item", source, timestamp);
+    else if (type === "AgentMessage") {
       // This Codex version writes the agent's words only here (no event_msg agent_message): the live narration of a turn
       // whose turn-end hook may never come. The observer drops the hook's copy of the same words.
       this.message(contentText(item.content), source, timestamp, true);
@@ -706,7 +729,7 @@ export class CaptureRecords {
       // Native user/assistant text is represented by event_msg too; never capture that alias twice.
       return `response_item/${redactCaptureText(string(payload.type)).slice(0, 80) || "unknown"}`;
     }
-    if (type === "compacted") { if (payload.latest_token_usage_record || entry.latest_token_usage_record) this.result.compactions.push({ id: `compact:${sourceKey(source)}`, source, at: this.time(timestamp).at }); }
+    if (type === "compacted") { if (payload.latest_token_usage_record || entry.latest_token_usage_record) this.compacted("record", source, timestamp); }
     else if (!metadataRecords.has(type)) this.gap({ id: `type:${sourceKey(source)}`, kind: "unknown_record_type", source, typeHint: type.slice(0, 80) || "unknown" });
     return type.slice(0, 80) || "unknown";
   }
