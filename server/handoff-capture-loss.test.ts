@@ -14,6 +14,7 @@ import { HandoffStore } from "./handoff-store";
 import { BoardStore } from "./store";
 import { forgetHistory } from "./provider-history";
 import { handoffOpenIds, type CardHandoff } from "../shared/handoff";
+import { detachedCommand } from "./handoff-detached";
 
 const roots: string[] = [], observers: HandoffObserver[] = [];
 afterEach(async () => { forgetHistory(); await Promise.all(observers.splice(0).map((observer) => observer.stop())); await Promise.all(roots.splice(0).map((path) => rm(path, { recursive: true, force: true }))); });
@@ -249,4 +250,33 @@ test("a dynamic workflow launched with the paseo-workflow CLI is open until its 
   expect(visible(c).background).toEqual([expect.stringMatching(/^agent:open:wf_cli2:/)]);
   await x.append([event("user_message", { message: "[paseo-dynamic-workflow] A background workflow you launched has ended.\n<task-notification>\n<task-id>wf_cli2</task-id>\n<status>completed</status>\n<summary>synthetic</summary>\n<result>null</result>\n</task-notification>" })]);
   expect((await x.capture(c.cursor)).background).toContainEqual(expect.objectContaining({ handle: "wf_cli2", status: "closed", closeOnly: true, outcome: "completed" }));
+});
+
+// ---------------------------------------------------------------- the shared detached rule (loss-F5, noise-F4)
+const daemons = [
+  "docker compose up -d", "docker-compose -f dev.yml up --detach", "docker run -d --name db postgres:16", "docker run -dit --rm image", "docker start db",
+  "tmux new-session -d -s dev 'npm run dev'", "tmux new -ds dev", "screen -dmS dev npm start", "screen -d -m npm start",
+  "npm run dev > /tmp/dev.log 2>&1 & echo $!", "npm run dev &\nsleep 2\ncurl -s localhost:3000", "( npm run dev & )", "cd app && npm run dev &",
+  "pm2 start ecosystem.config.js", "brew services start postgresql@16", "launchctl load ~/Library/LaunchAgents/dev.plist", "launchctl kickstart -k gui/501/dev",
+  "systemctl --user start dev.service", "sudo systemctl restart nginx", "nohup ./serve.sh > serve.log 2>&1", "PORT=3001 nohup npm start", "sudo -E nohup ./serve.sh", "env FOO=1 setsid ./worker",
+  "bash -c 'nohup ./serve.sh &'", "zsh -lc \"npm run dev &\"",
+];
+const finished = [
+  "rg -n 'nohup|setsid' server", "grep -rn nohup docs", "echo \"a & b\"", "npm test 2>&1 | tee test.log", "make && make install || echo failed", "npm run build &> build.log",
+  "cat <<'EOF' > notes.md\nrun it with nohup ./serve.sh &\nEOF\nwc -l notes.md", "# start later with nohup ./x &\nls", "git commit -m \"fix & polish\"", "curl 'http://localhost:3000/?a=1&b=2'",
+  "docker ps -a", "docker compose logs -f api", "docker compose up --build", "docker run --rm image npm test", "docker start -a db", "tmux ls", "screen -ls", "brew services list", "systemctl status nginx", "pm2 logs",
+];
+test.each(daemons)("a command that leaves a daemon running is detached: %s", (cmd) => { expect(detachedCommand(cmd)).toBe(true); });
+test.each(finished)("a command that only finishes, or merely mentions a daemonising word, is not detached: %s", (cmd) => { expect(detachedCommand(cmd)).toBe(false); });
+
+test("inside a Codex script, a daemonising command surfaces even though its exec_command completed; a search for the word does not", async () => {
+  for (const cmd of ["docker compose up -d", "tmux new-session -d -s dev 'npm run dev'", "npm run dev > /tmp/dev.log 2>&1 & echo $!"]) {
+    const x = await codex();
+    await x.write([script("s1", `await tools.exec_command({ cmd: ${JSON.stringify(cmd)} });\ntext("started");`), commandDone("e1", "31003", cmd, 0, "started"), scriptOutput("s1", "started")]);
+    expect(visible(await x.capture()).background).toEqual([expect.stringMatching(/^exec:unknown::detached/)]);
+  }
+  const x = await observerFixture();
+  await x.append([script("s1", `const r = await tools.exec_command({ cmd: "rg -n 'nohup|setsid' server" });\ntext(r.output);`), commandDone("exec-1", "77", "rg -n 'nohup|setsid' server", 0), scriptOutput("s1", "server/x.ts:1: nohup")]);
+  await x.poll();
+  expect(pending(await x.read())).toEqual([]);
 });

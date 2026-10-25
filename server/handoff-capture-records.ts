@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { handoffMessageSource, handoffSource } from "./handoff-source";
 import { nextRowKind, summaryRowKind } from "../shared/native-session";
+import { detachedCommand } from "./handoff-detached";
 import type { CaptureBackground, CaptureGap, CaptureSemantics, CaptureSource } from "./handoff-capture";
 
 export const captureLimits = { bytes: 64 * 2 ** 20, line: 256 * 2 ** 10, chunk: 64 * 2 ** 10, records: 5000, gaps: 100, calls: 64, live: 8, liveChars: 4000, messageChars: 800, hints: 8, notices: 20, closed: 64 } as const;
@@ -23,8 +24,6 @@ const toolNames = new Map<string, { kind: CaptureBackground["kind"]; action: "st
   ["create_heartbeat", { kind: "heartbeat", action: "start" }], ["delete_heartbeat", { kind: "heartbeat", action: "close" }], ["cancel_heartbeat", { kind: "heartbeat", action: "close" }],
 ]);
 const knownTool = (name: string) => [...toolNames].find(([known]) => name === known || name.endsWith(`__${known}`) || name.endsWith(`.${known}`))?.[1];
-/** One rule for every place a shell command string is visible: a known tool's argument, a script's command literal, a nested CommandExecution, a timeline shell row. */
-const detachedCommand = (command: string) => /\bnohup\b|\bsetsid\b|\bdisown\b|&\s*$/.test(command);
 /** Codex code-mode scripts (`exec`), Claude Code `Workflow` and the paseo-dynamic-workflow MCP `workflow`: their inner calls are not itemized, only evident background work. */
 const scriptTool = (name: string): "script" | "workflow" | undefined => {
   const last = name.split(".").pop() ?? "";
