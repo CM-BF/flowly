@@ -8,6 +8,7 @@ import { promisify } from "node:util";
 import type { PaseoApi } from "@getpaseo/client";
 import { AutomationService } from "./automation";
 import { captureHandoff } from "./handoff-capture";
+import { handoffGitSnapshot } from "./handoff-git";
 import { HandoffObserver, type HandoffObserverDeps, type ManagedHandoffSession } from "./handoff-observer";
 import { HandoffService } from "./handoff-service";
 import { HandoffStore } from "./handoff-store";
@@ -123,7 +124,7 @@ async function idleBoard() {
     if (minute === 9) await writeFile(join(alpha, "lib", "README.md"), "fixture, edited again by someone else\n");
     if (minute === 20) { await writeFile(join(wide, "service-3", "NOTES.md"), "x\n"); await git(join(wide, "service-3"), "add", "NOTES.md"); await git(join(wide, "service-3"), "commit", "-q", "-m", "elsewhere"); }
   };
-  return { directory, board, sessions, actors, wire, managed, elsewhere, advance: (ms: number) => { now += ms; } };
+  return { directory, alpha, board, sessions, actors, wire, managed, elsewhere, advance: (ms: number) => { now += ms; } };
 }
 
 test("idle cards keep their revision and every file byte through the whole idle loop and a plugin reload", async () => {
@@ -164,13 +165,20 @@ test("idle cards keep their revision and every file byte through the whole idle 
   expect(await Promise.all(["alpha", "beta", "gamma"].map(async (id) => (await handoffs.records.read(id, "project")).revision))).toEqual(revisions);
   expect(await bytes(x.directory)).toEqual(before);
   expect(failures).not.toHaveBeenCalled(); // every dispatcher pass and observation ran to its end
-  // An ACK the successor prepared from the revision it read before all that idle time still applies.
-  await expect(handoffs.records.update("alpha", "project", { handoffRevision: revisions[0], ack: { handoffRevision: revisions[0], heads: [], understanding: "Idle card, nothing new.", items: [] } }, { by: { kind: "agent", agentId: "a-impl" } }, { agentId: "a-impl", actualHeads: [] })).resolves.toMatchObject({ handoffRevision: revisions[0] + 1 });
-  // The card's next turn end records the repositories as they are now; nothing was lost by not polling them while idle.
-  const stale = await handoffs.records.read("alpha", "project");
-  await observer.observe("alpha", "a-impl", { timeline: [{ type: "assistant_message", text: "Checked." }], outcome: "completed", forceGit: true });
-  const caught = await handoffs.records.read("alpha", "project"), heads = (record: typeof caught) => record.git.map(({ repo, sha, dirtyHash }) => `${relative(x.directory, repo)}:${sha}:${dirtyHash}`);
+  // An ACK the successor prepared from the revision it read before all that idle time still applies through
+  // flowly_update_handoff, which reads the heads itself: other cards' commits and edits in the shared root are on them.
+  const stale = await handoffs.records.read("alpha", "project"), heads = (record: typeof stale) => record.git.map(({ repo, sha, dirtyHash }) => `${relative(x.directory, repo)}:${sha}:${dirtyHash}`);
+  const observed = (await Promise.all([join(x.alpha, "app"), join(x.alpha, "lib")].map((repo) => handoffGitSnapshot(repo)))).map(({ repo, sha, dirty }) => ({ repo, sha, dirty }));
+  expect(stale.git.find((entry) => entry.repo.endsWith("app"))?.sha).not.toBe(observed[0].sha);
+  await expect(handoffs.update({ taskId: "alpha", workspaceId: "ws-alpha", agentId: "a-impl" }, { handoffRevision: revisions[0], ack: { handoffRevision: revisions[0], heads: observed, understanding: "Idle card; the shared root moved, heads verified.", items: [] } })).resolves.toMatchObject({ handoffRevision: revisions[0] + 1 });
+  // Nothing was lost by not polling the repositories while idle: the ACK's write recorded them as they are now.
+  const caught = await handoffs.records.read("alpha", "project");
   expect(heads(caught)).not.toEqual(heads(stale));
+  expect(caught.git.filter((entry) => entry.sha).map(({ repo, sha }) => ({ repo, sha }))).toEqual(observed.map(({ repo, sha }) => ({ repo, sha })));
+  // And the card's next turn end records a change made after that.
+  await writeFile(join(x.alpha, "app", "LATER.md"), "later\n"); await git(join(x.alpha, "app"), "add", "LATER.md"); await git(join(x.alpha, "app"), "commit", "-q", "-m", "later");
+  await observer.observe("alpha", "a-impl", { timeline: [{ type: "assistant_message", text: "Checked." }], outcome: "completed", forceGit: true });
+  expect(heads(await handoffs.records.read("alpha", "project"))).not.toEqual(heads(caught));
 }, 60_000);
 
 test("a quiet running turn writes nothing either: its repositories are read every 2 minutes, an archived gap is not written again", async () => {

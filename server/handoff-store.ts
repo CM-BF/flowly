@@ -415,10 +415,15 @@ export class HandoffStore {
   private conflict(record: CardHandoff, revision: number, entry: { id: string; rev: number } | null) {
     if (revision > record.revision - 1 || (entry && entry.rev > revision)) throw new HandoffError("HANDOFF_CONFLICT", "The handoff entry changed after the revision you read. Read it again before updating.", { id: entry?.id, handoffRevision: record.revision - 1, entryRevision: entry?.rev });
   }
-  update(taskId: string, projectId: string, input: HandoffUpdate, context: HandoffContext, options: { agentId?: string; actualHeads?: HandoffAck["heads"]; dirtyHash?: string; turnStartedAt?: string } = {}) {
+  /**
+   * `git`: the repositories as Flowly read them for this write. They are stored in the same revision, so Flowly's own refresh
+   * never moves the revision an ACK names (an idle card's Git is read only at turn ends, rotations and handoff writes).
+   */
+  update(taskId: string, projectId: string, input: HandoffUpdate, context: HandoffContext, options: { agentId?: string; actualHeads?: HandoffAck["heads"]; dirtyHash?: string; turnStartedAt?: string; git?: CardHandoff["git"] } = {}) {
     const update = handoffUpdateSchema.parse(input), ctx = { ...context, operationId: update.operationId ?? context.operationId };
     return this.transaction(taskId, projectId, { action: "update", update, agentId: options.agentId }, ctx, async (change) => {
       const record = change.record, revision = update.handoffRevision;
+      if (options.git) record.git = options.git;
       if (revision > record.revision - 1) this.conflict(record, revision, null);
       if (update.state !== undefined) {
         this.conflict(record, revision, record.state ?? null);

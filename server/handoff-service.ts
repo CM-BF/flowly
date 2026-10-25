@@ -179,11 +179,18 @@ export class HandoffService {
     }
     const locations = await handoffGitDirectories(context.directories.map((entry) => entry.directory));
     const git = await Promise.all(locations.directories.map((directory) => handoffGitSnapshot(directory)));
-    const before = await this.records.read(task.id, project.id);
-    if (fingerprint({ ...before, git }) !== fingerprint(before))
-      await this.records.capture(task.id, project.id, { git }, { ...flowly, operationId: `git-before-update:${randomUUID()}` });
-    const record = await this.records.read(task.id, project.id);
-    const result = await this.records.update(task.id, project.id, patch, { by: { kind: "agent", agentId: identity.agentId } }, { agentId: identity.agentId, actualHeads: git.map(({ repo, sha, dirty }) => ({ repo, sha, dirty })), dirtyHash: fingerprint(record), turnStartedAt: jobOf(board, task.id)?.turnAt });
+    const before = await this.records.read(task.id, project.id), refresh = fingerprint({ ...before, git }) !== fingerprint(before);
+    let result;
+    try {
+      // The heads Flowly read are written with the update, in one revision: a separate refresh would move the revision a
+      // prepared ACK names, whenever the repository changed since the card's last turn end (SESSION-HANDOFF-SPEC §5.1, §7.5).
+      result = await this.records.update(task.id, project.id, patch, { by: { kind: "agent", agentId: identity.agentId } }, { agentId: identity.agentId, actualHeads: git.map(({ repo, sha, dirty }) => ({ repo, sha, dirty })), dirtyHash: fingerprint({ ...before, git }), turnStartedAt: jobOf(board, task.id)?.turnAt, ...(refresh ? { git } : {}) });
+    } catch (error) {
+      // A refused write still records what Flowly read, so the reread it asks for shows the current heads. Its own failure
+      // must not hide the refusal.
+      if (refresh) await this.records.capture(task.id, project.id, { git }, { ...flowly, operationId: `git-before-update:${randomUUID()}` }).catch(() => undefined);
+      throw error;
+    }
     await this.syncIndex(task.id);
     return result;
   }
