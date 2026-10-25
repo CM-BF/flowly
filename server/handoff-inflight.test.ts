@@ -59,10 +59,13 @@ test("a script that keeps running stays on the card across polls and in the seal
   expect(background((await x.read()).ledger[0])).toEqual(["exec_session:unknown:unknown:s1:script running"]);
   expect(handoffOpenIds(await x.read())).toEqual([id]);
   // Its result, read later, ends the handed-over placeholder (history now, so it closes rather than vanishes) and the yielded
-  // cell is real work.
+  // cell is work of the turn the session still runs: on the card now, an id to acknowledge once that turn is over.
   await x.append([scriptOutput("s1", "Script running with cell ID 7")]);
   await x.poll();
   expect(background((await x.read()).ledger[0])).toEqual(["exec_session:closed:unknown:s1:script running", "exec_session:open:cell:7:script cell 7 still running"]);
+  expect(handoffOpenIds(await x.read())).toEqual([]);
+  Object.assign(x.actor, { status: "idle", activeTurn: null }); await x.poll();
+  expect(handoffOpenIds(await x.read())).toEqual([(await x.read()).ledger[0].background[1].id]);
 });
 
 test("an in-flight start that returns a handle becomes a real item; one that fails or exits leaves only its note", async () => {
@@ -182,4 +185,27 @@ test("more than 40 calls in flight in a quiet running turn: 40 listed, the rest 
   expect(later.revision).toBe(first.revision);
   expect(later.notes).toEqual(first.notes);
   expect(await archivedLedgerVersions(x.records)).toBe(0);
+});
+
+// A sealed predecessor can be woken later (a late notification, the finalize prompt's "if a later notification wakes you"):
+// its later turn is a turn like any other, so a call caught in flight there is observation state until that turn is over.
+test("a sealed session's later turn keeps a call caught in flight out of the revision, the ACK ids and the archive", async () => {
+  const x = await observerFixture();
+  await x.poll(); await x.seal();
+  const sealed = await x.read(), archived = await archivedLedgerVersions(x.records);
+  Object.assign(x.actor, { status: "running", activeTurn: { turnId: "late", startedAt: "2026-10-25T02:05:00.000Z" } });
+  await x.append([script("s9")]); await x.poll();
+  const flying = await x.read();
+  expect(background(flying.ledger[0])).toEqual(["exec_session:unknown:unknown:s9:script running:in flight"]);
+  expect([flying.revision, handoffOpenIds(flying)]).toEqual([sealed.revision, handoffOpenIds(sealed)]);
+  await x.append([completion(4009), scriptOutput("s9")]); await x.poll();
+  const done = await x.read();
+  expect([done.revision, handoffOpenIds(done), done.ledger[0].background]).toEqual([sealed.revision, handoffOpenIds(sealed), []]);
+  expect(await archivedLedgerVersions(x.records)).toBe(archived);
+  // A call still without its result when that later turn is over is leftover work, as in any session.
+  await x.append([script("s10")]); await x.poll();
+  Object.assign(x.actor, { status: "idle", activeTurn: null }); await x.poll();
+  const over = await x.read();
+  expect(background(over.ledger[0])).toEqual(["exec_session:unknown:unknown:s10:script running"]);
+  expect(handoffOpenIds(over)).toEqual([over.ledger[0].background[0].id]); expect(over.revision).toBe(sealed.revision + 1);
 });

@@ -242,10 +242,11 @@ export class HandoffObserver {
       entries.push({ section: "inputs", value });
     }
     const meta = state;
-    // The session's turn is over once it is idle, gone or ended and its provider file was read to the end (SESSION-HANDOFF-SPEC
+    // The session's turn is over once it is idle or gone and its provider file was read to the end (SESSION-HANDOFF-SPEC
     // §5.7): until then its calls in flight, the exec sessions it starts and the output it produces that is too long to keep
-    // are observation state, so its own work never moves the revision its read and its ACK pin.
-    const turnOver = !!session.endedAt || (actor ? !inTurn && !captureFailed && !batch?.coverage.backlogBytes : !snapshotFailed);
+    // are observation state, so its own work never moves the revision its read and its ACK pin. A sealed session is no
+    // exception: seal() settled what was in flight at the seal, and a later turn it is woken for is a turn like any other.
+    const turnOver = actor ? !inTurn && !captureFailed && !batch?.coverage.backlogBytes : !snapshotFailed;
     const gapUpdates = this.captureGaps(agentId, meta, batch, hook, !turnOver);
     const background = [...session.background];
     const ended = new Set(meta.ended ?? []), endedKey = (kind: string, ref: string) => digest(`${kind}:${ref}`).slice(0, 16);
