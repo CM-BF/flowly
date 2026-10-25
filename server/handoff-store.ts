@@ -45,7 +45,7 @@ function ledgerHistory(session: HandoffSession) {
 const canonical = (value: unknown): unknown => Array.isArray(value) ? value.map(canonical) : value !== null && typeof value === "object" ? Object.fromEntries(Object.keys(value).sort().map((key) => [key, canonical((value as Record<string, unknown>)[key])])) : value;
 const historyHash = (session: HandoffSession) => hash(JSON.stringify(canonical(ledgerHistory(session))));
 /** Per archive file (append-only): the newest archived version of each ledger entry and the offsets of versions whose history equals the next one's. */
-type LedgerRuns = { ino: number; scanned: number; last: Map<string, { offset: number; history: string }>; superseded: Set<number> };
+type LedgerRuns = { identity: string; scanned: number; last: Map<string, { offset: number; history: string }>; superseded: Set<number> };
 
 /** Per-card durable current record, immutable entry bodies and append-only pointers. No provider or daemon access. */
 export class HandoffStore {
@@ -553,7 +553,8 @@ export class HandoffStore {
     const info = await stat(path).catch((error) => { if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined; throw error; });
     if (!info) return undefined;
     let runs = this.ledgerRuns.get(taskId);
-    if (!runs || runs.ino !== info.ino || info.size < runs.scanned) { runs = { ino: info.ino, scanned: 0, last: new Map(), superseded: new Set() }; this.ledgerRuns.set(taskId, runs); }
+    const identity = `${info.dev}:${info.ino}:${info.birthtimeMs}`;
+    if (!runs || runs.identity !== identity || info.size < runs.scanned) { runs = { identity, scanned: 0, last: new Map(), superseded: new Set() }; this.ledgerRuns.set(taskId, runs); }
     if (this.ledgerRuns.size > 16) this.ledgerRuns.delete(this.ledgerRuns.keys().next().value!);
     if (runs.scanned >= info.size) return runs;
     const file = await open(path, "r");
@@ -568,7 +569,8 @@ export class HandoffStore {
           const offset = base + start, line = data.subarray(start, end).toString("utf8"); start = end + 1;
           let pointer: Pointer; try { pointer = JSON.parse(line) as Pointer; } catch { runs.scanned = offset; return runs; } // page() reports a malformed pointer itself
           if (pointer.section !== "ledger" || pointer.removal || !/^[a-f0-9]{64}$/.test(pointer.ref) || typeof pointer.id !== "string") continue;
-          const history = historyHash(await this.object(taskId, pointer.ref) as HandoffSession), previous = runs.last.get(pointer.id);
+          // An unreadable body is never superseded: page() reaches it and reports it.
+          const history = await this.object(taskId, pointer.ref).then((body) => historyHash(body as HandoffSession), () => `unreadable:${offset}`), previous = runs.last.get(pointer.id);
           if (previous?.history === history) runs.superseded.add(previous.offset);
           runs.last.set(pointer.id, { offset, history });
         }
@@ -724,11 +726,12 @@ export class HandoffStore {
         return existing;
       }
       const path = this.paths(taskId), stage = path.folder + ".restore-" + randomUUID();
+      this.ledgerRuns.delete(taskId);
       await this.atomic(path.restore, JSON.stringify({ version: 1, record: parsed.data, source, stage, key: hash(JSON.stringify(parsed.data)) })); await this.options.fault?.("restore-intent");
       await this.recoverRestore(taskId); return parsed.data;
     });
   }
-  removeCard(taskId: string) { return this.serial(taskId, async () => { await this.recover(taskId); await rm(this.paths(taskId).current, { force: true }); await rm(this.paths(taskId).folder, { recursive: true, force: true }); await stat(this.root).then(() => this.syncDirectory(this.root), (e) => { if (e.code !== "ENOENT") throw e; }); }); }
+  removeCard(taskId: string) { return this.serial(taskId, async () => { await this.recover(taskId); this.ledgerRuns.delete(taskId); await rm(this.paths(taskId).current, { force: true }); await rm(this.paths(taskId).folder, { recursive: true, force: true }); await stat(this.root).then(() => this.syncDirectory(this.root), (e) => { if (e.code !== "ENOENT") throw e; }); }); }
   storageBytes(taskId: string) {
     return this.serial(taskId, async () => {
       const walk = async (path: string): Promise<number> => {

@@ -254,7 +254,7 @@ export class CaptureRecords {
     const described = /^(?:Update from your async shell )?"((?:[^"\\\n]|\\.){1,400})"/.exec(summary)?.[1], label = `async shell: ${redactCaptureText(described ? unescapeLiteral(described) : handle).slice(0, 100)}`;
     if (event === "still_running" || event === "sendback") {
       // Evidence that the shell runs; never a gap, so the two-hourly reminder does not reopen anything.
-      this.result.background.push({ id: `background:${this.agentId}:async_shell:${handle}`, source, kind: "async_shell", handle, status: "open", label, at });
+      this.result.background.push({ id: `background:${this.agentId}:async_shell:${handle}`, source, kind: "async_shell", handle, status: "open", label, keepLabel: true, at });
       if (event === "sendback") this.notice(`async-sendback:${handle}:${digest(body)}`, `Async shell ${handle}${described ? ` ("${unescapeLiteral(described)}")` : ""} sent an update: ${body.trim() || summary}`, timestamp, "background", 2000);
       return;
     }
