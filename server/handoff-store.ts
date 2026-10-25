@@ -33,6 +33,14 @@ type IdentityClaim = { kind: "entry" | "finding" | "background" | "state"; secti
  */
 type History = Pointer | { section: HandoffEntrySection; entry: HandoffEntry; removal?: Pointer["removal"] };
 type Mutation = { record: CardHandoff; history: History[]; changed: Set<string>; ackMissing?: string[] };
+/**
+ * Observation state written in place (§5.1), over the card file whose bytes hash to `base`: top-level fields and whole
+ * entries that differ from it (same ids, same order). Any rewrite of the card file leaves it stale, and a stale one is ignored.
+ */
+type Observation = { version: 1; base: string; revision: number; fields: Record<string, unknown>; unset: string[]; entries: { section: HandoffEntrySection; id: string; value: HandoffEntry }[] };
+/** The card file as stored (`base`, its bytes) and the record read from it with its observation file (`record`). */
+type Stored = { record: CardHandoff; base: CardHandoff; bytes: Buffer };
+const fixedFields = ["version", "taskId", "projectId", "revision"];
 const hash = (value: string | Buffer) => createHash("sha256").update(value).digest("hex");
 /** Every 64-hex token of a text: a superset of the body names it references, so a collection can only keep too much. */
 const tokens = (text: string, into = new Set<string>()) => { for (const [token] of text.matchAll(/[a-f0-9]{64}/g)) into.add(token); return into; };
@@ -108,7 +116,7 @@ export class HandoffStore {
   private paths(taskId: string) {
     if (!/^[A-Za-z0-9][A-Za-z0-9_.-]{0,199}$/.test(taskId)) throw new HandoffError("HANDOFF_UNAVAILABLE", "Invalid handoff card identity.");
     const folder = join(this.root, taskId);
-    return { current: join(this.root, `${taskId}.json`), folder, intent: join(folder, "pending.json"), archive: join(folder, "archive.jsonl"), restore: join(this.root, `${taskId}.restore.json`) };
+    return { current: join(this.root, `${taskId}.json`), folder, intent: join(folder, "pending.json"), archive: join(folder, "archive.jsonl"), observation: join(folder, "observation.json"), restore: join(this.root, `${taskId}.restore.json`) };
   }
   private serial<T>(taskId: string, work: () => Promise<T>): Promise<T> {
     const key = this.paths(taskId).current;
@@ -164,13 +172,75 @@ export class HandoffStore {
     }
   }
   private async current(taskId: string, projectId?: string): Promise<CardHandoff | null> {
-    const raw = await this.optional<unknown>(this.paths(taskId).current, handoffLimits.currentBytes);
-    if (!raw) return projectId ? emptyHandoff(taskId, projectId) : null;
+    const stored = await this.stored(taskId, projectId);
+    return stored ? stored.record : projectId ? emptyHandoff(taskId, projectId) : null;
+  }
+  private async stored(taskId: string, projectId?: string): Promise<Stored | null> {
+    const path = this.paths(taskId);
+    let file: Buffer;
+    try { if ((await stat(path.current)).size > handoffLimits.currentBytes) throw new Error("oversize"); file = await readFile(path.current); }
+    catch (error) { if (absent(error)) return null; throw new HandoffError("HANDOFF_UNAVAILABLE", `Handoff data is unreadable; preserved at ${path.current}.`); }
+    let raw: unknown; try { raw = JSON.parse(file.toString("utf8")); } catch { throw new HandoffError("HANDOFF_UNAVAILABLE", `Handoff data is unreadable; preserved at ${path.current}.`); }
     const parsed = cardHandoffSchema.safeParse(raw);
     if (!parsed.success || parsed.data.taskId !== taskId || (projectId && parsed.data.projectId !== projectId) || bytes(raw) > handoffLimits.currentBytes)
-      throw new HandoffError("HANDOFF_UNAVAILABLE", `Handoff data is invalid; preserved at ${this.paths(taskId).current}.`);
+      throw new HandoffError("HANDOFF_UNAVAILABLE", `Handoff data is invalid; preserved at ${path.current}.`);
+    this.identities(parsed.data, "HANDOFF_UNAVAILABLE");
+    const observation = await this.optional<Observation>(path.observation);
+    if (!observation || observation.base !== hash(file)) return { record: parsed.data, base: parsed.data, bytes: file };
+    return { record: this.observed(parsed.data, observation, path.observation), base: parsed.data, bytes: file };
+  }
+  /** The record with its observation file applied; one that does not fit the card file it names is preserved for inspection. */
+  private observed(base: CardHandoff, observation: Observation, path: string) {
+    const invalid = () => new HandoffError("HANDOFF_UNAVAILABLE", `Handoff observation data is invalid; preserved at ${path}.`);
+    if (observation.version !== 1 || observation.revision !== base.revision || !observation.fields || typeof observation.fields !== "object" || !Array.isArray(observation.unset) || !Array.isArray(observation.entries)) throw invalid();
+    const merged = clone(base) as unknown as Record<string, unknown>, sections = handoffEntrySections as readonly string[];
+    for (const key of [...observation.unset, ...Object.keys(observation.fields)]) if (sections.includes(key) || fixedFields.includes(key)) throw invalid();
+    for (const key of observation.unset) delete merged[key];
+    Object.assign(merged, observation.fields);
+    for (const { section, id, value } of observation.entries) {
+      const entries = sections.includes(section) ? merged[section] as HandoffEntry[] : undefined, index = entries?.findIndex((entry) => entry.id === id) ?? -1;
+      if (index < 0 || value?.id !== id) throw invalid();
+      entries![index] = value;
+    }
+    const parsed = cardHandoffSchema.safeParse(merged);
+    if (!parsed.success || parsed.data.taskId !== base.taskId || parsed.data.projectId !== base.projectId || parsed.data.revision !== base.revision || bytes(merged) > handoffLimits.currentBytes) throw invalid();
     this.identities(parsed.data, "HANDOFF_UNAVAILABLE");
     return parsed.data;
+  }
+  /** What an in-place write changes against the card file: null when it is not observation-shaped (other entries or order). */
+  private delta(base: CardHandoff, written: CardHandoff): Omit<Observation, "version" | "base" | "revision"> | null {
+    const before = base as unknown as Record<string, unknown>, after = clone(written) as unknown as Record<string, unknown>, sections = handoffEntrySections as readonly string[];
+    const fields: Record<string, unknown> = {}, unset: string[] = [], entries: Observation["entries"] = [];
+    for (const key of new Set([...Object.keys(before), ...Object.keys(after)])) {
+      if (sections.includes(key)) continue;
+      if (fixedFields.includes(key)) { if (!isDeepStrictEqual(before[key], after[key])) return null; continue; }
+      if (!(key in after)) unset.push(key); else if (!isDeepStrictEqual(before[key], after[key])) fields[key] = after[key];
+    }
+    for (const section of handoffEntrySections) {
+      const old = list(base, section), next = after[section] as HandoffEntry[];
+      if (old.length !== next.length) return null;
+      for (const [index, entry] of next.entries()) {
+        if (old[index].id !== entry.id) return null;
+        if (!isDeepStrictEqual(old[index], entry)) entries.push({ section, id: entry.id, value: entry });
+      }
+    }
+    return { fields, unset, entries };
+  }
+  /**
+   * An in-place write (§5.1): the observation file holds what differs from the card file, which is not rewritten; a pass
+   * writes the few entries it changed, not the whole card. Without a card file (or not observation-shaped) the card is written.
+   */
+  private async observe(taskId: string, stored: Stored | null, record: CardHandoff) {
+    const path = this.paths(taskId), delta = stored && this.delta(stored.base, record);
+    if (!delta) { await this.atomic(path.current, JSON.stringify(record)); await this.unobserve(taskId); return; }
+    if (!delta.unset.length && !delta.entries.length && !Object.keys(delta.fields).length) { await this.unobserve(taskId, true); return; }
+    await this.atomic(path.observation, JSON.stringify({ version: 1, base: hash(stored!.bytes), revision: record.revision, ...delta } satisfies Observation));
+  }
+  /** Removes the observation file once the card file holds what it held (`sync` when the card file did not change). */
+  private async unobserve(taskId: string, sync = false) {
+    const path = this.paths(taskId);
+    const removed = await unlink(path.observation).then(() => true, (error) => { if (absent(error)) return false; throw error; });
+    if (removed && sync) await this.syncDirectory(path.folder);
   }
   private async recover(taskId: string) {
     await this.recoverRestore(taskId);
@@ -220,6 +290,8 @@ export class HandoffStore {
     // A replay after a crash finds some files already written: they are not written again.
     const replay = !!current && isDeepStrictEqual(current, parsed.data), write = (file: string, value: string) => replay ? this.ensure(file, value) : this.atomic(file, value);
     if (!replay) await this.atomic(path.current, JSON.stringify(intent.after));
+    // The card file holds the observation state now; a crash before the intent is removed replays this.
+    await this.unobserve(taskId);
     await this.options.fault?.("current-synced");
     for (const pointer of intent.pointers) {
       await write(join(path.folder, "latest", `${hash(pointer.id)}.json`), JSON.stringify(pointer));
@@ -401,7 +473,7 @@ export class HandoffStore {
       const operationId = context.operationId ?? randomUUID(), digest = hash(JSON.stringify(payload)), path = this.paths(taskId);
       const receipt = await this.optional<Receipt>(join(path.folder, "ops", `${hash(operationId)}.json`));
       if (receipt) { if (receipt.digest !== digest) throw new HandoffError("OPERATION_REUSED", "That handoff operation id was already used for different content."); return { result: { ...receipt.result, replayed: true }, stored: "none" }; }
-      const current = (await this.current(taskId, projectId))!, record = clone(current);
+      const stored = await this.stored(taskId, projectId), current = stored?.record ?? emptyHandoff(taskId, projectId), record = clone(current);
       record.revision++; record.updatedAt = this.now(); record.updatedBy = context.by;
       const mutation: Mutation = { record, history: [], changed: new Set() }; await mutate(mutation);
       await this.archiveLedger(mutation, current);
@@ -431,10 +503,10 @@ export class HandoffStore {
       record.archivedCount += lines.split("\n").length - 1;
       if (bytes(record) > handoffLimits.currentBytes) throw new HandoffError("HANDOFF_TOO_LARGE", "Unresolved handoff indexes fill the 1 MiB budget; existing data is preserved.");
       // An in-place write keeps a receipt only for an explicit operation id (a replay must still be recognized); Flowly's
-      // own observation passes use fresh ids and would only fill ops/. Then it changes the card file alone (unless an entry
-      // from before bodies existed gets its first), and one atomic replacement needs no unfinished-write record.
+      // own observation passes use fresh ids and would only fill ops/. Then it changes the observation file alone (unless
+      // an entry from before bodies existed gets its first), and one atomic replacement needs no unfinished-write record.
       const keep = !inPlace || context.operationId !== undefined;
-      if (!keep && !pointers.length) { await this.atomic(path.current, JSON.stringify(record)); await this.options.fault?.("current-synced"); return { result, stored: "observation" }; }
+      if (!keep && !pointers.length) { await this.observe(taskId, stored, record); await this.options.fault?.("observation-synced"); return { result, stored: "observation" }; }
       const intent: Intent = { version: 1, before: current.revision, after: record, archiveOffset, archiveData: lines, pointers, ...(keep ? { receipt: { operationId, digest, result } } : {}), ...(inPlace ? { inPlace: true as const } : {}) };
       await this.atomic(path.intent, JSON.stringify(intent)); await this.options.fault?.("intent-synced");
       await this.recover(taskId);
@@ -757,14 +829,15 @@ export class HandoffStore {
   }
   markSeen(taskId: string, projectId: string, agentId: string, revision: number, _context: HandoffContext) {
     return this.serial(taskId, async () => {
-      await this.recover(taskId); const record = (await this.current(taskId, projectId))!;
+      await this.recover(taskId); const stored = await this.stored(taskId, projectId), record = clone(stored?.record ?? emptyHandoff(taskId, projectId));
       if (!Number.isSafeInteger(revision) || revision < 0 || revision > record.revision) throw new HandoffError("HANDOFF_CONFLICT", "Cannot mark an unseen future handoff revision as read.");
       if ((record.seen[agentId] ?? -1) >= revision) return this.result(record);
       record.seen[agentId] = revision;
       const ids = Object.keys(record.seen); for (const id of ids.slice(0, Math.max(0, ids.length - 200))) delete record.seen[id];
       while (bytes(record) > handoffLimits.currentBytes && Object.keys(record.seen).length) delete record.seen[Object.keys(record.seen)[0]];
-      // This is a read cache, not a semantic update: changing revision here makes every subsequent read look new.
-      await this.atomic(this.paths(taskId).current, JSON.stringify(record)); return this.result(record);
+      // This is a read cache, not a semantic update: changing revision here makes every subsequent read look new. It is
+      // observation state, written in place.
+      await this.observe(taskId, stored, record); return this.result(record);
     });
   }
   async openIds(taskId: string) { const record = await this.read(taskId); return record ? handoffOpenIds(record) : []; }
@@ -948,7 +1021,9 @@ export class HandoffStore {
       }
       await mkdir(destination, { recursive: true, mode: 0o700 });
       await mkdir(this.paths(taskId).folder, { recursive: true, mode: 0o700 });
-      await cp(this.paths(taskId).folder, join(destination, "data"), { recursive: true, force: true });
+      // current.json holds the record with its observation state; the observation file names this card file's bytes only.
+      const observation = this.paths(taskId).observation;
+      await cp(this.paths(taskId).folder, join(destination, "data"), { recursive: true, force: true, filter: (source) => source !== observation });
       await this.syncTree(join(destination, "data"));
       await this.atomic(join(destination, "current.json"), JSON.stringify(record)); await this.atomic(join(destination, "complete.json"), JSON.stringify({ version: 1, taskId, projectId: record.projectId, revision: record.revision }));
       return { exists: true as const, taskId, projectId: record.projectId, revision: record.revision };

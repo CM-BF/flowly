@@ -70,17 +70,19 @@ test("every body a current entry, overflow entry, archive line, seal or pointer 
   await clean(handoffs);
 });
 
-test("an observation write rewrites only the card file and keeps the entry's body until the next revision", async () => {
+test("an observation write rewrites only the card's observation file and keeps the entry's body until the next revision", async () => {
   const { store, handoffs, folder, read } = await fixture();
   await store.appendGap("card", "project", { kind: "flowly", text: "One repository was not inspected.", status: "open" }, { ...flowly, sourceId: "gap:1" });
-  const before = await read(), files = await tree(folder);
+  // Everything under handoffs/card/ but the observation file and the folder's own times (a rename into it moves them).
+  const kept = async () => { const all = await tree(folder); delete all["."]; delete all["observation.json"]; return all; };
+  const before = await read(), files = await kept(), card = await readFile(join(handoffs, "card.json"), "utf8");
   for (let offset = 100; offset <= 1000; offset += 100) await expect(store.capture("card", "project", observation(offset), flowly)).resolves.toMatchObject({ stored: "observation" });
   // Also when the caller's draft names some other body: the record names the body of its revision.
   await expect(store.capture("card", "project", { session: { ...observation(1000).session, contentRef: "f".repeat(64) } }, flowly)).resolves.toMatchObject({ stored: "none" });
   await expect(store.capture("card", "project", { session: { ...observation(1000).session, measured: { C: 41_001, turns: 0 }, contentRef: "f".repeat(64) } }, flowly)).resolves.toMatchObject({ stored: "observation" });
   const observed = await read();
   expect(observed).toMatchObject({ revision: before.revision, ledger: [{ through: { offset: 1000 }, contentRef: before.ledger[0].contentRef }] });
-  expect(await tree(folder)).toEqual(files);
+  expect(await kept()).toEqual(files); expect(await readFile(join(handoffs, "card.json"), "utf8")).toBe(card);
   await clean(handoffs);
   // The next revision writes the body of the version in the record and removes the one it supersedes.
   await store.appendNote("card", "project", { kind: "hazard", text: "Port 3000 is taken." }, { ...flowly, sourceId: "note:port" });

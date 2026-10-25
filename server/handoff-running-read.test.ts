@@ -1,5 +1,6 @@
 import { afterEach, expect, test } from "vitest";
 import { readFile } from "node:fs/promises";
+import { HandoffStore } from "./handoff-store";
 import { cleanupRunningFixtures, fullRead, handedOver } from "./handoff-running-fixture";
 
 // A successor reads the card's full record and acknowledges it inside its own running turn: every page it reads and every
@@ -20,9 +21,10 @@ test("a running successor's full read and ACK survive its own session being obse
   expect(pages.length).toBeGreaterThanOrEqual(3);
   expect(pages.map((page) => [page.revision, !!page.viewChanged])).toEqual(pages.map(() => [before.revision, false]));
   expect(pages.at(-1)!.complete).toBe(true);
-  // The observation was stored (the successor's cursor moved, its call in flight and the new head are on the card) under the same revision.
-  const observed = await x.read(), succ = observed.ledger.find((session) => session.agentId === "succ")!;
-  expect(await readFile(x.file, "utf8")).not.toBe(bytes);
+  // The observation was stored (the successor's cursor moved, its call in flight and the new head are on the card) under the
+  // same revision: in the card's observation file, which a new store reads; the card file itself is not rewritten.
+  const observed = await new HandoffStore(x.directory).read("card", "project"), succ = observed.ledger.find((session) => session.agentId === "succ")!;
+  expect(await readFile(x.file, "utf8")).toBe(bytes);
   expect(succ.through!.offset).toBeGreaterThan(before.ledger.find((session) => session.agentId === "succ")!.through!.offset);
   expect(succ.background.filter((item) => item.inFlight).map((item) => item.label)).toEqual(["npm test"]);
   expect(observed.git[0].sha).not.toBe(before.git[0].sha);

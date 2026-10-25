@@ -15,7 +15,8 @@ function recordRefs(record: CardHandoff | null, into: Set<string>) {
 }
 
 /**
- * `handoffs` is `<data>/handoffs`. Referenced: the current record's entries and overflow, an unfinished write (pending.json),
+ * `handoffs` is `<data>/handoffs`. Referenced: the current record's entries and overflow, the entries of its observation file
+ * (observation.json, whole entries written in place), an unfinished write (pending.json),
  * every archive line, every sealed snapshot's entries and overflow, the latest-version and source pointers (a pending
  * operation reaches its original through its source pointer). `unreferenced` are bodies none of them names; `missing` are
  * names without a body.
@@ -23,6 +24,8 @@ function recordRefs(record: CardHandoff | null, into: Set<string>) {
 export async function bodyReferences(handoffs: string, taskId = "card") {
   const folder = join(handoffs, taskId), referenced = new Set<string>();
   recordRefs(await json<CardHandoff>(join(handoffs, `${taskId}.json`)), referenced);
+  const observed = await json<{ entries: { value: { contentRef?: string } }[] }>(join(folder, "observation.json"));
+  for (const { value } of observed?.entries ?? []) if (value.contentRef) referenced.add(value.contentRef);
   const intent = await json<{ after: CardHandoff; pointers: { ref: string }[] }>(join(folder, "pending.json"));
   if (intent) { recordRefs(intent.after, referenced); for (const pointer of intent.pointers) referenced.add(pointer.ref); }
   const archive = await readFile(join(folder, "archive.jsonl"), "utf8").catch(() => "");

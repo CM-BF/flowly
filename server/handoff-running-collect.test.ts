@@ -5,7 +5,7 @@ import { bodyReferences, tree } from "./handoff-collect-fixture";
 import { cleanupRunningFixtures, fullRead, handedOver, type RunningCard } from "./handoff-running-fixture";
 
 // A running turn with new provider data every minute (SESSION-HANDOFF-SPEC §5.1): each observer pass stores its observation
-// in place, and that is one write of the card file. No entry body, pointer or unfinished-write file is written for it, so
+// in place, and that is one write of the card's observation file. No entry body, pointer or unfinished-write file is written for it, so
 // nothing is left in entries/ that no record, archive line, seal or pointer references; the turn's end is a revision, and
 // its write removes the bodies it superseded. Production wiring on synthetic Codex rollouts and a real Git repository.
 const fsCalls = vi.hoisted(() => [] as string[]);
@@ -26,20 +26,22 @@ async function busyMinute(x: RunningCard, minute: number) {
 }
 const handoffWrites = (x: RunningCard) => fsCalls.filter((call) => call.includes(join(x.directory, "handoffs"))).map((call) => call.replace(x.directory + "/", ""));
 
-test("a 60-minute running turn writes only the card file once a minute and leaves no unreferenced bodies; its end removes what it superseded", async () => {
+test("a 60-minute running turn writes only the card's observation file once a minute and leaves no unreferenced bodies; its end removes what it superseded", async () => {
   const failures = vi.spyOn(console, "error");
   const x = await handedOver({ notes: 6 });
   const folder = join(x.directory, "handoffs", "card"), handoffs = join(x.directory, "handoffs");
   // The successor's own full read at the start of its turn: its pages and the passes between them are in-place observation.
   const pages = await fullRead(x, async () => { await x.minute(); });
   expect(pages.at(-1)!.complete).toBe(true);
-  const revision = (await x.read()).revision, before = await tree(folder), bodies = (await bodyReferences(handoffs)).bodies;
+  // Everything under handoffs/card/ but the observation file (and the folder's own times, which a rename into it moves).
+  const kept = async () => { const files = await tree(folder); delete files["."]; delete files["observation.json"]; return files; };
+  const revision = (await x.read()).revision, before = await kept(), card = await tree(x.file), bodies = (await bodyReferences(handoffs)).bodies;
   for (let minute = 1; minute <= 60; minute++) {
     fsCalls.length = 0;
     await busyMinute(x, minute);
-    // One write of the card file; no body, no pointer, no unfinished-write file, nothing removed.
-    expect(handoffWrites(x)).toEqual(["rename handoffs/card.json"]);
-    expect(await tree(folder)).toEqual(before);
+    // One write of the observation file; not the card file, no body, no pointer, no unfinished-write file, nothing removed.
+    expect(handoffWrites(x)).toEqual(["rename handoffs/card/observation.json"]);
+    expect(await kept()).toEqual(before); expect(await tree(x.file)).toEqual(card);
     const references = await bodyReferences(handoffs);
     expect(references.unreferenced).toEqual([]); expect(references.missing).toEqual([]);
   }

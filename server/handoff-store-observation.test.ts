@@ -117,10 +117,10 @@ test("an ACK or a close settles only the occurrences counted at the revision it 
   expect((await read()).gaps.find((gap) => gap.id === "g:words")).toMatchObject({ status: "closed", count: 2, resolution: { count: 2 } });
 });
 
-// Without an explicit operation id an observation write is one atomic replacement of the card file: interrupted before it
-// (bodies-synced) nothing was written, after it (current-synced) all of it. With one, its receipt rides an unfinished-write
-// record that recovers once.
-test.each([["bodies-synced", undefined], ["current-synced", undefined], ...["intent-synced", "archive-synced", "current-synced", "sources-synced", "intent-removed"].map((point) => [point, "observe:1"])] as [string, string | undefined][])("an observation write interrupted after %s (operation id %s) recovers once, under the same revision", async (point, operationId) => {
+// Without an explicit operation id an observation write is one atomic replacement of the card's observation file:
+// interrupted before it (bodies-synced) nothing was written, after it (observation-synced) all of it. With one, its receipt
+// rides an unfinished-write record that recovers once.
+test.each([["bodies-synced", undefined], ["observation-synced", undefined], ...["intent-synced", "archive-synced", "current-synced", "sources-synced", "intent-removed"].map((point) => [point, "observe:1"])] as [string, string | undefined][])("an observation write interrupted after %s (operation id %s) recovers once, under the same revision", async (point, operationId) => {
   let armed = false;
   const { dir, store } = await fixture((reached) => { if (armed && reached === point) { armed = false; throw new Error("crash"); } });
   const before = await store.read("card", "project"), archive = await readFile(join(dir, "handoffs", "card", "archive.jsonl"), "utf8").catch(() => "");
