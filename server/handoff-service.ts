@@ -24,6 +24,7 @@ import { addComment } from "./comments";
 import { markHandoffCommitted } from "./handoff-commit";
 import { join } from "node:path";
 import { readdir, readFile, stat } from "node:fs/promises";
+import { handoffRefusalFingerprint } from "./handoff-requirements";
 
 const flowly = { by: { kind: "flowly" as const } };
 const digest = (value: unknown) => createHash("sha256").update(JSON.stringify(value)).digest("hex");
@@ -127,7 +128,7 @@ export class HandoffService {
     if (ackRequired) due.push("The successor must read the full pending record, verify the workspace and acknowledge it.");
     return { due, ackRequired };
   }
-  async context(taskId: string, agentId?: string, options: { full?: boolean; cursor?: string; recordAccess?: boolean } = {}): Promise<HandoffContextView> {
+  async context(taskId: string, agentId?: string, options: { full?: boolean; cursor?: string; recordAccess?: boolean; forGate?: boolean } = {}): Promise<HandoffContextView> {
     const { board, task, project } = await this.card(taskId);
     let record: CardHandoff;
     try {
@@ -140,7 +141,7 @@ export class HandoffService {
     const status = this.due(record, board, agentId);
     const key = `${taskId}:${agentId ?? "ui"}`;
     const role = agentId && automationSessionRole(board, agentId, taskId)?.role;
-    const base = { revision: record.revision, fresh: !status.due.length, ...status, staleSince: board.handoffIndex.find((entry) => entry.taskId === taskId)?.staleSince, currentAgentId: jobOf(board, taskId)?.implementerId, attachmentRoot: join(this.records.root, taskId) };
+    const base = { revision: record.revision, fresh: !status.due.length, ...status, ...(options.forGate ? { requirementsFingerprint: handoffRefusalFingerprint(record) } : {}), staleSince: board.handoffIndex.find((entry) => entry.taskId === taskId)?.staleSince, currentAgentId: jobOf(board, taskId)?.implementerId, attachmentRoot: join(this.records.root, taskId) };
     if (options.full) return { ...base, page: await this.records.page(taskId, { cursor: options.cursor, scope: "all" }) };
     const previousRead = agentId ? this.seen.get(key) : undefined;
     if (agentId && (previousRead === record.revision || options.recordAccess === false)) return { ...base, unchanged: previousRead === record.revision };

@@ -67,6 +67,16 @@ function envelope(text: string): { kind: string; text: string; messageId?: strin
   return { kind: kind!, text: unescapeXml(match[2]), messageId, senderId, title: attributes.get("source-agent-title"), event };
 }
 
+/** This Codex record is usage metadata, not task content; unknown extensions must still remain visible as gaps. */
+function tokenUsageMetadata(entry: RecordValue, sessionId: string | undefined) {
+  const exact = (value: RecordValue, keys: readonly string[]) => Object.keys(value).length === keys.length && keys.every(key => Object.hasOwn(value, key));
+  if (!sessionId || !exact(entry, ["timestamp", "ordinal", "type", "payload"]) || typeof entry.timestamp !== "string" || !Number.isFinite(Date.parse(entry.timestamp)) || !Number.isSafeInteger(entry.ordinal) || (entry.ordinal as number) < 0) return false;
+  const payload = object(entry.payload), identities = ["thread_id", "turn_id", "session_id", "root_turn_id", "response_id"], groups = ["usage", "turn_token_usage", "thread_token_usage"];
+  if (!exact(payload, [...identities, ...groups]) || payload.thread_id !== sessionId || payload.session_id !== sessionId || !identities.every(key => typeof payload[key] === "string" && id(payload[key]) === payload[key])) return false;
+  const counters = ["input_tokens", "cached_input_tokens", "cache_write_input_tokens", "output_tokens", "reasoning_output_tokens", "total_tokens"];
+  return groups.every(key => { const usage = object(payload[key]); return exact(usage, counters) && counters.every(counter => Number.isSafeInteger(usage[counter]) && (usage[counter] as number) >= 0); });
+}
+
 export class CaptureRecords {
   readonly result: CaptureSemantics = { inputs: [], live: [], background: [], usage: [], compactions: [], gaps: [], omittedGaps: 0, narrationOmitted: 0, narrationTrimmedChars: 0 };
   private calls = new Map<string, PendingCaptureCall>();
@@ -190,6 +200,7 @@ export class CaptureRecords {
       else if (!["progress", "file-history-snapshot", "queue-operation", "summary", "custom-title", "ai-title", "last-prompt", "system"].includes(type)) this.gap({ id: `type:${sourceKey(source)}`, kind: "unknown_record_type", source, typeHint: type.slice(0, 80) || "unknown" });
       return `claude/${type.slice(0, 80) || "unknown"}`;
     }
+    if (type === "token_usage_record" && tokenUsageMetadata(entry, source.sessionId)) return "token_usage_record";
     if (type === "event_msg") {
       const event = redactCaptureText(string(payload.type)).slice(0, 80);
       source = { ...source, ...(id(payload.message_id ?? payload.messageId ?? payload.client_message_id) ? { messageId: id(payload.message_id ?? payload.messageId ?? payload.client_message_id) } : {}) };

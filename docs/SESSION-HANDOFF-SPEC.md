@@ -300,6 +300,8 @@ CardHandoff {
 
 **交付门 `HANDOFF_STALE`**（软的，与 `WORKPAD_OPEN` 同一套 `DeliveryGate` 机制，原因合并为一次拒绝）：开启自动化的项目里，执行者的 `flowly_update_status(in_review | blocked)` 与 `flowly_report_progress(kind=blocker | question)` 在记录过期、缺 `state` 或 `next`、或接班者还没确认接手（§7.5）时第一次被拒，列出变了什么；同一回合带 `acknowledgeOpen=true` 的重试通过。提问也受此门约束：自动化下提问就结束回合（C5b.3 #2 唯一的回合以提问结束），回答常常到达一个新 session。父卡派出子卡后结束回合进入 `waiting` 时没有可拒的调用，所以 `flowly_create_card` 与 `flowly_update_card action=start` 的结果在记录过期时带 `handoffDue`（不拒：拒绝建卡会打断编排）；什么都不调用就结束的回合由 §5.7 的最后一条消息与 §5.8 的叙述兜底。拒绝说明自己写明怎么做（“update the handoff with flowly_update_handoff, then retry with acknowledgeOpen=true”），所以清单第 6 条不必改（改了就超过 1,800 字符，§13）。
 
+门禁记住的是已列出的**语义要求**，不是整个交接文件的 revision：新的原话、评审、人的备注、风险或真实 coverage gap，卡片/workpad/HEAD 的改变，或新回合需要重新拒绝；相同 state/checkpoint 的更新、原话维持 open 并补充“留给接班者”的处理说明、seen、无新缺口的捕获游标、用量与采样时刻不重置已有确认。不可只比较通用 due 句子，两条不同原话或两轮评审可能产生相同句子。指纹使用完整当前记录及 overflow 索引，不使用截短的 UI 首页或扫描长期归档；归档索引保存与当前条目同算法的可选 `requirementsHash`（null 表示无待确认语义），因此仅搬到归档不算新要求。旧索引缺这个字段时保守用其不可变内容引用：重载该条目时可能额外拒绝一次，不在开门时读取所有旧正文。
+
 ### 5.6 工具 `flowly_update_handoff`
 
 MCP 与 CLI fallback（`handoff --handoff '<JSON>'`，不需要 request file）。**用 session 自己的工具凭据认证，同 `flowly_submit_review`**（“No revisions or request needed”，`server/tool-server.ts`）：不要签名请求、不要 `expectedRevision`、不记 `agentReceipts`。原因：回执的 `action` 是 `storageSchema` 里的严格枚举（`shared/model.ts:441`），新增一个 action 会让旧版本在回执保留期内拒绝整个 `board.json`；高频的检查点写入也会占用 5,000 条回执的上限。

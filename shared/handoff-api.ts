@@ -18,6 +18,7 @@ export const handoffPageSchema = z.object({
 });
 export const handoffContextSchema = z.object({
   revision: z.number().int().nonnegative(), fresh: z.boolean(), due: z.array(z.string()),
+  requirementsFingerprint: z.string().regex(/^[a-f0-9]{64}$/).optional(),
   unavailable: z.string().optional(), staleSince: z.string().optional(),
   view: handoffViewSchema.optional(), page: handoffPageSchema.optional(),
   unchanged: z.boolean().optional(), ackRequired: z.boolean().optional(),

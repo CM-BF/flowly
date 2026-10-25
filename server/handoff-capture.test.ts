@@ -182,3 +182,32 @@ test("quoted JSON credential headers are redacted in both original messages and 
     expect(JSON.stringify(batch)).not.toContain(secret); expect(batch.inputs[0].redacted).toBe(true);
   }
 });
+
+function nativeUsageMetadata() {
+  const usage = { input_tokens: 100, cached_input_tokens: 40, cache_write_input_tokens: 0, output_tokens: 20, reasoning_output_tokens: 10, total_tokens: 120 };
+  return { timestamp: at, ordinal: 1, type: "token_usage_record", payload: { thread_id: uuid, turn_id: "turn-1", session_id: uuid, root_turn_id: "turn-1", response_id: "resp_123", usage: { ...usage }, turn_token_usage: { ...usage }, thread_token_usage: { ...usage } } };
+}
+
+test("known Codex token_usage_record metadata is ignored without inventing context or compaction facts", async () => {
+  const x = await fixture(); await writeFile(x.path, json(nativeUsageMetadata())); const b = await x.capture();
+  expect(b.gaps).toEqual([]); expect(b.usage).toEqual([]); expect(b.compactions).toEqual([]); expect(b.inputs).toEqual([]); expect(b.live).toEqual([]);
+});
+
+test("unknown text or malformed token_usage_record metadata still produces a gap", async () => {
+  const x = await fixture(), base = nativeUsageMetadata();
+  const { output_tokens: _missing, ...incompleteUsage } = base.payload.usage;
+  const cases = [
+    { ...base, additionalText: "must not be silently ignored" },
+    { ...base, payload: { ...base.payload, note: "a new instruction" } },
+    { ...base, payload: { ...base.payload, thread_id: "different-session" } },
+    { ...base, payload: { ...base.payload, session_id: "different-session" } },
+    { ...base, payload: { ...base.payload, usage: { ...base.payload.usage, input_tokens: "100" } } },
+    { ...base, payload: { ...base.payload, turn_token_usage: { ...base.payload.turn_token_usage, total_tokens: -1 } } },
+    { ...base, payload: { ...base.payload, thread_token_usage: { ...base.payload.thread_token_usage, explanation: "new detail" } } },
+    { ...base, payload: { ...base.payload, usage: incompleteUsage } },
+  ];
+  await writeFile(x.path, cases.map(json).join("")); const b = await x.capture();
+  expect(b.gaps).toHaveLength(cases.length);
+  expect(b.gaps.every(g => g.kind === "unknown_record_type" && g.typeHint === "token_usage_record")).toBe(true);
+  expect(b.usage).toEqual([]); expect(b.compactions).toEqual([]);
+});

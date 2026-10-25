@@ -1077,3 +1077,9 @@ Phase 2 spec: [PHASE-02-SPEC.md](PHASE-02-SPEC.md). Three current-card tools; au
 - PASS：离线3 files / 62 tests（skill-source、agent-service、tool-server）；规范/生成一致性与旧证据hash核对。保留旧benchmark原始/独立重评，不改评分。
 - 未运行：B01、被测模型/审查会话、fixture/grader、全量测试、安装/reload、Git发布；未加hooks/改服务端行为/API/UI。仓库skill已生成，不宣称运行中的服务已加载新规则或模型遵守改善。无onboarding/tip/What's new改动。
 - [本轮归属、检查与保留证据](verification/turn-checklist-wording-2026-10-23/report.md)。
+
+## P1 soft acknowledgement correction — 2026-10-24
+
+- [x] Real Luna verification exposed a gate loop: checkpoint updates and passive observations changed the complete handoff revision, invalidating an otherwise explicit same-turn acknowledgement. The gate now fingerprints semantic requirements, preserving a new refusal for new original inputs, reviews, human notes and real gaps while ignoring checkpoint/seen/cursor/measurement-only changes. Current entries and newly archived overflow share the same semantic hash; legacy indexes conservatively retain their immutable body identity.
+- [x] The original two failing paths were reproduced before the fix. Focused regressions also preserve new-information refusal and verify a current-to-overflow move does not reset acknowledgement. No new UI or onboarding flow: the existing refusal explains its corrected retry behavior.
+- [ ] Independent verification and a repeat real Luna fixture remain with the orchestrator; this implementation does not install or reload.

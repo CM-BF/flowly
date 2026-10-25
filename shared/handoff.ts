@@ -52,7 +52,7 @@ const sectionSchemas = {
   inputs: handoffInputSchema, questions: handoffQuestionSchema, reviews: handoffReviewSchema, notes: handoffNoteSchema, gaps: handoffGapSchema, ledger: handoffSessionSchema,
 } as const;
 export const handoffEntrySchemas = sectionSchemas;
-export const overflowEntrySchema = z.object({ section: z.enum(handoffEntrySections), id, rev: z.number().int(), at: z.string(), status: z.string(), firstLine: text(160), contentRef: z.string().regex(/^[a-f0-9]{64}$/), sourceId: id.optional(), unconfirmed: z.boolean().optional(), operationId: id.optional(), openIds: z.array(id), cycle: z.number().int().optional(), round: z.number().int().optional(), verdict: z.string().optional() });
+export const overflowEntrySchema = z.object({ section: z.enum(handoffEntrySections), id, rev: z.number().int(), at: z.string(), status: z.string(), firstLine: text(160), contentRef: z.string().regex(/^[a-f0-9]{64}$/), requirementsHash: z.string().regex(/^[a-f0-9]{64}$/).nullable().optional(), sourceId: id.optional(), unconfirmed: z.boolean().optional(), operationId: id.optional(), openIds: z.array(id), cycle: z.number().int().optional(), round: z.number().int().optional(), verdict: z.string().optional() });
 export const cardHandoffSchema = z.object({
   version: z.literal(1), taskId: id, projectId: id, revision: z.number().int().nonnegative(), updatedAt: z.string(), updatedBy: handoffActorSchema,
   checkpoint: z.object({ agentId: z.string(), at: z.string(), heads: z.array(z.object({ repo: z.string(), sha: z.string().nullable() })).optional(), dirtyHash: z.string().optional(), turnStartedAt: z.string().optional() }).optional(),

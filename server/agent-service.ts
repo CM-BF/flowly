@@ -909,7 +909,7 @@ export class AgentService {
       return out;
     };
     const handoffBoundary = (action === "status" && ["in_review", "blocked"].includes((input as StatusInput).status)) || (action === "progress" && ["question", "blocker"].includes((input as ProgressInput).kind));
-    const continuity = handoffBoundary && this.handoffs && automationOf(resources.project) && !reviewerOfCard(resources.board, resources.task.id, identity.agentId) ? await this.handoffs.context(identity.taskId, identity.agentId, { recordAccess: false }) : undefined;
+    const continuity = handoffBoundary && this.handoffs && automationOf(resources.project) && !reviewerOfCard(resources.board, resources.task.id, identity.agentId) ? await this.handoffs.context(identity.taskId, identity.agentId, { recordAccess: false, forGate: true }) : undefined;
     const handoffGap = continuity && !continuity.fresh ? continuity.due : [];
     const questionKind = action === "progress" && ["question", "blocker"].includes((input as ProgressInput).kind) ? (input as ProgressInput).kind as "question" | "blocker" : action === "status" && (input as StatusInput).status === "blocked" ? "blocker" : undefined;
     const semanticSource = questionKind ? `question:${key}` : delivering ? `delivery:${key}` : undefined;
@@ -1010,7 +1010,7 @@ export class AgentService {
         pad: deliveryPad?.revision,
         open: delivered,
         setupGap,
-        handoff: handoffGap.length ? { revision: continuity?.revision, due: handoffGap } : undefined,
+        handoff: handoffGap.length ? { requirements: continuity?.requirementsFingerprint, unavailable: continuity?.unavailable } : undefined,
         head: head ? { sha: head.sha, branch: head.branch, dirty: head.dirty } : null,
       }));
       const acknowledged = hasOpen && this.deliveryGate.acknowledge(binding, fingerprint, !!(input as StatusInput | ProgressInput).acknowledgeOpen, this.clock());
@@ -1020,7 +1020,7 @@ export class AgentService {
           `${handoffGap.length ? `HANDOFF_STALE: ${handoffGap.join(" ")} Update the handoff with flowly_update_handoff, then retry with acknowledgeOpen=true.\n` : ""}${setupGap.length ? `${setupIncompleteMessage(setupGap)}\n` : ""}${delivered!.total} workpad item${delivered!.total === 1 ? " is" : "s are"} still open:\n${openItemLines(deliveryPad).join("\n")}\nThe first attempt is always refused, even with acknowledgeOpen=true. Review this list, rerun out-of-date checks and finish what you can. Then retry with acknowledgeOpen=true and a note explaining every remaining item. A changed card/workpad/HEAD or a new turn requires a new refusal.`,
         );
       if (setupGap.length && !acknowledged) throw new ToolError("SETUP_INCOMPLETE", `${setupIncompleteMessage(setupGap)}${handoffGap.length ? `\nHANDOFF_STALE: ${handoffGap.join(" ")} Update the handoff with flowly_update_handoff, then retry with acknowledgeOpen=true.` : ""}`);
-      if (handoffGap.length && !acknowledged) throw new ToolError("HANDOFF_STALE", `${handoffGap.join(" ")} Update the handoff with flowly_update_handoff, finish what you can, then retry with acknowledgeOpen=true and explain every remaining gap. The first attempt is always refused, even with acknowledgeOpen=true; changed handoff/card/workpad/HEAD or a new turn requires a new refusal.`);
+      if (handoffGap.length && !acknowledged) throw new ToolError("HANDOFF_STALE", `${handoffGap.join(" ")} Update the handoff with flowly_update_handoff, finish what you can, then retry with acknowledgeOpen=true and explain every remaining gap. The first attempt is always refused, even with acknowledgeOpen=true; new requirements or information gaps, changed card/workpad/HEAD, or a new turn require a new refusal. Checkpoint and observation-only updates do not reset an existing acknowledgement.`);
       if (semanticSource && this.handoffs) {
         if (questionKind) await this.handoffs.prepareQuestion(identity, semanticSource, questionKind, (input as StatusInput | ProgressInput).note, board);
         else await this.handoffs.prepareDelivery(identity, semanticSource, (input as StatusInput).note, board);

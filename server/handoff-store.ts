@@ -7,6 +7,7 @@ import {
   type CardHandoff, type HandoffActor, type HandoffEntry, type HandoffEntrySection, type HandoffInput, type HandoffQuestion, type HandoffReview, type HandoffNote, type HandoffGap, type HandoffSession, type HandoffUpdate, type HandoffAck, type HandoffPage, type HandoffWriteResult, type CaptureCursor,
 } from "../shared/handoff";
 import { ToolError } from "./tool-error";
+import { handoffRequirementsHash } from "./handoff-requirements";
 
 export class HandoffError extends ToolError {
   constructor(code: "HANDOFF_UNAVAILABLE" | "HANDOFF_CONFLICT" | "HANDOFF_TOO_LARGE" | "ACK_MISMATCH" | "OPERATION_REUSED", message: string, readonly details?: unknown) { super(code, message, code === "HANDOFF_CONFLICT"); }
@@ -174,7 +175,7 @@ export class HandoffStore {
       const [entry] = list(record, section).splice(index, 1); history.push(this.pointer(section, entry));
       if (entry.unconfirmed || entryOpenIds(section, entry).length || (section === "inputs" && (entry as HandoffInput).standing)) {
         const e = entry as unknown as Record<string, unknown>;
-        record.overflow.push({ section, id: entry.id, rev: entry.rev, at: entry.at, status: String(e.status ?? "open"), firstLine: String(e.text ?? e.what ?? e.summary ?? "").split("\n")[0].slice(0, 160), contentRef: entry.contentRef!, openIds: entryOpenIds(section, entry.unconfirmed ? { ...entry, unconfirmed: false } : entry), ...(entry.sourceId ? { sourceId: entry.sourceId } : {}), ...(entry.unconfirmed ? { unconfirmed: true } : {}), ...(entry.operationId ? { operationId: entry.operationId } : {}), ...(section === "reviews" ? { cycle: (entry as HandoffReview).cycle, round: (entry as HandoffReview).round, verdict: (entry as HandoffReview).verdict } : {}) });
+        record.overflow.push({ section, id: entry.id, rev: entry.rev, at: entry.at, status: String(e.status ?? "open"), firstLine: String(e.text ?? e.what ?? e.summary ?? "").split("\n")[0].slice(0, 160), contentRef: entry.contentRef!, requirementsHash: handoffRequirementsHash(section, entry), openIds: entryOpenIds(section, entry.unconfirmed ? { ...entry, unconfirmed: false } : entry), ...(entry.sourceId ? { sourceId: entry.sourceId } : {}), ...(entry.unconfirmed ? { unconfirmed: true } : {}), ...(entry.operationId ? { operationId: entry.operationId } : {}), ...(section === "reviews" ? { cycle: (entry as HandoffReview).cycle, round: (entry as HandoffReview).round, verdict: (entry as HandoffReview).verdict } : {}) });
       }
     };
     for (const section of handoffEntrySections) {
