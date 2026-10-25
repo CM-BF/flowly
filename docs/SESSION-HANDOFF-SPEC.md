@@ -227,7 +227,9 @@ CardHandoff {
 
   // —— 人、Flowly、被换下的 session 追加（带时间）——
   notes: { id "nt-*", at, by: { kind: human|flowly|agent, agentId? }, kind: incident|direction|environment|hazard|background|checkpoint|retired_turn|other, text ≤2000 }[] ≤100
-  gaps:  { id "g-*", at, by: reviewer|successor|answerer|flowly, agentId?, text ≤300, status: open|closed }[] ≤40
+  gaps:  { id "g-*", at, by: reviewer|successor|answerer|flowly, agentId?, text ≤300, status: open|closed,
+          count?, firstAt?, lastAt?,                       // Flowly 捕获缺口按 session、kind、typeHint 分组（§5.7）
+          resolution?: { by, at, note ≤300, count? } }[] ≤40   // count：确认（关闭）时覆盖的出现次数
 
   // —— Flowly 派生，agent 不能写（agent 只能改状态、standing 与问题的撤回）——
   inputs: { id "d-*", at, atSource: typed|captured, via: session|comment|launch|run_again|composer|retired_session|agent,
@@ -251,7 +253,8 @@ CardHandoff {
               background: { id "b-*", kind: async_shell|exec_session|browser_tab|terminal|script|subagent|schedule|heartbeat,
                             ref, label ≤120, startedAt, status: open|closed|unknown, source: hook|live|skeleton }[] ≤40,
               anchors?: string[] ≤60, growth?: { kind, calls, bytes }[] ≤12, nextMoves?: string[] ≤3,
-              skeleton?: path, ack?: Ack, understanding? ≤800 }[] ≤200
+              skeleton?: path, ack?: Ack, understanding? ≤800,
+              scriptCalls?: int }[] ≤200                       // 说明性计数：脚本/工作流调用，其内部工具调用不逐条列出（§5.7），不是待办
   git: { repo: path, branch?, head?, dirty, dirtyCount, dirtyFiles: path[] ≤50, diffstat? ≤1000, upstreamDiffers?, at }[] ≤8
   lastWords?: { agentId, at, since, text ≤2000 }             // 没收尾就封存、而记录落后时的叙述兜底（§5.8）
   tombstones: { section, item, removedBy, reason ≤200, at }[] ≤300
@@ -341,11 +344,21 @@ MCP 与 CLI fallback（`handoff --handoff '<JSON>'`，不需要 request file）�
 - **每回合的最后一条 agent 消息**：`turns[].final`（脱敏，≤ 2,000）和这个回合有没有交接写入。Flowly 本来就拿着 timeline，不多花钱；没收尾的封存靠它（§5.8）。
 - **Flowly 自己输入框发出的消息**在发送时就记下（不依赖回合结束才能落盘），回合结束时按 messageId 去重。
 - **图片**：`user_message` 只有 `text`、`messageId`、`clientMessageId`（`@getpaseo/protocol` `agent-types.d.ts:308-311`），图片本身拿不到。粘贴的图片在部分 provider 的文本里是占位 `[Image: source: /path.png]`（`shared/images.ts` `extractImages`）：Flowly 把这些本机图片文件（图片扩展名、≤ 8 MB、每条 ≤ 6 个）复制进 `images/`；没有占位的图片记为 `imagesLost`，抽屉写 “image attached, not kept”。开工图片在 `AutomationLaunches.collect()` 删除 launch 文件**之前**复制进来；经 Flowly 输入框发送的图片同样保留。
-- **后台任务清单**：从整个 timeline（不只本回合）和被动捕获里取启动或结束长期东西的工具调用：`register_async_shell` / `cancel_async_shell`、Codex `exec_command` 的 session、`browser_new_tab` 对 `close_tab`、`create_terminal`、`start_workspace_script`、`create_agent`、`create_schedule`、`create_heartbeat`。只解析小的调用参数和结果里的句柄字段（如 task id / session_id），不保存结果正文。只有调用名而拿不到返回句柄、嵌套 code-mode 调用不可见或长行被跳过时，记 unknown 与缺口，不虚构一个可接管的进程。按 ref 去重，每个成为台账里的一条 `b-*`（`status`、`source`）；标签脱敏，最多取命令前 120 个字符。`[async-shell finished|failed|timed_out <task>]` 通知把对应条目标为 closed，并给 `running` 条目写上结果；明确的子 agent 完成通知可关闭该子 agent；schedule / heartbeat 只有取消或删除被证实时才关闭，一次触发不算。
+- **后台任务清单**：从整个 timeline（不只本回合）和被动捕获里取启动或结束长期东西的工具调用：`register_async_shell` / `cancel_async_shell`、Codex `exec_command` 的 session、`browser_new_tab` 对 `close_tab`、`create_terminal`、`start_workspace_script`、`create_agent`、`create_schedule`、`create_heartbeat`。只解析小的调用参数和结果里的句柄字段（如 task id / session_id），不保存结果正文。只有调用名而拿不到返回句柄或长行被跳过时，记 unknown 与缺口，不虚构一个可接管的进程。同一条 detached 规则（`nohup`、`setsid`、`disown`、命令以 `&` 结尾，或 `run_in_background: true`）用于已知工具的参数、脚本里的命令字面量、Codex 的 `item_completed CommandExecution` 与 Paseo 的 shell 行；shell 行在回合结束时仍是 `running`，就是一条打开的后台。按 ref 去重，每个成为台账里的一条 `b-*`（`status`、`source`）；标签脱敏，最多取命令前 120 个字符。`[async-shell finished|failed|timed_out <task>]` 通知把对应条目标为 closed，并给 `running` 条目写上结果；明确的子 agent 完成通知可关闭该子 agent；schedule / heartbeat 只有取消或删除被证实时才关闭，一次触发不算。
 - **git**：卡片的每个仓库（`get_task` 给 agent 的 `scope.repoPaths`，为空时项目的仓库；新卡在项目根，根下可能有子仓库；默认最多 8 个，超过时列出总数与未检查路径并记 gap，接手者逐个核实，不把未测的当成干净）：HEAD、分支、未提交文件数与前 50 个（列表截断时写 “N more files”）、diffstat、是否与上游不同；不是 git 仓库的路径记 `head: null`。参数数组、5 秒超时，复用 workpad 的 `env` 读取。
 - **台账**：回合数、C、C₀、W、B、S、K、模型。
 - **锚点**：从 agent 消息里按正则取 SHA（7–40 位十六进制）、PR/issue URL、分支、路径和 `Error:` 行，每个 session ≤ 60 条。
 - `handoffIndex` 的 `fresh` 与 `open` 在此时更新（只在变化时写，§5.1）。
+
+- **脚本与工作流**（2026-10-25 接手实测后修正）：Codex code mode 的 `exec` 脚本、Claude Code 的 `Workflow` 与 paseo-dynamic-workflow 的 `workflow` 不再每次调用记一个 `opaque_tool_background` 缺口（实测卡片上 120 次脚本调用全部只有 ≤ 1 秒的已完成命令，脚本正文与输出都在原始历史里，94 条 open 缺口全是噪声）。每个 session 只在台账里计数（`scriptCalls`，视图与抽屉写明“其内部工具调用不逐条列出、仍在 session 原始历史里”；不是待办，不需要确认）。只有**证据表明它留下了仍在运行的工作**才成为后台条目：(a) 输出头 `Script running with cell ID N` → 打开 `cell:N`，顶层 `wait {cell_id}` 报告 `Script completed|failed` 或 `terminate` 时关闭；(b) 打印出的结果里有 `session_id` 而没有 `exit_code` → 打开该 exec session，之后同一 `process_id` 的 CommandExecution 完成条目关闭它，已证实结束的 session 不会因旧结果的重印再打开；(c) 命令字面量命中 detached 规则 → unknown；(d) 脚本文本调用了会启动后台的工具（`register_async_shell`、`browser_new_tab`、`create_agent` 等）而这个脚本期间没看到它的完成条目，或 `exec_command` 的调用处多于看到的 CommandExecution 完成条目（实测 727 个脚本中 23 个，19 个确有在跑的 session）→ unknown（“completion not observed”）；(e) 工作流成功启动（`Workflow launched in background`、`async_launched`）→ 以 task / run id 打开，`<task-notification>` 或 `[paseo-dynamic-workflow]` 通知按该 id 关闭并记结果状态，这两种通知不再被当成人的话；被拒绝的启动（`<tool_use_error>`）什么都没启动，不记。嵌套调用的 `item_completed McpToolCall` 按已知工具表逐条处理（拿到真实句柄，例如 async shell 的 task id）。脚本尚未返回时是一个 unknown 占位，返回后没有证据就关闭；输出超过 256 KiB 读不了时才记缺口。仍会漏的：条件分支或循环里多次启动、但看到过等量完成条目的命令；接班者仍按 §9.4 用 `ps`、锁文件核实。
+- **缺口分组**：Flowly 的捕获缺口按 (session, kind, typeHint) 只记**一条**，带 `count`、`firstAt`、`lastAt`；每个 kind 每个 session 最多 8 个 typeHint，其余并入 “other types”，所以一次洪水最多产生少数几条 open 缺口。计数是绝对且幂等的：已提交的 provider 批次不会重读；没有游标的批次（身份不符）按出现 id 去重；回合结束钩子每次带整份内存 timeline，只取更高的计数（daemon 重启后 timeline 重建时可能少计，不会多计）。缺口 open 时计数增长不改变交付门的语义指纹（§5.5），不会因洪水反复拒绝。用 `gaps:[{id, status: closed, note}]` 关闭，或在 ack 里处置为 `done` / `obsolete`（§7.5），就覆盖到当时为止的全部出现，`resolution.count` 记下确认时的计数；之后计数超过它才重新打开**同一条**缺口（重新打开改变指纹，需要一次新的拒绝）。`through.gaps` 只计当前的覆盖问题（积压、半行、未完成的调用），持久的缺口已经是条目。786d9cd 之前逐条写入的缺口保持原样，不自动合并或关闭。
+- **记录类型的分类**（来自三个 session 的 rollout、362 个本机 rollout 的结构统计与插件源码；从不保存其正文）：
+  - 纯元数据，跳过：Codex `world_state`（全量与增量快照：注入的环境、skill 目录、AGENTS.md，会由接班者的 provider 重新注入）、`event_msg thread_settings_applied`（模型、权限、系统提示等配置）、`inter_agent_communication_metadata`、其余 `item_completed` 条目（Reasoning、FileChange、ContextCompaction 等）；timeline 的 `todo` 与 loading 状态的 `compaction` 行；插件行 `activity-list`（compact-activity）、`flowly-summary`、`flowly-next-moves`、`guard-decision`、`learning-update`、`async-shell-task`、`dynamic-workflow-run`。依据：插件行从不进入模型，发给 agent 的消息总是单独的 user message，这条输入路径已经处理。
+  - 人的话，作输入（原文）：goal-loop 的 `goal-status` 行里的 `goal`、Codex `thread_goal_updated` 的 `goal.objective`；同一目标的多次状态更新是同一条输入。
+  - 便签（不是待办）：timeline `notification` 的 warning / error（info 跳过）；rate-fallback 的 `provider-transfer`（工作被移到另一个 agent）。
+  - 压缩：确认的压缩（Codex `compacted`、Claude `compact_boundary`、timeline 中 completed 的压缩行）写一条便签：“Session #n (id8): its context was compacted at T. Details from before then may be missing from that session's memory; its raw session history is unchanged.”，不是匿名缺口；K 照旧计数，并照 §5.9 重给交接视图。
+  - 其余未知的记录、事件、响应与 timeline 类型（含未知插件 kind，typeHint 为 `plugin:<pluginId>/<kind>`）仍是缺口，按上一条分组。
+  - 已知的另一处缺口（后续单独处理）：本机 Codex 版本不写 `event_msg user_message / agent_message`，人的话与实时叙述只在 `item_completed UserMessage / AgentMessage` 里，而它们的 id 不是 Paseo 的 messageId（在 fixture 上核对过），直接捕获会让每条 Flowly 发出的消息再成为一条 open 输入。P1 仍以回合结束钩子的 timeline 为人的话的来源；回合中途崩溃、钩子丢失时，这一回合里直接打进 session 的话只能靠 §5.8 的补读或骨架。需要跨来源去重的设计。
 
 捕获的持久化顺序是“先保存提取结果，后推进偏移”，重试按源身份去重；否则崩溃可能留下已经越过、却没有保存的输入。`through` 的时间、积压字节、跳过的长行/未知类型与叙述裁剪计数组成 coverage，卡片与接手视图都能看到。超过 256 KiB 的行即使是人的长输入也可能被跳过；这种情况保留 id/时间/长度和缺口，不能声称拿到了原文。Flowly 自己输入框已直接保存的正文优先于这种降级来源。
 
@@ -534,7 +547,7 @@ ack: { handoffRevision, heads: { repo, sha, dirty }[],   // 每个仓库：git r
 
 - 要处置的只有：状态为 `open` 的输入、open 的问题、最近一次修改要求里未完成的发现、未结束的 `running`、未关闭与 `unknown` 的后台条目（含 §5.8 的 “no inventory available” 条目）、open 的 gaps。`received` 的人的话、`problems` 等不要求逐条处置，避免把确认变成清单负担。
 - 机械核对：每个仓库的 `sha` 与 Flowly 自己读的不一致 → `ACK_MISMATCH`（给出 Flowly 的值，本次写入不记录，重新检查仓库并读实际值后重发；不能只照抄错误提示）；Flowly 读不到 HEAD 的路径（不是 git 仓库）不核对，所以不在 git 里的项目根不会每次都被拒；漏掉的 id → 已给的照常记录，回执的 `ackMissing` 列出其余，确认在全部处置后才算完成；`done` 与 `obsolete` 需要 `note`。
-- 效果：处置更新对应条目（记下 note 与 session）；`ask` 加提醒“问人（question）”；`questions` 成为 gaps（by successor），卡片上看得到；`understanding` 显示在抽屉里，人一眼能看出新 session 理解得对不对。记录指标：确认用时、首次完整与否、第一次提交的用时。
+- 效果：处置更新对应条目（记下 note 与 session）；对 gap 的 `done` / `obsolete` 处置同时关闭它（`resolution` 带处置说明与当时的 `count`，一次确认覆盖分组缺口的全部出现，§5.7）；`ask` 加提醒“问人（question）”；`questions` 成为 gaps（by successor），卡片上看得到；`understanding` 显示在抽屉里，人一眼能看出新 session 理解得对不对。记录指标：确认用时、首次完整与否、第一次提交的用时。
 - 交付门是软的（§5.5）：没确认就交付第一次被拒，带 `acknowledgeOpen=true` 的重试通过，不会卡死在循环里。不用 LLM 打分。
 
 ## 8. 前任历史的访问
@@ -802,6 +815,7 @@ Flowly 看不到的进程（裸 `nohup`、浏览器标签以外的东西）只�
 | 26 | 回合中途压缩，agent 忘了坑和人的指示 | 重置已读，下一次 `get_task` 重给完整视图；存根总带 open 输入、standing 与 pitfalls 的首行；skill 一行 | 压缩之后、下一次 `get_task` 之前的动作 |
 | 27 | 评论到达时 job 在 `reviewing`、`needs_human`、`waiting` 等状态 | 按状态的转移（§10.1）；保持时与人打字相同；不覆盖另一角色的指令；待办随下一条指令 | — |
 | 28 | 回合中途插件重载或 daemon 重启，丢了回合结束钩子 | 偏移持久化的被动捕获接着读；`capturedThrough` 与封存前补读 | 没有被动捕获的 provider 上，未加载的大 session 的那一回合（记 gap） |
+| 29 | 噪声缺口淹没真实缺口（2026-10-25 接手实测：30 分钟 112 条 open，接班者读 174 条、确认 89 个 id） | 脚本与工作流只计数、有证据才记后台（§5.7）；缺口按 session、kind、typeHint 分组计数，确认一次覆盖全部出现；元数据跳过；压缩是便签 | 没有任何证据的后台（见 §5.7 脚本一条的“仍会漏的”）；786d9cd 已写入的逐条缺口 |
 
 ## 16.1 信息损失分析：今天只在 session 里的信息
 
@@ -861,6 +875,7 @@ Flowly 看不到的进程（裸 `nohup`、浏览器标签以外的东西）只�
 - Codex rollout：末尾前 9.3 MB 的 `token_count`、2.3 MB 的长行、`info:null`、带与不带 `latest_token_usage_record` 的 `compacted`；Claude 1M 转录带 `compact_boundary` 与子代理文件，缓存写入档。
 - 超过 256 KiB 的行不缓冲跳过，内存峰值有上限；脱敏、锚点、体积构成。
 - 被动捕获：从持久化的偏移接着读、每次 ≤ 64 MiB、半行留到下次；取 agent 消息、人的消息、启动后台的调用、压缩记录、`token_count`；模拟插件重载后幂等补读；覆盖不到、超预算或版本变化时返回 gap。
+- 噪声与分组（`server/handoff-capture-noise.test.ts`，合成记录，形状取自接手 fixture；`server/handoff-capture-fixture.ts` 生成三个 session 的复制品）：只跑完已完成命令的脚本没有缺口与后台条目、只计数；留下在跑进程的脚本仍然浮现（打印的 session id、detached 字面量、未见完成的嵌套启动与 exec_command），之后的完成条目关闭它；嵌套 McpToolCall 拿到真实句柄；yielded cell 到 `wait` 完成为止；Workflow 与 dynamic workflow 按 task / run id 打开、按通知关闭，被拒绝的不记；插件行里人的目标被原文捕获，元数据跳过，未知 kind 一条分组缺口；`world_state` / `thread_settings_applied` 跳过，100 条相同的未知事件是一条 `count: 100` 的缺口；观察者层的洪水是一条 open 缺口、重放不加计数、增长不改交付门指纹、ack 一次全部覆盖、只有超过确认计数才重新打开；复制品在 786d9cd 上 139 条 open 缺口，现在 0 条，一条压缩便签与每个 session 的脚本计数。
 - **一个桩断言没有发生任何 Paseo timeline、refresh-history、发送或恢复调用。**
 
 ### 17.3 服务（假 SDK，`server/automation-rotation*.test.ts`、`server/comment-routing.test.ts`、`server/handoff-*.test.ts`）
