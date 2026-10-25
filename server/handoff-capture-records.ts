@@ -4,7 +4,8 @@ import { nextRowKind, summaryRowKind } from "../shared/native-session";
 import { detachedCommand } from "./handoff-detached";
 import { locatedGapKinds, type CaptureBackground, type CaptureGap, type CaptureNotice, type CaptureSemantics, type CaptureSource } from "./handoff-capture";
 
-export const captureLimits = { bytes: 64 * 2 ** 20, line: 256 * 2 ** 10, chunk: 64 * 2 ** 10, records: 5000, gaps: 100, calls: 64, live: 8, liveChars: 4000, messageChars: 800, hints: 8, notices: 20, closed: 64 } as const;
+/** `located`: per batch, location-bearing gaps of one kind kept apart before the rest are counted per type hint. */
+export const captureLimits = { bytes: 64 * 2 ** 20, line: 256 * 2 ** 10, chunk: 64 * 2 ** 10, records: 5000, gaps: 100, calls: 64, live: 8, liveChars: 4000, messageChars: 800, hints: 8, notices: 20, closed: 64, located: 32, ranges: 3 } as const;
 
 type RecordValue = Record<string, unknown>;
 const object = (value: unknown): RecordValue => value !== null && typeof value === "object" && !Array.isArray(value) ? value as RecordValue : {};
@@ -120,11 +121,30 @@ export function redactCaptureText(text: string): string {
     .replace(/[A-Za-z0-9_+=-]{40,}/g, (value) => /^[0-9a-f]+$/i.test(value) ? value : /\d/.test(value) && /[a-z]/i.test(value) ? "[redacted]" : value);
 }
 
+/**
+ * What a skipped line is, from its first bytes: the record type, then the event or payload type, then for Codex
+ * `item_completed` the item type (CommandExecution, McpToolCall, UserMessage …), and a response message's role.
+ */
 export function lineHint(prefix: Uint8Array) {
   const text = Buffer.from(prefix).toString("utf8");
-  const types = [...text.matchAll(/"type"\s*:\s*"([\w.-]{1,80})"/g)].slice(0, 2).map((match) => redactCaptureText(match[1]));
+  const types = [...text.matchAll(/"type"\s*:\s*"([\w.-]{1,80})"/g)].slice(0, 3).map((match) => redactCaptureText(match[1]));
+  const path = types[1] === "item_completed" ? types : types.slice(0, 2), role = /"role"\s*:\s*"(\w{1,20})"/.exec(text)?.[1];
   const at = /"timestamp"\s*:\s*"([^"\r\n]{1,80})"/.exec(text)?.[1];
-  return { type: types.join("/") || "unknown", at: at && Number.isFinite(Date.parse(at)) ? at : undefined, messageId: id(/"(?:message_id|messageId|client_message_id|uuid)"\s*:\s*"([\w:.-]{1,200})"/.exec(text)?.[1]) };
+  return { type: (path.join("/") || "unknown") + (role && path.includes("message") ? ` (${role})` : ""), at: at && Number.isFinite(Date.parse(at)) ? at : undefined, messageId: id(/"(?:message_id|messageId|client_message_id|uuid)"\s*:\s*"([\w:.-]{1,200})"/.exec(text)?.[1]) };
+}
+/**
+ * Whether a skipped line of this type can hold a person's words (Codex user_message / UserMessage, a user-role response
+ * message, a Claude user record that is not a tool result, a queued delivery). Unknown shapes count as personal.
+ * Everything else (tool output, narration, compaction copies, metadata) is grouped into one counted gap.
+ */
+export function personalLine(hint: string | undefined) {
+  if (!hint || hint === "unknown") return true;
+  const role = /\((\w+)\)$/.exec(hint)?.[1], [first, second, third] = hint.replace(/ \(\w+\)$/, "").split("/");
+  if (first === "event_msg") return second === "user_message" || second === "item_completed" && (third === undefined || third === "UserMessage");
+  if (first === "response_item" || first === "message") return (second === "message" || first === "message") && (role === undefined || role === "user");
+  if (first === "user") return second !== "tool_result";
+  if (first === "attachment") return second === undefined || second === "queued_command";
+  return !["compacted", "turn_context", "world_state", "session_meta", "token_usage_record", "inter_agent_communication_metadata", "assistant", "progress", "system", "file-history-snapshot"].includes(first);
 }
 function contentText(content: unknown): string {
   if (typeof content === "string") return content;
@@ -192,8 +212,11 @@ export class CaptureRecords {
     if (["parse_failed", "unknown_record_type", "unknown_event_type", "unknown_response_type", "session_identity_mismatch"].includes(value.kind)) this.firstUsageAvailable = false;
     const at = value.at ?? this.lineAt ?? this.capturedAt;
     if (this.row && !value.occurrences) value = { ...value, occurrences: [this.row] };
-    let key = locatedGapKinds.has(value.kind) ? `${value.kind}\0${value.id}` : `${value.kind}\0${value.typeHint ?? ""}`;
-    if (!this.groups.has(key) && value.typeHint !== undefined && [...this.groups.values()].filter((gap) => gap.kind === value.kind && gap.typeHint !== undefined).length >= captureLimits.hints) { key = `${value.kind}\0*`; value = { ...value, typeHint: "*" }; }
+    const located = locatedGapKinds.has(value.kind);
+    let key = located ? `${value.kind}\0${value.id}` : `${value.kind}\0${value.typeHint ?? ""}`;
+    // Located gaps keep their own entry (up to captureLimits.located per kind), then are counted per real type hint.
+    if (located && !this.groups.has(key) && [...this.groups.keys()].filter((other) => other.startsWith(`${value.kind}\0`) && !other.startsWith(`${value.kind}\0~`)).length >= captureLimits.located) key = `${value.kind}\0~${value.typeHint ?? ""}`;
+    if (!located && !this.groups.has(key) && value.typeHint !== undefined && [...this.groups.values()].filter((gap) => gap.kind === value.kind && gap.typeHint !== undefined).length >= captureLimits.hints) { key = `${value.kind}\0*`; value = { ...value, typeHint: "*" }; }
     const group = this.groups.get(key);
     if (group) {
       group.count = (group.count ?? 1) + (value.count ?? 1);
@@ -202,6 +225,7 @@ export class CaptureRecords {
       if (value.bytes !== undefined) group.bytes = (group.bytes ?? 0) + value.bytes;
       if (value.to !== undefined) group.to = Math.max(group.to ?? value.to, value.to);
       if (value.occurrences) group.occurrences = [...(group.occurrences ?? []), ...value.occurrences].slice(-512);
+      if (located && value.from !== undefined && (group.ranges ??= [`${group.from}–${group.to}`]).length < captureLimits.ranges) group.ranges.push(`${value.from}–${value.to ?? value.from}`);
       return;
     }
     const gap: CaptureGap = { ...value, id: stableId(value.id), at, lastAt: at, count: value.count ?? 1 };

@@ -21,7 +21,7 @@ export type CaptureBackground = { id: string; source: CaptureSource; kind: "asyn
  * One gap per kind and type hint in a batch: `id`/`source`/`from` are its first occurrence, `count` all of them, `at`/`lastAt` the first and last time.
  * Location-bearing kinds (`locatedGapKinds`) are never merged: each keeps its byte range and message id. `occurrences`: stable identities of timeline rows (bounded).
  */
-export type CaptureGap = { id: string; kind: string; source?: CaptureSource; from?: number; to?: number; bytes?: number; count?: number; typeHint?: string; at?: string; lastAt?: string; occurrences?: string[] };
+export type CaptureGap = { id: string; kind: string; source?: CaptureSource; from?: number; to?: number; bytes?: number; count?: number; typeHint?: string; at?: string; lastAt?: string; occurrences?: string[]; /** Byte ranges of the first occurrences of a counted located group (bounded). */ ranges?: string[] };
 /** Gaps that say where skipped content is in the raw history (a long human paste, an unparsable line, a replaced file). */
 export const locatedGapKinds: ReadonlySet<string> = new Set(["long_line", "long_line_partial", "parse_failed", "file_truncated", "file_replaced", "file_moved"]);
 export type CaptureUsage = { id: string; source: CaptureSource; at: string; atSource?: "provider" | "captured"; contextTokens: number; windowTokens?: number; initialContextTokens?: number; cacheTtlSeconds?: number; messageId?: string };

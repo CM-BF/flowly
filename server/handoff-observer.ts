@@ -9,6 +9,7 @@ import type { SessionPolicyFacts } from "../shared/session-measurement";
 import { handoffView } from "../shared/handoff-view";
 import type { AutomationHandoffBridge, RotationContext } from "./automation-rotation";
 import { captureHandoff, captureLimits, captureTimeline, locatedGapKinds, type CaptureBatch, type CaptureCursor, type CaptureGap, type CaptureSemantics } from "./handoff-capture";
+import { personalLine } from "./handoff-capture-records";
 import { handoffGitDirectories, handoffGitSnapshot, type HandoffGitSnapshot } from "./handoff-git";
 import { handoffMessageSource, handoffSource } from "./handoff-source";
 import { HandoffStore, HandoffError, type HandoffCapture } from "./handoff-store";
@@ -404,18 +405,22 @@ export class HandoffObserver {
       if (known.has(key) || gap.typeHint === undefined || [...known].filter((other) => other.startsWith(`${gap.kind}\0`) && !other.endsWith("\0")).length < captureLimits.hints) { known.add(key); return key; }
       known.add(`${gap.kind}\0*`); return `${gap.kind}\0*`;
     };
-    const span = (a: CaptureGap | undefined, b: CaptureGap): CaptureGap => ({ ...(a ?? b), count: (a?.count ?? 0) + (b.count ?? 1), at: [a?.at, b.at].filter((v): v is string => !!v).sort()[0], lastAt: [a?.lastAt, b.lastAt ?? b.at].filter((v): v is string => !!v).sort().at(-1), occurrences: [...(a?.occurrences ?? []), ...(b.occurrences ?? [])].slice(-512) });
+    const ranges = (gap: CaptureGap) => gap.ranges ?? (gap.from !== undefined ? [`${gap.from}–${gap.to ?? gap.from}`] : []);
+    const span = (a: CaptureGap | undefined, b: CaptureGap): CaptureGap => ({ ...(a ?? b), count: (a?.count ?? 0) + (b.count ?? 1), at: [a?.at, b.at].filter((v): v is string => !!v).sort()[0], lastAt: [a?.lastAt, b.lastAt ?? b.at].filter((v): v is string => !!v).sort().at(-1), occurrences: [...(a?.occurrences ?? []), ...(b.occurrences ?? [])].slice(-512),
+      ...(locatedGapKinds.has(b.kind) ? { ranges: [...(a ? ranges(a) : []), ...ranges(b)].slice(0, captureLimits.ranges) } : {}) });
     const grouped = (gaps: readonly CaptureGap[] = []) => {
       const result = new Map<string, CaptureGap>();
       for (const gap of gaps) if (!temporary.has(gap.kind) && !locatedGapKinds.has(gap.kind)) { const key = groupKey(gap); result.set(key, span(result.get(key), gap)); }
       return result;
     };
     const changed = new Map<string, CaptureGap>(), updates: NonNullable<HandoffCapture["gaps"]> = [];
-    // Where skipped content is (byte range, message id, length) stays with each occurrence: the first few per kind are their own gaps.
+    // Where skipped content that may be a person's words is (byte range, message id, length) stays with each occurrence: the
+    // first few per kind are their own gaps. Tool output and other records that are not a person's words, and occurrences past
+    // those few, are one gap per type hint, counted by occurrence, that lists where the first ones are.
     for (const gap of (batch?.gaps ?? []).filter((value) => locatedGapKinds.has(value.kind) && !temporary.has(value.kind))) {
       if (!batch?.cursor) { if (marks.recent.includes(gap.id)) continue; marks.recent = [...marks.recent, gap.id].slice(-32); }
-      const written = marks.located![gap.kind] ?? 0;
-      if (written >= captureLimits.hints) { const key = `${gap.kind}\0${gap.typeHint ?? ""}`; marks.provider[key] = (marks.provider[key] ?? 0) + 1; changed.set(key, span(changed.get(key), { ...gap, count: 0 })); continue; }
+      const written = marks.located![gap.kind] ?? 0, personal = !gap.kind.startsWith("long_line") || personalLine(gap.typeHint);
+      if (!personal || (gap.count ?? 1) > 1 || written >= captureLimits.hints) { const key = `${gap.kind}\0${gap.typeHint ?? ""}`; marks.provider[key] = (marks.provider[key] ?? 0) + (gap.count ?? 1); changed.set(key, span(changed.get(key), { ...gap, count: 0 })); continue; }
       marks.located![gap.kind] = written + 1;
       const from = gap.from ?? gap.source?.offset, to = gap.to ?? gap.source?.end, messageId = gap.source?.messageId;
       const sourceId = handoffSource(`capture-gap:${agentId}:${gap.id}`);
@@ -447,8 +452,10 @@ export class HandoffObserver {
     return [...updates, ...[...changed].filter(([key]) => total(key) > (before.get(key) ?? 0)).map(([key, gap]) => {
       const hint = key.endsWith("\0*") ? "other types" : gap.typeHint;
       const sourceId = handoffSource(`capture-gaps:${agentId}:${key}`);
-      const where = locatedGapKinds.has(gap.kind) ? ` More than ${captureLimits.hints} occurred; each earlier one is its own gap, the first of these in bytes ${gap.from ?? gap.source?.offset ?? "?"}–${gap.to ?? gap.source?.end ?? "?"}.` : "";
-      return { id: entryId("g", sourceId), sourceId, agentId, text: `Capture gap (${gap.kind})${hint ? `: ${hint}` : ""}.${where} This content was not preserved; count, firstAt and lastAt cover every occurrence in this session.`.slice(0, 300), count: total(key), ...(gap.at ? { firstAt: gap.at } : {}), ...(gap.lastAt ? { lastAt: gap.lastAt } : {}) };
+      const where = ranges(gap).join(", ") || `${gap.source?.offset ?? "?"}–${gap.source?.end ?? "?"}`;
+      const located = !locatedGapKinds.has(gap.kind) ? "." : gap.kind.startsWith("long_line") && !personalLine(gap.typeHint) ? ` (${/output|tool_result|CommandExecution|McpToolCall|FunctionCall|ImageView|Extension|FileChange/.test(hint ?? "") ? "tool output" : "not a person's words"}), first ones in bytes ${where}.`
+        : `. More than ${captureLimits.hints} occurred; each earlier one is its own gap; these start in bytes ${where}.`;
+      return { id: entryId("g", sourceId), sourceId, agentId, text: `Capture gap (${gap.kind})${hint ? `: ${hint}` : ""}${located} This content was not preserved; count, firstAt and lastAt cover every occurrence in this session.`.slice(0, 300), count: total(key), ...(gap.at ? { firstAt: gap.at } : {}), ...(gap.lastAt ? { lastAt: gap.lastAt } : {}) };
     })];
   }
   /**
