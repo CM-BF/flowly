@@ -150,8 +150,11 @@ test("failed tools, large results, detached shell commands and unknown system en
     { type: "tool_call", name: "exec_command", callId: "nohup", status: "completed", detail: { input: { cmd: "nohup my-task &" }, output: { exit_code: 0 } } },
     { type: "user_message", text: "<paseo-system version=unknown>notification</paseo-system>" },
   ]);
-  expect(b.inputs).toEqual([]); expect(b.background.every((item) => item.status === "unknown")).toBe(true);
-  expect(b.gaps.map((g) => g.kind)).toEqual(expect.arrayContaining(["background_tool_failed", "large_tool_result_omitted", "detached_background_untracked", "unknown_system_envelope"])); expect(JSON.stringify(b)).not.toContain("private-result");
+  expect(b.inputs).toEqual([]); expect(b.background.filter((item) => !item.closeOnly).every((item) => item.status === "unknown")).toBe(true);
+  // A failed start started nothing: its handle is never adopted, only a note keeps the error.
+  expect(b.background.filter((item) => item.callId === "fail")).toEqual([expect.objectContaining({ status: "closed", closeOnly: true })]); expect(JSON.stringify(b.background)).not.toContain("not-proven");
+  expect(b.notices).toEqual([expect.objectContaining({ kind: "background", text: "register_async_shell failed (call fail), so Flowly assumes it started nothing: create failed" })]);
+  expect(b.gaps.map((g) => g.kind)).toEqual(expect.arrayContaining(["large_tool_result_omitted", "detached_background_untracked", "unknown_system_envelope"])); expect(JSON.stringify(b)).not.toContain("private-result");
 });
 
 test("JSON-form credentials and incomplete private keys are removed before originals or labels leave capture", () => {

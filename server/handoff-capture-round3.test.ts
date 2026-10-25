@@ -166,3 +166,45 @@ test("a turn's task_complete final reaches the card when its AgentMessage was no
   expect(record.lastWords?.text).toBe("Done: migration 0042 applied on staging.");
 });
 
+// ---------------------------------------------------------------- Paseo browser tabs and async-shell cancels (noise-r3-1)
+const context = { agentId: "worker", cwd: "/tmp/synthetic", workspaceId: "workspace" };
+const newTab = (id: string, browserId: string) => codexItem({ type: "McpToolCall", id, server: "paseo", tool: "browser_new_tab", status: "completed", arguments: { url: "https://app.example.test/" },
+  result: { content: [{ type: "text", text: "{}" }], structuredContent: { ok: true, result: { command: "new_tab", browserId, workspaceId: "workspace", url: "https://app.example.test/" }, context } } });
+const closeTab = (id: string, browserId: string) => codexItem({ type: "McpToolCall", id, server: "paseo", tool: "browser_close_tab", status: "completed", arguments: { browserId },
+  result: { content: [{ type: "text", text: "{}" }], structuredContent: { ok: true, result: { command: "close_tab", browserId }, context: { ...context, browserId } } } });
+const shellTask = (status: string) => ({ taskId: task, status, description: "synthetic watcher", commandPreview: "./synthetic-watch.sh", active: status === "running", cwd: "/tmp/synthetic", outcome: status === "cancelled" ? "cancelled" : null });
+const shellCall = (id: string, tool: string, args: Record<string, unknown>, value: Record<string, unknown>, isError = false) => codexItem({ type: "McpToolCall", id, server: "async_shell", tool, status: "completed", arguments: args, result: { content: [{ type: "text", text: JSON.stringify(value) }], ...(isError ? { isError: true } : {}) } });
+
+test("a Paseo browser tab opened and closed leaves nothing to acknowledge; one still open is one item with its browserId", async () => {
+  const x = await observerFixture();
+  await x.append([newTab("call-open-1", "browser-0001"), closeTab("call-close-1", "browser-0001"), newTab("call-open-2", "browser-0002")]);
+  await x.poll();
+  const view = successorView(await x.read());
+  expect(view.background).toEqual(["browser_tab:closed:browser-0001:browser tab: https://app.example.test/", "browser_tab:open:browser-0002:browser tab: https://app.example.test/"]);
+  expect(view.gaps).toEqual([]); expect(view.open).toBe(1);
+});
+
+test("an async shell the agent cancelled is closed with that outcome", async () => {
+  const x = await observerFixture();
+  await x.append([shellCall("call-register-1", "register_async_shell", { command: "./synthetic-watch.sh", description: "synthetic watcher" }, { task: shellTask("running"), duplicate: false }),
+    shellCall("call-cancel-1", "cancel_async_shell", { task_id: task }, { task: shellTask("cancelled") })]);
+  await x.poll();
+  const view = successorView(await x.read());
+  expect(view.background).toEqual([`async_shell:closed:${task}:./synthetic-watch.sh:cancelled`]);
+  expect(view.gaps).toEqual([]); expect(view.open).toBe(0);
+});
+
+test("a start call that failed started nothing: no item and no gap, only a note with its error", async () => {
+  const x = await observerFixture();
+  await x.append([codexItem({ type: "McpToolCall", id: "call-open-9", server: "paseo", tool: "browser_new_tab", status: "completed", arguments: { url: "https://app.example.test/" }, result: { content: [{ type: "text", text: "{}" }], structuredContent: { ok: false, error: { code: "PLUGIN_NOT_READY", message: "browser plugin not ready" } } } }),
+    shellCall("call-register-9", "register_async_shell", { command: "./synthetic-watch.sh" }, { error: "async shell plugin not ready" }, true),
+    shellCall("call-cancel-9", "cancel_async_shell", { task_id: "task-00000000feed" }, { error: "no such task" }, true)]);
+  await x.poll();
+  const view = successorView(await x.read());
+  expect(view.background).toEqual([]); expect(view.gaps).toEqual([]); expect(view.open).toBe(0);
+  expect(view.notes).toEqual([
+    "background:browser_new_tab failed (call call-open-9), so Flowly assumes it started nothing: browser plugin not ready",
+    "background:register_async_shell failed (call call-register-9), so Flowly assumes it started nothing: async shell plugin not ready",
+    "background:cancel_async_shell failed (call call-cancel-9); what it targeted keeps its state: no such task"]);
+});
+

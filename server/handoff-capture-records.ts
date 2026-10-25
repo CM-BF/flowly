@@ -107,7 +107,7 @@ const asyncShellRunning = new Set(["pending", "running"]);
 /** `known`: exec session ids the script text names (write_stdin to an earlier session): their completions are not this script's starts. */
 type ScriptEvidence = { workflow?: boolean; timeline?: boolean; starts: string[]; execCalls: number; seen: Record<string, number>; detached?: string; known?: string[] };
 /** `subagent`: a Codex native sub-agent tool (multi-agent mode); its handle is the agent path `/root/<task_name>`. */
-export type PendingCaptureCall = { callId: string; kind: CaptureBackground["kind"]; action: "start" | "close" | "poll"; source: CaptureSource; at: string; handle?: string; label?: string; detached?: boolean; script?: ScriptEvidence; wait?: { terminate?: boolean }; subagent?: "spawn_agent" | "followup_task" | "interrupt_agent" };
+export type PendingCaptureCall = { callId: string; kind: CaptureBackground["kind"]; action: "start" | "close" | "poll"; source: CaptureSource; at: string; name?: string; handle?: string; label?: string; detached?: boolean; script?: ScriptEvidence; wait?: { terminate?: boolean }; subagent?: "spawn_agent" | "followup_task" | "interrupt_agent" };
 
 /** Keep task paths and prose, remove credential values and inline binary data before any excerpt is made. */
 export function redactCaptureText(text: string): string {
@@ -397,9 +397,9 @@ export class CaptureRecords {
     const data = this.arguments(input, source) ?? {};
     const detached = data.run_in_background === true || detachedCommand(string(data.cmd ?? data.command));
     if (name === "Bash" && !detached) return;
-    const handle = id(data.session_id ?? data.task_id ?? data.taskId ?? data.agentId ?? data.agent_id ?? data.tabId ?? data.tab_id ?? data.terminalId ?? data.scheduleId ?? data.heartbeatId ?? data.id);
-    const label = redactCaptureText(string(data.cmd ?? data.command ?? data.title ?? data.name)).slice(0, 120);
-    this.register({ callId, ...tool, source, at: this.time(timestamp).at, ...(handle ? { handle } : {}), ...(label ? { label } : {}), ...(detached ? { detached: true } : {}) }, source);
+    const handle = id(data.session_id ?? data.task_id ?? data.taskId ?? data.agentId ?? data.agent_id ?? data.tabId ?? data.tab_id ?? data.browserId ?? data.browser_id ?? data.terminalId ?? data.scheduleId ?? data.heartbeatId ?? data.id);
+    const label = redactCaptureText(string(data.cmd ?? data.command ?? data.title ?? data.name) || (tool.kind === "browser" && string(data.url) ? `browser tab: ${string(data.url)}` : "")).slice(0, 120);
+    this.register({ callId, ...tool, source, at: this.time(timestamp).at, name: toolBase(name).slice(0, 80), ...(handle ? { handle } : {}), ...(label ? { label } : {}), ...(detached ? { detached: true } : {}) }, source);
   }
   /**
    * Codex native sub-agents: spawn_agent {task_name, message} starts one, followup_task {target, message} gives it new work,
@@ -532,22 +532,40 @@ export class CaptureRecords {
       if (length > captureLimits.line || data.content.length > 32) { this.gap({ id: `large-result:${sourceKey(source)}`, kind: "large_tool_result_omitted", source }); data = {}; value = undefined; }
       else { const text = pieces.join("\n"); try { data = object(JSON.parse(text)); } catch { value = text; } }
     }
-    failed ||= data.isError === true || data.is_error === true || !!data.error;
-    if (failed) { this.gap({ id: `failed-result:${sourceKey(source)}`, kind: "background_tool_failed", source }); this.result.background.push({ id: `background:${this.agentId}:${callId}`, source, kind: call.kind, callId, ...(call.handle ? { handle: call.handle } : {}), status: "unknown", at: call.at }); return; }
-    const specific = object(data[call.kind === "async_shell" ? "task" : call.kind]);
-    const handle = id(data.session_id ?? data.task_id ?? data.taskId ?? data.agentId ?? data.agent_id ?? data.tabId ?? data.tab_id ?? data.terminalId ?? data.terminal_id ?? data.runId ?? data.scheduleId ?? data.heartbeatId ?? specific.taskId ?? specific.id ?? data.id) ?? call.handle;
+    failed ||= data.isError === true || data.is_error === true || !!data.error || data.ok === false;
+    if (failed) { this.failedCall(call, data, value, source); return; }
+    // Paseo's tools nest the handle and status one level down: browser tabs in `result`, async shells in `task`.
+    const nested = object(data.result), specific = object(data[call.kind === "async_shell" ? "task" : call.kind]);
+    const handle = id(data.session_id ?? data.task_id ?? data.taskId ?? data.agentId ?? data.agent_id ?? data.tabId ?? data.tab_id ?? data.browserId ?? nested.browserId ?? nested.tabId ?? data.terminalId ?? data.terminal_id ?? data.runId ?? data.scheduleId ?? data.heartbeatId ?? specific.taskId ?? specific.id ?? data.id) ?? call.handle;
     const header = typeof value === "string" ? id(/^Process running with session ID ([\w.-]+)/m.exec(value)?.[1]) ?? announcedHandle(value) : undefined;
     const ref = handle ?? header;
+    if (call.action === "close") {
+      // A close that succeeded ended its target unless the target reports that it still runs; it never starts or invents an item.
+      const status = string(specific.status) || string(nested.status) || string(data.status);
+      if (ref && !asyncShellRunning.has(status)) this.push({ id: `background:${this.agentId}:${call.kind}:${ref}`, kind: call.kind, handle: ref, callId, status: "closed", closeOnly: true, ...(status ? { outcome: redactCaptureText(status).slice(0, 40) } : {}) }, source, call.at);
+      return;
+    }
     const finishedExec = call.kind === "exec" && (number(data.exit_code) !== undefined || (typeof value === "string" && /^Process exited with code \d+/m.test(value)));
     if (call.kind === "exec" && ref && !finishedExec) this.running(ref);
-    const closed = finishedExec || call.action === "close" && (data.ok === true || data.success === true || data.cancelled === true || data.canceled === true || data.deleted === true || ["closed", "cancelled", "canceled", "deleted"].includes(string(data.status)));
     if (finishedExec && !ref) {
       if (call.detached) { this.gap({ id: `detached:${sourceKey(source)}`, kind: "detached_background_untracked", source }); this.result.background.push({ id: `background:${this.agentId}:${callId}`, source, kind: call.kind, callId, status: "unknown", at: call.at, ...(call.label ? { label: call.label } : {}) }); }
       else this.push({ id: `background:${this.agentId}:${callId}`, kind: call.kind, callId, status: "closed", closeOnly: true }, source, call.at);
       return;
     }
-    if (!ref || call.action === "close" && !closed) { this.gap({ id: `handle:${sourceKey(source)}`, kind: "background_handle_unknown", source }); this.result.background.push({ id: `background:${this.agentId}:${callId}`, source, kind: call.kind, callId, status: "unknown", at: call.at, ...(call.label ? { label: call.label } : {}) }); return; }
-    this.result.background.push({ id: `background:${this.agentId}:${call.kind}:${ref}`, source, kind: call.kind, handle: ref, callId, status: closed ? "closed" : "open", at: call.at, ...(call.label ? { label: call.label } : {}), ...(finishedExec ? { outcome: number(data.exit_code) !== undefined ? `exit ${data.exit_code}` : "completed" } : {}) });
+    if (!ref) { this.gap({ id: `handle:${sourceKey(source)}`, kind: "background_handle_unknown", source }); this.result.background.push({ id: `background:${this.agentId}:${callId}`, source, kind: call.kind, callId, status: "unknown", at: call.at, ...(call.label ? { label: call.label } : {}) }); return; }
+    this.result.background.push({ id: `background:${this.agentId}:${call.kind}:${ref}`, source, kind: call.kind, handle: ref, callId, status: finishedExec ? "closed" : "open", at: call.at, ...(call.label ? { label: call.label } : {}), ...(finishedExec ? { outcome: number(data.exit_code) !== undefined ? `exit ${data.exit_code}` : "completed" } : {}) });
+  }
+  /**
+   * A known tool call that failed (`isError`, `ok: false`, an error): a start started nothing, as for "collab spawn failed",
+   * and a close or poll left its target as it was. Not an item or a gap: a note keeps the error, and an in-flight
+   * placeholder from an earlier poll is settled.
+   */
+  private failedCall(call: PendingCaptureCall, data: RecordValue, value: unknown, source: CaptureSource) {
+    const reason = (raw: unknown) => typeof raw === "string" ? raw : string(object(raw).message) || string(object(raw).error);
+    const error = redactCaptureText((reason(data.error) || (typeof value === "string" ? value : "") || string(data.message)).replace(/\s+/g, " ").trim()).slice(0, 300);
+    const what = call.action === "start" ? ", so Flowly assumes it started nothing" : "; what it targeted keeps its state";
+    this.notice(`failed-call:${call.callId}`, `${call.name ?? call.kind} failed (call ${call.callId})${what}${error ? `: ${error}` : "."}`, call.at, "background", 600);
+    if (call.action === "start") this.push({ id: `background:${this.agentId}:${call.callId}`, kind: call.kind, callId: call.callId, status: "closed", closeOnly: true }, source, call.at);
   }
   /** Codex item_completed: nested calls of a code-mode script appear only here (top-level ones repeat their call id). */
   private item(raw: unknown, source: CaptureSource, timestamp: unknown) {
