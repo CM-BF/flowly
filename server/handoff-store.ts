@@ -259,7 +259,10 @@ export class HandoffStore {
         const body = await readFile(file, "utf8").catch(() => undefined);
         if (body === undefined || hash(body) !== ref) continue;
         let entry: { id?: unknown; rev?: unknown; sourceId?: unknown }; try { entry = JSON.parse(body); } catch { continue; }
-        if (typeof entry.id !== "string" || (grace && revisions.get(entry.id) === entry.rev)) continue;
+        // A body of a revision past the record's is a write in flight that this queue cannot see (another process on the
+        // same data directory): the bodies an unfinished write creates carry the next revision, or the id and rev of an
+        // entry of the record it started from (what `grace` keeps). Its own next revision collects one that stays unnamed.
+        if (typeof entry.id !== "string" || !Number.isSafeInteger(entry.rev) || (entry.rev as number) > record.revision || (grace && revisions.get(entry.id) === entry.rev)) continue;
         const pointers = [latest(entry.id), ...(typeof entry.sourceId === "string" ? [sources(entry.sourceId)] : [])];
         if ((await Promise.all(pointers.map((pointer) => this.optional<Pointer>(pointer).catch(() => ({ ref }))))).some((pointer) => pointer?.ref === ref)) continue;
       }
