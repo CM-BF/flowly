@@ -1,15 +1,19 @@
 import { afterEach, expect, test } from "vitest";
-import { readFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { handoffOpenIds, type HandoffSession } from "../shared/handoff";
 import { handoffRefusalFingerprint } from "./handoff-requirements";
 import { cleanupObserverFixtures, codexEvent, codexResponse, observerFixture } from "./handoff-observer-fixture";
+import { HandoffService } from "./handoff-service";
 import type { HandoffStore } from "./handoff-store";
+import { BoardStore } from "./store";
 
 // A poll that lands while a call runs (a code-mode script, an exec_command, a browser tab being opened) sees the call but
 // not its result yet: an evidence-free in-flight placeholder. It must surface while the call runs, and once the result
 // settles it, leave no archived ledger version, no closed entry and no new delivery-gate requirement behind.
-afterEach(cleanupObserverFixtures);
+const folders: string[] = [], at = "2026-10-25T02:00:00.000Z";
+afterEach(async () => { await cleanupObserverFixtures(); await Promise.all(folders.splice(0).map((path) => rm(path, { recursive: true, force: true }))); });
 
 const script = (callId: string, input = "const r = await tools.exec_command({ cmd: \"npm test\" }); text(r);") => codexResponse("custom_tool_call", { call_id: callId, id: `ctc_${callId}`, status: "completed", name: "exec", input });
 const scriptOutput = (callId: string, header = "Script completed", ...printed: string[]) => codexResponse("custom_tool_call_output", { call_id: callId, output: [{ type: "input_text", text: `${header}\nWall time 0.5 seconds\nOutput:\n` }, ...printed.map((text) => ({ type: "input_text", text }))] });
@@ -78,4 +82,24 @@ test("an in-flight placeholder is not a new delivery-gate requirement", async ()
   await x.append([script("s1")]); await x.poll();
   expect((await x.read()).ledger[0].background).toHaveLength(1);
   expect(handoffRefusalFingerprint(await x.read())).toBe(before);
+});
+
+test("the board index does not count an in-flight placeholder, so catching a call running does not rewrite board.json", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "flowly-inflight-index-")); folders.push(directory);
+  const board = new BoardStore(directory), handoffs = new HandoffService(board);
+  await board.mutate((value) => {
+    value.projects.push({ id: "project", title: "P", description: "", paseoProjectId: "native", primaryPath: directory, repos: [directory], revision: 1, createdAt: at, updatedAt: at, archivedAt: null });
+    value.tasks.push({ id: "card", projectId: "project", workspaceId: "workspace", sourcePath: directory, repoPaths: [], title: "Card", description: "", status: "development", priority: "normal", position: 0, revision: 1, operationId: "create", createdAt: at, updatedAt: at, archivedAt: null });
+  });
+  const session = { agentId: "worker", n: 1, role: "implementer" as const, provider: "codex", reason: "launch", startedAt: at, finalized: false, turns: [], live: [] };
+  await handoffs.records.setSession("card", "project", { ...session, background: [] }, { by: { kind: "flowly" }, sourceId: "session:worker" });
+  await handoffs.syncIndex("card");
+  const before = await readFile(join(directory, "board.json"), "utf8");
+  await handoffs.records.setSession("card", "project", { ...session, background: [{ id: "bg:in-flight", callId: "s1", kind: "exec_session", ref: "unknown:s1", label: "script running", startedAt: at, status: "unknown", source: "live", inFlight: true }] }, { by: { kind: "flowly" }, sourceId: "session:worker" });
+  await handoffs.syncIndex("card");
+  expect(await readFile(join(directory, "board.json"), "utf8")).toBe(before);
+  // Real background work still counts.
+  await handoffs.records.setSession("card", "project", { ...session, background: [{ id: "bg:server", kind: "exec_session", ref: "4242", label: "dev server", startedAt: at, status: "open", source: "live" }] }, { by: { kind: "flowly" }, sourceId: "session:worker" });
+  await handoffs.syncIndex("card");
+  expect((await board.read()).handoffIndex.find((entry) => entry.taskId === "card")?.open).toBe(1);
 });

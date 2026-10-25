@@ -109,7 +109,9 @@ export class HandoffService {
     await this.board.transaction((current) => {
       if (!current.tasks.some((card) => card.id === task.id && card.projectId === project.id)) return { value: undefined, changed: false };
       const old = current.handoffIndex.find((entry) => entry.taskId === task.id);
-      const next = { taskId: task.id, fresh: !status.due.length, ...(status.due.length ? { staleSince: old?.staleSince ?? this.now() } : {}), open: handoffOpenIds(record).length, sessions: Math.max(0, ...record.ledger.map((entry) => entry.n)) };
+      // A call caught in flight is on the card but not counted here: the index would rewrite board.json each time a poll catches one.
+      const inFlight = new Set(record.ledger.flatMap((entry) => entry.background.filter((item) => item.inFlight).map((item) => item.id)));
+      const next = { taskId: task.id, fresh: !status.due.length, ...(status.due.length ? { staleSince: old?.staleSince ?? this.now() } : {}), open: handoffOpenIds(record).filter((id) => !inFlight.has(id)).length, sessions: Math.max(0, ...record.ledger.map((entry) => entry.n)) };
       if (JSON.stringify(old) === JSON.stringify(next)) return { value: undefined, changed: false };
       current.handoffIndex = [...current.handoffIndex.filter((entry) => entry.taskId !== task.id), next];
       return { value: undefined, changed: true };
