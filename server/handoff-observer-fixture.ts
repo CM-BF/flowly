@@ -29,8 +29,11 @@ export const codexTyped = (itemId: string, text: string) => codexItem({ type: "U
 /** Common fields of a Claude Code transcript record written through the SDK (Paseo's entrypoint). */
 export const claudeBase = { sessionId: fixtureUuid, entrypoint: "sdk-cli", isSidechain: false, timestamp: fixtureAt, userType: "external", cwd: "/tmp/synthetic", version: "2.9.0" };
 
-/** One managed session (`worker`) of card `card`, observed through the real HandoffObserver and HandoffStore. */
-export async function observerFixture(options: { provider?: "codex" | "claude"; maxLineBytes?: number } = {}) {
+/**
+ * One managed session (`worker`) of card `card`, observed through the real HandoffObserver and HandoffStore. `running`: the
+ * session is in a turn (Paseo reports it running with an active turn) instead of idle; `actor` can be changed between polls.
+ */
+export async function observerFixture(options: { provider?: "codex" | "claude"; maxLineBytes?: number; running?: boolean } = {}) {
   const provider = options.provider ?? "codex";
   const directory = await mkdtemp(join(tmpdir(), "flowly-observer-fixture-")); roots.push(directory);
   const board = new BoardStore(directory), records = new HandoffStore(directory), home = join(directory, `synthetic-${provider}`);
@@ -48,7 +51,7 @@ export async function observerFixture(options: { provider?: "codex" | "claude"; 
     const folder = join(home, "projects", "synthetic-project"); await mkdir(folder, { recursive: true });
     path = join(folder, `${fixtureUuid}.jsonl`); await writeFile(path, "");
   }
-  const actor = { id: "worker", provider, model: `${provider}-fixture`, cwd: directory, workspaceId: "workspace", status: "idle", activeTurn: null, pendingPermissions: [] as unknown[], createdAt: fixtureAt, updatedAt: fixtureAt, lastUserMessageAt: fixtureAt, persistence: { provider, nativeHandle: fixtureUuid, sessionId: fixtureUuid }, archivedAt: null };
+  const actor: { status: string; activeTurn: { turnId: string; startedAt: string } | null } & Record<string, unknown> = { id: "worker", provider, model: `${provider}-fixture`, cwd: directory, workspaceId: "workspace", status: options.running ? "running" : "idle", activeTurn: options.running ? { turnId: "turn-1", startedAt: fixtureAt } : null, pendingPermissions: [] as unknown[], createdAt: fixtureAt, updatedAt: fixtureAt, lastUserMessageAt: fixtureAt, persistence: { provider, nativeHandle: fixtureUuid, sessionId: fixtureUuid }, archivedAt: null };
   const paseo = { agents: { ref: () => ({ refresh: async () => ({ agent: actor }) }) } } as unknown as PaseoApi;
   const deps: HandoffObserverDeps = { records, board, paseo: () => paseo, serial: <T>(_: string, fn: () => Promise<T>) => fn(), syncIndex: async () => undefined, clock: () => Date.parse(fixtureAt),
     capture: (agent, previous, o) => captureHandoff(agent, previous, { ...o, codexHome: provider === "codex" ? home : join(directory, "unused-codex"), claudeHome: provider === "claude" ? home : join(directory, "unused-claude"), ...(options.maxLineBytes ? { maxLineBytes: options.maxLineBytes } : {}) }),
@@ -62,7 +65,7 @@ export async function observerFixture(options: { provider?: "codex" | "claude"; 
   };
   /** The automation's seal of this session for a rotation (no finalize turn ran). */
   const seal = (rotationId = "rotation:fixture") => observer.bridge.seal({ taskId: "card", rotationId, role: "implementer", fromAgentId: "worker", reason: "run_again", allowFinalize: false, carry: { id: "instruction", role: "implementer", text: "Continue", fresh: "Continue", kind: "again" } });
-  return { observer, records, path, read, ack, seal,
+  return { observer, records, path, read, ack, seal, actor, board,
     append: (lines: unknown[]) => appendFile(path, lines.map(jsonLine).join("")),
     poll: () => observer.observe("card", "worker"),
     hook: (timeline: unknown[], outcome: HandoffObservation["outcome"] = "completed") => observer.observe("card", "worker", { outcome, timeline }) };

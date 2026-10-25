@@ -11,7 +11,9 @@ import { BoardStore } from "./store";
 
 // A poll that lands while a call runs (a code-mode script, an exec_command, a browser tab being opened) sees the call but
 // not its result yet: an evidence-free in-flight placeholder. It must surface while the call runs, and once the result
-// settles it, leave no archived ledger version, no closed entry and no new delivery-gate requirement behind.
+// settles it, leave no archived ledger version, no closed entry and no new delivery-gate requirement behind. A call is in
+// flight only while its session is in a turn: once the session is idle, gone or ended, a call without a result is leftover
+// work like any evidence-free placeholder.
 const folders: string[] = [], at = "2026-10-25T02:00:00.000Z";
 afterEach(async () => { await cleanupObserverFixtures(); await Promise.all(folders.splice(0).map((path) => rm(path, { recursive: true, force: true }))); });
 
@@ -27,7 +29,7 @@ async function archivedLedgerVersions(records: HandoffStore) {
 }
 
 test("a script caught running surfaces as one in-flight item, and once it returns leaves no ledger version or entry behind", async () => {
-  const x = await observerFixture();
+  const x = await observerFixture({ running: true });
   await x.poll();
   for (let n = 1; n <= 5; n++) {
     await x.append([codexEvent("token_count", { info: { last_token_usage: { total_tokens: 1000 + n } } }), script(`s${n}`)]);
@@ -45,7 +47,7 @@ test("a script caught running surfaces as one in-flight item, and once it return
 });
 
 test("a script that keeps running stays on the card across polls and in the sealed handoff; a yielded cell becomes real work", async () => {
-  const x = await observerFixture();
+  const x = await observerFixture({ running: true });
   await x.append([script("s1", "await longTask();")]);
   for (let n = 0; n < 4; n++) await x.poll();
   const record = await x.read(), id = record.ledger[0].background[0].id;
@@ -53,13 +55,17 @@ test("a script that keeps running stays on the card across polls and in the seal
   expect(handoffOpenIds(record)).toEqual([id]);
   const sealed = await x.seal();
   expect(sealed.prompt).toContain("script running");
+  // Sealed, the session gets no result any more: the call is leftover work, no longer in flight.
+  expect(background((await x.read()).ledger[0])).toEqual(["exec_session:unknown:unknown:s1:script running"]);
+  // Its result, read later, ends the handed-over placeholder (history now, so it closes rather than vanishes) and the yielded
+  // cell is real work.
   await x.append([scriptOutput("s1", "Script running with cell ID 7")]);
   await x.poll();
-  expect(background((await x.read()).ledger[0])).toEqual(["exec_session:open:cell:7:script cell 7 still running"]);
+  expect(background((await x.read()).ledger[0])).toEqual(["exec_session:closed:unknown:s1:script running", "exec_session:open:cell:7:script cell 7 still running"]);
 });
 
 test("an in-flight start that returns a handle becomes a real item; one that fails or exits leaves only its note", async () => {
-  const x = await observerFixture();
+  const x = await observerFixture({ running: true });
   await x.append([call("c1", "mcp__async_shell__register_async_shell", { command: "make long-build", description: "build" }), call("c2", "mcp__paseo__browser_new_tab", { url: "https://app.paseo.sh" }), call("c3", "exec_command", { cmd: "npm test" })]);
   await x.poll();
   expect(background((await x.read()).ledger[0])).toEqual([
@@ -76,7 +82,7 @@ test("an in-flight start that returns a handle becomes a real item; one that fai
 });
 
 test("an in-flight placeholder is not a new delivery-gate requirement", async () => {
-  const x = await observerFixture();
+  const x = await observerFixture({ running: true });
   await x.poll();
   const before = handoffRefusalFingerprint(await x.read());
   await x.append([script("s1")]); await x.poll();
@@ -102,4 +108,77 @@ test("the board index does not count an in-flight placeholder, so catching a cal
   await handoffs.records.setSession("card", "project", { ...session, background: [{ id: "bg:server", kind: "exec_session", ref: "4242", label: "dev server", startedAt: at, status: "open", source: "live" }] }, { by: { kind: "flowly" }, sourceId: "session:worker" });
   await handoffs.syncIndex("card");
   expect((await board.read()).handoffIndex.find((entry) => entry.taskId === "card")?.open).toBe(1);
+});
+
+/** The board index entry of the fixture card after a sync by the real HandoffService. */
+async function indexed(x: Awaited<ReturnType<typeof observerFixture>>) {
+  const service = new HandoffService(x.board);
+  await service.syncIndex("card");
+  return (await x.board.read()).handoffIndex.find((entry) => entry.taskId === "card");
+}
+
+test("a call whose session is sealed, stopped or idle without its result counts on the board, in the gate and in history", async () => {
+  // Sealed mid-call: the deploy script may still be running, and nothing will ever report it.
+  const sealed = await observerFixture({ running: true });
+  await sealed.poll();
+  const fingerprint = handoffRefusalFingerprint(await sealed.read());
+  await sealed.append([script("s1", "await tools.exec_command({ cmd: \"./deploy.sh production\" });")]); await sealed.poll();
+  expect(handoffRefusalFingerprint(await sealed.read())).toBe(fingerprint); // in flight while the turn runs
+  await sealed.seal();
+  const record = await sealed.read();
+  expect(record.ledger[0].endedAt).toBeTruthy();
+  expect(handoffRefusalFingerprint(record)).not.toBe(fingerprint);
+  expect((await indexed(sealed))?.open).toBe(1);
+  // The turn ends (the session stopped mid-call): the next poll settles the placeholder as leftover work, archived as history.
+  const stopped = await observerFixture({ running: true });
+  await stopped.append([script("s2")]); await stopped.poll();
+  expect((await indexed(stopped))?.open).toBe(0);
+  const archived = await archivedLedgerVersions(stopped.records);
+  Object.assign(stopped.actor, { status: "idle", activeTurn: null });
+  await stopped.poll(); await stopped.poll();
+  expect(background((await stopped.read()).ledger[0])).toEqual(["exec_session:unknown:unknown:s2:script running"]);
+  expect((await indexed(stopped))?.open).toBe(1);
+  expect(await archivedLedgerVersions(stopped.records)).toBe(archived + 1);
+  // A call first seen while the session is already idle is never in flight.
+  const idle = await observerFixture();
+  await idle.append([script("s3")]); await idle.poll(); await idle.poll();
+  expect(background((await idle.read()).ledger[0])).toEqual(["exec_session:unknown:unknown:s3:script running"]);
+  expect((await indexed(idle))?.open).toBe(1);
+});
+
+const shells = (count: number) => Array.from({ length: count }, (_, n) => [call(`r${n}`, "mcp__async_shell__register_async_shell", { command: `make watch-${n}`, description: `watch ${n}` }), result(`r${n}`, JSON.stringify({ task: { taskId: `task-${String(n).padStart(4, "0")}`, status: "running" } }))]).flat();
+
+test("a call in flight at the 40-entry capacity never merges real background items", async () => {
+  const x = await observerFixture({ running: true });
+  await x.poll();
+  await x.append(shells(40)); await x.poll();
+  const archived = await archivedLedgerVersions(x.records);
+  const notes = (await x.read()).notes.length;
+  await x.append([script("s1", "const files = await readFiles(); text(files.length);")]); await x.poll();
+  const during = await x.read();
+  expect(during.ledger[0].skeleton).toContain("1 call in flight is not listed");
+  await x.append([scriptOutput("s1")]); await x.poll();
+  await x.append([codexEvent("user_message", { message: "[async-shell finished task-0000] \"make watch-0\" exited with code 0 after 9s." })]); await x.poll();
+  const after = await x.read(), entries = after.ledger[0].background;
+  expect(entries.filter((entry) => entry.ref.startsWith("merged:"))).toEqual([]);
+  expect(entries.filter((entry) => entry.ref.startsWith("task-"))).toHaveLength(40);
+  expect(entries.find((entry) => entry.ref === "task-0000")).toMatchObject({ status: "closed", label: "make watch-0" });
+  expect(after.notes).toHaveLength(notes + 1); // the finished notice's own note, no merge note
+  expect(await archivedLedgerVersions(x.records)).toBe(archived + 1); // only task-0000's end is history
+  expect(after.ledger[0].skeleton).not.toContain("in flight");
+});
+
+test("more than 40 calls in flight in a quiet running turn: 40 listed, the rest counted, and no poll writes", async () => {
+  const x = await observerFixture({ running: true });
+  await x.poll();
+  await x.append(Array.from({ length: 45 }, (_, n) => script(`p${n}`, "const files = await readFiles(); text(files.length);")));
+  await x.poll();
+  const first = await x.read();
+  expect(first.ledger[0].background.filter((entry) => entry.inFlight)).toHaveLength(40);
+  expect(first.ledger[0].skeleton).toContain("5 calls in flight are not listed");
+  for (let n = 0; n < 5; n++) await x.poll();
+  const later = await x.read();
+  expect(later.revision).toBe(first.revision);
+  expect(later.notes).toEqual(first.notes);
+  expect(await archivedLedgerVersions(x.records)).toBe(0);
 });

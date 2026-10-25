@@ -27,6 +27,8 @@ const nativeCursor = (value: unknown): CaptureCursor | undefined => value && typ
 const stripAt = <T extends { at: string }>(value: T) => { const { at: _, ...rest } = value; return rest; };
 /** Stored records are JSON: compare what would be written, so an undefined-valued key is not a change (an idle poll writes nothing). */
 const stored = <T>(value: T): T => value === undefined ? value : JSON.parse(JSON.stringify(value)) as T;
+/** Calls in flight whose result can no longer come become ordinary evidence-free placeholders (in place). */
+const settleInFlight = (background: HandoffSession["background"]) => background.forEach((item, index) => { if (item.inFlight) { const { inFlight: _, ...settled } = item; background[index] = settled; } });
 const temporary = new Set(["partial_line", "backlog", "record_budget", "aborted", "background_handle_pending", "long_line_partial", "source_missing", "source_unreadable", "read_failed", "locator_budget", "unsupported_provider", "invalid_session"]);
 const kinds = { async_shell: "async_shell", exec: "exec_session", browser: "browser_tab", terminal: "terminal", workspace_script: "script", agent: "subagent", schedule: "schedule", heartbeat: "heartbeat" } as const;
 type SessionDraft = NonNullable<HandoffCapture["session"]>;
@@ -173,6 +175,7 @@ export class HandoffObserver {
     try { actor = await this.snapshot(agentId, task.workspaceId); } catch (error) { this.check(); if (String(error).includes("does not belong")) throw error; snapshotFailed = true; }
     const role = automationSessionRole(board, agentId, taskId, previous ? [previous] : [])?.role;
     const session = previous ?? this.registration(board, record, agentId, actor);
+    const inTurn = !!actor && (["running", "initializing"].includes(actor.status) || !!actor.activeTurn);
     const resume = session.through?.resume as Resume | undefined, state: ObserverState = { ...(resume?.observer ?? {}) };
     const job = jobOf(board, taskId);
     const instructions = [job?.instruction, job?.workInstructions?.implementer, job?.workInstructions?.reviewer, job?.rotation?.carry, job?.rotation?.finalize].filter((item) => !!item);
@@ -260,11 +263,12 @@ export class HandoffObserver {
         ...(item.inFlight && (!old || old.inFlight) ? { inFlight: true as const } : {}) };
       if (index >= 0) background[index] = next; else background.push(next);
     }
+    // A call is in flight only while its session is in a turn (SESSION-HANDOFF-SPEC §5.7). Once the session is idle, gone or
+    // ended, and its provider file was read to the end, a call without its result will get none: it is leftover work like
+    // any evidence-free placeholder (it counts on the board, enters the delivery gate and is ledger history).
+    if (session.endedAt || (actor ? !inTurn && !captureFailed && !batch?.coverage.backlogBytes : !snapshotFailed)) settleInFlight(background);
     this.mergeBackground(agentId, session.n, background, meta, entries);
-    if (background.length > 40) {
-      background.sort((a, b) => Number(a.status !== "closed") - Number(b.status !== "closed"));
-      background.splice(0, background.length - 40); // Only proven closed handles leave this bounded index.
-    }
+    const unlisted = this.boundBackground(background);
     const live = new Map<string, HandoffSession["live"][number]>();
     (meta.liveIds ?? []).forEach((id, index) => { if (session.live[index]) live.set(id, session.live[index]); });
     const originalLive = new Map(live);
@@ -369,7 +373,8 @@ export class HandoffObserver {
     // A start call whose result is not written yet is its own in-flight background item; it is not missing coverage.
     const currentGaps = semantics.flatMap((source) => source.gaps).filter((gap) => temporary.has(gap.kind) && gap.kind !== "background_handle_pending");
     const unavailable = captureFailed ? ["Provider capture failed; the previous cursor is preserved."] : !actor ? [snapshotFailed ? "Session snapshot could not be refreshed." : "The managed session is unavailable; its uncaptured content is unknown."] : [];
-    const coverageText = [...unavailable, ...(narrationText ? [narrationText] : []), ...currentGaps.map((gap) => `${gap.kind}${gap.bytes === undefined ? "" : ` (${gap.bytes} bytes)`}`), ...semantics.filter((source) => source.omittedGaps).map((source) => `${source.omittedGaps} additional capture gaps omitted`)].join("; ");
+    const flightText = unlisted ? [`${unlisted} ${unlisted === 1 ? "call in flight is" : "calls in flight are"} not listed (the 40 background entries are full); each stays observed while it runs, and is listed if it is still without a result when the session stops`] : [];
+    const coverageText = [...unavailable, ...flightText, ...(narrationText ? [narrationText] : []), ...currentGaps.map((gap) => `${gap.kind}${gap.bytes === undefined ? "" : ` (${gap.bytes} bytes)`}`), ...semantics.filter((source) => source.omittedGaps).map((source) => `${source.omittedGaps} additional capture gaps omitted`)].join("; ");
     const cursor = batch?.cursor ?? nativeCursor(resume);
     const through = { ...(session.through ?? { path: "", identity: `unavailable:${agentId}`, offset: 0, size: 0, at: this.now(), lagBytes: 0, gaps: 0 }),
       ...(cursor ? { path: cursor.path, identity: `${cursor.fileId}:${cursor.epoch}`, offset: cursor.offset } : {}),
@@ -390,7 +395,6 @@ export class HandoffObserver {
     // also when the read fails. An idle card is read at its turn ends, rotations and handoff writes (forceGit), and an ACK
     // reads the heads itself: polling it recorded every change other cards made in a shared project root (live: about one
     // revision per card every 2 minutes, each moving the revision a prepared ACK names).
-    const inTurn = !!actor && (["running", "initializing"].includes(actor.status) || !!actor.activeTurn);
     if (options.forceGit || inTurn && this.clock() - (this.gitAt.get(taskId) ?? -Infinity) >= 120_000) {
       this.gitAt.set(taskId, this.clock());
       try {
@@ -485,17 +489,17 @@ export class HandoffObserver {
   /**
    * At more than 40 active entries, the oldest ones (evidence-free placeholders first) are merged into one open entry per
    * session that counts them, and a note lists each merged item. Capture never stops for background capacity: refusing
-   * the batch also refused the person's words, notes and compactions behind it (SESSION-HANDOFF-SPEC §5.7).
+   * the batch also refused the person's words, notes and compactions behind it (SESSION-HANDOFF-SPEC §5.7). Calls in
+   * flight are observation state and never count here: a transient call must not merge real items for good.
    */
   private mergeBackground(agentId: string, n: number, background: HandoffSession["background"], meta: ObserverState, entries: NonNullable<HandoffCapture["entries"]>) {
-    const active = () => background.filter((item) => item.status !== "closed");
+    const active = () => background.filter((item) => item.status !== "closed" && !item.inFlight);
     if (active().length <= 40) return;
     const merge = meta.merged ?? { epoch: 0, count: 0 };
     let aggregateId = entryId("bg", `background-merged:${agentId}:${merge.epoch}`);
     if (background.some((item) => item.id === aggregateId && item.status === "closed")) { merge.epoch++; merge.count = 0; aggregateId = entryId("bg", `background-merged:${agentId}:${merge.epoch}`); }
     const aggregate = background.find((item) => item.id === aggregateId);
-    // Calls in flight merge last: one still running comes back on the next poll as its own placeholder.
-    const candidates = active().filter((item) => item.id !== aggregateId).sort((a, b) => Number(!!a.inFlight) - Number(!!b.inFlight) || Number(!a.ref.startsWith("unknown:")) - Number(!b.ref.startsWith("unknown:")) || time(a.startedAt) - time(b.startedAt));
+    const candidates = active().filter((item) => item.id !== aggregateId).sort((a, b) => Number(!a.ref.startsWith("unknown:")) - Number(!b.ref.startsWith("unknown:")) || time(a.startedAt) - time(b.startedAt));
     const merged = candidates.slice(0, active().length - 40 + (aggregate ? 0 : 1));
     for (const item of merged) background.splice(background.indexOf(item), 1);
     merge.count += merged.length; meta.merged = merge;
@@ -504,6 +508,19 @@ export class HandoffObserver {
     const sourceId = handoffSource(`background-merged:${agentId}:${merge.epoch}:${merge.count}`);
     const list = merged.map((item) => `${item.kind} ${item.status} ${item.ref}: ${item.label} (since ${item.startedAt})`).join("; ");
     entries.push({ section: "notes", value: { id: entryId("nt", sourceId), sourceId, kind: "background", text: `Session #${n} (${agentId.slice(0, 8)}) had more than 40 active background items. ${merged.length} were merged into one entry ("${next.label}"); each may still be running: ${list}`.slice(0, 2000) } });
+  }
+  /**
+   * The ledger entry holds at most 40 background entries. Real items keep their place (only proven closed ones leave, oldest
+   * first); calls in flight take only the slots left free, in the order first seen, so the same ones stay listed across
+   * polls. Returns how many calls in flight are not listed: the cursor re-emits them on every poll while they run.
+   */
+  private boundBackground(background: HandoffSession["background"]) {
+    const real = background.filter((item) => !item.inFlight), flying = background.filter((item) => item.inFlight);
+    const trimmed = real.length > 40;
+    if (trimmed) { real.sort((a, b) => Number(a.status !== "closed") - Number(b.status !== "closed")); real.splice(0, real.length - 40); }
+    const shown = new Set(flying.slice(0, 40 - real.length));
+    background.splice(0, background.length, ...(trimmed ? real : background.filter((item) => !item.inFlight || shown.has(item))));
+    return flying.length - shown.size;
   }
   private comparable(session: SessionDraft) {
     const { rev: _, at: _at, by: _by, contentRef: _ref, ...rest } = session as HandoffSession;
@@ -549,7 +566,9 @@ export class HandoffObserver {
     if (session && !session.endedAt) {
       const finalized = !!rotation?.finalize?.startedAt && record.checkpoint?.agentId === context.fromAgentId && time(record.checkpoint.at) >= time(rotation.finalize.startedAt);
       const lastWords = this.sealWords(record, session);
-      this.check(); await this.deps.records.capture(context.taskId, project.id, { session: { ...session, endedAt: this.now(), endReason: context.reason, finalized, abandoned: undefined, handoffRevisionAtEnd: record.revision }, ...(lastWords ? { lastWords } : {}) }, flowly);
+      // A sealed session gets no more results: a call still in flight is leftover work from here on (§5.7).
+      const background = [...session.background]; settleInFlight(background);
+      this.check(); await this.deps.records.capture(context.taskId, project.id, { session: { ...session, background, endedAt: this.now(), endReason: context.reason, finalized, abandoned: undefined, handoffRevisionAtEnd: record.revision }, ...(lastWords ? { lastWords } : {}) }, flowly);
     }
     if (context.gap) await this.rotationGap(context, context.gap);
     this.check(); const sealed = await this.deps.records.seal(context.taskId, context.rotationId, project.id);
