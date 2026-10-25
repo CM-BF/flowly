@@ -3,10 +3,12 @@
  * tool-output lines are one counted gap, the required full read skips Flowly's own observation snapshots. Every text is synthetic.
  */
 import { afterEach, expect, test } from "vitest";
-import { readdir } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { appendFile, mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { handoffOpenIds } from "../shared/handoff";
-import { claudeBase, cleanupObserverFixtures, codexEvent, codexItem, codexTyped, observerFixture } from "./handoff-observer-fixture";
+import { handoffOpenIds, type CardHandoff, type HandoffSession } from "../shared/handoff";
+import type { HandoffStore } from "./handoff-store";
+import { claudeBase, cleanupObserverFixtures, codexEvent, codexItem, codexResponse, codexTyped, observerFixture } from "./handoff-observer-fixture";
 
 afterEach(cleanupObserverFixtures);
 const files = (path: string) => readdir(path).then((names) => names.length, () => 0);
@@ -68,4 +70,43 @@ test("a Claude tool result over the line budget is tool output; a long typed Cla
     expect.objectContaining({ count: 2, text: expect.stringMatching(/^Capture gap \(long_line\): user\/tool_result \(tool output\)/) }),
     expect.objectContaining({ count: 1, text: expect.stringMatching(/^Capture gap \(long_line\) in bytes \d+–\d+: user, message typed-1/) })]));
   expect(gaps).toHaveLength(2);
+});
+
+// ---------------------------------------------------------------- the required full read skips Flowly's observation snapshots (noise-r2-3)
+/** Archive ledger versions the way 786d9cd did (every poll superseded the entry and archived the previous version). */
+async function legacyArchive(root: string, versions: HandoffSession[]) {
+  const folder = join(root, "card"), current = join(root, "card.json"), lines: string[] = [];
+  await mkdir(join(folder, "entries"), { recursive: true });
+  for (const [n, version] of versions.entries()) {
+    const { contentRef: _, ...plain } = version, body = JSON.stringify(plain), ref = createHash("sha256").update(body).digest("hex");
+    await writeFile(join(folder, "entries", `${ref}.json`), body);
+    lines.push(JSON.stringify({ eventId: `legacy:${n}`, section: "ledger", id: version.id, ref, rev: version.rev, at: version.at, ...(version.sourceId ? { sourceId: version.sourceId } : {}) }) + "\n");
+  }
+  await appendFile(join(folder, "archive.jsonl"), lines.join(""));
+  const record = JSON.parse(await readFile(current, "utf8")) as CardHandoff; record.archivedCount += versions.length;
+  await writeFile(current, JSON.stringify(record));
+}
+async function fullRead(records: HandoffStore) {
+  let page = await records.page("card", { scope: "all" }); const items = [...page.items];
+  for (let n = 0; !page.complete && page.nextCursor && n < 100; n++) { page = await records.page("card", { cursor: page.nextCursor }); items.push(...page.items); }
+  return { items, superseded: page.supersededSnapshots ?? 0, complete: page.complete };
+}
+
+test("the full read skips an archived ledger version whose history equals the next version's, and says how many", async () => {
+  const x = await observerFixture(), versions: HandoffSession[] = [];
+  for (let n = 0; n < 7; n++) {
+    await x.append([codexEvent("token_count", { info: { last_token_usage: { total_tokens: 1000 + n } } }), ...(n === 3 ? [codexResponse("custom_tool_call", { call_id: "s1", name: "exec", input: "const r = await tools.exec_command({ cmd: \"npm run dev\" }); text(r);" }), codexResponse("custom_tool_call_output", { call_id: "s1", output: [{ type: "input_text", text: "Script completed\nOutput:\n" }, { type: "input_text", text: JSON.stringify({ session_id: 4242 }) }] })] : [])]);
+    await x.poll();
+    versions.push((await x.read()).ledger[0]);
+  }
+  // The current code archived one version, when v4 opened the dev server (that version is v3). 786d9cd archived each of
+  // the first six versions too; the seventh is current. Only v3 differs from the version after it.
+  expect((await fullRead(x.records)).items.filter((item) => item.origin === "archive" && item.section === "ledger")).toHaveLength(1);
+  await legacyArchive(x.records.root, versions.slice(0, 6));
+  const after = await fullRead(x.records);
+  const archived = after.items.filter((item) => item.origin === "archive" && item.section === "ledger");
+  expect(archived.map((item) => (item.value as HandoffSession).rev)).toEqual([versions[2].rev]);
+  expect(after.superseded).toBe(6); expect(after.complete).toBe(true);
+  // Nothing was deleted: every archived body is still on disk.
+  for (const version of versions.slice(0, 6)) { const { contentRef: _, ...plain } = version; await expect(readFile(join(x.records.root, "card", "entries", `${createHash("sha256").update(JSON.stringify(plain)).digest("hex")}.json`), "utf8")).resolves.toBe(JSON.stringify(plain)); }
 });

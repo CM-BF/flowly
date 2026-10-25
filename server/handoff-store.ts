@@ -42,11 +42,16 @@ function ledgerHistory(session: HandoffSession) {
   const { through: _through, capturedThrough: _captured, measured: _measured, growth: _growth, live: _live, skeleton: _skeleton, scriptCalls: _scripts, rev: _rev, at: _at, by: _by, contentRef: _ref, ...kept } = session;
   return kept;
 }
+const canonical = (value: unknown): unknown => Array.isArray(value) ? value.map(canonical) : value !== null && typeof value === "object" ? Object.fromEntries(Object.keys(value).sort().map((key) => [key, canonical((value as Record<string, unknown>)[key])])) : value;
+const historyHash = (session: HandoffSession) => hash(JSON.stringify(canonical(ledgerHistory(session))));
+/** Per archive file (append-only): the newest archived version of each ledger entry and the offsets of versions whose history equals the next one's. */
+type LedgerRuns = { ino: number; scanned: number; last: Map<string, { offset: number; history: string }>; superseded: Set<number> };
 
 /** Per-card durable current record, immutable entry bodies and append-only pointers. No provider or daemon access. */
 export class HandoffStore {
   readonly root: string;
   private verifiedBodies = new Map<string, string>();
+  private ledgerRuns = new Map<string, LedgerRuns>();
   constructor(directory: string, private options: { now?: () => string; fault?: (point: string) => void | Promise<void> } = {}) { this.root = join(directory, "handoffs"); }
   private now() { return this.options.now?.() ?? new Date().toISOString(); }
   private paths(taskId: string) {
@@ -500,7 +505,7 @@ export class HandoffStore {
     try {
       if (encoded.length > 4096) throw new Error();
       const c = JSON.parse(Buffer.from(encoded, "base64url").toString("utf8")) as PageCursor;
-      if (c.taskId !== taskId || !Number.isSafeInteger(c.revision) || c.revision < 0 || !["current", "archive", "all"].includes(c.scope) || ![c.index, c.offset, c.openIndex].every((n) => Number.isSafeInteger(n) && n >= 0) || (c.body && (!/^[a-f0-9]{64}$/.test(c.body.ref) || !["json", "text"].includes(c.body.kind) || !Number.isSafeInteger(c.body.offset) || c.body.offset < 0 || (c.body.textRef && !/^[a-f0-9]{64}$/.test(c.body.textRef)) || !handoffEntrySections.includes(c.body.section) || !["current", "archive"].includes(c.body.origin) || typeof c.body.id !== "string" || (c.body.identity !== undefined && typeof c.body.identity !== "string")))) throw new Error();
+      if (c.taskId !== taskId || !Number.isSafeInteger(c.revision) || c.revision < 0 || !["current", "archive", "all"].includes(c.scope) || ![c.index, c.offset, c.openIndex].every((n) => Number.isSafeInteger(n) && n >= 0) || [c.archived, c.superseded].some((n) => n !== undefined && !(Number.isSafeInteger(n) && n >= 0)) || (c.body && (!/^[a-f0-9]{64}$/.test(c.body.ref) || !["json", "text"].includes(c.body.kind) || !Number.isSafeInteger(c.body.offset) || c.body.offset < 0 || (c.body.textRef && !/^[a-f0-9]{64}$/.test(c.body.textRef)) || !handoffEntrySections.includes(c.body.section) || !["current", "archive"].includes(c.body.origin) || typeof c.body.id !== "string" || (c.body.identity !== undefined && typeof c.body.identity !== "string")))) throw new Error();
       return c;
     } catch { throw new HandoffError("HANDOFF_CONFLICT", "Invalid handoff page cursor; start from the current card view."); }
   }
@@ -537,6 +542,52 @@ export class HandoffStore {
       const text = buffer.subarray(0, end).toString("utf8"), next = body.offset + end;
       return { text, next, complete: next >= size };
     } finally { await file.close(); }
+  }
+  /**
+   * Scans the archive once (then only what was appended): an archived ledger version whose history (ledgerHistory) equals
+   * the next archived version's is a Flowly observation snapshot. 786d9cd archived one on every poll; the next version holds
+   * the same history, so the required full read need not page through them. Their bodies stay on disk and by id.
+   */
+  private async runs(taskId: string): Promise<LedgerRuns | undefined> {
+    const path = this.paths(taskId).archive;
+    const info = await stat(path).catch((error) => { if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined; throw error; });
+    if (!info) return undefined;
+    let runs = this.ledgerRuns.get(taskId);
+    if (!runs || runs.ino !== info.ino || info.size < runs.scanned) { runs = { ino: info.ino, scanned: 0, last: new Map(), superseded: new Set() }; this.ledgerRuns.set(taskId, runs); }
+    if (this.ledgerRuns.size > 16) this.ledgerRuns.delete(this.ledgerRuns.keys().next().value!);
+    if (runs.scanned >= info.size) return runs;
+    const file = await open(path, "r");
+    try {
+      const chunk = Buffer.alloc(65536); let position = runs.scanned, rest = Buffer.alloc(0);
+      while (position < info.size) {
+        const { bytesRead } = await file.read(chunk, 0, Math.min(chunk.length, info.size - position), position);
+        if (!bytesRead) break;
+        const data = Buffer.concat([rest, chunk.subarray(0, bytesRead)]), base = position - rest.length; let start = 0;
+        position += bytesRead;
+        for (let end = data.indexOf(10); end >= 0; end = data.indexOf(10, start)) {
+          const offset = base + start, line = data.subarray(start, end).toString("utf8"); start = end + 1;
+          let pointer: Pointer; try { pointer = JSON.parse(line) as Pointer; } catch { runs.scanned = offset; return runs; } // page() reports a malformed pointer itself
+          if (pointer.section !== "ledger" || pointer.removal || !/^[a-f0-9]{64}$/.test(pointer.ref) || typeof pointer.id !== "string") continue;
+          const history = historyHash(await this.object(taskId, pointer.ref) as HandoffSession), previous = runs.last.get(pointer.id);
+          if (previous?.history === history) runs.superseded.add(previous.offset);
+          runs.last.set(pointer.id, { offset, history });
+        }
+        rest = data.subarray(start);
+      }
+      runs.scanned = position - rest.length;
+    } finally { await file.close(); }
+    return runs;
+  }
+  /** The newest archived version of an entry is superseded when the current version (in the record or its overflow index) has the same history. */
+  private async superseded(record: CardHandoff, pointer: Pointer, offset: number) {
+    if (pointer.section !== "ledger" || pointer.removal) return false;
+    const runs = await this.runs(record.taskId);
+    if (!runs) return false;
+    if (runs.superseded.has(offset)) return true;
+    if (runs.last.get(pointer.id)?.offset !== offset) return false;
+    const overflow = record.overflow.find((entry) => entry.section === "ledger" && entry.id === pointer.id);
+    const current = record.ledger.find((entry) => entry.id === pointer.id) ?? (overflow ? await this.object(record.taskId, overflow.contentRef) as HandoffSession : undefined);
+    return !!current && historyHash(current) === runs.last.get(pointer.id)!.history;
   }
   /** Each response is <=96 KiB. Full external input text is requested with entryId and continued by cursor. */
   page(taskId: string, options: { cursor?: string; entryId?: string; scope?: "current" | "archive" | "all" } = {}): Promise<HandoffPage> {
@@ -577,6 +628,7 @@ export class HandoffStore {
         if (c.index >= entries.length && c.scope !== "current" && !c.body) {
           for (;;) {
             const next = await this.archivePointer(taskId, c.offset); if (!next) { c.finished = true; break; }
+            if (await this.superseded(record, next.pointer, c.offset)) { c.offset = next.next; c.archived = (c.archived ?? 0) + 1; c.superseded = (c.superseded ?? 0) + 1; continue; }
             const original = await this.object(taskId, next.pointer.ref), entry = next.pointer.removal ? { ...original, removal: next.pointer.removal } : original;
             if (page.items.length && bytes(page) + bytes(entry) > 70000) break;
             c.offset = next.next; c.archived = (c.archived ?? 0) + 1;
@@ -585,6 +637,7 @@ export class HandoffStore {
         } else if (c.index >= entries.length && c.scope === "current" && !c.body) c.finished = true;
       }
       page.omitted = c.entryId ? c.finished ? 0 : 1 : Math.max(0, total - (c.scope === "archive" ? 0 : c.index) - (c.archived ?? 0));
+      if (c.superseded) page.supersededSnapshots = c.superseded;
       page.complete = Boolean(c.finished) && c.openIndex === allOpen.length && !c.body;
       if (!page.complete) page.nextCursor = this.encodeCursor(c);
       if (bytes(page) > handoffLimits.pageBytes) throw new HandoffError("HANDOFF_TOO_LARGE", "A handoff page exceeds its 96 KiB transport budget.");
@@ -686,4 +739,4 @@ export class HandoffStore {
     });
   }
 }
-type PageCursor = { taskId: string; revision: number; scope: "current" | "archive" | "all"; index: number; offset: number; openIndex: number; entryId?: string; archived?: number; finished?: boolean; body?: { ref: string; kind: "text" | "json"; section: HandoffEntrySection; id: string; origin: "current" | "archive"; offset: number; textRef?: string; identity?: string } };
+type PageCursor = { taskId: string; revision: number; scope: "current" | "archive" | "all"; index: number; offset: number; openIndex: number; entryId?: string; archived?: number; superseded?: number; finished?: boolean; body?: { ref: string; kind: "text" | "json"; section: HandoffEntrySection; id: string; origin: "current" | "archive"; offset: number; textRef?: string; identity?: string } };
