@@ -193,6 +193,9 @@ export class CaptureRecords {
   private closed: string[] = [];
   /** Unified exec sessions known to be running (printed by a script, or a top-level exec_command still running): their completions close them, never count toward a later script. */
   private sessions: string[] = [];
+  /** Codex sub-agents interrupted in this batch (until new work), and the answer note each one wrote here. */
+  private interrupted = new Set<string>();
+  private answers = new Map<string, { note: CaptureNotice; write: (interrupted: boolean) => string }>();
   /** Aggregation per kind and type hint: a flood of one unknown record type is one gap with a count. */
   private groups = new Map<string, CaptureGap>();
   private origin: "provider" | "timeline" = "provider";
@@ -398,17 +401,49 @@ export class CaptureRecords {
   private subagentCall(tool: NonNullable<PendingCaptureCall["subagent"]>, callId: string, input: unknown, source: CaptureSource, timestamp: unknown) {
     if (!id(callId)) { this.gap({ id: `call:${sourceKey(source)}`, kind: "tool_call_identity_unknown", source }); return; }
     const data = this.arguments(input, source) ?? {}, handle = agentPath(tool === "spawn_agent" ? data.task_name : data.target);
-    const told = redactCaptureText(string(data.message).replace(/\s+/g, " ").trim()).slice(0, 80), name = handle?.split("/").pop() ?? "sub-agent";
+    // Codex passes the task as one opaque token (every spawn this month): the label is then the task name alone, never a redaction marker.
+    const flat = string(data.message).replace(/\s+/g, " ").trim(), told = /\s/.test(flat) && redactCaptureText(flat) === flat ? flat.slice(0, 80) : "", name = handle?.split("/").pop() ?? "sub-agent";
     this.register({ callId, kind: "agent", action: tool === "interrupt_agent" ? "close" : "start", source, at: this.time(timestamp).at, subagent: tool, ...(handle ? { handle } : {}), label: told ? `${name}: ${told}` : name }, source);
   }
   private subagentOutput(call: PendingCaptureCall, raw: unknown, source: CaptureSource, failed: boolean) {
     const text = outputBlocks(raw).join("\n").trim();
     // "collab spawn failed: …" / "collab tool failed: …": nothing was started or re-tasked.
     if (failed || /^collab (?:spawn|tool) failed\b/i.test(text)) { this.push({ id: `background:${this.agentId}:${call.callId}`, kind: "agent", callId: call.callId, status: "closed", closeOnly: true }, source, call.at); return; }
-    if (call.subagent === "interrupt_agent") { if (call.handle) this.closeHandle(call.handle, source, undefined, "interrupted"); return; }
+    if (call.subagent === "interrupt_agent") { if (call.handle) { this.closeHandle(call.handle, source, undefined, "interrupted"); this.interrupt(call.handle); } return; }
     const handle = (call.subagent === "spawn_agent" ? agentPath(object(parseJson(text)).task_name) : undefined) ?? call.handle;
+    if (handle) { this.interrupted.delete(handle); this.answers.delete(handle); } // New work: an earlier answer or interruption is not about it.
     if (!handle) { this.gap({ id: `handle:${sourceKey(source)}`, kind: "background_handle_unknown", source }); this.push({ id: `background:${this.agentId}:${call.callId}`, kind: "agent", callId: call.callId, status: "unknown", label: call.label }, source, call.at); return; }
     this.push({ id: `background:${this.agentId}:agent:${handle}`, kind: "agent", handle, callId: call.callId, status: "open", label: call.label, ...(call.subagent === "followup_task" ? { reopen: true } : {}) }, source, call.at);
+  }
+  /**
+   * Codex multi-agent's channel between threads (`response_item agent_message`). A sub-agent's message to this thread
+   * (`/root`) starts with a header (`Message Type: FINAL_ANSWER`, `Task name:`, `Sender:`, `Payload:`); a readable payload
+   * is what the sub-agent did (commits, branches, failures) and becomes a note, like a Paseo child's last message.
+   * Encrypted-only bodies (MESSAGE records) and the root's own instructions (its tool arguments) are metadata; a report
+   * whose header cannot be read is a grouped gap.
+   */
+  private agentChannel(payload: RecordValue, source: CaptureSource, timestamp: unknown) {
+    const author = agentPath(payload.author), text = contentText(payload.content).trimStart();
+    if (string(payload.recipient).trim() !== "/root" || !author || author === "/root" || !text.trim()) return;
+    const parsed = /^Message Type: ([A-Z][A-Z_]{0,39})\nTask name: [^\n]{0,200}\nSender: ([^\n]{1,200})\nPayload:(?:\n([\s\S]*))?$/.exec(text);
+    if (!parsed) { this.gap({ id: `response:${sourceKey(source)}`, kind: "unknown_response_type", source, typeHint: "agent_message (unparsed header)" }); return; }
+    const [, type, sender, body = ""] = parsed, path = agentPath(sender.trim()) ?? author;
+    if (!body.trim()) return;
+    const key = `subagent-report:${id(payload.id) ?? sourceKey(source)}`, safe = redactCaptureText(body.trim());
+    const write = (interrupted: boolean) => {
+      const head = `Sub-agent ${path}${interrupted ? " (interrupted)" : ""} ${type === "FINAL_ANSWER" ? "reported its final answer" : `sent a ${type} message`}: `, marker = " (Excerpt; the whole answer is in that session's raw history.)";
+      return head.length + safe.length <= 2000 ? head + safe : `${head}${safe.slice(0, 2000 - head.length - marker.length - 1)}…${marker}`;
+    };
+    const interrupted = this.interrupted.has(path);
+    this.notice(key, write(interrupted), timestamp, interrupted ? "hazard" : "background", 2000);
+    const note = this.result.notices.find((value) => value.id === key);
+    if (note) this.answers.set(path, { note, write });
+  }
+  /** A sub-agent was interrupted: its answer (read before or after, in this batch) is a hazard note, its work may be partial. */
+  private interrupt(path: string) {
+    this.interrupted.add(path);
+    const answer = this.answers.get(path);
+    if (answer && answer.note.kind !== "hazard") { answer.note.kind = "hazard"; answer.note.text = answer.write(true); }
   }
   /** Scripts and workflows are counted, not itemized: only background work they evidently leave running becomes an item (see SESSION-HANDOFF-SPEC §5.7). */
   private script(type: "script" | "workflow", callId: string, input: unknown, source: CaptureSource, timestamp: unknown) {
@@ -538,9 +573,9 @@ export class CaptureRecords {
       // A native sub-agent's lifecycle: completed / interrupted end it; started / interacted show it exists (the root's own path is not an item).
       const path = agentPath(item.agent_path), kind = string(item.kind), at = this.time(timestamp).at;
       if (!path || !path.slice(1).includes("/")) return;
-      if (kind === "completed" || kind === "interrupted") this.closeHandle(path, source, timestamp, kind);
+      if (kind === "completed" || kind === "interrupted") { this.closeHandle(path, source, timestamp, kind); if (kind === "interrupted") this.interrupt(path); }
       else if (kind === "started" || kind === "interacted") {
-        if (kind === "started") this.attribute("spawn_agent");
+        if (kind === "started") { this.attribute("spawn_agent"); this.interrupted.delete(path); }
         this.push({ id: `background:${this.agentId}:agent:${path}`, kind: "agent", handle: path, status: "open", label: `${path.split("/").pop()}: sub-agent`, keepLabel: true }, source, at);
       } else this.gap({ id: `item:${sourceKey(source)}`, kind: "unknown_item_type", source, typeHint: `SubAgentActivity/${redactCaptureText(kind).slice(0, 40) || "unknown"}` });
     } else if (!metadataItems.has(type)) this.gap({ id: `item:${sourceKey(source)}`, kind: "unknown_item_type", source, typeHint: redactCaptureText(type).slice(0, 80) || "unknown" });
@@ -628,9 +663,8 @@ export class CaptureRecords {
     if (type === "response_item") {
       if (["function_call", "custom_tool_call"].includes(string(payload.type))) this.call(string(payload.name), string(payload.call_id), payload.arguments ?? payload.input, source, timestamp);
       else if (["function_call_output", "custom_tool_call_output"].includes(string(payload.type))) this.output(string(payload.call_id), payload.output, source, payload.is_error === true);
-      // agent_message: the native sub-agent channel (the root's instructions to its sub-agents and their reports, like a tool's
-      // arguments and output); the sub-agent items cover it and the raw history holds the text.
-      else if (!["message", "reasoning", "web_search_call", "local_shell_call", "compaction", "agent_message"].includes(string(payload.type))) this.gap({ id: `response:${sourceKey(source)}`, kind: "unknown_response_type", source, typeHint: redactCaptureText(string(payload.type)).slice(0, 80) || "unknown" });
+      else if (string(payload.type) === "agent_message") this.agentChannel(payload, source, timestamp);
+      else if (!["message", "reasoning", "web_search_call", "local_shell_call", "compaction"].includes(string(payload.type))) this.gap({ id: `response:${sourceKey(source)}`, kind: "unknown_response_type", source, typeHint: redactCaptureText(string(payload.type)).slice(0, 80) || "unknown" });
       // Native user/assistant text is represented by event_msg too; never capture that alias twice.
       return `response_item/${redactCaptureText(string(payload.type)).slice(0, 80) || "unknown"}`;
     }

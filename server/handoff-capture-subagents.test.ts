@@ -61,11 +61,13 @@ test("R2-B3 a follow-up task given to an existing sub-agent reopens it, also aft
   expect(view.gaps).toEqual([]);
 });
 
-test("Codex item types: known metadata items are skipped, an unknown one is a grouped gap; inter-agent message records are not gaps", async () => {
+test("Codex item types: known metadata items are skipped, an unknown one is a grouped gap; the root's instructions and encrypted-only messages are not gaps", async () => {
   const x = await observerFixture();
   const metadata = ["Reasoning", "FileChange", "ContextCompaction", "AgentMessage", "Extension", "ImageView", "CollabAgentToolCall", "FunctionCallOutput"].map((type, n) => codexItem({ type, id: `it-${n}` }));
   await x.append([...metadata, codexItem({ type: "FutureItem", id: "f-1" }), codexItem({ type: "FutureItem", id: "f-2" }),
-    codexResponse("agent_message", { author: "/root/docs_owner", recipient: "/root", id: "am-1", content: [{ type: "input_text", text: "synthetic report" }] }),
+    // A sub-agent's readable report is a note (handoff-capture-round3.test.ts); these two carry nothing readable to keep.
+    codexResponse("agent_message", { author: "/root", recipient: "/root/docs_owner", id: "am-1", content: [{ type: "input_text", text: "synthetic instruction" }] }),
+    codexResponse("agent_message", { author: "/root/docs_owner", recipient: "/root", id: "am-2", content: [{ type: "input_text", text: "Message Type: MESSAGE\nTask name: /root\nSender: /root/docs_owner\nPayload:\n" }, { type: "encrypted_content", encrypted_content: "gAAAAsynthetic" }] }),
     call("w-1", "wait_agent", { timeout_ms: 30000 }), result("w-1", JSON.stringify({ message: "synthetic", timed_out: false })), call("l-1", "list_agents", {}), result("l-1", JSON.stringify({ agents: [] })),
     call("m-1", "send_message", { target: "/root/docs_owner", message: "synthetic" }), result("m-1", "")]);
   await x.poll();
