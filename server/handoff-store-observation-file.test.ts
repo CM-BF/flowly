@@ -107,4 +107,8 @@ test("an observation file that does not fit the card file it names is preserved 
   await expect(read()).rejects.toMatchObject({ code: "HANDOFF_UNAVAILABLE" });
   await expect(store.capture("card", "project", observation(200), flowly)).rejects.toMatchObject({ code: "HANDOFF_UNAVAILABLE" });
   expect(await readFile(file, "utf8")).toBe(text);
+  // Also when an entry is not an object at all.
+  const empty = JSON.stringify({ ...broken, entries: [null] }); await writeFile(file, empty);
+  await expect(read()).rejects.toMatchObject({ code: "HANDOFF_UNAVAILABLE" });
+  expect(await readFile(file, "utf8")).toBe(empty);
 });

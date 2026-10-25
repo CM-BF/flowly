@@ -199,9 +199,10 @@ export class HandoffStore {
     for (const key of [...observation.unset, ...Object.keys(observation.fields)]) if (sections.includes(key) || fixedFields.includes(key)) throw invalid();
     for (const key of observation.unset) delete merged[key];
     Object.assign(merged, observation.fields);
-    for (const { section, id, value } of observation.entries) {
-      const entries = sections.includes(section) ? merged[section] as HandoffEntry[] : undefined, index = entries?.findIndex((entry) => entry.id === id) ?? -1;
-      if (index < 0 || value?.id !== id) throw invalid();
+    for (const item of observation.entries) {
+      if (!item || typeof item !== "object") throw invalid();
+      const { section, id, value } = item, entries = sections.includes(section) ? merged[section] as HandoffEntry[] : undefined, index = entries?.findIndex((entry) => entry.id === id) ?? -1;
+      if (index < 0 || !value || typeof value !== "object" || value.id !== id) throw invalid();
       entries![index] = value;
     }
     const parsed = cardHandoffSchema.safeParse(merged);
