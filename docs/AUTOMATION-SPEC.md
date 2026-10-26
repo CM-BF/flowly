@@ -32,6 +32,7 @@ Hermes Kanban 的 agent 自动化有四块：**dispatcher**（依赖、并发、
 | `panelSize` | 3（缺省） | 小组评审的评审者人数，2–5。 |
 | `levels` | 无 | 评审级别（§5.2）：`light`（`reviewer`、`maxReviewRounds`）与 `deep`（`panelReviewer`、`panelSize`、`maxReviewRounds`）各自的模型、人数与轮数；只在人改过之后写入。 |
 | `fullAccess` | true | 开着时，所有自动化 session（执行者和评审者）都用 provider 的免审批模式（claude `bypassPermissions`、codex `full-access`），**覆盖**角色自己设的 Permissions 和同 provider 项目默认模型的 Permissions（用户决定，2026-10-23）；没有已知免审批模式的 provider 保留选定的权限。关着时按 [TASK-INTAKE-SPEC](TASK-INTAKE-SPEC.md)：角色的 Permissions → 同 provider 项目默认模型的 Permissions（包括显式的 “Provider default”）→ provider 默认。自动化开启时 New task 表单默认显示同样的结果；有人在表单里为某张卡改了权限，那张卡按其选择启动。速度等其它执行设置仍按角色 → 项目默认继承。 |
+| `unattended` | 无（关闭） | 无人值守（§5.3.4）：没人回答这个项目里自动化 session 的问题。自动化 session 的提问与 blocker 被拒绝（`UNATTENDED`），agent 自己决定、写明假设并交付。只在人打开后写入，关掉即删除。 |
 | `nudgeLimit` | 2 | 静默结束后的提醒次数（stop nudge）。界面不暴露。 |
 | `failureLimit` | 2 | 连续失败回合上限（`failure_limit`）。界面不暴露。 |
 
@@ -314,6 +315,103 @@ AutomationJob {
 - 按 diff 的大小自动选 Light。
 - 祖先显式设的级别向子卡片传递（只有标签向下传）；新建表单上的级别选项。
 
+### 5.3 无人值守项目与按卡片要求的评审（基准测试的发现）
+
+状态：设计（2026-10-26，分支 `fix/unattended-review`）。效果由基准测试 agent 用新版本重跑 Flowly 组，与旧版本和原生组按题配对比较。
+
+来源：基准测试 agent（88ff9d01）用 Terminal-Bench 4.0 的真实题目比较原生单 agent、Flowly、Dynamic workflows 与两者组合。所有角色都是 gpt-6.1-sol、max 推理、fast；每次尝试 2 小时上限；只看官方隐藏测试。Flowly 冻结在 `69422d88`，自动化设置全用缺省值。25 道题里 Flowly 整题通过 8/23 次，原生 13/25；Flowly 平均每题 $3.18、42 分钟，原生 $0.77、18 分钟。用户让它把 Flowly 的问题交给这里修。逐题核对了证据（看板、rollout、隐藏测试的输出），事实与原因如下：
+
+| # | 题目 | 发生了什么 | Flowly 的原因 |
+| --- | --- | --- | --- |
+| 1 | risk-scorer-replay | 卡片描述明确写了 “do not add compiled executables or binary payloads to `/app`”。实现者在 `/app/tests/scorer_cases.json` 写了一段编码数据，当作 223 个 golden 用例；评审者把它当测试跑通，第 2 轮批准。隐藏测试的反作弊检查判它为 “suspicious encoded binary blob”，只过 1/5，比开始前的 2/5 还差 | 评审说明让评审者对照 workpad 的验收标准（那是实现者写的）、交付说明和评论，没有要求逐条核对卡片描述里人写的要求与**禁令**，也没有要求检查测试数据这类新文件的内容。`/app` 不是 Git 仓库，评审者没有 diff，交付说明也不必列出改了哪些文件 |
+| 2 | cargo-flight-dispatch | 实现者报告 “所有路线都不可行”。评审者没有给结论，而是用 `kind=question` 问人这算不算满足验收；没人回答，卡片停在 needs_human，没有返工。这个结论是错的（隐藏测试 70%） | 评审说明最后一句 “If only a person can decide something, ask …” 和结论并列；评审者把 “验收是否满足” 当成只有人能决定的事。Flowly 也没有 “没人回答” 这种项目设置 |
+| 3 | atrx-vep-crispr | 实现者认为输入自相矛盾，报 blocked，没有写出必需的 `/app/output/mutation.report.json`；原生单 agent 按题意写出了报告，全部通过 | 开工说明 “If you cannot continue without a person … ask … or set status=blocked … do not wait and do not guess” 只给了停下这一条路，没有 “先验证疑点，再按最合理的理解交付并写明假设” |
+| 4a | rs-archive-clone（截断时子测试 98%；原生 37 分钟做完） | 第一次交付在 39 分钟。分类器判为 Deep（“archive storage formats, CLI contracts, corruption recovery”），每轮三人小组，每轮 8–10 分钟。三轮都要求修改，每轮都是新的 P2 边缘情况：第 1 轮 5 处（1100 层深的输出路径、读完后消失的 FIFO、非法 UTF-8 argv、文件大小上限 RLIMIT_FSIZE、关闭的 stdout），第 2 轮 3 处（显式忽略的 SIGXFSZ、SIGINT 的 traceback、RUST_BACKTRACE 下的 panic 输出），第 3 轮又是新的（PYTHONWARNINGS 等环境变量）。两次返工用了 37 和 14 分钟；第 3 轮的修改要求在 118 分钟送到，实现者 120 分钟被截断（隐藏测试 56 过、1 不过） | Deep 判据过宽：一个自足、由差分测试验证的程序，只因为读写一种格式就成了 Deep。评审没有收敛规则：后面每一轮都开新的边缘情况 |
+| 4b | retro-console-soc（截断时 88%；原生 78 分钟） | 父卡第 3 分钟拆成 CPU、PPU 两张子卡，都设了 `review_level=deep`。`/app` 是目录工作区，§10 的 “共享目录” 规则让两张子卡排队：CPU 在 3–52 分钟，PPU 在 52–96 分钟，各两轮 Deep 小组评审。父卡 96 分钟才开始集成，120 分钟被截断 | skill 让父卡给 “external interfaces、concurrency” 这类子卡设 Deep；拆卡的说明没提到目录工作区里的子卡只能一张接一张跑，拆了也不会并行 |
+| 5 | 与 Dynamic workflows 组合 | 卡片描述里的 “ultracode” 没被当作用户开启；Workflow 插件的 Ultracode 通知在实现者第一回合结束（已经交付）之后才送达；自动化回合必须以交付、提问或 blocked 结束，而 workflow 工具要求启动后结束回合、等通知 | 一半在 Flowly 之外（§5.3.9） |
+| 6 | fast 项目 | 分类器 helper 只带 `{ provider }`，所以在 fast 项目里跑的是默认档 | helper 不继承项目模型的速度设置 |
+
+#13（hybrid session handoff）没有覆盖其中任何一条：它改的是 session 轮换、交接记录和评论路由，不涉及评审说明、提问规则、级别判据和分类器。只换更强的评审模型也不够：问题 1 是说明没让评审者核对禁令，问题 2 是说明把问人列成了和结论并列的选项。
+
+#### 5.3.1 评审按卡片的要求与禁令核对（所有级别、每一轮）
+
+- 每一轮的评审说明（小组轮里每个子评审者也一样）新增三项核对：
+  1. **要求与禁令**：从卡片描述、人的评论和 workpad 的验收标准里列出每一条明确的要求和禁令，逐条核对交付。要求包括必需的输出、文件、格式与路径；禁令包括 “must not”“do not”“never”、不许改的输入、不许用的工具或方法、不许留下的东西。workpad 的验收标准是实现者写的，可能漏掉其中一些；依据是卡片描述和评论。
+  2. **新增与修改的文件**：检查交付加入、修改或删除的每一个文件，包括测试、测试数据、fixture 和生成的文件。看有没有被禁止的内容（二进制或编码的载荷、复制来的工具或参考实现、写死的期望输出），有没有为了让检查通过而改测试、改输入或绕过检查。
+  3. **回退**：与开始前的状态比较，原来能用的东西不能变坏。
+  违反要求或禁令、为通过检查作弊、回退，都是要求修改的发现，不能写进风险然后批准。
+- **没有 Git 的工作区**：评审者没有 diff，说明要求它自己找出改动（例如修改时间晚于卡片开始的文件），不只依赖交付说明。开工说明也要求实现者在这样的工作区里，在交付说明中列出新建、修改和删除的每个文件。
+- **小组评审**：牵头的评审者把卡片描述的原文也转交给每个子评审者。此前只转交验收标准、交付说明、修改要求和评论，子评审者看不到禁令。契约视角（§5.1 的第 3 个，Deep 的第 1 个）明确包括要求与禁令。
+
+#### 5.3.2 评审者自己下结论
+
+- 交付是否满足卡片由评审者判断，不交给人。实现者声称做不到、不可行、输入矛盾或测试有误时，评审者把它当作需要验证的主张，自己试着推翻（重读卡片、检查输入、试最直接的办法）。推翻了，就是发现；既推翻不了也证实不了，就要求修改，写明疑点和下一步该试的办法。只有证实了，而且交付按卡片的要求处理了这种情况时，才批准。
+- 问人只用于只有人能给的东西：凭据、访问权限、授权，或卡片和评论都没定下、又无法合理选择的偏好。无人值守的项目里（§5.3.4）从不问人。
+- 改动的位置：评审说明的最后一段、小组评审说明里 “or ask a person … when only they can decide” 一句、`reviewerChecklist` 第 3 条、评审者的提醒、skill “Automated runs” 里评审者那一句。
+
+#### 5.3.3 实现者尽力交付
+
+- 开工说明（`lifecycle`）、提醒和 skill 的 “Automated runs” 改为：有疑问不是停下的理由。认为任务做不到、输入矛盾或要求冲突时，先验证这个结论；然后按最合理的理解完成，交付卡片要求的**全部**输出，在交付说明（和 workpad）里写明疑点和所选的假设。只有遇到只能由人解除的阻碍（凭据、访问权限、只有人能做的决定），或者继续下去会造成不可逆的损害时，才提问或报 blocked。绝不为了让检查通过而加入被禁止的内容、写死期望输出、修改测试或输入。
+- 无人值守的项目里不能提问，也不能报 blocked（§5.3.4）：交付能安全完成的部分，在说明里写明没做什么、为什么。
+
+#### 5.3.4 无人值守项目（`unattended`）
+
+- 设置 `AutomationSettings.unattended?: true`，意思是这个项目里没人回答自动化 session 的问题（例如基准测试、夜间批量运行）。缺省没有这个键，即关闭，行为与今天相同。只在人打开时写入，关掉就删除这个键。
+- 打开时，如果这张卡的 job 还活着（`liveStates`），而调用者是它的自动化 session（`automationSessionRole` 认出的实现者、评审者，包括被换下的评审者和轮换中的 session），那么 `flowly_report_progress kind=question|blocker` 和 `flowly_update_status status=blocked` 返回 `UNATTENDED`，什么都不记录：不记事件、不记回执、不改 handoff。检查放在同一请求的重发判断之后，所以打开开关之前已经记下的同一请求仍照常返回 `replayed`。返回的消息：
+  - 实现者：“Nobody answers questions in this project: agent automation runs it unattended, so nothing was recorded. Decide yourself: take the most reasonable reading of the card, write your assumption in the workpad and the delivery note, and continue to a delivery with flowly_update_status status=in_review. If part of the work cannot be done safely, deliver the rest and say in the note what you did not do and why.”
+  - 评审者：“Nobody answers questions in this project: agent automation runs it unattended, so nothing was recorded. Decide yourself and give your verdict now with flowly_submit_review: approve, or changes with your doubts as concrete findings the implementer can act on.”
+  CLI fallback 走同一个 API 动作，同样拒绝。人自己开的 session（job 不认得的 session）不受影响；job 已经 `delivered`、`stopped` 或 `failed` 时，自动化不再驱动 session，人和 session 说话时 agent 照常可以提问。
+- 开工说明、评审说明和提醒在无人值守项目里去掉 “问人” 的选项：
+  - 开工说明末尾加 “This project runs unattended: nobody answers questions. Never ask or report a blocker (flowly_report_progress kind=question or blocker, status=blocked, or your own question tool): decide yourself, write down your assumptions and deliver.”
+  - 实现者提醒里的 “If you need a person, ask …” 换成同样的意思。
+  - 评审说明和评审者提醒的最后一句换成 “Nobody answers questions in this project: decide the verdict yourself.”
+- 提醒用完、失败到上限、评审轮数用完时照旧停下交给人，因为这些不是提问。无人值守只去掉 “等人回答” 这一种停法。
+- **界面**：编辑项目 → Agent automation，Full access 下面加一个开关 **Unattended**，说明为 “Nobody answers questions in this project (benchmarks, overnight runs). Agents decide open questions themselves, write down their assumptions and deliver; a question or blocker from an automated session is refused.” 9 个语言目录都有译文。
+- **兼容**：与 §5.1 的字段一样，项目设置是严格对象。存了 `unattended` 之后，不认识它的旧版本会拒绝读取**整个** `board.json`；回退前先在界面里关掉开关（会删除这个键），或从备份恢复。
+- **不做**：
+  - provider 自己的提问工具（Claude AskUserQuestion、Codex 的 ask-user）Flowly 拦不住，只在说明里禁止；agent 仍然用了的话，session 照常等人（`needs_human`）。
+  - 有人值守的项目里给 “没人回答的问题” 加超时和默认处理：那里的问题本来就该等人；基准测试一类的场景用这个开关。
+
+#### 5.3.5 评审收敛（所有级别）
+
+- 只为这几类问题要求修改：违反卡片的要求或禁令、回退、为通过检查作弊、卡片要求的行为里确实存在的缺陷，以及 §5.2.4 的已确认严重问题（正确性、数据安全、安全边界、无界增长）。卡片没提到的少见边缘情况（极端的尺寸与深度、资源上限、信号、人为制造的时序竞态）写进 `risks`，不阻止批准，除非卡片要求了它们。
+- 第 2 轮起：先逐条核对上一轮的每个发现修好了没有、有没有回退。新的发现只在违反要求或禁令、出现回退或已确认的严重问题时提出，不为新找到的次要边缘情况再开一轮。
+- 要求修改时一次给出所有已确认的发现，串行轮也一样，不要每轮只给一个。
+
+#### 5.3.6 Deep 判据收窄
+
+- Deep 是之后难以撤销、又有别的东西依赖它的设计：长期运行的系统的持久化数据和存储格式、有其它使用者的 schema 和协议、安全与权限实施、用户数据的迁移与删除、并发与崩溃恢复。**一个自足、由测试验证的程序**（参考 CLI 的克隆、解析器、模拟器或硬件模块、一道基准测试题）是 Standard，即使它读写某种文件格式、实现某个协议或者有并发：它的错误由测试发现，修起来也只影响它自己。
+- 改动的位置：分类器说明（`classifierPrompt`，加上这两个 Standard 例子）、Deep 评审说明开头一句、skill 的子卡片一段、开工说明里给子卡设 Deep 的括号、`flowly_create_card` 的 `review_level` 描述。关键词回退不变，它只在模型失败时用。
+
+#### 5.3.7 目录工作区里的子卡片
+
+- skill 的子卡片一段和开工说明补一句：目录工作区（`workspace.kind=directory`）里，自动化的子卡片共用项目根目录，一次只跑一张（§10 共享目录）。在那里拆卡不会让工作并行，只会多出每张子卡的开工、评审和父卡的验收；只有某一部分确实需要自己的 session 时才拆，不要为了速度拆。
+
+#### 5.3.8 分类器 helper 的速度设置
+
+- 分类器为某个 summary model（`provider/model`）建 helper 时，带上项目里同一 provider、同一 model 的模型的速度设置（`featureValues`，即 `fast_mode`、`service_tier`）。依次看评审者、执行者和项目默认模型；角色模型先按 `executionModel` 继承同 provider 的项目默认模型的设置，与自动化 session 一样。用之前经 `providers.listFeatures` 只留下 provider 支持的项，与自动化 session 的创建相同；查询失败就不带。
+- 不继承 reasoning（`thinking`）：分类只回答一句话，项目为实际工作选的深度（例如 max）只会让它更慢、更贵。没有相同的模型时与今天一样。
+- 其它总结类 helper（摘要、insights、digest）不在本次范围。
+
+#### 5.3.9 与 Dynamic workflows 的接缝（只记录，不改状态机）
+
+- **ultracode**：组合组里开启 ultracode 的是卡片描述里的一个词。卡片描述在约 40 KB 的系统提示里，实现者没把它当作用户开启；Workflow 插件的通知排在 Flowly 的第一条指令后面，实现者第一回合结束（已经交付）之后才送达。Flowly 的开工消息是插件发出的 `[Flowly automation]` 消息，不能冒充用户替用户开启（§1）。要让组合场景从第一回合起启用，需要 Workflow 插件在 session 创建时（而不是第一回合之后）送达它的通知，或者由人在 session 的设置里开启；这在 Flowly 之外。
+- **后台工作与回合结束**：自动化回合要以交付、提问或 blocked 结束。实现者启动后台 workflow、结束回合等通知，会被当成静默结束而收到提醒，提醒用完 job 就停下。正确的做法是让 Flowly 知道 session 还有后台工作在跑（交接记录的 `running` 已经记下这类工作，见 SESSION-HANDOFF-SPEC），把这样的回合结束当作等待而不是静默。这涉及回合结束规则、提醒和对账，留到以后单独设计；本次测试没有触发提醒。
+
+#### 5.3.10 验收
+
+- 纯函数（`shared/automation-unattended.test.ts`）：
+  - 每一级、每一轮的评审说明和小组说明都有要求与禁令、新增文件、回退和收敛的段落；第 2 轮起有核对上一轮发现的一句；小组说明转交卡片描述。
+  - 有人值守时问人只用于只有人能给的东西；无人值守时，评审说明、开工说明和提醒都不再让 agent 问人。
+  - Deep 判据的新句子在 Deep 说明、分类器说明、skill 和 `flowly_create_card` 的描述里一致。
+- 服务（`server/automation-unattended.test.ts`，假 SDK）：
+  - 无人值守项目里，实现者的 `kind=question`、`kind=blocker`、`status=blocked` 和评审者的 `kind=question` 返回 `UNATTENDED`，看板事件、回执和 job 都不变。
+  - 开关关闭时照旧进入 needs_human；同一项目里人自己开的 session 照常提问；job 已 `delivered` 时 agent 照常提问；打开开关之前记下的同一请求重发时仍为 `replayed`。
+  - 开工说明带无人值守一段。
+  - 分类器 helper 在同一 provider/model 时带上项目模型的 `featureValues`（只留支持的项）；不同时或 `listFeatures` 失败时不带；任何情况下都不带 `thinking`。
+- 设置：schema 接受 `unattended: true`；表单打开开关时写入，关掉时删除键；9 个语言目录都有新文案（i18n 完整性测试）。
+- 真实 daemon 与 Web UI：验证设置开关的显示和保存，刷新后仍在。这里不跑真实的 agent 评审，效果由基准测试 agent 重跑 Flowly 组来对比。
+
 ## 6. 界面
 
 1. **卡片信号行**：Queued for agent / Starting agent… / Agent working / Agent reviewing（脉冲点）/ Agent retrying / Agent waiting for you / Agent needs permission / Agent review passed / Review needs you / Automation stopped（失败时）。`stopped` 与不带评审的 `delivered` 不显示（泳道已说明）。
@@ -334,6 +432,8 @@ AutomationJob {
 
 `skills/flowly/SKILL.md` 新增 “Automated runs”：首条指令以 `[Flowly automation]` 开头时无人值守，一次做到交付；每回合以交付、提问或 blocked 结束；按 `[Flowly automation]` 消息行事；评审者只评审，用 `flowly_submit_review` 结束本轮。实现者与评审者之间的交接由 daemon 做。2026-10-24（§5.2）：拆卡的父卡给基础性的卡片（存储格式、schema、协议、外部接口、安全、数据迁移、并发）设 `review_level=deep`；评审者用 `risks` 报告验收标准之外的风险（最多 10 条、每条不超过 500 个字符），风险不阻止批准，必须阻止的写成修改要求。CLI 对照示例的 `submit-review` 只给 verdict 和 summary，`risks` 的格式用文字说明（“risks: one plain sentence each”）：评审修订：此前示例里放了一句占位的风险 “What could go wrong, when, and how bad”，照抄示例的 CLI 评审者会把它记成真的风险，卡片显示 “Agent review passed · 1 risk”。
 
+2026-10-26（§5.3）：“Automated runs” 一段改为尽力交付（先验证 “做不到” 的结论，按最合理的理解交付全部输出并写明假设；只有只能由人解除的阻碍才提问或报 blocked），评审者自己下结论、核对卡片的要求与禁令，问人只用于只有人能给的东西；子卡片一段收窄 Deep 的判据，并说明目录工作区里的子卡一次只跑一张。无人值守项目的规则在开工说明里，不在 skill 里（skill 对所有项目相同）。
+
 合并上游 #35/#39 后（2026-10-23）：skill 开头的 “Start of every turn” 由 `shared/turn-checklist.ts` 的六条规则生成，`flowly_get_task` 每次也返回 `turnChecklist`，所以长期复用的实现者 session 也能读到最新规则。fork 的调整：
 - 第 1 条保留 “Handle unread inputs and unread comments first”，并说明 setup.missing 包括 metadata；“Small cards also need…” 一行补上 task.brief 的 `flowly_update_metadata`。
 - 第 5 条加一句：`[Flowly automation]` 下结果不结束回合，要以 in_review、提问或 blocked 结束，worktree workspace 里先在它的分支上提交。父卡和依赖卡合并的是分支，worktree 里未提交的工作到不了它们，所以开工说明（`startPrompt`）和 “Automated runs” 要求：`flowly_get_task` 的 `workspace.kind` 为 `worktree` 时，交付前在这个 worktree 的分支上提交。其它 workspace（`directory`）是项目根目录自己的 checkout，没有自己的分支，提交会无人值守地落到用户检出的分支（通常是 main）上，评审者或人还没看过，打回或取消时要回退提交；所以那里改动保持未提交，除非卡片或仓库规则要求提交，上游第 5 条的 “even if uncommitted” 照常适用。（合并时曾无条件要求 “在卡片分支上提交”，2026-10-23 复核后改为只限 worktree。）
@@ -346,6 +446,7 @@ AutomationJob {
 - 服务（`server/automation.test.ts` 与 `server/automation-*.test.ts`，假 SDK）：未开启时拒绝排队；排队后在卡片 workspace 创建无人值守 session（模型、模式、标签、开工说明）；名额、优先级与 blocker；提醒与 block 且同一回合结束不处理两次；提问等待与回复恢复；失败退避重试与放弃、退避期间人的回合取代重试；创建失败重试后报告且不动卡片；未知结果等人且不重发；评审回路（非评审者拒绝、修改→Development 并发给实现者、重复结论 replayed、第二轮复用评审 session、批准后留在 In review、反馈后新周期）；人移动卡片停止且不动 session、已交付卡在工作阶段间移动仍为 delivered、再次排队复用 session；钩子漏掉的回合结束由对账补上；idle/error/closed 的 session 丢失回合后等人；被监督 session 或卡片 workspace 归档后结束；共享目录占用。
 - 备用模型（`server/automation-fallback.test.ts`、`shared/automation-fallback.test.ts`）：评审者触及上限后在备用模型上重做同一轮、旧评审者结论被拒、新评审者结论生效；实现者触及上限后新 session 接手（接手说明、Full access、opt-out label），旧 session 的回合不再处理；接手带上未完成的修改要求；无备用模型时仍是冷却；备用模型也触及上限时冷却、不再换；completed 回合末尾的 Claude 额度通知算上限，引用通知的普通回答不算；上限记录期间新卡片直接用备用模型、到期后回到原模型；冷却中的 provider 不挡有备用模型的角色；创建时被拒则在备用模型上用原首条指令创建；Run again 在记录到期后回到评审者自己的模型。限额文字识别与冷却闸门的纯函数测试。
 - 评审级别与风险：见 §5.2.8。
+- 无人值守、按卡片要求的评审、收敛、Deep 判据与分类器的速度设置：见 §5.3.10。
 - 真实 daemon + Web UI（按 open-paseo-plugins/AGENTS.md）：安装到本机 daemon，用 app.paseo.sh 验证设置、排队、真实 agent 跑到交付、评审回路与卡片/详情显示；fixture 项目与 session 用后清理。结果记在 [verification/automation.md](verification/automation.md)。
 
 ## 9. 不做（本期）与后续
