@@ -27,7 +27,8 @@ for (const filename of [meta.filename, 'SHA256SUMS']) {
   if (existing) {
     // gh api uses the authenticated asset endpoint, including for draft assets.
     assert(existing.apiUrl.startsWith('https://api.github.com/repos/JasprW/flowly/releases/assets/'));
-    const contents = run('gh', ['api', existing.apiUrl, '-H', 'Accept: application/octet-stream'], { encoding: 'buffer' });
+    // The tarball is several MB; execFileSync's default 1 MB output limit fails a resumed release with ENOBUFS.
+    const contents = run('gh', ['api', existing.apiUrl, '-H', 'Accept: application/octet-stream'], { encoding: 'buffer', maxBuffer: 256 * 1024 * 1024 });
     assert.equal(createHash('sha256').update(contents).digest('hex'), createHash('sha256').update(readFileSync(file)).digest('hex'), `Existing release asset differs: ${filename}`);
   } else {
     run('gh', ['release', 'upload', tag, file]);
