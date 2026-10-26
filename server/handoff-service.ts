@@ -9,6 +9,7 @@ import type { HandoffContextView, HandoffInputRecord } from "../shared/handoff-a
 import type { BoardStore } from "./store";
 import { BoardService } from "./service";
 import { HandoffStore } from "./handoff-store";
+import { countLegacyHistory } from "./handoff-gap-migration-history";
 import { handoffGitDirectories, handoffGitSnapshot } from "./handoff-git";
 import { ToolError } from "./tool-error";
 import { persistHandoffImages } from "./handoff-images";
@@ -91,7 +92,7 @@ export class HandoffService {
       if (this.stopped) return { cards: visited.length, migrated, recorded: false };
       try {
         await this.serial(taskId, async () => {
-          const result = await this.records.migrateLegacyGaps(taskId);
+          const result = await this.records.migrateLegacyGaps(taskId, countLegacyHistory);
           if (result.stored !== "none" || result.replayed) migrated++;
           // A replay is a migration that committed before a crash, perhaps before its index sync; an owed card may have
           // committed before the crash that left it owed.
@@ -548,7 +549,7 @@ export class HandoffService {
         // the migration as owed before it starts, and it stays owed (every start retries it) until it committed and the index
         // entry was synced.
         await this.records.restoreCard(task.id, source);
-        const migrated = await this.records.migrateLegacyGaps(task.id).then(() => true, (error) => {
+        const migrated = await this.records.migrateLegacyGaps(task.id, countLegacyHistory).then(() => true, (error) => {
           console.error(`Flowly handoff gap migration of restored card ${task.id} will be retried at the next start:`, error instanceof Error ? error.message : String(error));
           return false;
         });

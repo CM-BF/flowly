@@ -92,17 +92,18 @@ test("legacy gaps of every kind: metadata closed with the reason, scripts groupe
   expect(groups.map((gap) => [gap.agentId, gap.text.split(")")[0], gap.count, gap.status]).sort()).toEqual([
     ["w1", "Capture gap (opaque_tool_background", 25, "open"], ["w1", "Capture gap (unknown_response_type", 3, "open"],
     ["w2", "Capture gap (opaque_tool_background", 5, "open"], ["w3", "Capture gap (unknown_record_type", 2, "open"]]);
-  expect(group("w1", "opaque_tool_background").text).toMatch(/25 script or workflow calls of session #1 \(w1\) predate/);
-  expect(group("w1", "opaque_tool_background").text.length).toBeLessThanOrEqual(300);
+  // One pass of 73 gaps: under the older build's 100 per pass, so the entries it wrote are every occurrence.
+  expect(group("w1", "opaque_tool_background").text).toBe("Capture gap (opaque_tool_background): 25 script or workflow calls of session #1 (w1) were captured by an older build, before Flowly's background detection. Not checked for work left running: verify running processes or search flowly_session_history before relying on it.");
+  expect(group("w1", "unknown_response_type").text).toBe("Capture gap (unknown_response_type): agent_message: 3 occurrences in session #1 (w1) that an older build did not preserve. That session's raw history holds them.");
+  // The entries' times are when Flowly wrote them, not when the calls ran: a group states no time span.
+  for (const gap of groups) { expect(gap.firstAt).toBeUndefined(); expect(gap.lastAt).toBeUndefined(); }
   for (const { value } of [...legacy.opaque, ...legacy.duplicates]) {
     const closed = await version(x, value.id), into = group(value.agentId, value.text.slice("Capture gap (".length).split(")")[0]);
     expect(closed).toMatchObject({ text: value.text, at, status: "closed", resolution: { by: { kind: "flowly" }, note: `grouped by capture rules v2 into ${into.id}` } });
   }
-  // Everything else is exactly as it was (current entries and overflow index entries alike).
-  for (const id of untouched) {
-    const old = before.record.gaps.find((gap) => gap.id === id) ?? before.record.overflow.find((entry) => entry.id === id);
-    expect(after.record.gaps.find((gap) => gap.id === id) ?? after.record.overflow.find((entry) => entry.id === id)).toEqual(old);
-  }
+  // Everything else is exactly as it was; open ones the overflow held are back in the current list, unchanged.
+  for (const id of untouched) expect(after.all.get(id)).toEqual(before.all.get(id));
+  expect(after.record.overflow.filter((entry) => entry.section === "gaps" && entry.status === "open")).toEqual([]);
   expect(openGapIds(after.record).sort()).toEqual([...untouched, ...groups.map((gap) => gap.id)].sort());
   // Closed legacy entries leave the current record and its overflow index (they no longer count for the delivery gate);
   // each closed version is one archive line, and no body any file names is missing.
@@ -124,7 +125,7 @@ test("legacy gaps of every kind: metadata closed with the reason, scripts groupe
   expect(again.revision).toBe(after.record.revision); expect(handoffRefusalFingerprint(again)).toBe(fingerprint);
 });
 
-test("acknowledgements already given stay as they were; a session's group counts only what is still open", async () => {
+test("acknowledgements and notes already given stay as they were; a session's group counts only what nobody settled", async () => {
   const x = await fixture(["card-a"]), records = x.service.records;
   await records.setSession("card-a", "project", session("old", 1, "implementer"), { ...flowly, sourceId: "session:old" });
   await records.setSession("card-a", "project", session("rev", 2, "reviewer"), { ...flowly, sourceId: "session:rev" });
@@ -139,25 +140,34 @@ test("acknowledgements already given stay as they were; a session's group counts
     ...reviewer.map(({ value }) => ({ id: value.id, disposition: "obsolete" as const, note })),
   ] } }, { by: { kind: "agent", agentId: "successor" } }, { agentId: "successor", actualHeads: [] });
   expect(ack.ackMissing?.length).toBeGreaterThan(0);
+  // The successor keeps two legacy gaps open with a note of its own: the migration must neither close nor group them.
+  const kept = [{ id: opaque[4].value.id, note: "pid 4242 from this script still runs the import; check it before delivery" }, { id: tokens[2].value.id, note: "this usage record carried the cost budget we must stay under" }];
+  await records.update("card-a", "project", { handoffRevision: (await records.read("card-a", "project")).revision, gaps: kept.map(({ id, note }) => ({ id, status: "open" as const, note })) }, { by: { kind: "agent", agentId: "successor" } });
   const acknowledged = [...opaque.slice(0, 3), tokens[0], ...reviewer].map(({ value }) => value.id);
-  const settled = new Map(await Promise.all(acknowledged.map(async (id) => [id, await version(x, id)] as const)));
+  const settled = new Map(await Promise.all([...acknowledged, ...kept.map(({ id }) => id)].map(async (id) => [id, await version(x, id)] as const)));
   const before = await records.read("card-a", "project"), ledger = before.ledger.find((entry) => entry.agentId === "successor")!;
   expect(ledger.ack?.complete).toBe(false);
 
   await x.service.migrateGaps({ pauseMs: 0 });
   const after = await records.read("card-a", "project");
   for (const [id, value] of settled) expect(await version(x, id)).toEqual(value);
+  for (const { id, note } of kept) expect(await version(x, id)).toMatchObject({ status: "open", resolution: { by: { kind: "agent", agentId: "successor" }, note } });
   // The same entry (its body may be rewritten in schema key order by the next revision, as by any write).
-  const { contentRef: _before, ...acknowledgement } = ledger, { contentRef: _after, ...kept } = after.ledger.find((entry) => entry.agentId === "successor")!;
-  expect(kept).toEqual(acknowledgement);
+  const { contentRef: _before, ...acknowledgement } = ledger, { contentRef: _after, ...keptLedger } = after.ledger.find((entry) => entry.agentId === "successor")!;
+  expect(keptLedger).toEqual(acknowledgement);
   const groups = after.gaps.filter((gap) => gap.sourceId?.startsWith("legacy-gaps:"));
-  expect(groups.map((gap) => [gap.agentId, gap.count])).toEqual([["old", 3]]);
-  expect(groups[0].text).toMatch(/3 script or workflow calls of session #1/);
-  for (const { value } of tokens.slice(1)) expect(await version(x, value.id)).toMatchObject({ status: "closed", resolution: { by: { kind: "flowly" } } });
-  for (const { value } of opaque.slice(3)) expect(await version(x, value.id)).toMatchObject({ status: "closed", resolution: { note: expect.stringContaining(groups[0].id) } });
-  // What is left is one id: the successor acknowledges it once and its acknowledgement is complete.
-  expect(handoffOpenIds(after)).toEqual([groups[0].id]);
-  const done = await records.update("card-a", "project", { handoffRevision: after.revision, ack: { handoffRevision: after.revision, heads: [], understanding: "Continuing from the reviewer's last round.", items: [{ id: groups[0].id, disposition: "obsolete", note }] } }, { by: { kind: "agent", agentId: "successor" } }, { agentId: "successor", actualHeads: [] });
+  expect(groups.map((gap) => [gap.agentId, gap.count])).toEqual([["old", 2]]);
+  expect(groups[0].text).toMatch(/^Capture gap \(opaque_tool_background\): 2 script or workflow calls of session #1 \(old\) were captured by an older build/);
+  for (const { value } of [tokens[1], tokens[3]]) expect(await version(x, value.id)).toMatchObject({ status: "closed", resolution: { by: { kind: "flowly" } } });
+  for (const { value } of [opaque[3], opaque[5]]) expect(await version(x, value.id)).toMatchObject({ status: "closed", resolution: { note: expect.stringContaining(groups[0].id) } });
+  expect(after.notes.find((entry) => entry.text.startsWith("Capture rules v2"))!.text).toMatch(/2 other open gaps unchanged/);
+  // The notes are in the record the successor must read in full.
+  let page = await records.page("card-a", { scope: "all" }), text = JSON.stringify(page.items);
+  while (page.nextCursor) { page = await records.page("card-a", { cursor: page.nextCursor }); text += JSON.stringify(page.items); }
+  for (const { note } of kept) expect(text).toContain(note);
+  // What is left: the group and the two the successor kept open; it acknowledges them once and its acknowledgement is complete.
+  expect(handoffOpenIds(after).sort()).toEqual([groups[0].id, ...kept.map(({ id }) => id)].sort());
+  const done = await records.update("card-a", "project", { handoffRevision: after.revision, ack: { handoffRevision: after.revision, heads: [], understanding: "Continuing from the reviewer's last round.", items: handoffOpenIds(after).map((id) => ({ id, disposition: "obsolete" as const, note })) } }, { by: { kind: "agent", agentId: "successor" } }, { agentId: "successor", actualHeads: [] });
   expect(done.ackMissing).toBeUndefined();
   expect((await records.read("card-a", "project")).ledger.find((entry) => entry.agentId === "successor")?.ack?.complete).toBe(true);
 });
@@ -207,15 +217,16 @@ test("the migration waits for the card's queue: a turn's capture in progress fin
   expect(openGapIds(after)).toEqual([]);
 });
 
-test("an open gap left only in the overflow index still makes the card need checking", async () => {
+test("a real open gap the noise pushed into the overflow index is back in the list after the migration; the card still needs checking", async () => {
   const x = await fixture(["card-a"]);
   await x.service.records.setSession("card-a", "project", session("w1", 1, "implementer"), { ...flowly, sourceId: "session:w1" });
   const coverage = { section: "gaps" as const, value: { id: "g:coverage", sourceId: "git-coverage:card-a:2", kind: "flowly", agentId: "w1", text: "1 repository locations were not inspected. Git coverage is partial; verify the remaining directories.", status: "open" } };
   await x.write("card-a", [coverage as never, ...many(45, (n) => legacyGap("w1", "type", "unknown_record_type", n, { hint: "token_usage_record" }))]);
+  expect((await x.service.records.read("card-a", "project")).overflow.map((entry) => entry.id)).toContain("g:coverage");
   await x.service.migrateGaps({ pauseMs: 0 });
   const record = await x.service.records.read("card-a", "project");
-  expect(record.gaps.some((gap) => gap.status === "open")).toBe(false);
-  expect(record.overflow.filter((entry) => entry.section === "gaps").map((entry) => entry.id)).toEqual(["g:coverage"]);
+  expect(record.gaps.filter((gap) => gap.status === "open").map((gap) => gap.id)).toEqual(["g:coverage"]);
+  expect(record.overflow.filter((entry) => entry.section === "gaps")).toEqual([]);
   const index = (await x.board.read()).handoffIndex.find((entry) => entry.taskId === "card-a")!;
   expect(index).toMatchObject({ open: 1, fresh: false, behind: "unverified" });
 });
