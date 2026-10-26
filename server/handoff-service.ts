@@ -80,10 +80,11 @@ export class HandoffService {
    * The one-time gap migration (SESSION-HANDOFF-SPEC §21.17): card by card, each in its own queue (after whatever turn's
    * capture or write holds it, never inside one) and `pauseMs` apart. A migrated card's index entry is synced in the same job.
    * Recorded in handoffs/.gap-migration.json once every card was visited; a card that failed is retried at the next start,
-   * a stop records nothing (the next start visits every card again; a migrated one writes nothing).
+   * a stop records nothing (the next start visits every card again; a migrated one writes nothing). A card the marker says
+   * is owed a migration (a restore, or a failed card) is settled there once it is migrated and its index entry synced.
    */
   async migrateGaps(options: { pauseMs?: number } = {}) {
-    const { recorded, cards } = await this.records.gapMigrationCards();
+    const { recorded, cards, owed } = await this.records.gapMigrationCards();
     const visited: string[] = [], failed: string[] = [];
     let migrated = 0;
     for (const taskId of cards) {
@@ -91,8 +92,11 @@ export class HandoffService {
       try {
         await this.serial(taskId, async () => {
           const result = await this.records.migrateLegacyGaps(taskId);
-          // A replay is a migration that committed before a crash, perhaps before its index sync.
-          if (result.stored !== "none" || result.replayed) { migrated++; await this.syncMigrated(taskId); }
+          if (result.stored !== "none" || result.replayed) migrated++;
+          // A replay is a migration that committed before a crash, perhaps before its index sync; an owed card may have
+          // committed before the crash that left it owed.
+          if (result.stored !== "none" || result.replayed || owed.includes(taskId)) await this.syncMigrated(taskId);
+          await this.records.gapMigrationSettled(taskId);
         });
       } catch (error) {
         if (this.stopped) return { cards: visited.length, migrated, recorded: false };
@@ -540,13 +544,17 @@ export class HandoffService {
         if (!raw.tasks?.some((saved) => saved.id === task.id && saved.projectId === project.id)) continue;
         const source = join(folder, name + ".handoffs", task.id);
         if (!(await stat(join(source, "complete.json")).then(() => true, (error: NodeJS.ErrnoException) => { if (error.code === "ENOENT") return false; throw error; }))) continue;
+        // A backup from before the gap migration brings its legacy gaps back (SESSION-HANDOFF-SPEC §21.17): restoreCard records
+        // the migration as owed before it starts, and it stays owed (every start retries it) until it committed and the index
+        // entry was synced.
         await this.records.restoreCard(task.id, source);
-        // A backup from before the gap migration brings its legacy gaps back (SESSION-HANDOFF-SPEC §21.17).
-        await this.records.migrateLegacyGaps(task.id).catch(async (error) => {
+        const migrated = await this.records.migrateLegacyGaps(task.id).then(() => true, (error) => {
           console.error(`Flowly handoff gap migration of restored card ${task.id} will be retried at the next start:`, error instanceof Error ? error.message : String(error));
-          await this.records.gapMigrationFailed(task.id);
+          return false;
         });
-        await this.syncIndex(task.id); return;
+        await this.syncIndex(task.id);
+        if (migrated) await this.records.gapMigrationSettled(task.id);
+        return;
       }
       await this.records.appendGap(task.id, project.id, { kind: "flowly", text: "No local handoff backup was available for this restored card. Read the project artifacts and verify missing instructions before continuing.", status: "open" }, { ...flowly, sourceId: `restore-missing:${task.id}` });
       await this.syncIndex(task.id);

@@ -53,6 +53,8 @@ const hash = (value: string | Buffer) => createHash("sha256").update(value).dige
 /** Every 64-hex token of a text: a superset of the body names it references, so a collection can only keep too much. */
 const tokens = (text: string, into = new Set<string>()) => { for (const [token] of text.matchAll(/[a-f0-9]{64}/g)) into.add(token); return into; };
 const absent = (error: unknown) => (error as NodeJS.ErrnoException).code === "ENOENT";
+/** The card ids a gap-migration marker lists under `key` (valid card identities only). */
+const markerCards = (marker: Record<string, unknown> | null, key: "failed" | "pending") => { const value = marker?.[key]; return Array.isArray(value) ? value.filter((id): id is string => typeof id === "string" && /^[A-Za-z0-9][A-Za-z0-9_.-]{0,199}$/.test(id)) : []; };
 const bytes = (value: unknown) => Buffer.byteLength(JSON.stringify(value));
 const clone = <T>(value: T): T => JSON.parse(JSON.stringify(value));
 const keyDelta = (before: object, after: object, skip: (key: string) => boolean = () => false): KeyDelta => {
@@ -342,33 +344,47 @@ export class HandoffStore {
   }
   /**
    * Plugin start (§21.17): the cards the one-time gap migration visits. Until its marker is recorded, every card; then only
-   * the cards it could not migrate and cards whose restore was cut off (a restore migrates its card itself).
+   * the cards it could not migrate. In both cases also the cards a restore brought back whose migration is still owed
+   * (`pending`, written before the restore starts) and cards whose restore was cut off. `owed`: the cards the marker names.
    */
-  gapMigrationCards(): Promise<{ recorded: boolean; cards: string[] }> {
+  gapMigrationCards(): Promise<{ recorded: boolean; cards: string[]; owed: string[] }> {
     return this.marker(async (_path, marker) => {
       const names = await readdir(this.root).catch((error) => { if (absent(error)) return [] as string[]; throw error; });
       const card = (name: string, suffix: string) => name.endsWith(suffix) ? /^[A-Za-z0-9][A-Za-z0-9_.-]{0,199}$/.exec(name.slice(0, -suffix.length))?.[0] : undefined;
       const restores = names.flatMap((name) => card(name, ".restore.json") ?? []);
-      if (marker?.version === gapMigration.version) {
-        const failed = Array.isArray(marker.failed) ? marker.failed.filter((id): id is string => typeof id === "string" && !!card(`${id}.json`, ".json")) : [];
-        return { recorded: true, cards: [...new Set([...failed, ...restores])].sort() };
-      }
-      return { recorded: false, cards: [...new Set([...names.flatMap((name) => name.endsWith(".restore.json") ? [] : card(name, ".json") ?? []), ...restores])].sort() };
+      const recorded = marker?.version === gapMigration.version, pending = markerCards(marker, "pending"), owed = [...new Set([...recorded ? markerCards(marker, "failed") : [], ...pending])].sort();
+      const all = recorded ? [] : names.flatMap((name) => name.endsWith(".restore.json") ? [] : card(name, ".json") ?? []);
+      return { recorded, cards: [...new Set([...all, ...owed, ...restores])].sort(), owed };
     });
   }
-  /** Records a finished run: the cards it could not migrate, and those a restore could not migrate meanwhile, are retried at the next start. */
+  /**
+   * Records a finished run: the cards it could not migrate, and those a restore could not migrate meanwhile, are retried at
+   * the next start. The cards still owed a migration after a restore stay owed (each is settled once it is migrated).
+   */
   recordGapMigration(run: { visited: readonly string[]; migrated: number; failed: readonly string[] }) {
     return this.marker(async (path, marker) => {
-      const earlier = marker?.version === gapMigration.version && Array.isArray(marker.failed) ? marker.failed.filter((id): id is string => typeof id === "string" && !run.visited.includes(id)) : [];
-      await this.atomic(path, JSON.stringify({ version: gapMigration.version, rules: gapRules, at: this.now(), cards: run.visited.length, migrated: run.migrated, failed: [...new Set([...earlier, ...run.failed])].sort() }));
+      const earlier = marker?.version === gapMigration.version ? markerCards(marker, "failed").filter((id) => !run.visited.includes(id)) : [], pending = markerCards(marker, "pending");
+      await this.atomic(path, JSON.stringify({ version: gapMigration.version, rules: gapRules, at: this.now(), cards: run.visited.length, migrated: run.migrated, failed: [...new Set([...earlier, ...run.failed])].sort(), ...(pending.length ? { pending } : {}) }));
     });
   }
-  /** A restored card whose migration failed: once the marker is recorded, the next start retries it. */
-  gapMigrationFailed(taskId: string) {
+  /**
+   * A restore is about to bring a card back (its backup may predate the migration): until that card's migration has committed
+   * and its index entry was synced (gapMigrationSettled), every start migrates it, whatever cuts the restore or the
+   * migration short and whether or not the one-time run was recorded yet.
+   */
+  private gapMigrationOwed(taskId: string) {
     return this.marker(async (path, marker) => {
-      if (marker?.version !== gapMigration.version) return;
-      const failed = Array.isArray(marker.failed) ? marker.failed.filter((id): id is string => typeof id === "string") : [];
-      if (!failed.includes(taskId)) await this.atomic(path, JSON.stringify({ ...marker, failed: [...failed, taskId].sort() }));
+      const pending = markerCards(marker, "pending");
+      if (!pending.includes(taskId)) await this.atomic(path, JSON.stringify({ ...(marker ?? {}), pending: [...pending, taskId].sort() }));
+    });
+  }
+  /** A card's migration committed and its index entry was synced: it is no longer owed or failed. Writes only when the marker names it. */
+  gapMigrationSettled(taskId: string) {
+    return this.marker(async (path, marker) => {
+      const pending = markerCards(marker, "pending"), failed = markerCards(marker, "failed");
+      if (!marker || !pending.includes(taskId) && !failed.includes(taskId)) return;
+      const { pending: _pending, ...rest } = marker, left = pending.filter((id) => id !== taskId);
+      await this.atomic(path, JSON.stringify({ ...rest, ...(Array.isArray(marker.failed) ? { failed: failed.filter((id) => id !== taskId) } : {}), ...(left.length ? { pending: left } : {}) }));
     });
   }
   /** Writes `value` unless the file already holds exactly these bytes (a replayed unfinished write). */
@@ -1190,6 +1206,8 @@ export class HandoffStore {
       }
       const path = this.paths(taskId), stage = path.folder + ".restore-" + randomUUID();
       this.forget(taskId);
+      // The backup may hold the gaps older builds wrote once per occurrence (SESSION-HANDOFF-SPEC §21.17).
+      await this.gapMigrationOwed(taskId);
       await this.atomic(path.restore, JSON.stringify({ version: 1, record: parsed.data, source, stage, key: hash(JSON.stringify(parsed.data)) })); await this.options.fault?.("restore-intent");
       await this.recoverRestore(taskId); return parsed.data;
     });
