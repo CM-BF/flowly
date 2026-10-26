@@ -5,16 +5,36 @@ export const secretKey = /password|passwd|passphrase|secret|credential|token|api
 /** A credential key, compared without its separators: one of `secretKey`, or exactly a short name (Docker's `auth`). */
 export const credentialKey = (key: string) => { const name = key.replace(/[^a-z0-9]/gi, ""); return secretKey.test(name) || /^(?:auth|pass|pwd)$/i.test(name); };
 
+/**
+ * What `cat -n`, `nl`, `grep -n` and `rg -n` put before a line they print: a line number, after a file name for grep.
+ * A credential file printed that way is still recognized from its line start.
+ */
+const numbered = String.raw`(?:[ \t]*\d+\t|(?:[^\s:]+:)?\d+[:-])?`;
+/**
+ * A .pgpass line's `host:port:database:user:` (SESSION-HANDOFF-SPEC §8.1): a host name, an address or `*`, a port or `*`,
+ * and fields with no quote, brace, bracket or whitespace (`\:` escapes a colon). Lines that `grep -n` prints over JSONL
+ * or a timestamped log (`notes.jsonl:3:{"id":…`, `app.log:88:2026-10-25T10:00:00Z ERROR …`) are not one.
+ */
+const pgpassPrefix = String.raw`${numbered}(?:(?:[A-Za-z0-9_.-]|\\[:\\])+|\*):(?:\d{1,5}|\*):(?:(?:[^:\s"'{}[\]\\]|\\[:\\])+:){2}`;
+/** A .pgpass line: its password runs to the end of the line, with no whitespace in it. */
+const pgpass = new RegExp(String.raw`^(${pgpassPrefix})(?:[^\s\\]|\\.)+(?=[ \t]*\r?$)`, "gm");
+/**
+ * .netrc entries (`machine host login user password secret`, on one line or several): a `machine` entry anywhere, a
+ * `default` entry only at a line start ("the default password policy" is prose).
+ */
+const netrc = new RegExp(String.raw`(\bmachine[ \t]+\S+|^${numbered}[ \t]*default)((?:\s+(?:login|account)\s+\S+)*\s+password\s+)[^\s"']+`, "gim");
 const redactOnce = (value: string) => redactCaptureText(value)
   // A tail window can start inside a private key: everything up to its END line goes.
   .replace(/^(?:(?!-----BEGIN )[\s\S])*?-----END (?:[A-Z ]*PRIVATE KEY(?: BLOCK)?|OPENSSH PRIVATE KEY)-----/, "[redacted private key]")
   .replace(/-----BEGIN PGP PRIVATE KEY BLOCK-----[\s\S]*?(?:-----END PGP PRIVATE KEY BLOCK-----|$)/g, "[redacted private key]")
-  .replace(/((?:set-)?cookie(?:\\?["'])?\s*[:=]\s*(?:\\?["'])?)[^\r\n"'\\]+/gi, "$1[redacted]")
+  // A cookie header or value: name=value pairs, or one token (a test named "cookie: keeps SameSite" is not one).
+  .replace(/((?:set-)?cookie(?:\\?["'])?\s*[:=]\s*(?:\\?["'])?)(?=[^\s=;,"'\\]*=|[^\s;,"'\\]+(?:[;,"'\\]|[ \t]*(?:\r?\n|$))|[A-Za-z0-9%._~+/-]{16})[^\r\n"'\\]+/gi, "$1[redacted]")
   .replace(/\b([a-z][a-z0-9+.-]*:\/\/)[^\s/@:]+:[^\s/@]+@/gi, "$1[redacted]@")
-  // .netrc (`machine host login user password secret`, on one line or several) and .pgpass (`host:port:db:user:secret`).
-  .replace(/(\b(?:machine[ \t]+\S+|default)(?:\s+(?:login|account)\s+\S+)*\s+password\s+)[^\s"']+/gi, "$1[redacted]")
+  .replace(netrc, "$1$2[redacted]")
+  // A `password` line on its own (a .netrc entry over several lines, cut above it): kept for privacy, so a line that is
+  // exactly "password reset" reads "password [redacted]".
   .replace(/^([ \t]*password[ \t]+)[^\s"']+(?=[ \t]*\r?$)/gim, "$1[redacted]")
-  .replace(/^([^:\s]+:(?:\d{1,5}|\*):[^:\s]+:[^:\s]+:)[^\r\n]+/gm, "$1[redacted]")
+  .replace(pgpass, "$1[redacted]")
   // Password flags: `mysql -pSECRET`, `--password SECRET` (`--password=SECRET` is a KEY=value).
   .replace(/(\b(?:mysql|mysqldump|mysqladmin|mariadb(?:-dump)?)\b[^\r\n]*?[ \t]-p)[^\s"'-][^\s"']*/gi, "$1[redacted]")
   .replace(/((?:^|[ \t])--(?:password|passwd|pass)[ \t]+)[^\s"'-][^\s"']*/gim, "$1[redacted]")
@@ -167,7 +187,7 @@ const carries = /(?:[:=]|\b(?:bearer|basic|token)|(?:token|key|secret|passw|auth
  */
 const spansElements = /(?:token|key|secret|passw|auth)[\w-]*["']?\s*[=:]\s*'|-----BEGIN |\b(?:mysql|mysqldump|mysqladmin|mariadb)\b/i;
 /** A .pgpass line, whose password runs to the end of the line. */
-const pgpassLine = /^[^:\s]+:(?:\d{1,5}|\*):/;
+const pgpassLine = new RegExp(`^${pgpassPrefix}`);
 const whitespace = (code: number) => code === 32 || code >= 9 && code <= 13;
 /** Steps back over lines whose end a rule's match continues past (bounded by `floor`; past it, the whole text). */
 function carried(source: string, line: number, floor: number) {
