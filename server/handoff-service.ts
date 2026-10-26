@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import type { PaseoApi } from "@getpaseo/client";
 import { automationOf, automationSessionRole, jobOf } from "../shared/automation";
-import type { Board } from "../shared/model";
+import type { Board, HandoffBehind } from "../shared/model";
 import type { ToolIdentity } from "../shared/tools";
 import { handoffOpenIds, handoffUpdateSchema, type CardHandoff, type HandoffUpdate } from "../shared/handoff";
 import { handoffView } from "../shared/handoff-view";
@@ -115,42 +115,54 @@ export class HandoffService {
   async syncIndex(taskId: string) {
     const { board, task, project } = await this.card(taskId);
     await this.reconcile(taskId, board);
-    const record = await this.records.read(task.id, project.id);
-    const status = this.due(record, board);
+    // A known record whose file is missing is a warning for the person, not an empty record no agent wrote.
+    const existing = await this.records.read(task.id), missing = !existing && board.handoffIndex.some((entry) => entry.taskId === task.id);
+    const record = existing ?? await this.records.read(task.id, project.id);
+    const status = this.due(record, board), behind = missing ? "unverified" : status.behind;
     await this.board.transaction((current) => {
       if (!current.tasks.some((card) => card.id === task.id && card.projectId === project.id)) return { value: undefined, changed: false };
       const old = current.handoffIndex.find((entry) => entry.taskId === task.id);
       // A call caught in flight is not an open id, so catching one does not rewrite board.json.
-      const next = { taskId: task.id, fresh: !status.due.length, ...(status.due.length ? { staleSince: old?.staleSince ?? this.now() } : {}), open: handoffOpenIds(record).length, sessions: Math.max(0, ...record.ledger.map((entry) => entry.n)) };
+      const next = { taskId: task.id, fresh: !status.due.length, ...(status.due.length ? { staleSince: old?.staleSince ?? this.now() } : {}), open: handoffOpenIds(record).length, sessions: Math.max(0, ...record.ledger.map((entry) => entry.n)), ...(behind ? { behind } : {}) };
       if (JSON.stringify(old) === JSON.stringify(next)) return { value: undefined, changed: false };
       current.handoffIndex = [...current.handoffIndex.filter((entry) => entry.taskId !== task.id), next];
       return { value: undefined, changed: true };
     });
   }
+  /**
+   * What the next agent must check (`due`, agent-facing English), and for the person what the record is behind on
+   * (SESSION-HANDOFF-SPEC §12): `changes` are the lines about activity after the agent's checkpoint; `behind` is `ack`
+   * when only the successor's acknowledgement is missing, `activity` when every other line is such a change, `unwritten`
+   * when no agent checkpoint exists yet, and `unverified` when anything else is due.
+   */
   private due(record: CardHandoff, board: Board, agentId?: string) {
-    const due: string[] = [];
+    const due: string[] = [], changes: string[] = [];
+    let unverified = false;
+    const add = (text: string, kind: "change" | "unwritten" | "check") => { due.push(text); if (kind === "change") changes.push(text); if (kind === "check") unverified = true; };
     const checkpoint = record.checkpoint;
-    if (!record.state || !record.next.length) due.push("Write the current state and next step.");
-    if (!checkpoint) due.push("There is no agent checkpoint yet.");
-    if (record.inputs.some((input) => input.status === "open" && !input.unconfirmed) || record.overflow.some((entry) => entry.section === "inputs" && entry.status === "open" && !entry.unconfirmed)) due.push("Original inputs still need a disposition.");
-    if (record.pendingOperations.length) due.push("Some source records are not yet confirmed by their board operation.");
-    if (checkpoint && record.reviews.some((review) => !review.unconfirmed && review.at > checkpoint.at)) due.push("A review arrived after the last checkpoint.");
-    if (checkpoint && record.notes.some((note) => ["incident", "hazard"].includes(note.kind) && note.at > checkpoint.at)) due.push("New incident or hazard information needs to be checked.");
-    if (checkpoint && checkpoint.dirtyHash !== fingerprint(record)) due.push("Repository state changed after the checkpoint.");
-    if (record.git.some((repo) => repo.error)) due.push("Some repository state could not be verified.");
-    if (record.gaps.some((gap) => gap.status === "open")) due.push("Information coverage has unresolved gaps.");
-    if (record.ledger.some((session) => !session.endedAt && session.through && (session.through.gaps > 0 || session.through.lagBytes > 0))) due.push("The current session's passive capture is incomplete; check its coverage before relying on the handoff.");
+    if (!record.state || !record.next.length) add("Write the current state and next step.", checkpoint ? "check" : "unwritten");
+    if (!checkpoint) add("There is no agent checkpoint yet.", "unwritten");
+    if (record.inputs.some((input) => input.status === "open" && !input.unconfirmed) || record.overflow.some((entry) => entry.section === "inputs" && entry.status === "open" && !entry.unconfirmed)) add("Original inputs still need a disposition.", "check");
+    if (record.pendingOperations.length) add("Some source records are not yet confirmed by their board operation.", "check");
+    if (checkpoint && record.reviews.some((review) => !review.unconfirmed && review.at > checkpoint.at)) add("A review arrived after the last checkpoint.", "change");
+    if (checkpoint && record.notes.some((note) => ["incident", "hazard"].includes(note.kind) && note.at > checkpoint.at)) add("New incident or hazard information needs to be checked.", "change");
+    if (checkpoint && checkpoint.dirtyHash !== fingerprint(record)) add("Repository state changed after the checkpoint.", "change");
+    if (record.git.some((repo) => repo.error)) add("Some repository state could not be verified.", "check");
+    if (record.gaps.some((gap) => gap.status === "open")) add("Information coverage has unresolved gaps.", "check");
+    if (record.ledger.some((session) => !session.endedAt && session.through && (session.through.gaps > 0 || session.through.lagBytes > 0))) add("The current session's passive capture is incomplete; check its coverage before relying on the handoff.", "check");
     const job = jobOf(board, record.taskId);
     const reader = agentId ?? job?.implementerId;
     const pendingCheckpoint = job?.checkpoint;
     if (pendingCheckpoint && pendingCheckpoint.agentId === reader && Date.parse(pendingCheckpoint.at) > (checkpoint && checkpoint.agentId === reader ? Date.parse(checkpoint.at) : -Infinity))
-      due.push(`${pendingCheckpoint.reason}: update the handoff now (state, next and running work).`);
+      add(`${pendingCheckpoint.reason}: update the handoff now (state, next and running work).`, "change");
     const current = record.ledger.find((session) => session.agentId === reader);
     const ackRequired = !!(reader && automationOf(board.projects.find((project) => project.id === record.projectId)) && job?.implementerId === reader && current?.role === "implementer" && current.reason !== "launch" && !current.ack?.complete);
     if (ackRequired) due.push("The successor must read the full pending record, verify the workspace and acknowledge it.");
-    return { due, ackRequired };
+    const behind: HandoffBehind | undefined = !due.length ? undefined : unverified ? "unverified" : !checkpoint ? "unwritten" : changes.length ? "activity" : "ack";
+    return { due, ackRequired, changes, behind };
   }
-  async context(taskId: string, agentId?: string, options: { full?: boolean; cursor?: string; recordAccess?: boolean; forGate?: boolean } = {}): Promise<HandoffContextView> {
+  /** `person`: the drawer's read, which also gets what the record is behind on (`behind`, `changes`). */
+  async context(taskId: string, agentId?: string, options: { full?: boolean; cursor?: string; recordAccess?: boolean; forGate?: boolean; person?: boolean } = {}): Promise<HandoffContextView> {
     const { board, task, project } = await this.card(taskId);
     let record: CardHandoff;
     try {
@@ -160,10 +172,10 @@ export class HandoffService {
       record = existing ?? await this.records.read(task.id, project.id);
     }
     catch (error) { return { revision: 0, fresh: false, due: ["The durable handoff is unavailable; do not guess missing requirements."], unavailable: error instanceof Error ? error.message : String(error) }; }
-    const status = this.due(record, board, agentId);
+    const { changes, behind, ...status } = this.due(record, board, agentId);
     const key = `${taskId}:${agentId ?? "ui"}`;
     const role = agentId && automationSessionRole(board, agentId, taskId)?.role;
-    const base = { revision: record.revision, fresh: !status.due.length, ...status, ...(options.forGate ? { requirementsFingerprint: handoffRefusalFingerprint(record) } : {}), staleSince: board.handoffIndex.find((entry) => entry.taskId === taskId)?.staleSince, currentAgentId: jobOf(board, taskId)?.implementerId, attachmentRoot: join(this.records.root, taskId) };
+    const base = { revision: record.revision, fresh: !status.due.length, ...status, ...(options.person ? { changes, ...(behind ? { behind } : {}) } : {}), ...(options.forGate ? { requirementsFingerprint: handoffRefusalFingerprint(record) } : {}), staleSince: board.handoffIndex.find((entry) => entry.taskId === taskId)?.staleSince, currentAgentId: jobOf(board, taskId)?.implementerId, attachmentRoot: join(this.records.root, taskId) };
     if (options.full) return { ...base, page: await this.records.page(taskId, { cursor: options.cursor, scope: "all" }) };
     const previousRead = agentId ? this.seen.get(key) : undefined;
     if (agentId && (previousRead === record.revision || options.recordAccess === false)) return { ...base, unchanged: previousRead === record.revision };

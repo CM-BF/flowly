@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { cardHandoffSchema, handoffInputSchema } from "./handoff";
 import { maxImages, outgoingImageSchema } from "./composer";
+import { handoffBehindSchema } from "./model";
 
 const id = z.string().min(1).max(200);
 export const handoffGetInputSchema = z.strictObject({ handoff: z.literal("full").optional(), handoffCursor: z.string().max(4096).optional() });
@@ -22,6 +23,8 @@ export const handoffContextSchema = z.object({
   unavailable: z.string().optional(), staleSince: z.string().optional(),
   view: handoffViewSchema.optional(), page: handoffPageSchema.optional(),
   unchanged: z.boolean().optional(), ackRequired: z.boolean().optional(),
+  /** For the person's view only (SESSION-HANDOFF-SPEC §12): what the record is behind on, and which `due` lines are changes after the checkpoint. */
+  behind: handoffBehindSchema.optional(), changes: z.array(z.string()).optional(),
   currentAgentId: z.string().optional(), storageBytes: z.number().int().nonnegative().optional(),
   attachmentRoot: z.string().optional(),
 });

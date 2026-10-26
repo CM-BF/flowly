@@ -473,7 +473,7 @@ export default function contribute(server: PluginServerContext) {
   server.handle(rpc.resendRoutedComment, (input, { paseo }) => { attach(paseo); return commentRouter.resend(input.taskId, input.eventId); });
   server.handle(rpc.readHandoff, async ({ taskId, etag, cursor, full }, { paseo }) => {
     attach(paseo);
-    return ifChanged(await handoffs.context(taskId, undefined, { full, cursor }), etag);
+    return ifChanged(await handoffs.context(taskId, undefined, { full, cursor, person: true }), etag);
   });
   server.handle(rpc.recordHandoffInput, (input, { paseo }) => { attach(paseo); return handoffs.recordInput(input); });
   server.handle(rpc.sendHandoffInput, ({ mode, ...input }, { paseo }) => { attach(paseo); return handoffs.send(input, mode); });

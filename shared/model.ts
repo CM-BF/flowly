@@ -406,7 +406,14 @@ export const eventSchema = z.object({
   operationId: z.string().max(200).optional(),
   at: timestamp,
 });
-export const handoffIndexSchema = z.object({ taskId: z.string(), fresh: z.boolean(), staleSince: z.string().optional(), open: z.number().int().nonnegative(), sessions: z.number().int().nonnegative() });
+/**
+ * What a record that is not fresh is behind on, for the person (SESSION-HANDOFF-SPEC §12): only a successor's missing
+ * acknowledgement (`ack`), changes after the agent's checkpoint (`activity`), no agent checkpoint yet (`unwritten`), or
+ * something that could not be checked (`unverified`). An entry written before this field reads as `activity`.
+ */
+export const handoffBehindSchema = z.enum(["ack", "activity", "unwritten", "unverified"]);
+export type HandoffBehind = z.infer<typeof handoffBehindSchema>;
+export const handoffIndexSchema = z.object({ taskId: z.string(), fresh: z.boolean(), staleSince: z.string().optional(), open: z.number().int().nonnegative(), sessions: z.number().int().nonnegative(), behind: handoffBehindSchema.optional() });
 export const boardSchema = z.object({
   version: z.literal(5),
   revision: z.number().int().nonnegative(),

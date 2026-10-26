@@ -5,6 +5,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import * as rpc from "../shared/rpc";
 import type { HandoffContextView } from "../shared/handoff-api";
 import type { CardHandoff, HandoffInput, HandoffQuestion, HandoffReview, HandoffSession } from "../shared/handoff";
+import type { HandoffBehind } from "../shared/model";
 import { msg, t, tn } from "../shared/i18n";
 import { boardKey, createChangedReader } from "./queries";
 import { Disclosure, Section, type SectionState } from "./disclosure";
@@ -15,7 +16,7 @@ import { Badge, Button, Label, Notice, TextBox, font, message, radius, relativeT
 
 const changed = createChangedReader();
 export const handoffKey = (taskId: string) => ["flowly", "handoff", taskId] as const;
-export type HandoffIndex = { taskId: string; fresh: boolean; staleSince?: string; open: number; sessions: number };
+export type HandoffIndex = { taskId: string; fresh: boolean; staleSince?: string; open: number; sessions: number; behind?: HandoffBehind };
 
 const statusLabels: Record<HandoffInput["status"], string> = {
   open: msg("Open"), received: msg("Received"), done: msg("Done"), answered: msg("Answered"), superseded: msg("Superseded"), declined: msg("Declined"),
@@ -28,9 +29,10 @@ const sectionLabels: Record<string, string> = {
 };
 
 /**
- * No detail fetch while folded. Background reads never seed or replace a person's draft. `pending`: an agent is working
- * on the card or about to continue from this record (`continuationPending`); only then, or with unresolved items, is a
- * record behind later activity a warning (SESSION-HANDOFF-SPEC §12).
+ * No detail fetch while folded. Background reads never seed or replace a person's draft. `pending`: an agent is about to
+ * continue from this record (`continuationPending`); only then, with unresolved items, or with a record that could not
+ * be read or checked, is a record that is not fresh a warning (SESSION-HANDOFF-SPEC §12). The summary and the body use
+ * the same rule; a missing acknowledgement is a warning only with them.
  */
 export function TaskHandoff({ taskId, active, disabled, section, index, pending = true, onStartSession, onOpenSession }: {
   taskId: string; active: boolean; disabled: boolean; section: SectionState; index?: HandoffIndex; pending?: boolean;
@@ -85,7 +87,10 @@ export function TaskHandoff({ taskId, active, disabled, section, index, pending 
     else if (agentId && onOpenSession(agentId) === false) setError(t("The session list changed. Refresh the card before opening that session."));
   });
   const summary = index ? [t(handoffToneLabels[handoffTone(index, pending)]), tn(index.open, "{n} unresolved item", "{n} unresolved items"), tn(index.sessions, "{n} session", "{n} sessions")].join(" · ") : t("The next agent continues from this card.");
-  const tone = context && handoffTone({ fresh: context.fresh, open: Math.max(index?.open ?? 0, context.view?.openIdsTotal ?? 0) }, pending, context.ackRequired);
+  const tone = context && handoffTone({ fresh: context.fresh, open: Math.max(index?.open ?? 0, context.view?.openIdsTotal ?? 0), behind: context.behind }, pending, !!context.unavailable);
+  const ack = t("The new agent has not acknowledged this handoff yet.");
+  // Behind later activity: only the changes are listed (the acknowledgement has its own line); recorded: nothing to list.
+  const dueLines = !context || tone === "recorded" ? [] : tone === "settled" ? context.changes ?? context.due : context.due;
   const since = context?.staleSince ? ` · ${relativeTime(context.staleSince)}` : "";
   return <Section id={taskId} title={t("Handoff")} open={section.open} onToggle={section.onToggle} summary={summary} count={index?.open}>
     <Label muted size={font.sm}>{t("The next agent reads this record and checks it against the workspace. Missing or outdated information is shown here.")}</Label>
@@ -93,12 +98,12 @@ export function TaskHandoff({ taskId, active, disabled, section, index, pending 
       {!!context.unavailable && <Notice tone="warning">{context.unavailable}</Notice>}
       {!!context.currentAgentId && <Label muted size={font.sm}>{t("Current session")} · {context.currentAgentId.slice(0, 8)}</Label>}
       {tone === "check" && <Notice tone="warning">{t("Handoff needs checking")}{since}</Notice>}
-      {tone === "settled" && <View style={{ gap: 2 }}>
-        <Label muted size={font.sm}>{t("Handoff recorded before later activity")}{since}</Label>
-        <Label muted size={font.sm}>{t("Nothing is unresolved and no agent is about to continue. An agent that continues later checks the record against the workspace first.")}</Label>
+      {(tone === "settled" || tone === "unwritten") && <View style={{ gap: 2 }}>
+        <Label muted size={font.sm}>{t(handoffToneLabels[tone])}{since}</Label>
+        <Label muted size={font.sm}>{t("Nothing is unresolved. An agent that continues from this record checks it against the workspace first.")}</Label>
       </View>}
-      {!!context.ackRequired && <Notice tone="warning">{t("The new agent has not acknowledged this handoff yet.")}</Notice>}
-      {!!context.due.length && <Group title={tone === "settled" ? t("Changed since it was recorded") : t("Needs checking")} count={context.due.length}>{context.due.map((text, i) => <Label key={i} size={font.sm}>{text}</Label>)}</Group>}
+      {!!context.ackRequired && (tone === "check" ? <Notice tone="warning">{ack}</Notice> : <Label muted size={font.sm}>{ack}</Label>)}
+      {!!dueLines.length && <Group title={tone === "settled" ? t("Changed since it was recorded") : t("Needs checking")} count={dueLines.length}>{dueLines.map((text, i) => <Label key={i} size={font.sm}>{text}</Label>)}</Group>}
       {context.view ? <>
         <HandoffRecord record={context.view.record} currentAgentId={context.currentAgentId} disabled={disabled || busy} truncated={context.view.truncatedIds} onMark={markInput} onReadFull={() => setFull(true)} onContinue={(agentId) => void continueSession(false, agentId)} />
         {(!context.view.complete || !!context.view.omitted || !!context.view.truncatedIds.length) && <Notice tone="warning">{t("Preview only: {omitted} entries omitted; {truncated} entries shortened. Read every page for the full record.", { omitted: context.view.omitted, truncated: context.view.truncatedIds.length })}</Notice>}
@@ -189,10 +194,12 @@ function ReviewRow({ review: r }: { review: HandoffReview }) {
     {r.gaps.map((gap, i) => <Notice key={i} tone="warning">{gap}</Notice>)}
   </Box>;
 }
+/** Only a successor implementer is asked to acknowledge (§7.5); launch, reviewer and manual sessions owe nothing. */
 function SessionRow({ session: s, current, disabled, onContinue }: { session: HandoffSession; current: boolean; disabled: boolean; onContinue(agentId: string): void }) {
+  const owesAck = s.role === "implementer" && s.reason !== "launch";
   return <Box><Label medium>{t("Session #{n} · {id}", { n: s.n, id: s.agentId.slice(0, 8) })} · {t(roleLabels[s.role])}{current ? ` · ${t("Current session")}` : s.endedAt ? ` · ${t("Previous session")}` : ""}</Label>
     <Label muted size={font.sm}>{[s.provider, s.model].filter(Boolean).join("/")} · {s.endReason ?? s.reason}</Label>
-    <Label muted size={font.sm}>{s.ack?.complete ? t("Handoff acknowledged") : t("Handoff not acknowledged")}{s.endedAt ? ` · ${relativeTime(s.endedAt)}` : ""}</Label>
+    {(!!s.ack?.complete || owesAck || !!s.endedAt) && <Label muted size={font.sm}>{[s.ack?.complete ? t("Handoff acknowledged") : owesAck ? t("Handoff not acknowledged") : "", s.endedAt ? relativeTime(s.endedAt) : ""].filter(Boolean).join(" · ")}</Label>}
     {!!s.understanding && <Label>{s.understanding}</Label>}
     {!!s.skeleton && <Label muted size={font.sm}>{s.skeleton}</Label>}
     {s.background.filter(b => b.status !== "closed").map(b => <Label key={b.id} size={font.sm}>{b.label} · {b.ref}</Label>)}
