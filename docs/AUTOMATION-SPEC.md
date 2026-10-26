@@ -317,7 +317,7 @@ AutomationJob {
 
 ### 5.3 无人值守项目与按卡片要求的评审（基准测试的发现）
 
-状态：已实现（2026-10-26，分支 `fix/unattended-review`），typecheck 与全部单元测试通过；未安装到 daemon。效果由基准测试 agent 用新版本重跑 Flowly 组，与旧版本和原生组按题配对比较。
+状态：已实现（2026-10-26，分支 `fix/unattended-review`），typecheck 与全部单元测试通过；`d123025` 已装到 daemon，开关的 Web UI 与真实 agent 的提问被拒、照常交付已验证（[verification/unattended.md](verification/unattended.md)）。效果由基准测试 agent 用新版本重跑 Flowly 组，与旧版本和原生组按题配对比较。
 
 来源：基准测试 agent（88ff9d01）用 Terminal-Bench 4.0 的真实题目比较原生单 agent、Flowly、Dynamic workflows 与两者组合。所有角色都是 gpt-6.1-sol、max 推理、fast；每次尝试 2 小时上限；只看官方隐藏测试。Flowly 冻结在 `69422d88`，自动化设置全用缺省值。25 道题里 Flowly 整题通过 8/23 次，原生 13/25；Flowly 平均每题 $3.18、42 分钟，原生 $0.77、18 分钟。用户让它把 Flowly 的问题交给这里修。逐题核对了证据（看板、rollout、隐藏测试的输出），事实与原因如下：
 
