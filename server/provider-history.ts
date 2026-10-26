@@ -1,6 +1,6 @@
-import { readdir, stat } from "node:fs/promises";
+import { lstat, opendir, readdir, realpath, stat } from "node:fs/promises";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { join, relative, sep } from "node:path";
 import type { PaseoApi } from "@getpaseo/client";
 import { historyLimits } from "../shared/automation";
 
@@ -8,12 +8,24 @@ import { historyLimits } from "../shared/automation";
 export type HistoryAgent = {
   id?: string;
   provider?: string | null;
+  cwd?: string | null;
   persistence?: { provider?: string; sessionId?: string; nativeHandle?: string; metadata?: { provider?: string; threadId?: string } | null } | null;
 };
 
 const paths = new Map<string, string>();
 const day = 86_400_000;
 const pad = (n: number) => String(n).padStart(2, "0");
+const sessionIdPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+export type NativeHistoryFile = { provider: "codex" | "claude"; sessionId: string; path: string };
+export type NativeHistoryLocation = { file?: NativeHistoryFile; reason?: "unsupported_provider" | "invalid_session" | "source_missing" | "locator_budget" | "aborted" };
+
+export function nativeHistoryIdentity(agent: HistoryAgent): { provider: "codex" | "claude" | undefined; sessionId: string | undefined } {
+  const persisted = agent.persistence;
+  const names = [persisted?.metadata?.provider, persisted?.provider, agent.provider];
+  const provider = names.includes("codex") ? "codex" : names.includes("claude") ? "claude" : undefined;
+  return { provider, sessionId: persisted?.metadata?.threadId ?? persisted?.nativeHandle ?? persisted?.sessionId };
+}
 
 /** Day folders Codex may have filed a thread under: the local day of its UUIDv7 timestamp and the days next to it. */
 function dayFolders(thread: string) {
@@ -32,28 +44,128 @@ function dayFolders(thread: string) {
  * (after a daemon restart, a history refresh or a message to an unloaded session): past a few hundred MB that
  * message no longer fits in a string and the daemon's worker crashes.
  */
-export async function historyBytes(agent: HistoryAgent, home = process.env.CODEX_HOME || join(homedir(), ".codex")): Promise<number | null> {
+async function codexHistoryPath(agent: HistoryAgent, home: string, signal?: AbortSignal): Promise<string | null> {
+  if (signal?.aborted) return null;
   // A provider that extends Codex (e.g. "codex-azure") renames provider and persistence.provider; metadata keeps "codex".
   const persisted = agent.persistence;
   const codex = [persisted?.metadata?.provider, persisted?.provider, agent.provider].includes("codex");
   const thread = persisted?.metadata?.threadId ?? persisted?.nativeHandle ?? persisted?.sessionId;
-  if (!codex || !thread || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(thread)) return null;
-  const known = paths.get(thread);
+  if (!codex || !thread || !sessionIdPattern.test(thread)) return null;
+  const key = `${home}\0${thread}`;
+  const known = paths.get(key);
   if (known) {
     const size = (await stat(known).catch(() => null))?.size;
-    if (size !== undefined) return size;
-    paths.delete(thread);
+    if (size !== undefined) return known;
+    paths.delete(key);
   }
   const suffix = `-${thread}.jsonl`;
   for (const dir of [...dayFolders(thread).map((parts) => join(home, "sessions", ...parts)), join(home, "archived_sessions")]) {
+    if (signal?.aborted) return null;
     const name = (await readdir(dir).catch(() => [] as string[])).find((n) => n.startsWith("rollout-") && n.endsWith(suffix));
     if (!name) continue;
     const size = (await stat(join(dir, name)).catch(() => null))?.size;
     if (size === undefined) continue;
-    paths.set(thread, join(dir, name));
-    return size;
+    paths.set(key, join(dir, name));
+    return join(dir, name);
   }
   return null;
+}
+
+export async function historyBytes(agent: HistoryAgent, home = process.env.CODEX_HOME || join(homedir(), ".codex")): Promise<number | null> {
+  // Keep the existing safety guard Codex-only: Claude has a different loading cost and is observation-only in P1.
+  const path = await codexHistoryPath(agent, home);
+  return path ? (await stat(path).catch(() => null))?.size ?? null : null;
+}
+
+/** Claude Agent SDK / Paseo 0.12 project-dir encoding; moved projects retain their original transcript folder. */
+function claudeProjectName(cwd: string) {
+  const value = process.platform === "darwin" ? cwd.normalize("NFC") : cwd;
+  const name = value.replace(/[^a-zA-Z0-9]/g, "-");
+  if (name.length <= 200) return name;
+  let hash = 0;
+  for (let i = 0; i < value.length; i++) hash = ((hash << 5) - hash + value.charCodeAt(i)) | 0;
+  return `${name.slice(0, 200)}-${Math.abs(hash).toString(36)}`;
+}
+
+async function containedFile(path: string, home: string): Promise<string | null> {
+  if (!(await lstat(path).catch(() => null))?.isFile()) return null;
+  const [root, file] = await Promise.all([realpath(home), realpath(path)]);
+  const rel = relative(root, file);
+  return rel && rel !== ".." && !rel.startsWith(`..${sep}`) && !rel.startsWith(sep) ? file : null;
+}
+
+/** Only native UUID filenames below the provider home; never treats persistence.nativeHandle as a filesystem path. */
+export async function locateProviderHistory(agent: HistoryAgent, options: { codexHome?: string; claudeHome?: string; signal?: AbortSignal } = {}): Promise<NativeHistoryLocation> {
+  if (options.signal?.aborted) return { reason: "aborted" };
+  const { provider, sessionId } = nativeHistoryIdentity(agent);
+  if (!provider) return { reason: "unsupported_provider" };
+  if (!sessionId || !sessionIdPattern.test(sessionId)) return { reason: "invalid_session" };
+  try {
+    const home = provider === "codex" ? options.codexHome ?? process.env.CODEX_HOME ?? join(homedir(), ".codex") : options.claudeHome ?? process.env.CLAUDE_CONFIG_DIR ?? join(homedir(), ".claude");
+    if (provider === "codex") {
+      const found = await codexHistoryPath(agent, home, options.signal);
+      if (options.signal?.aborted) return { reason: "aborted" };
+      const path = found && await containedFile(found, home);
+      return path ? { file: { provider, sessionId, path } } : { reason: "source_missing" };
+    }
+    const projects = join(home, "projects"), filename = `${sessionId}.jsonl`;
+    if (agent.cwd) {
+      const cwd = await realpath(agent.cwd).catch(() => agent.cwd!);
+      const path = await containedFile(join(projects, claudeProjectName(cwd), filename), home);
+      if (path) return { file: { provider, sessionId, path } };
+    }
+    const directory = await opendir(projects).catch(() => null);
+    if (!directory) return { reason: "source_missing" };
+    let count = 0;
+    for await (const entry of directory) {
+      if (options.signal?.aborted) return { reason: "aborted" };
+      if (++count > 5000) return { reason: "locator_budget" };
+      if (!entry.isDirectory()) continue;
+      const path = await containedFile(join(projects, entry.name, filename), home);
+      if (path) return { file: { provider, sessionId, path } };
+    }
+    return { reason: "source_missing" };
+  } catch { return { reason: "source_missing" }; }
+}
+
+export type SidecarMeasurement = { at: number; bytes?: number; files: number; complete: boolean; limited: boolean };
+const sidecars = new Map<string, SidecarMeasurement>();
+/** Claude subagent/workflow bytes are an independent warning, never the parent's rotation bytes. */
+export async function claudeSidecarBytes(file: NativeHistoryFile, now = Date.now(), signal?: AbortSignal): Promise<SidecarMeasurement> {
+  const key = file.path;
+  const hit = sidecars.get(key);
+  if (hit && now >= hit.at && now - hit.at < 300_000) return hit;
+  const result: SidecarMeasurement = { at: now, bytes: 0, files: 0, complete: true, limited: false };
+  if (file.provider !== "claude" || signal?.aborted) return { ...result, bytes: undefined, complete: false };
+  const root = file.path.slice(0, -".jsonl".length), queue = [join(root, "subagents"), join(root, "workflows")];
+  const rootInfo = await lstat(root).catch((error: NodeJS.ErrnoException) => { if (error.code !== "ENOENT") result.complete = false; return null; });
+  if (!result.complete) return { ...result, bytes: undefined };
+  if (rootInfo && (!rootInfo.isDirectory() || rootInfo.isSymbolicLink())) return { ...result, bytes: undefined, complete: false };
+  let entries = 0;
+  while (queue.length && !signal?.aborted && !result.limited) {
+    const folder = queue.shift()!;
+    const info = await lstat(folder).catch((error: NodeJS.ErrnoException) => { if (error.code !== "ENOENT") result.complete = false; return null; });
+    if (!info?.isDirectory() || info.isSymbolicLink()) continue;
+    const directory = await opendir(folder).catch(() => { result.complete = false; return null; });
+    if (!directory) continue;
+    for await (const entry of directory) {
+      if (signal?.aborted) break;
+      if (++entries > 5000) { result.complete = false; result.limited = true; break; }
+      if (entry.isSymbolicLink()) continue;
+      const path = join(folder, entry.name);
+      if (entry.isDirectory()) queue.push(path);
+      else if (entry.isFile()) {
+        const info = await lstat(path).catch(() => null);
+        if (!info?.isFile() || info.isSymbolicLink()) { result.complete = false; continue; }
+        result.bytes! += info.size; result.files++;
+      }
+    }
+  }
+  if (signal?.aborted) return { ...result, bytes: undefined, complete: false };
+  if (result.limited) result.bytes = Math.max(result.bytes ?? 0, 512 * 2 ** 20);
+  if (sidecars.size >= 128) sidecars.delete(sidecars.keys().next().value!);
+  sidecars.set(key, result);
+  return result;
 }
 
 const checked = new Map<string, { at: number; bytes: number | null }>();
@@ -61,6 +173,7 @@ const checked = new Map<string, { at: number; bytes: number | null }>();
 export function forgetHistory() {
   checked.clear();
   paths.clear();
+  sidecars.clear();
 }
 
 /**

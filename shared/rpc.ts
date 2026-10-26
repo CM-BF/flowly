@@ -1,4 +1,6 @@
 import { automationLaunchSchema } from "./automation-launch";
+import { agentModelSchema } from "./agent-defaults";
+import { handoffContextSchema, handoffContinueSchema, handoffInputConfirmSchema, handoffInputDispositionSchema, handoffInputRecordSchema, handoffNoteInputSchema, handoffReadInputSchema } from "./handoff-api";
 import { attentionDismissInput, attentionDismissalSchema, attentionRestoreInput } from "./attention-dismiss";
 import { defineRpc } from "@getpaseo/plugin";
 import { sessionInsightViewSchema } from "./session-insights";
@@ -17,6 +19,7 @@ import {
   gitHeadSchema,
   ideaSchema,
   boardSchema,
+  handoffIndexSchema,
   projectInput,
   projectEdit,
   linkedProjectInput,
@@ -33,7 +36,7 @@ import {
   planSnapshotSchema,
 } from "./model";
 import { healthSchema, preparationSchema } from "./tools";
-import { commentInput } from "./comments";
+import { commentInput, commentDeliverySchema } from "./comments";
 import { connectionInput, connectionSchema, externalSummarySchema } from "./connectors";
 import { composerStateSchema, composerTarget, maxImages, outgoingImageSchema, queuedMessageSchema } from "./composer";
 import {
@@ -110,6 +113,7 @@ export const boardPatchSchema = z.object({
   workpads: collectionPatch(workpadSchema),
   attentionDismissals: collectionPatch(attentionDismissalSchema),
   automation: collectionPatch(automationJobSchema),
+  handoffIndex: collectionPatch(handoffIndexSchema),
 });
 export const readBoardChanged = defineRpc({
   name: "board.read-changed",
@@ -228,7 +232,15 @@ export const updateTaskTags = defineRpc({
 export const commentTask = defineRpc({
   name: "tasks.comment",
   input: commentInput,
-  output: z.object({ event: eventSchema }),
+  output: z.object({ event: eventSchema, delivery: commentDeliverySchema.optional() }),
+});
+export const readCommentDeliveries = defineRpc({
+  name: "tasks.comment-deliveries", input: z.strictObject({ taskId: z.string().min(1).max(200) }),
+  output: z.array(z.object({ eventId: z.string(), delivery: commentDeliverySchema })),
+});
+export const resendRoutedComment = defineRpc({
+  name: "tasks.resend-comment", input: z.strictObject({ taskId: z.string().min(1).max(200), eventId: z.string().min(1).max(200) }),
+  output: z.object({ event: eventSchema, delivery: commentDeliverySchema.optional() }),
 });
 /** Dismiss or restore an idea (IDEAS-SPEC §7). */
 export const updateIdea = defineRpc({
@@ -431,9 +443,16 @@ export const toolsHealth = defineRpc({
 });
 export const prepareSession = defineRpc({
   name: "tools.prepare-session",
-  input: z.object({ id: z.string(), operationId: z.string().min(1).max(200) }),
+  input: z.object({ id: z.string(), operationId: z.string().min(1).max(200), launch: z.object({ text: z.string().max(20000), messageId: z.string().min(1).max(240), model: agentModelSchema, images: z.array(outgoingImageSchema).max(maxImages).optional() }).optional() }),
   output: preparationSchema,
 });
+export const readHandoff = defineRpc({ name: "handoffs.read", input: handoffReadInputSchema, output: z.object({ etag: z.string(), value: handoffContextSchema.optional() }) });
+export const recordHandoffInput = defineRpc({ name: "handoffs.record-input", input: handoffInputRecordSchema, output: z.object({ ok: z.literal(true), messageId: z.string(), agentId: z.string() }) });
+export const sendHandoffInput = defineRpc({ name: "handoffs.send-input", input: handoffInputRecordSchema.extend({ mode: z.enum(["steer", "interrupt"]).default("steer") }), output: z.object({ ok: z.literal(true), messageId: z.string(), agentId: z.string() }) });
+export const confirmHandoffInput = defineRpc({ name: "handoffs.confirm-input", input: handoffInputConfirmSchema, output: z.object({ ok: z.literal(true) }) });
+export const noteHandoff = defineRpc({ name: "handoffs.note", input: handoffNoteInputSchema, output: z.object({ ok: z.literal(true) }) });
+export const markHandoffInput = defineRpc({ name: "handoffs.input", input: handoffInputDispositionSchema, output: z.object({ ok: z.literal(true) }) });
+export const continueHandoff = defineRpc({ name: "handoffs.continue", input: handoffContinueSchema, output: z.object({ ok: z.literal(true), automation: z.boolean() }) });
 export const prepareExisting = defineRpc({
   name: "tools.prepare-existing",
   input: z.object({ id: z.string(), agentId: z.string() }),
@@ -564,8 +583,8 @@ export const saveDraft = defineRpc({
 export const queueMessage = defineRpc({
   name: "composer.queue",
   input: composerTarget
-    .extend({ text: z.string().trim().max(20000), images: z.array(outgoingImageSchema).max(maxImages).optional() })
-    .refine((v) => !!v.text || !!v.images?.length, "Write a message or attach an image."),
+    .extend({ text: z.string().max(20000), messageId: z.string().min(1).max(200).optional(), images: z.array(outgoingImageSchema).max(maxImages).optional() })
+    .refine((v) => !!v.text.trim() || !!v.images?.length, "Write a message or attach an image."),
   output: queuedMessageSchema,
 });
 export const unqueueMessage = defineRpc({

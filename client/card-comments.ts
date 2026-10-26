@@ -6,10 +6,10 @@
  */
 import type { PaseoApi } from "@getpaseo/client";
 import type { BoardEvent } from "../shared/model";
-import { commentsOf, type CommentInput } from "../shared/comments";
+import { commentsOf, type CommentInput, type RoutedCommentDelivery } from "../shared/comments";
 import { sessionTree, type SubagentSource } from "../shared/subagents";
 import { preferredSend, resolveSend, type SendBehavior } from "./send-queue";
-import { sendCardInstruction, workspaceSession } from "./session";
+import { sendCardInstruction, workspaceSession, type HandoffSend } from "./session";
 
 /** Comments shown before "Show all". */
 export const commentPreviewCount = 3;
@@ -48,6 +48,7 @@ export type CommentTarget = {
 };
 
 export type CommentTargets = {
+  managed?: boolean;
   /** Live main sessions of the card's workspace, most recently active first: what To: offers. */
   candidates: CommentTarget[];
   /** The recipient when nobody picked one; null: the comment is only saved on the card. */
@@ -67,10 +68,10 @@ const reviewerLabel = (s: TargetSource) => s.labels?.["flowly-automation"] === "
  */
 export function commentTargets(
   sessions: readonly TargetSource[],
-  card: { workspaceId: string; implementerId?: string; reviewerId?: string },
+  card: { workspaceId: string; implementerId?: string; reviewerId?: string; retired?: readonly { agentId: string }[] },
 ): CommentTargets {
   const here = sessions.filter((s) => s.workspaceId === card.workspaceId);
-  const live = here.filter((s) => !s.archivedAt);
+  const live = here.filter((s) => !s.archivedAt && !card.retired?.some(r => r.agentId === s.id));
   const recent = (a: TargetSource, b: TargetSource) =>
     a.updatedAt < b.updatedAt ? 1 : a.updatedAt > b.updatedAt ? -1 : a.createdAt < b.createdAt ? 1 : a.createdAt > b.createdAt ? -1 : 0;
   const mains = sessionTree(live).map((node) => node.agent).sort(recent);
@@ -93,19 +94,19 @@ export function commentTargets(
   };
 }
 
-/** The recipient: the person's choice while it is still offered, else the default. */
+/** Explicit choices never silently fall back to a different session. */
 export function resolveTarget(targets: CommentTargets, chosen: string | null | undefined): CommentTarget | null {
-  return targets.candidates.find((c) => c.id === chosen) ?? targets.candidates.find((c) => c.id === targets.defaultId) ?? null;
+  return chosen != null ? targets.candidates.find(c => c.id === chosen) ?? null : targets.candidates.find(c => c.id === targets.defaultId) ?? null;
 }
 
 /** A card's recipients: its sessions, with its automation job's implementer and reviewer read from the board. */
 export function cardRecipients(
   sessions: readonly TargetSource[],
-  board: { automation: readonly { taskId: string; implementerId?: string; reviewerId?: string }[] } | undefined,
+  board: { automation: readonly { taskId: string; implementerId?: string; reviewerId?: string; state?: string; retired?: readonly { agentId: string }[] }[] } | undefined,
   task: { id: string; workspaceId: string },
 ): CommentTargets {
   const job = board?.automation.find((j) => j.taskId === task.id);
-  return commentTargets(sessions, { workspaceId: task.workspaceId, implementerId: job?.implementerId, reviewerId: job?.reviewerId });
+  return { ...commentTargets(sessions, { workspaceId: task.workspaceId, implementerId: job?.implementerId, reviewerId: job?.reviewerId, retired: job?.retired }), managed: !!job && !["stopped", "failed"].includes(job.state ?? "") };
 }
 
 /** The To: row: shown when a live session exists; it opens when there is a choice (several, or none chosen yet). */
@@ -116,6 +117,22 @@ export function recipientPicker(targets: CommentTargets, target: CommentTarget |
 
 /** Why a comment would only be saved (CARD-COMMENTS-SPEC §1): no live session, only archived ones, or only reviewers. */
 export type ComposerNote = "no-session" | "archived" | "reviewers";
+
+/**
+ * The composer note for a delivery choice: only when nobody receives the comment by circumstance
+ * (an unmanaged card without a live implementer, or a chosen session that is gone). A person who
+ * picked "Save on the card" gets no note: the To: row and the receipt already say it is saved.
+ */
+export function deliveryNote(
+  chosen: string | null | undefined,
+  deliver: "auto" | "fresh" | "save" | { agentId: string },
+  targets: CommentTargets,
+  target: CommentTarget | null,
+  known: { loading: boolean; archivedKnown: boolean },
+): ComposerNote | null {
+  const implicitSave = deliver === "save" && chosen !== "route:save";
+  return implicitSave || typeof deliver === "object" ? composerNote(targets, target, known) : null;
+}
 
 /**
  * The line under the composer when nobody receives the comment. None while the
@@ -133,15 +150,13 @@ export function composerNote(
   return known.archivedKnown ? "no-session" : null;
 }
 
-export type CommentDelivery =
-  | { kind: "saved" }
-  | { kind: "sent" | "queued"; agentId: string }
-  | { kind: "failed"; agentId: string; error: string };
+export type CommentDelivery = RoutedCommentDelivery;
 
 /** The session composer's send path (sendCardInstruction and the daemon queue). */
 export interface CommentTransport {
-  send(agentId: string, text: string, mode?: "steer" | "interrupt"): Promise<void>;
-  queue(agentId: string, text: string): Promise<unknown>;
+  send(agentId: string, text: string, mode?: "steer" | "interrupt", messageId?: string): Promise<void>;
+  queue(agentId: string, text: string, messageId?: string): Promise<unknown>;
+  routed?(input: CommentInput): Promise<{ delivery?: RoutedCommentDelivery }>;
 }
 
 /**
@@ -154,16 +169,17 @@ export function commentTransport(
   deps: {
     paseo: PaseoApi;
     contextRead(input: { id: string }): Promise<{ available: boolean; reason: string; context: string }>;
-    queue(taskId: string, agentId: string, text: string): Promise<unknown>;
+    queue(taskId: string, agentId: string, text: string, messageId?: string): Promise<unknown>;
+    handoff?: HandoffSend;
   },
   card: { taskId: string; workspaceId: string },
 ): CommentTransport {
   return {
-    send: async (agentId, text, mode) => {
+    send: async (agentId, text, mode, messageId) => {
       await workspaceSession(deps.paseo, agentId, card.workspaceId, true);
-      await sendCardInstruction(deps.paseo, { id: card.taskId, workspaceId: card.workspaceId }, agentId, deps.contextRead, text, mode);
+      await sendCardInstruction(deps.paseo, { id: card.taskId, workspaceId: card.workspaceId }, agentId, deps.contextRead, text, mode, [], messageId, deps.handoff);
     },
-    queue: (agentId, text) => deps.queue(card.taskId, agentId, text),
+    queue: (agentId, text, messageId) => deps.queue(card.taskId, agentId, text, messageId),
   };
 }
 
@@ -178,15 +194,16 @@ export async function deliverComment(
   text: string,
   behavior: SendBehavior,
   alternate = false,
+  messageId?: string,
 ): Promise<CommentDelivery> {
   if (!target) return { kind: "saved" };
   const action = resolveSend(behavior, { running: target.running, alternate, pendingPermission: target.pendingPermission });
   try {
     if (action.kind === "queue") {
-      await transport.queue(target.id, text);
+      await transport.queue(target.id, text, messageId);
       return { kind: "queued", agentId: target.id };
     }
-    await transport.send(target.id, text, action.activeTurnBehavior);
+    await transport.send(target.id, text, action.activeTurnBehavior, messageId);
     return { kind: "sent", agentId: target.id };
   } catch (error) {
     return { kind: "failed", agentId: target.id, error: error instanceof Error ? error.message : String(error) };
@@ -194,7 +211,7 @@ export async function deliverComment(
 }
 
 /** A recorded comment whose delivery failed: Resend only sends it again (CARD-COMMENTS-SPEC §7.6). */
-export type FailedDelivery = { eventId: string; text: string; agentId: string; title: string; error: string };
+export type FailedDelivery = { eventId: string; text: string; agentId: string; title: string; error: string; messageId?: string; route?: CommentInput };
 
 /**
  * What a card's comment composer keeps while the drawer shows a session instead
@@ -275,8 +292,8 @@ export type PostOutcome =
  */
 export async function postComment(
   memory: CommentMemory,
-  deps: CommentTransport & { record(input: CommentInput): Promise<{ event: BoardEvent }> },
-  input: { taskId: string; target: CommentTarget | null; settings?: { sendBehavior?: SendBehavior } | null; alternate?: boolean },
+  deps: CommentTransport & { record(input: CommentInput): Promise<{ event: BoardEvent; delivery?: RoutedCommentDelivery }> },
+  input: { taskId: string; target: CommentTarget | null; settings?: { sendBehavior?: SendBehavior } | null; alternate?: boolean; deliver?: CommentInput["deliver"] },
 ): Promise<PostOutcome> {
   const text = memory.draft;
   if (memory.busy || !text.trim()) return { kind: "skipped" };
@@ -286,9 +303,10 @@ export async function postComment(
   memory.error = "";
   changed(memory);
   try {
-    let event: BoardEvent;
+    let event: BoardEvent, routed: RoutedCommentDelivery | undefined;
+    const request: CommentInput = { taskId: input.taskId, text, operationId, ...(input.deliver !== undefined ? { deliver: input.deliver, whenRunning: preferredSend(input.settings), alternate: !!input.alternate } : {}) };
     try {
-      ({ event } = await deps.record({ taskId: input.taskId, text, operationId }));
+      ({ event, delivery: routed } = await deps.record(request));
     } catch (error) {
       memory.error = errorText(error);
       return { kind: "refused", error: memory.error };
@@ -297,9 +315,10 @@ export async function postComment(
     memory.posted = [...memory.posted, event];
     if (memory.draft === text) memory.draft = "";
     changed(memory);
-    const delivery = await deliverComment(deps, input.target, text, preferredSend(input.settings), input.alternate);
+    const messageId = `comment:${event.operationId ?? operationId}`;
+    const delivery = routed ?? await deliverComment(deps, input.target, text, preferredSend(input.settings), input.alternate, messageId);
     if (delivery.kind === "failed")
-      memory.failed = [...memory.failed, { eventId: event.id, text, agentId: delivery.agentId, title: input.target?.title ?? "", error: delivery.error }];
+      memory.failed = [...memory.failed, { eventId: event.id, text, agentId: delivery.agentId ?? "", title: input.target?.title ?? "", error: delivery.error ?? "", messageId, ...(routed ? { route: request } : {}) }];
     return { kind: "posted", event, delivery };
   } finally {
     memory.busy = false;
@@ -320,14 +339,14 @@ export async function resendComment(
   settings?: { sendBehavior?: SendBehavior } | null,
 ): Promise<CommentDelivery | null> {
   const entry = memory.failed.find((f) => f.eventId === eventId);
-  if (memory.busy || !entry || !target) return null;
+  if (memory.busy || !entry || (!target && !entry.route)) return null;
   memory.busy = true;
   changed(memory);
   try {
-    const delivery = await deliverComment(transport, target, entry.text, preferredSend(settings));
+    const delivery = entry.route && transport.routed ? (await transport.routed(entry.route)).delivery ?? { kind: "saved" as const } : await deliverComment(transport, target, entry.text, preferredSend(settings), false, entry.messageId);
     memory.failed =
       delivery.kind === "failed"
-        ? memory.failed.map((f) => (f.eventId === eventId ? { ...f, agentId: delivery.agentId, title: target.title, error: delivery.error } : f))
+        ? memory.failed.map((f) => (f.eventId === eventId ? { ...f, agentId: delivery.agentId ?? f.agentId, title: target?.title ?? f.title, error: delivery.error ?? "" } : f))
         : memory.failed.filter((f) => f.eventId !== eventId);
     return delivery;
   } finally {

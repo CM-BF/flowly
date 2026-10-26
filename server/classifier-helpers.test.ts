@@ -25,7 +25,8 @@ async function fixture() {
     const helpers = new ClassifierHelpers(directory, async (agent) => { await beforeRemove(agent.id); deleted.push(agent.id); sessions.delete(agent.id); }, { graceMs: 5, probeMs: 10, ...options });
     stores.push(helpers); helpers.attach(api); return helpers;
   };
-  cleanups.push(async () => { await Promise.all(stores.map((h) => h.stop())); });
+  // Late cleanup (removal, ownership write) runs after stop() by design; it finishes before the folder is deleted.
+  cleanups.push(async () => { await Promise.all(stores.map((h) => h.stop().then(() => h.drained()))); });
   const record = { id: "previous-helper", workspaceId: "w", owner: "old-owner", confirmed: false };
   const store = new ClassifierHelperStore(directory);
   return { directory, api, store, record, generation, deleted, sessions, creating: (fn: typeof beforeCreate) => { beforeCreate = fn; }, removing: (fn: typeof beforeRemove) => { beforeRemove = fn; } };
@@ -134,4 +135,31 @@ test("one unresponsive recovery probe does not stop another owned helper from be
   x.api.agents.ref = ((id: string) => id === "unresponsive" ? { ...ref(id), refresh: () => new Promise(() => {}) } : ref(id)) as typeof x.api.agents.ref;
   await x.generation().recover(); expect(x.deleted).toEqual(["recoverable"]);
   expect((await x.store.read()).map((e) => e.id)).toEqual(["unresponsive"]);
+});
+
+// A hard delete that keeps failing (no local credential, a daemon that refuses deleteAgent, a delete that never makes the
+// session disappear) only archives the helper, so its ownership stays and the 30-second check finds it again. Each retry opens
+// a local daemon connection, archives and logs: retries back off, and the failure is logged once. No daemon is reached.
+test("a helper whose hard delete keeps failing is retried with backoff and logged once, while the 30-second check goes on", async () => {
+  const { daemonRemoveAgent } = await import("./summarizer-remove");
+  const x = await fixture(), log = vi.spyOn(console, "error").mockImplementation(() => undefined);
+  cleanups.push(async () => { log.mockRestore(); });
+  await x.store.add({ id: "helper-1", workspaceId: "w", owner: "owner-1", confirmed: true });
+  x.sessions.set("helper-1", { id: "helper-1", workspaceId: "w", labels: { [CLASSIFIER_OWNER_LABEL]: "owner-1" } });
+  let connects = 0, archives = 0, probes = 0, now = Date.parse("2026-10-25T02:00:00.000Z");
+  const api = { agents: { ref: (id: string) => ({ id, archive: async () => { archives++; }, refresh: async () => { probes++; return x.sessions.has(id) ? { agent: x.sessions.get(id) } : null; } }) } } as unknown as PaseoApi;
+  const remove = daemonRemoveAgent(async () => { connects++; throw new Error("This Paseo version cannot delete sessions."); });
+  const helpers = new ClassifierHelpers(x.directory, remove, { recoverMs: 30_000, probeMs: 50, now: () => now });
+  cleanups.push(async () => { await helpers.stop(); await helpers.drained(); });
+  helpers.attach(api); await helpers.drained();
+  for (let pass = 0; pass < 10; pass++) await helpers.recover(); // the reviewer's probe: no time passes
+  expect({ connects, archives }).toEqual({ connects: 1, archives: 1 });
+  // One hour of 30-second checks: every pass still probes, the delete is retried after 1, 2, 4, 8 and 16 minutes.
+  for (let pass = 0; pass < 120; pass++) { now += 30_000; await helpers.recover(); }
+  expect({ connects, archives, logged: log.mock.calls.length }).toEqual({ connects: 6, archives: 6, logged: 1 });
+  expect(probes).toBeGreaterThan(130);
+  expect(await x.store.read()).toEqual([{ id: "helper-1", workspaceId: "w", owner: "owner-1", confirmed: true }]);
+  // Gone (deleted elsewhere, or a later retry worked): the next check retires the record.
+  x.sessions.delete("helper-1"); now += 30_000; await helpers.recover();
+  expect(await x.store.read()).toEqual([]);
 });

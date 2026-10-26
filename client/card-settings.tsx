@@ -44,6 +44,7 @@ const fieldText: Record<CardField, { title: string; detail: string }> = {
 
 const sectionText: Record<AnyDrawerSection, string> = {
   progress: msg("Progress"),
+  handoff: msg("Handoff"),
   comments: msg("Comments"),
   workpad: msg("Workpad"),
   artifacts: msg("Artifacts"),

@@ -2,6 +2,8 @@ import type { BoardStore } from "./store";
 import { ToolError } from "./tool-error";
 import { commentAction, type CommentInput } from "../shared/comments";
 import type { BoardEvent } from "../shared/model";
+import { markHandoffCommitted } from "./handoff-commit";
+import { reserveCommentRoute } from "./comment-routing-state";
 
 /**
  * Records a person's comment on a card (CARD-COMMENTS-SPEC §4): one "commented"
@@ -10,13 +12,15 @@ import type { BoardEvent } from "../shared/model";
  * operation id returns the event it wrote, also after the card was archived;
  * sending the comment to a session is the client's next step, apart from this.
  */
-export function addComment(store: BoardStore, input: CommentInput): Promise<BoardEvent> {
+export function addComment(store: BoardStore, input: CommentInput, handoffSource?: string): Promise<BoardEvent> {
   return store.transaction((board) => {
     const previous = board.events.find((e) => e.action === commentAction && e.operationId === input.operationId);
     if (previous) {
       if (previous.taskId !== input.taskId || previous.note !== input.text)
         throw new ToolError("REQUEST_REUSED", "This comment operation already recorded a different comment.");
-      return { value: previous, changed: false };
+      const routed = reserveCommentRoute(board, input, previous);
+      const confirmed = handoffSource ? markHandoffCommitted(board, input.taskId, handoffSource) : false;
+      return { value: previous, changed: routed || confirmed };
     }
     const task = board.tasks.find((t) => t.id === input.taskId);
     if (!task) throw new ToolError("NOT_FOUND", "Card not found.");
@@ -24,6 +28,8 @@ export function addComment(store: BoardStore, input: CommentInput): Promise<Boar
     if (task.archivedAt || !project || project.archivedAt)
       throw new ToolError("ARCHIVED", "This card or its project is archived, so it can't take comments.");
     const event = store.event(board, { taskId: task.id, actor: "human", action: commentAction, note: input.text, operationId: input.operationId });
+    reserveCommentRoute(board, input, event);
+    if (handoffSource) markHandoffCommitted(board, task.id, handoffSource);
     return { value: event, changed: true };
   });
 }

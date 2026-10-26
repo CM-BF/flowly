@@ -4,6 +4,7 @@ import { parentOf } from "../shared/links";
 import { automationOf, reviewsFor } from "../shared/automation";
 import { laneEnabled } from "../shared/lanes";
 import { ToolError } from "./tool-error";
+import { assertActiveCardWriter } from "./handoff-guard";
 
 export interface AgentCardActor extends ToolIdentity {
   expectedRevision: { task: number; project: number };
@@ -23,6 +24,7 @@ export function authorizeCardActor(board: Board, actor: AgentCardActor, { revisi
   const task = board.tasks.find((t) => t.id === actor.taskId);
   const project = board.projects.find((p) => p.id === task?.projectId);
   if (!task || !project || task.workspaceId !== actor.workspaceId) throw new ToolError("SESSION_MISMATCH", "Card binding changed.");
+  assertActiveCardWriter(board, actor);
   if (task.archivedAt || project.archivedAt) throw new ToolError("ARCHIVED", "Task or project is archived.");
   if (["done", "cancelled"].includes(task.status)) throw new ToolError("TASK_FINISHED", "A finished card cannot manage cards.");
   if (board.automation.some((j) => j.taskId === task.id && reviewsFor(j, actor.agentId))) throw new ToolError("REVIEWER_ONLY", "Reviewer sessions may inspect the card and submit a review, not create or manage cards.");

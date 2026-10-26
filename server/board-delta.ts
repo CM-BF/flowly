@@ -22,11 +22,12 @@ const keys = {
   workpads: (x: { taskId: string }) => x.taskId,
   attentionDismissals: (x: { taskId: string }) => x.taskId,
   automation: (x: { taskId: string }) => x.taskId,
+  handoffIndex: (x: { taskId: string }) => x.taskId,
 } as const;
 export type KeyedName = keyof typeof keys;
 export const keyedNames = Object.keys(keys) as KeyedName[];
 
-export type View = { revision: number; events: readonly { id: string }[]; plans: readonly unknown[] } & Record<KeyedName, readonly object[]>;
+export type View = { revision: number; events: readonly { id: string }[]; plans: readonly unknown[]; handoffIndex?: readonly object[] } & Record<Exclude<KeyedName, "handoffIndex">, readonly object[]>;
 type Fingerprint = {
   events: { count: number; lastId: string };
   /** Event ids: events are matched by id, not position, because a card's oldest events are dropped from the middle of the list. */
@@ -42,7 +43,7 @@ export function fingerprint(view: View): Fingerprint {
   for (const name of keyedNames) {
     const ids: string[] = [],
       hashes = new Map<string, string>();
-    for (const item of view[name] as readonly Record<string, string>[]) {
+    for (const item of (view[name] ?? []) as readonly Record<string, string>[]) {
       const id = (keys[name] as (x: never) => string)(item as never);
       ids.push(id);
       hashes.set(id, short(item));
@@ -74,7 +75,7 @@ export function diffBoard(base: Fingerprint, now: Fingerprint, view: View): Boar
   for (const name of keyedNames) {
     const before = base.collections[name],
       after = now.collections[name];
-    const items = view[name];
+    const items = view[name] ?? [];
     const set: object[] = [];
     const added: string[] = [];
     after.ids.forEach((id, i) => {

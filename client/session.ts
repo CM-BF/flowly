@@ -4,6 +4,13 @@ import type {
   PaseoWorkspaceAgentCreateOptions,
 } from "@getpaseo/client";
 import { t } from "../shared/i18n";
+import type { HandoffInputRecord } from "../shared/handoff-api";
+
+export interface HandoffSend {
+  record(input: HandoffInputRecord): Promise<unknown>;
+  send?(input: HandoffInputRecord & { mode: "steer" | "interrupt" }): Promise<unknown>;
+  confirm?(input: { taskId: string; workspaceId: string; agentId: string; messageId: string }): Promise<unknown>;
+}
 
 // A failed transport response can hide a successfully created session.
 export async function createPreparedSession(
@@ -69,12 +76,22 @@ export async function sendCardInstruction(
   mode: "steer" | "interrupt" = "steer",
   images: OutgoingImage[] = [],
   messageId?: string,
+  handoff?: HandoffSend,
 ) {
   const [actor, scope] = await Promise.all([
     workspaceSession(paseo, agentId, task.workspaceId, "restore"),
     contextRead({ id: task.id }),
   ]);
   if (!scope.available) throw new Error(scope.reason);
+  if (handoff?.send) {
+    if (!messageId) throw new Error(t("Keep the draft and refresh the card before sending."));
+    await handoff.send({ taskId: task.id, workspaceId: task.workspaceId, agentId, messageId, text: instruction, via: messageId.startsWith("comment:") ? "comment" : "session", mode, ...(images.length ? { images } : {}) });
+    return;
+  }
+  if (handoff) {
+    if (!messageId) throw new Error(t("Keep the draft and refresh the card before sending."));
+    await handoff.record({ taskId: task.id, workspaceId: task.workspaceId, agentId, messageId, text: instruction, via: messageId.startsWith("comment:") ? "comment" : "session", ...(images.length ? { images } : {}) });
+  }
   await paseo.agents
     .ref(agentId)
     .send(instruction, {
@@ -82,6 +99,8 @@ export async function sendCardInstruction(
       ...(images.length ? { images } : {}),
       ...(messageId ? { messageId } : {}),
     });
+  // The send succeeded; a failed bookkeeping response must not invite another send.
+  if (handoff?.confirm && messageId) await handoff.confirm({ taskId: task.id, workspaceId: task.workspaceId, agentId, messageId }).catch(() => undefined);
 }
 
 /**
@@ -94,7 +113,7 @@ export async function launchKanbanSession(
   deps: {
     paseo: PaseoApi;
     contextRead: (input: { id: string }) => Promise<{ available: boolean; reason: string; context: string }>;
-    prepare: (input: { id: string; operationId: string }) => Promise<{
+    prepare: (input: { id: string; operationId: string; launch?: { text: string; messageId: string; model: { provider: string; model: string; modeId?: string; thinking?: string; featureValues?: Record<string, boolean | string> }; images?: OutgoingImage[] } }) => Promise<{
       agentId: string;
       instructions: string;
       contextFile: string;
@@ -120,7 +139,8 @@ export async function launchKanbanSession(
 ) {
   const scope = await deps.contextRead({ id: task.id });
   if (!scope.available) throw new Error(scope.reason);
-  const preparation = await deps.prepare({ id: task.id, operationId: choice.operationId });
+  const messageId = choice.clientMessageId ?? `launch:${choice.operationId}`;
+  const preparation = await deps.prepare({ id: task.id, operationId: choice.operationId, launch: { text: choice.prompt ?? "", messageId, model: { provider: choice.provider, model: choice.model, modeId: choice.mode, thinking: choice.thinking, featureValues: choice.featureValues }, ...(choice.images?.length ? { images: choice.images } : {}) } });
   return createPreparedSession(deps.paseo, task.workspaceId, {
     agentId: preparation.agentId,
     idempotencyKey: `ultra-kanban-session:${preparation.agentId}`,
@@ -139,8 +159,8 @@ export async function launchKanbanSession(
     },
     title: choice.title?.trim() || task.title,
     labels: { "flowly-task": task.id },
-    prompt: choice.prompt?.trim() || undefined,
+    prompt: choice.prompt || undefined,
     ...(choice.images?.length ? { images: choice.images } : {}),
-    ...(choice.clientMessageId ? { clientMessageId: choice.clientMessageId } : {}),
+    clientMessageId: messageId,
   });
 }

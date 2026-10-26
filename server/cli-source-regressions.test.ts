@@ -222,3 +222,47 @@ test("card and review commands refuse --note/--kind they cannot carry instead of
   }
   expect(x.calls).toEqual([]);
 });
+
+test("history runs the generated read-only CLI with complete filter and paging arguments", async () => {
+  const x = await setup();
+  const page = { session: "old-agent", status: "ready", entries: [{ ordinal: 0, text: "Preserved result" }], nextCursor: "opaque:next=1", omitted: 2, gaps: [{ kind: "long_line", count: 1 }] };
+  x.answer.body = { ok: true, result: page };
+  const result = await x.run(["history", "--session", "old-agent", "--query", '中文 "quoted"\noriginal', "--around", "0", "--roles", "user, assistant,tool", "--limit", "3", "--cursor", "opaque:previous=1", "--rebuild"]);
+  expect(result).toMatchObject({ code: 0, stderr: "" }); expect(JSON.parse(result.stdout)).toEqual(page);
+  expect(x.calls).toEqual([{ method: "POST", path: "/api", authorization: "Bearer fixture-only-credential", action: "session_history", input: {
+    session: "old-agent", query: '中文 "quoted"\noriginal', around: 0, roles: ["user", "assistant", "tool"], limit: 3, cursor: "opaque:previous=1", rebuild: true,
+  } }]);
+});
+
+test("history accepts a session ledger number without a signed request or fabricated query defaults", async () => {
+  const x = await setup(); const result = await x.run(["history", "--session", "#2"]);
+  expect(result).toMatchObject({ code: 0, stderr: "" });
+  expect(x.calls.map(({ action, input }) => ({ action, input }))).toEqual([{ action: "session_history", input: { session: "#2" } }]);
+});
+
+test("history argument errors and a foreign caller never reach the loopback service", async () => {
+  const x = await setup();
+  const invalid = [
+    ["history"], ["history", "--session"], ["history", "--session", "#1", "--session", "#2"],
+    ["history", "--session", "#1", "--request-file", x.snapshotPath],
+    ["history", "--session", "#1", "--save-request", join(x.directory, "not-created.json")],
+    ["history", "--session", "#1", "--note", "Do not silently turn this into a write"],
+    ["history", "--session", "#1", "--kind", "progress"], ["history", "--session", "#1", "--rebuild", "--rebuild"],
+    ["current", "--session", "#1"], ["current", "--cursor", "opaque"],
+  ];
+  for (const args of invalid) {
+    const result = await x.run(args); expect(result.code, args.join(" ")).toBe(1); expect(result.stdout).toBe("");
+    expect(JSON.parse(result.stderr)).toMatchObject({ code: "CLI_FAILURE" });
+  }
+  const foreign = await x.run(["history", "--session", "#1"], "another-agent");
+  expect(foreign.code).toBe(1); expect(JSON.parse(foreign.stderr).message).toMatch(/does not match this session context/);
+  expect(x.calls).toEqual([]);
+});
+
+test("history preserves explicit service failure codes and never retries another session", async () => {
+  const x = await setup(), error = { code: "HISTORY_CURSOR_INVALID", message: "Cursor belongs to another snapshot; rebuild explicitly.", retryable: false };
+  x.answer.status = 409; x.answer.body = { ok: false, error };
+  const result = await x.run(["history", "--session", "#2", "--cursor", "expired-snapshot"]);
+  expect(result).toMatchObject({ code: 1, stdout: "" }); expect(JSON.parse(result.stderr)).toEqual(error);
+  expect(x.calls.map(({ action, input }) => ({ action, input }))).toEqual([{ action: "session_history", input: { session: "#2", cursor: "expired-snapshot" } }]);
+});

@@ -23,8 +23,26 @@ export const commentInput = z.strictObject({
     .max(commentLimits.text)
     .refine((text) => text.trim().length > 0, "Write a comment first."),
   operationId: z.string().min(1).max(200),
+  /** Missing only for older clients, which still dispatch their own recorded comment. */
+  deliver: z.union([z.enum(["auto", "fresh", "save"]), z.strictObject({ agentId: z.string().min(1).max(200) })]).optional(),
+  whenRunning: z.enum(["steer", "interrupt", "queue"]).optional(),
+  alternate: z.boolean().optional(),
 });
 export type CommentInput = z.infer<typeof commentInput>;
+
+export const commentDeliverySchema = z.object({
+  kind: z.enum(["sent", "queued", "pending", "fresh", "saved", "failed"]),
+  agentId: z.string().optional(), reason: z.string().max(500).optional(), error: z.string().max(500).optional(),
+});
+export type RoutedCommentDelivery = z.infer<typeof commentDeliverySchema>;
+/** Only routing references live on the board; the full original remains in the card handoff. */
+export const commentRouteSchema = z.object({
+  taskId: z.string(), sourceId: z.string().max(240), eventId: z.string(), messageId: z.string().max(240),
+  choice: commentInput.shape.deliver.unwrap(), mode: z.enum(["steer", "interrupt", "queue"]).optional(),
+  phase: z.enum(["prepared", "sending", "sent", "queued", "pending", "fresh", "saved", "failed"]),
+  agentId: z.string().optional(), reason: z.string().max(500).optional(), error: z.string().max(500).optional(), at: z.string(),
+});
+export type CommentRoute = z.infer<typeof commentRouteSchema>;
 
 /** A comment a person wrote on the card (the only kind there is). */
 export const isComment = (event: Pick<BoardEvent, "action" | "actor">) => event.action === commentAction && event.actor === "human";

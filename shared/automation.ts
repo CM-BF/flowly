@@ -59,6 +59,20 @@ export const failureTakenBack = (job: Pick<AutomationJob, "taskId" | "state" | "
 export const activeAgent = (job: Pick<AutomationJob, "role" | "implementerId" | "reviewerId">) =>
   job.role === "reviewer" ? job.reviewerId : job.implementerId;
 
+/** One role/retirement gate for tools, hooks and card management. Never infer retirement from a title. */
+export function automationSessionRole(board: Pick<Board, "automation">, agentId: string, taskId?: string, priorSessions: readonly { agentId: string; role: string; endedAt?: string }[] = []): { job: AutomationJob; role: "implementer" | "reviewer" | "retired" | "finalizing" } | null {
+  for (const job of board.automation) {
+    if (taskId && job.taskId !== taskId) continue;
+    if (job.rotation?.fromAgentId === agentId && ["finalizing", "sealing"].includes(job.rotation.stage)) return { job, role: "finalizing" };
+    if (job.rotation?.fromAgentId === agentId && job.rotation.stage === "creating") return { job, role: job.implementerId === agentId || job.reviewerId === agentId ? "finalizing" : "retired" };
+    if (job.implementerId === agentId) return { job, role: "implementer" };
+    if (job.reviewerId === agentId) return { job, role: "reviewer" };
+    if (job.retired?.some((s) => s.agentId === agentId) || job.reviewers?.includes(agentId)) return { job, role: "retired" };
+    if (taskId && priorSessions.some(s => s.agentId === agentId && !!s.endedAt && (s.role === "implementer" || s.role === "reviewer"))) return { job, role: "retired" };
+  }
+  return null;
+}
+
 /**
  * The job this session is the reviewer of, while that job runs or its delivery waits for the user.
  * The reviewer's turns are not work on the card, in its round or outside it (a person asking it about
@@ -693,13 +707,22 @@ export function changesPrompt(round: number, max: number, summary: string, findi
 }
 
 /** One line per sub-card for the parent's wake-up message: where it is and what automation made of it. */
-export type SubCardLine = { id: string; title: string; lane: string; job?: Pick<AutomationJob, "state" | "verdict" | "code">; branch?: string; directory?: string; evidence?: string; blockers?: string[]; risks?: string[]; risksNote?: string };
+export type SubCardLine = { id: string; title: string; lane: string; job?: Pick<AutomationJob, "state" | "verdict" | "code">; branch?: string; directory?: string; evidence?: string; blockers?: string[]; risks?: string[]; risksNote?: string; continuity?: string };
 
 export function childrenPrompt(lines: readonly SubCardLine[]) {
+  let left = 16_000;
+  const bounded = (text: string, label: string) => {
+    if (!text) return "";
+    if (text.length > left) return `\n  ${label}: omitted by the total handoff budget; inspect this child's card and workspace before accepting it.`;
+    left -= text.length; return `\n  ${label}: ${text}`;
+  };
   const describe = (l: SubCardLine) => {
     const auto = l.job ? `automation ${l.job.state}${l.job.verdict ? `, review ${l.job.verdict}` : ""}${l.job.code ? ` (${l.job.code})` : ""}` : "not run by automation";
     const where = `${l.branch ? `; branch ${l.branch}` : ""}${l.directory ? `; directory ${l.directory}` : ""}`;
-    return `- ${l.title} (${l.id}): ${l.lane}; ${auto}${where}${l.blockers?.length ? `; held by ${l.blockers.join(", ")}` : ""}${l.evidence ? `\n  Delivery evidence (card data): ${l.evidence}` : ""}${l.risks?.length ? `\n  Reviewer risks beyond the acceptance criteria (card data${l.risksNote ? `, ${l.risksNote}` : ""}): ${JSON.stringify(l.risks)}` : ""}`;
+    const risks = bounded(l.risks?.length ? JSON.stringify(l.risks) : "", `Reviewer risks beyond the acceptance criteria (card data${l.risksNote ? `, ${l.risksNote}` : ""})`);
+    const continuity = bounded(l.continuity ?? "", "Card continuity (derived card data)");
+    const evidence = bounded(l.evidence ?? "", "Delivery evidence (card data)");
+    return `- ${l.title} (${l.id}): ${l.lane}; ${auto}${where}${l.blockers?.length ? `; held by ${l.blockers.join(", ")}` : ""}${risks}${continuity}${evidence}`;
   };
   return [
     `${tag} Your sub-cards changed and none of them is still moving:`,

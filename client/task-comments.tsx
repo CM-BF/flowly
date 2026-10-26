@@ -2,6 +2,7 @@ import { memo, useCallback, useState, useSyncExternalStore } from "react";
 import { Platform, Pressable, View } from "react-native";
 import { Icon, useToast } from "@getpaseo/plugin/client/react-native";
 import { usePaseo, useRpc } from "@getpaseo/plugin/client";
+import { useQuery } from "@tanstack/react-query";
 import * as rpc from "../shared/rpc";
 import type { BoardEvent } from "../shared/model";
 import { commentLimits } from "../shared/comments";
@@ -10,10 +11,10 @@ import {
   commentList,
   commentTransport,
   composerNote,
+  deliveryNote,
   dismissFailure,
   editComment,
   postComment,
-  recipientPicker,
   resendComment,
   resolveTarget,
   shownComments,
@@ -80,13 +81,18 @@ export const TaskComments = memo(function TaskComments({
   section: SectionState;
   memory: CommentMemory;
   onPosted(): void;
-  onStartSession?(): void;
+  onStartSession?(seed?: { prompt: string; messageId: string }): void;
 }) {
   const { colors } = useTheme();
   const toast = useToast();
   const paseo = usePaseo();
   const record = useRpc(rpc.commentTask);
+  const readDeliveries = useRpc(rpc.readCommentDeliveries);
+  const retryDelivery = useRpc(rpc.resendRoutedComment);
+  const deliveries = useQuery({ queryKey: ["flowly", "commentDeliveries", taskId], queryFn: () => readDeliveries({ taskId }), enabled: active && section.open, refetchInterval: active && section.open ? 5000 : false });
   const contextRead = useRpc(rpc.taskContext);
+  const handoffRecord = useRpc(rpc.recordHandoffInput), handoffConfirm = useRpc(rpc.confirmHandoffInput);
+  const handoffSend = useRpc(rpc.sendHandoffInput);
   // Queues through the daemon like the session composer; no polling of its own.
   const composer = useComposer(false);
   const view = useBoardView();
@@ -99,17 +105,21 @@ export const TaskComments = memo(function TaskComments({
   const [focused, setFocused] = useState(false);
   useShortcutBlock(focused);
   const target = resolveTarget(targets, memory.chosen);
-  const picker = recipientPicker(targets, target);
-  const note = composerNote(targets, target, { loading, archivedKnown });
+  const chosen = memory.chosen;
+  const deliver = chosen === "route:auto" ? "auto" : chosen === "route:fresh" ? "fresh" : chosen === "route:save" ? "save" : chosen ? { agentId: chosen } : targets.managed ? "auto" : target ? { agentId: target.id } : "save";
+  const picker = { shown: true, opens: true };
+  const note = deliveryNote(chosen, deliver, targets, target, { loading, archivedKnown });
   const locked = !!lockedReason || !active;
   const busy = memory.busy;
-  const transport = commentTransport({ paseo, contextRead, queue: (task, agentId, text) => composer.queue(task, agentId, text) }, { taskId, workspaceId });
+  const transport = { ...commentTransport({ paseo, contextRead, handoff: { record: handoffRecord, send: handoffSend, confirm: handoffConfirm }, queue: (task, agentId, text, messageId) => composer.queue(task, agentId, text, [], messageId) }, { taskId, workspaceId }), routed: record };
   // A failed delivery shows in the list below instead.
   const announce = (delivery: CommentDelivery, to: CommentTarget | null) => {
     if (delivery.kind === "failed") return;
     toast.show(
       delivery.kind === "sent"
         ? t("Comment sent to {session}", { session: sessionName(to) })
+        : delivery.kind === "fresh" ? t("Comment sent to a fresh session")
+        : delivery.kind === "pending" ? t("Comment saved; Flowly will deliver it after the current handoff or review")
         : delivery.kind === "queued"
           ? t("Comment saved; it goes to {session} when its turn ends", { session: sessionName(to) })
           : t("Comment saved on the card"),
@@ -119,9 +129,11 @@ export const TaskComments = memo(function TaskComments({
   const submit = async (alternate = false) => {
     if (locked || loading) return;
     const to = target;
-    const result = await postComment(memory, { record, ...transport }, { taskId, target: to, settings: view.values, alternate });
+    const result = await postComment(memory, { record, ...transport }, { taskId, target: to, settings: view.values, alternate, deliver });
     if (result.kind !== "posted") return;
     onPosted();
+    void deliveries.refetch();
+    if (result.delivery.reason === "manual_fresh") onStartSession?.({ prompt: result.event.note ?? "", messageId: `comment:${result.event.operationId}` });
     announce(result.delivery, to);
   };
   const resend = useStableCallback(async (eventId: string) => {
@@ -131,20 +143,30 @@ export const TaskComments = memo(function TaskComments({
     if (delivery) announce(delivery, to);
   });
   const dismiss = useStableCallback((eventId: string) => dismissFailure(memory, eventId));
+  const retryRecorded = useStableCallback(async (eventId: string) => {
+    if (locked || busy) return;
+    try { const response = await retryDelivery({ taskId, eventId }); if (response.delivery) announce(response.delivery, target); }
+    catch (error) { toast.show(error instanceof Error ? error.message : String(error), { variant: "error" }); }
+    finally { void deliveries.refetch(); }
+  });
   const all = commentList(events, taskId, memory.posted);
   const shown = shownComments(all, expanded);
   const latest = all[all.length - 1];
   const pickTarget = (event: Parameters<typeof eventPoint>[0]) => {
-    const entries: MenuEntry[] = targets.candidates.map((c) => ({
+    const entries: MenuEntry[] = [
+      ...(targets.managed ? [{ id: "route:auto", label: t("Card's agent (Flowly picks warm or fresh)"), icon: "GitBranch", checked: deliver === "auto", onPress: () => chooseRecipient(memory, "route:auto") }] : []),
+      { id: "route:fresh", label: t("New session with the handoff"), icon: "Plus", checked: deliver === "fresh", onPress: () => chooseRecipient(memory, "route:fresh") },
+      { id: "route:save", label: t("Save on the card (the next turn reads it)"), icon: "Bookmark", checked: deliver === "save", onPress: () => chooseRecipient(memory, "route:save") },
+      ...targets.candidates.map((c): MenuEntry => ({
       id: c.id,
       label: c.role === "reviewer" ? t("{session} (reviewer)", { session: sessionName(c) }) : c.role === "implementer" ? t("{session} (automation)", { session: sessionName(c) }) : sessionName(c),
       icon: "MessageSquare",
-      checked: c.id === target?.id,
+      checked: typeof deliver === "object" && c.id === deliver.agentId,
       onPress: () => chooseRecipient(memory, c.id),
-    }));
+    }))];
     openMenu?.(eventPoint(event), t("Send comments to"), entries);
   };
-  const recipient = target ? sessionName(target) : t("Nobody (saved on the card)");
+  const recipient = deliver === "auto" ? t("Card's agent (Flowly picks warm or fresh)") : deliver === "fresh" ? t("New session with the handoff") : deliver === "save" ? t("Nobody (saved on the card)") : target ? sessionName(target) : t("Selected session is unavailable");
   const canSend = !locked && !loading && !busy && !!memory.draft.trim();
   return (
     <Section
@@ -167,7 +189,10 @@ export const TaskComments = memo(function TaskComments({
         </Pressable>
       )}
       {shown.map((c) => (
-        <CommentRow key={c.id} text={c.text} at={c.at} />
+        <View key={c.id} style={{ gap: space[1] }}><CommentRow text={c.text} at={c.at} />{(() => {
+          const delivery = deliveries.data?.find(r => r.eventId === c.id)?.delivery;
+          return delivery ? <View style={{ gap: space[1] }}><Label muted size={font.sm}>{delivery.kind === "pending" ? delivery.reason === "send_unconfirmed" ? t("Send result unknown; the original target and message identity are preserved") : t("Waiting for the current handoff or review") : delivery.kind === "fresh" ? t("Delivered to a fresh session") : delivery.kind === "sent" ? t("Sent") : delivery.kind === "queued" ? t("Queued") : delivery.kind === "failed" ? delivery.error : t("Saved on the card")}</Label>{(delivery.kind === "failed" || delivery.reason === "send_unconfirmed") && !memory.failed.some(f => f.eventId === c.id) && <View style={{ alignItems: "flex-start" }}><Button small quiet disabled={locked || busy} onPress={() => void retryRecorded(c.id)}>{t("Resend")}</Button></View>}</View> : null;
+        })()}</View>
       ))}
       <View testID="comment-composer" style={{ gap: space[1.5] }}>
         {!locked && picker.shown && (
@@ -225,8 +250,8 @@ export const TaskComments = memo(function TaskComments({
           <FailedComment
             key={f.eventId}
             failed={f}
-            resendTo={target && target.id !== f.agentId ? sessionName(target) : ""}
-            disabled={busy || !target || locked}
+            resendTo={!f.route && target && target.id !== f.agentId ? sessionName(target) : ""}
+            disabled={busy || (!target && !f.route) || locked}
             onResend={resend}
             onDismiss={dismiss}
           />
@@ -236,7 +261,7 @@ export const TaskComments = memo(function TaskComments({
             <Label muted size={font.sm}>{t(noteText[note])}</Label>
             {note === "no-session" && onStartSession && (
               <View style={{ flexDirection: "row" }}>
-                <Button small quiet icon="Play" onPress={onStartSession}>{t("Start session")}</Button>
+                <Button small quiet icon="Play" onPress={() => onStartSession()}>{t("Start session")}</Button>
               </View>
             )}
           </View>

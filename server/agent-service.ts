@@ -1,3 +1,6 @@
+import type { HandoffService } from "./handoff-service";
+import { assertActiveCardWriter } from "./handoff-guard";
+import type { HandoffUpdate } from "../shared/handoff";
 import { resolveReviewLevel } from "./review-levels";
 import { linkExtras, type LinkHandoff } from "./automation-handoff";
 import { resumeStage } from "./progress-rules";
@@ -76,12 +79,14 @@ import { isLegacyScope } from "../shared/scope";
 import { MemoryError, type MemoryService } from "./memory";
 import type { AutomationService } from "./automation";
 import type { ReviewInput } from "../shared/automation-schema";
-import { automationAllowed, automationOf, isLive, jobOf, reviewerOfCard, reviewsFor } from "../shared/automation";
+import { automationAllowed, automationOf, automationSessionRole, isLive, jobOf, reviewerOfCard, reviewsFor } from "../shared/automation";
 import { parentOf } from "../shared/links";
 import { createCardInputSchema, updateCardInputSchema, type CreateCardInput, type CreateCardResult, type UpdateCardInput } from "../shared/tools";
 import { taskInput, type Task, type TaskInput } from "../shared/model";
 import { reasonText, reviewLevelNote, type LevelBoard } from "../shared/review-levels";
 import { existsSync } from "node:fs";
+import type { SessionHistory } from "./session-history";
+import type { SessionHistoryQuery } from "../shared/session-history";
 
 /** A card's review level for get_task (AUTOMATION-SPEC §5.2.1): what it resolves to now, whether it is set on the card, and why. */
 function levelContext(board: LevelBoard, task: Task) {
@@ -109,6 +114,16 @@ export class AgentService {
     this.deliveryGate.clear(`${identity.agentId}:${identity.taskId}:${identity.workspaceId}`);
   }
   readonly accesses = new Map<string, { at: string; action: string }>();
+  async toolCalled(identity: ToolIdentity) {
+    this.accesses.set(identity.agentId, { at: new Date(this.clock()).toISOString(), action: "tool" });
+    const known = jobOf(await this.store.read(), identity.taskId);
+    if (!known?.silentSince || (known.implementerId !== identity.agentId && known.reviewerId !== identity.agentId)) return;
+    await this.store.transaction(board => {
+      const job = jobOf(board, identity.taskId);
+      if (!job?.silentSince || (job.implementerId !== identity.agentId && job.reviewerId !== identity.agentId)) return { value: undefined, changed: false };
+      delete job.silentSince; return { value: undefined, changed: true };
+    });
+  }
   /** The Ideas setting; off refuses new proposals (IDEAS-INBOX-SPEC §10). Set by the plugin entry. */
   ideasOn: () => Promise<boolean> = async () => true;
   /** The Agent artifacts setting; off refuses artifact writes (CARD-ARTIFACTS-SPEC §4.3). */
@@ -131,6 +146,33 @@ export class AgentService {
   memory?: MemoryService;
   /** Agent automation (AUTOMATION-SPEC); set by the plugin entry. */
   automation?: AutomationService;
+  /** Card continuity and durable source provenance; attached by the plugin entry. */
+  handoffs?: HandoffService;
+  sessionHistory?: SessionHistory;
+  async readSessionHistory(identity: ToolIdentity, query: SessionHistoryQuery) {
+    if (!this.sessionHistory || !this.handoffs) throw new ToolError("HANDOFF_UNAVAILABLE", "Session history excerpts are unavailable.");
+    const { task, project, paseo } = await this.resources(identity);
+    const available = await this.handoffs.context(task.id, identity.agentId, { recordAccess: false });
+    if (available.unavailable) throw new ToolError("HANDOFF_UNAVAILABLE", available.unavailable);
+    const record = await this.handoffs.records.read(task.id, project.id);
+    const number = /^#?([1-9]\d*)$/.exec(query.session);
+    const session = number ? record.ledger.find(s => s.n === Number(number[1])) : await this.handoffs.records.sessionRecord(task.id, query.session);
+    if (!session) throw new ToolError("SESSION_MISMATCH", "Choose a session from this card's handoff ledger. For older archived entries, read the full handoff and use its exact agent ID.");
+    const actor = (await paseo.agents.ref(session.agentId).refresh())?.agent;
+    if (!actor || actor.workspaceId !== task.workspaceId) throw new ToolError("SESSION_MISMATCH", "The recorded session is missing or no longer belongs to this card's workspace.");
+    return this.sessionHistory.read(actor, query);
+  }
+  async updateHandoff(identity: ToolIdentity, patch: HandoffUpdate) {
+    if (!this.handoffs) throw new ToolError("HANDOFF_UNAVAILABLE", "Card continuity is unavailable in this Flowly build.");
+    const result = await this.handoffs.update(identity, patch);
+    this.accesses.set(identity.agentId, { at: new Date(this.clock()).toISOString(), action: "handoff" });
+    return result;
+  }
+  private async handoffReminder(identity: ToolIdentity) {
+    if (!this.handoffs) return {};
+    try { const value = await this.handoffs.context(identity.taskId, identity.agentId, { recordAccess: false }); return value.due.length ? { handoffDue: value.due.join(" ") } : {}; }
+    catch { return { handoffDue: "Card continuity could not be read; check the handoff before ending this turn." }; }
+  }
   /** Creates a card with its workspace (BoardService.createTask); set by the plugin entry. */
   createTask?: (input: TaskInput, paseo: PaseoApi, agent: AgentCardActor) => Promise<Task>;
   /** What a status move by a person triggers (automation, wrap-up, memory review); set by the plugin entry. */
@@ -150,6 +192,7 @@ export class AgentService {
    */
   async createCard(identity: ToolIdentity, raw: CreateCardInput): Promise<CreateCardResult> {
     const input = createCardInputSchema.parse(raw);
+    await this.handoffs?.assertWriter(identity);
     const signed = this.secrets.validateRequest(identity, input.request, input.expectedRevision);
     const requestKey = `agent-card:${digest(input.request.id)}`;
     const operationId = `${requestKey}:${digest(JSON.stringify(input))}`;
@@ -181,6 +224,8 @@ export class AgentService {
   }
   private async makeCard(identity: ToolIdentity, input: ReturnType<typeof createCardInputSchema.parse>, issuedAt: string, requestKey: string, operationId: string, actor: AgentCardActor): Promise<CreateCardResult> {
     const r = await this.resources(identity);
+    await this.handoffs?.assertWriter(identity, r.board);
+    assertActiveCardWriter(r.board, identity);
     const before = await this.store.read();
     const replay = before.tasks.find((t) => t.operationId.startsWith(`${requestKey}:`));
     if (replay) {
@@ -247,6 +292,7 @@ export class AgentService {
       status: task.status,
       ...(input.subCard ? { subCardOf: r.task.id } : {}),
       queued,
+      ...(await this.handoffReminder(identity)),
       message: queued
         ? `Created and queued for agent automation.${supervised ? " End your turn after dispatching; Flowly wakes this supervised parent when its sub-cards settle." : " This session is not a supervised parent; check the card yourself or ask the user to run its automation."}${mode === "directory" ? " Directory workspaces share the project root and have no isolated branch; order conflicting work." : " Worktree starts at the project root branch by default; pass baseRef explicitly for parent-dependent work."}`
         : input.start === "later"
@@ -274,6 +320,7 @@ export class AgentService {
 
   async updateCard(identity: ToolIdentity, raw: UpdateCardInput) {
     const input = updateCardInputSchema.parse(raw);
+    await this.handoffs?.assertWriter(identity);
     // A review level goes alone or with start (AUTOMATION-SPEC §5.2.1); refused before anything is recorded.
     if (!input.action && !input.review_level) throw new ToolError("INVALID_INPUT", "Give an action, a review_level, or both (review_level only with action=start).");
     if (input.review_level && input.action && input.action !== "start") throw new ToolError("INVALID_INPUT", `review_level goes alone or with action=start, not with action=${input.action}; nothing was changed.`);
@@ -282,6 +329,7 @@ export class AgentService {
     const actor: AgentCardActor = { ...identity, expectedRevision: input.expectedRevision, key: `${identity.agentId}:${digest(input.request.id)}`, payloadHash: digest(JSON.stringify({ action: "update_card", input })), start: "later" };
     type Answer = { cardId: string; status: Status; queued: boolean; replayed?: boolean; message: string; previous?: Status; moved?: Task };
     const result = await this.store.transaction<Answer>((board) => {
+      assertActiveCardWriter(board, identity);
       // A retry after a lost response gets its recorded result, also once this card has finished since.
       const existing = board.agentReceipts.find((receipt) => receipt.key === actor.key);
       if (existing) {
@@ -357,7 +405,7 @@ export class AgentService {
     void this.automation?.kick();
     this.accesses.set(identity.agentId, { at: new Date(this.clock()).toISOString(), action: "update_card" });
     const { previous: _previous, moved: _moved, ...answer } = result;
-    return answer;
+    return { ...answer, ...(await this.handoffReminder(identity)) };
   }
   /** A parent's agent sets its sub-card's review level (AUTOMATION-SPEC §5.2.1); whether it changed. `auto` removes it. */
   private setReviewLevel(board: Board, child: Task, value: NonNullable<UpdateCardInput["review_level"]>, agentId: string) {
@@ -373,10 +421,16 @@ export class AgentService {
   /** flowly_submit_review (AUTOMATION-SPEC §5): the verdict of the reviewer session automation started for this card. */
   async review(identity: ToolIdentity, input: ReviewInput) {
     await this.resources(identity);
+    await this.handoffs?.assertWriter(identity);
     if (!this.automation) throw new ToolError("NOT_REVIEWER", "Agent automation is unavailable in this Flowly build.");
-    const result = await this.automation.submitReview(identity, input);
+    const result = await this.automation.submitReview(identity, input, this.handoffs ? async (board, sourceId) => {
+      assertActiveCardWriter(board, identity);
+      await this.handoffs!.prepareReview(identity, sourceId, input, board);
+    } : undefined);
+    if (result.handoffSourceId) await this.handoffs?.confirmSource(identity.taskId, result.handoffSourceId);
+    const { handoffSourceId: _source, ...answer } = result;
     this.accesses.set(identity.agentId, { at: new Date(this.clock()).toISOString(), action: "review" });
-    return result;
+    return answer;
   }
   /** flowly_recall (PROJECT-MEMORY-SPEC §6.4): read-only. */
   async recall(identity: ToolIdentity, raw: RecallInput) {
@@ -539,7 +593,7 @@ export class AgentService {
    * `handoffs: false` (the context returned after a write): links without handoffs or branches,
    * so a write never pays for reading linked workspaces; get_task has them.
    */
-  async get(identity: ToolIdentity, recordAccess = true, markArtifacts = recordAccess, { handoffs: withHandoffs = true }: { handoffs?: boolean } = {}): Promise<ToolContext> {
+  async get(identity: ToolIdentity, recordAccess = true, markArtifacts = recordAccess, { handoffs: withHandoffs = true, handoff, handoffCursor }: { handoffs?: boolean; handoff?: "full"; handoffCursor?: string } = {}): Promise<ToolContext> {
     // Taken before reading the board: an artifact added meanwhile stays unread.
     const readAt = new Date(Math.max(Date.now(), this.clock())).toISOString();
     const lastRead = await this.artifactReads.lastRead(identity.agentId).catch(() => undefined);
@@ -575,12 +629,16 @@ export class AgentService {
     }
     const revision = { task: r.task.revision, project: r.project.revision };
     const finished = ["done", "cancelled"].includes(r.task.status);
+    const role = ((await this.handoffs?.role(identity, r.board)) ?? automationSessionRole(r.board, identity.agentId, identity.taskId))?.role;
+    const retired = role === "retired", finalizing = role === "finalizing";
+    const continuity = await this.handoffs?.context(identity.taskId, identity.agentId, { full: handoff === "full", cursor: handoffCursor, recordAccess });
     // The project's paseo.json scripts, so agents run them instead of retyping (WORKFLOW-INSIGHTS-SPEC §5.4).
     const scripts = await projectScripts(r.project).catch(() => []);
     let externals = new Map<string, { changed: boolean; fingerprint: string; external: ExternalContext }>();
     let setup: ToolContext["setup"];
     const built: ToolContext = {
       identity,
+      ...(continuity ? { handoff: continuity } : {}),
       // A reviewer session gets its own rules: the implementer's stage, workpad and delivery steps are not its job (AUTOMATION-SPEC §7).
       turnChecklist: [...(reviewerOfCard(r.board, r.task.id, identity.agentId) ? reviewerChecklist : turnChecklist)],
       task: r.task,
@@ -588,9 +646,9 @@ export class AgentService {
       revision,
       request: this.secrets.request(identity, revision),
       toolVersion: 1,
-      writable: r.context.available && !finished,
+      writable: r.context.available && !finished && !retired && !finalizing,
       reason:
-        r.context.reason ||
+        (retired ? "RETIRED_SESSION: this session was replaced; read the handoff and continue in the current session." : finalizing ? "FINALIZING: update the handoff and end the turn; normal card writes are disabled." : r.context.reason) ||
         (finished ? "Task is finished; only a human can reopen it." : ""),
       // Agents may only use agent statuses that are lanes of this project.
       allowedStatuses: agentStatuses.filter((status) => laneEnabled(r.project, status)),
@@ -610,7 +668,7 @@ export class AgentService {
       },
       sessions: { entries: entries.slice(0, 20), partial, unavailableReason },
       ...(await this.store.read().then(async (board) => {
-        const { handoffs, branches } = withHandoffs ? await linkExtras(board, r.task.id, r.paseo, this.git) : { handoffs: new Map<string, LinkHandoff>(), branches: new Map<string, string>() };
+        const { handoffs, branches } = withHandoffs ? await linkExtras(board, r.task.id, r.paseo, this.git, this.handoffs?.linkSummary.bind(this.handoffs)) : { handoffs: new Map<string, LinkHandoff>(), branches: new Map<string, string>() };
         const emittedHandoffs = new Set<string>();
         setup = setupContext(setupMissing(r.task, workpadOf(board.workpads, r.task.id), workpadEnabled(r.project)), r.task.status);
         return {
@@ -749,6 +807,8 @@ export class AgentService {
       input.expectedRevision,
     );
     const resources = await this.resources(identity);
+    await this.handoffs?.assertWriter(identity, resources.board);
+    assertActiveCardWriter(resources.board, identity);
     // Reviewer sessions report findings; they never work the card (AUTOMATION-SPEC §7). Refused before anything is recorded.
     if (
       reviewerWrites.has(action) &&
@@ -874,7 +934,13 @@ export class AgentService {
       if (missing.length) out.push(setupReminder(missing));
       return out;
     };
-    const result = await this.store.transaction((board) => {
+    const handoffBoundary = (action === "status" && ["in_review", "blocked"].includes((input as StatusInput).status)) || (action === "progress" && ["question", "blocker"].includes((input as ProgressInput).kind));
+    const continuity = handoffBoundary && this.handoffs && automationOf(resources.project) && !reviewerOfCard(resources.board, resources.task.id, identity.agentId) ? await this.handoffs.context(identity.taskId, identity.agentId, { recordAccess: false, forGate: true }) : undefined;
+    const handoffGap = continuity && !continuity.fresh ? continuity.due : [];
+    const questionKind = action === "progress" && ["question", "blocker"].includes((input as ProgressInput).kind) ? (input as ProgressInput).kind as "question" | "blocker" : action === "status" && (input as StatusInput).status === "blocked" ? "blocker" : undefined;
+    const semanticSource = questionKind ? `question:${key}` : delivering ? `delivery:${key}` : undefined;
+    const result = await this.store.transaction(async (board) => {
+      assertActiveCardWriter(board, identity);
       const existing = board.agentReceipts.find((r) => r.key === key);
       if (existing) {
         if (existing.payloadHash !== payloadHash)
@@ -964,21 +1030,27 @@ export class AgentService {
       const setupGap: SetupItem[] =
         next === "in_review" && next !== previous ? setupMissing(task, workpadOf(board.workpads, task.id), workpadEnabled(project)) : [];
       const binding = `${identity.agentId}:${identity.taskId}:${identity.workspaceId}`;
-      const hasOpen = !!delivered?.total || setupGap.length > 0;
+      const hasOpen = !!delivered?.total || setupGap.length > 0 || handoffGap.length > 0;
       const fingerprint = digest(JSON.stringify({
         revision: input.expectedRevision,
         pad: deliveryPad?.revision,
         open: delivered,
         setupGap,
+        handoff: handoffGap.length ? { requirements: continuity?.requirementsFingerprint, unavailable: continuity?.unavailable } : undefined,
         head: head ? { sha: head.sha, branch: head.branch, dirty: head.dirty } : null,
       }));
-      const acknowledged = hasOpen && this.deliveryGate.acknowledge(binding, fingerprint, !!(input as StatusInput).acknowledgeOpen, this.clock());
+      const acknowledged = hasOpen && this.deliveryGate.acknowledge(binding, fingerprint, !!(input as StatusInput | ProgressInput).acknowledgeOpen, this.clock());
       if (deliveryPad && delivered!.total > 0 && !acknowledged)
         throw new ToolError(
           "WORKPAD_OPEN",
-          `${setupGap.length ? `${setupIncompleteMessage(setupGap)}\n` : ""}${delivered!.total} workpad item${delivered!.total === 1 ? " is" : "s are"} still open:\n${openItemLines(deliveryPad).join("\n")}\nThe first attempt is always refused, even with acknowledgeOpen=true. Review this list, rerun out-of-date checks and finish what you can. Then retry with acknowledgeOpen=true and a note explaining every remaining item. A changed card/workpad/HEAD or a new turn requires a new refusal.`,
+          `${handoffGap.length ? `HANDOFF_STALE: ${handoffGap.join(" ")} Update the handoff with flowly_update_handoff, then retry with acknowledgeOpen=true.\n` : ""}${setupGap.length ? `${setupIncompleteMessage(setupGap)}\n` : ""}${delivered!.total} workpad item${delivered!.total === 1 ? " is" : "s are"} still open:\n${openItemLines(deliveryPad).join("\n")}\nThe first attempt is always refused, even with acknowledgeOpen=true. Review this list, rerun out-of-date checks and finish what you can. Then retry with acknowledgeOpen=true and a note explaining every remaining item. A changed card/workpad/HEAD or a new turn requires a new refusal.`,
         );
-      if (setupGap.length && !acknowledged) throw new ToolError("SETUP_INCOMPLETE", setupIncompleteMessage(setupGap));
+      if (setupGap.length && !acknowledged) throw new ToolError("SETUP_INCOMPLETE", `${setupIncompleteMessage(setupGap)}${handoffGap.length ? `\nHANDOFF_STALE: ${handoffGap.join(" ")} Update the handoff with flowly_update_handoff, then retry with acknowledgeOpen=true.` : ""}`);
+      if (handoffGap.length && !acknowledged) throw new ToolError("HANDOFF_STALE", `${handoffGap.join(" ")} Update the handoff with flowly_update_handoff, finish what you can, then retry with acknowledgeOpen=true and explain every remaining gap. The first attempt is always refused, even with acknowledgeOpen=true; new requirements or information gaps, changed card/workpad/HEAD, or a new turn require a new refusal. Checkpoint and observation-only updates do not reset an existing acknowledgement.`);
+      if (semanticSource && this.handoffs) {
+        if (questionKind) await this.handoffs.prepareQuestion(identity, semanticSource, questionKind, (input as StatusInput | ProgressInput).note, board);
+        else await this.handoffs.prepareDelivery(identity, semanticSource, (input as StatusInput).note, board);
+      }
       if (next !== previous) {
         task.status = next;
         task.revision++;
@@ -1247,7 +1319,8 @@ export class AgentService {
       board.agentReceipts.push(receipt);
       return { value: { receipt, replayed: false, ideaId, artifactId, reminders: reminders(board) }, changed: true };
     });
-    if (delivering && !result.replayed) this.deliveryGate.clear(`${identity.agentId}:${identity.taskId}:${identity.workspaceId}`);
+    if (semanticSource) await this.handoffs?.confirmSource(identity.taskId, semanticSource);
+    if (handoffBoundary && !result.replayed) this.deliveryGate.clear(`${identity.agentId}:${identity.taskId}:${identity.workspaceId}`);
     const {
       key: _key,
       payloadHash: _hash,

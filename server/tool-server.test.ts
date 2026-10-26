@@ -4,6 +4,7 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { createServer, request } from "node:http";
 import { ToolServer } from "./tool-server";
+import { HandoffService } from "./handoff-service";
 import { agentFixture } from "./agent-fixture";
 import { skillText } from "./skill-source";
 import { turnChecklist } from "../shared/turn-checklist";
@@ -76,6 +77,8 @@ test("MCP initialize/list can precede actor creation; live calls require SDK con
     ),
   ).toEqual([
     "flowly_get_task",
+    "flowly_session_history",
+    "flowly_update_handoff",
     "flowly_update_status",
     "flowly_report_progress",
     "flowly_propose_idea",
@@ -600,3 +603,20 @@ test("session_open injection is limited to Kanban-managed sessions", async () =>
   expect(path).toBe(x.server.secrets.contextFile(x.identity.agentId));
   expect(JSON.parse(await readFile(path!, "utf8")).methods).toEqual(["mcp", "cli"]);
 });
+
+
+test("MCP and CLI expose independent handoff writes and cursor-only reads preserve external original text", async () => {
+  const x = await setup(), handoffs = new HandoffService(x.store); handoffs.attach(x.paseo); x.server.agents.handoffs = handoffs; x.server.attach(x.paseo);
+  const mcp = async (name: string, args: unknown) => {
+    const response = await fetch(x.url + "mcp", { method: "POST", headers: { Authorization: x.authorization, "Content-Type": "application/json", Accept: "application/json, text/event-stream" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name, arguments: args } }) });
+    const body = await response.text(); return JSON.parse(response.headers.get("content-type")?.includes("text/event-stream") ? body.split("\n").filter((line) => line.startsWith("data: ")).map((line) => line.slice(6)).at(-1)! : body).result;
+  };
+  const initial = (await mcp("flowly_get_task", {})).structuredContent;
+  const wrote = await mcp("flowly_update_handoff", { handoffRevision: initial.handoff.revision, operationId: "mcp-checkpoint", state: "MCP state", set: [{ section: "next", text: "Verify CLI parity" }] }); expect(wrote.isError).toBeUndefined(); expect(wrote.structuredContent.ok).toBe(true); expect(wrote.structuredContent).not.toHaveProperty("current"); expect((await x.store.read()).agentReceipts).toHaveLength(0);
+  const prepared = await x.server.prepareExisting("t", "actor", x.paseo), cli = async (...args: string[]) => JSON.parse((await run(process.execPath, [prepared.cliPath, "--context-file", prepared.contextFile, ...args], { env: { ...process.env, PASEO_AGENT_ID: "actor" } })).stdout);
+  const current = await cli("current"); const updated = await cli("handoff", "--handoff", JSON.stringify({ handoffRevision: current.handoff.revision, operationId: "cli-checkpoint", state: "CLI state" })); expect(updated.ok).toBe(true); expect((await x.store.read()).agentReceipts).toHaveLength(0);
+  const original = "原文🙂".repeat(12000); await handoffs.records.appendInput("t", "p", { via: "session", text: original, messageId: "long" }, { by: { kind: "human" }, sourceId: "long-original" });
+  let next: string | undefined, restored = ""; do { const value = (await mcp("flowly_get_task", { handoff: "full", ...(next ? { handoffCursor: next } : {}) })).structuredContent; expect(value.handoff.page.viewChanged).toBeUndefined(); restored += value.handoff.page.items.filter((item: { field?: string }) => item.field === "text").map((item: { text: string }) => item.text).join(""); next = value.handoff.page.nextCursor; } while (next);
+  expect(restored).toBe(original);
+  const cliFull = await cli("current", "--handoff-full"); expect(cliFull.handoff.page.complete).toBe(false); expect(cliFull.handoff.page.nextCursor).toBeTypeOf("string");
+}, 15000);

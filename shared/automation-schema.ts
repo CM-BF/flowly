@@ -139,6 +139,29 @@ export const automationCodes = [
 ] as const;
 export type AutomationCode = (typeof automationCodes)[number];
 
+const instructionSchema = z.object({
+  id: z.string(), role: z.enum(["implementer", "reviewer"]), text: z.string(), fresh: z.string(),
+  kind: z.enum(["start", "again", "nudge", "retry", "cooldown", "changes", "round", "wake", "requested"]).optional(),
+  reviewDelivery: z.string().optional(), dispatched: z.boolean().optional(),
+  comment: z.object({ sourceId: z.string(), messageId: z.string() }).optional(), verbatim: z.boolean().optional(),
+  continuation: z.object({ id: z.string(), text: z.string(), fresh: z.string(), kind: z.string().optional() }).optional(),
+  rotationDecision: z.object({ agentId: z.string(), action: z.enum(["keep", "rotate", "hold"]), rule: z.enum(["R0", "R1", "R2", "R3", "R4", "R5", "R6"]), boundary: z.enum(["tight", "other", "followup"]), forced: z.boolean(), reason: z.string() }).optional(),
+});
+
+/** A replacement owns the original instruction until its one prepared successor is confirmed. */
+export const automationRotationSchema = z.object({
+  id: z.string(), role: z.enum(["implementer", "reviewer"]), fromAgentId: z.string(),
+  reason: z.enum(["history", "fallback", "run_again", "requested", "new_cycle", "archived"]),
+  stage: z.enum(["requested", "finalizing", "sealing", "creating"]),
+  forced: z.boolean(), carry: instructionSchema,
+  model: agentModelSchema.optional(), bytes: z.number().nonnegative().optional(),
+  at: z.string(), finalize: z.object({ id: z.string(), text: z.string(), sentAt: z.string().optional(), startedAt: z.string().optional() }).optional(),
+  handoffRevision: z.number().int().nonnegative().optional(),
+  toAgentId: z.string().optional(), confirmed: z.boolean().optional(), gap: z.string().optional(),
+  policy: z.object({ rule: z.enum(["R0", "R1", "R2", "R3", "R4", "R5", "R6"]), boundary: z.enum(["tight", "other", "followup"]), reason: z.string(), C: z.number().optional(), W: z.number().optional(), K: z.number().optional() }).optional(),
+});
+export type AutomationRotation = z.infer<typeof automationRotationSchema>;
+
 /** One card's automation (one per card, replaced when it is queued again). */
 export const automationJobSchema = z.object({
   taskId: z.string(),
@@ -149,6 +172,17 @@ export const automationJobSchema = z.object({
   reviewerId: z.string().optional(),
   /** +1 each time the card is queued; a session's operation id carries it. */
   generation: z.number().int().positive(),
+  cycle: z.number().int().positive().optional(),
+  /** The exact chosen launch model survives consumed attachment files and role replacements. */
+  launchModel: agentModelSchema.optional(),
+  sessionModels: z.object({ implementer: agentModelSchema.optional(), reviewer: agentModelSchema.optional() }).optional(),
+  rotation: automationRotationSchema.optional(),
+  rotations: z.object({ soft: z.number().int().nonnegative(), bytes: z.number().int().nonnegative() }).optional(),
+  hold: z.literal("history_runaway").optional(), reviewerCycle: z.number().int().positive().optional(),
+  rotationAbandoned: z.object({ instructionId: z.string(), at: z.string() }).optional(),
+  rotateRequested: z.object({ at: z.string(), reason: z.enum(["run_again", "requested"]) }).optional(),
+  retired: z.array(z.object({ agentId: z.string(), role: z.enum(["implementer", "reviewer"]), at: z.string(), reason: z.string() })).max(50).optional(),
+  pendingInputs: z.array(z.string()).max(20).optional(),
   nudges: z.number().int().nonnegative(),
   failures: z.number().int().nonnegative(),
   /** Reviews started since the card was queued or the user last gave feedback. */
@@ -167,13 +201,9 @@ export const automationJobSchema = z.object({
   /** Session preparations belong to one role; they can never be reused by its peer. */
   pendingRole: z.enum(["implementer", "reviewer"]).optional(),
   /** An instruction survives reloads and send failures with its original payload and identity. */
-  instruction: z.object({
-    id: z.string(), role: z.enum(["implementer", "reviewer"]), text: z.string(), fresh: z.string(),
-    /** Only a new round prompt has a delivery identity; reminders/retries still judge the presented round. */
-    reviewDelivery: z.string().optional(),
-    /** The send RPC was invoked; a subsequent turn start can confirm it before its response arrives. */
-    dispatched: z.boolean().optional(),
-  }).optional(),
+  instruction: instructionSchema.optional(),
+  /** The unfinished substantive instruction behind reminders/retries, by role. */
+  workInstructions: z.object({ implementer: instructionSchema.optional(), reviewer: instructionSchema.optional() }).optional(),
   /** The delivery (the agent's status event to In review) the latest review round looks at. */
   deliveryEvent: z.string().optional(),
   /**
@@ -198,7 +228,11 @@ export const automationJobSchema = z.object({
   /** Roles that switched to their fallback model in this run; they stay on it until the run ends (§4.5). */
   fallback: z.object({ implementer: z.boolean().optional(), reviewer: z.boolean().optional() }).optional(),
   /** A running session of this job whose provider history passed `historyLimits.warn` (AUTOMATION-SPEC §4.6). */
-  historyWarning: z.object({ agentId: z.string(), bytes: z.number().int().nonnegative(), at: z.string() }).optional(),
+  historyWarning: z.object({ agentId: z.string(), bytes: z.number().int().nonnegative(), at: z.string(), level: z.enum(["large", "critical"]).optional() }).optional(),
+  historySamples: z.object({ agentId: z.string(), values: z.array(z.object({ at: z.number(), bytes: z.number().nonnegative() })).max(3) }).optional(),
+  checkpointSeen: z.object({ agentId: z.string(), fill: z.boolean().optional(), large: z.boolean().optional(), growth: z.boolean().optional(), K: z.number().nonnegative().optional() }).optional(),
+  checkpoint: z.object({ agentId: z.string(), reason: z.string(), at: z.string() }).optional(),
+  silentSince: z.string().optional(),
   /** The reviewer session runs on the panel model (§5.1); a round that is not a panel round starts a regular one again. */
   panel: z.boolean().optional(),
   /**
@@ -260,6 +294,7 @@ export const reviewInputSchema = z.strictObject({
   findings: z.array(z.string().trim().min(1).max(automationLimits.finding)).max(automationLimits.findings).default([]),
   /** Risks the acceptance criteria do not cover, one plain sentence each (§5.2.4); recorded with the verdict, never blocking. */
   risks: z.array(z.string().trim().min(1).max(automationLimits.risk)).max(automationLimits.risks).default([]),
+  handoff: z.strictObject({ gaps: z.array(z.string().trim().min(1).max(300)).max(5) }).optional(),
 });
 export type ReviewInput = z.input<typeof reviewInputSchema>;
 export const reviewResultSchema = z.object({

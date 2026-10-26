@@ -4,6 +4,7 @@ import { linksOf, type LinkView } from "../shared/links";
 import { jobOf, risksOrigin, subCardActive, type SubCardLine } from "../shared/automation";
 import type { Board, Task } from "../shared/model";
 import { defaultGit, readHead, type Git } from "./workpad";
+import type { ContinuityKind, ContinuityReader } from "./handoff-links";
 
 /** get_task's handoffs together carry at most `total` characters of evidence and reviewer risks, one link's evidence at most `perLink`. */
 export const handoffBudget = { total: 16_000, perLink: 6_000 } as const;
@@ -19,7 +20,7 @@ const unmetBlockers = (board: Board, taskId: string) =>
   linksOf(board, taskId).filter((v) => v.relation === "blocked_by" && v.other?.status !== "done").map((v) => `${v.other?.title ?? "Unavailable card"} (${v.link.from}): ${v.other?.archivedAt ? "archived" : v.other?.status ?? "missing"}`);
 
 /** A bounded read projection, never authority to write another card. */
-export async function cardHandoff(board: Board, taskId: string, paseo: PaseoApi): Promise<SubCardLine | null> {
+export async function cardHandoff(board: Board, taskId: string, paseo: PaseoApi, continuity?: ContinuityReader, kind: ContinuityKind = "child"): Promise<SubCardLine | null> {
   const task = board.tasks.find((t) => t.id === taskId);
   if (!task) return null;
   const project = board.projects.find((p) => p.id === task.projectId);
@@ -31,6 +32,7 @@ export async function cardHandoff(board: Board, taskId: string, paseo: PaseoApi)
     ...(job ? { job: { state: job.state, verdict: job.verdict, code: job.code } } : {}),
     ...(directory ? { directory } : {}), ...(head?.branch ? { branch: head.branch } : {}),
     evidence: handoffEvidence(board, taskId),
+    ...(continuity ? { continuity: await continuity(taskId, kind) } : {}),
     blockers: unmetBlockers(board, taskId),
     // The reviewer's risks (AUTOMATION-SPEC §5.2.4) for the parent to weigh before it accepts; a finished card's were weighed.
     // Risks of an earlier delivery (its reviewer gave up, the rounds ran out) say so.
@@ -38,7 +40,7 @@ export async function cardHandoff(board: Board, taskId: string, paseo: PaseoApi)
   };
 }
 
-export type LinkHandoff = { branch?: string; directory?: string; evidence: string; blockers: string[]; risks?: string[]; risksNote?: string };
+export type LinkHandoff = { branch?: string; directory?: string; evidence: string; blockers: string[]; risks?: string[]; risksNote?: string; continuity?: string };
 
 /** A linked card's reviewer risks within the handoff budget, or a note on what happened to them (§5.2.4). */
 function handoffRisks(board: Board, taskId: string, left: number): { cost: number; value: Pick<LinkHandoff, "risks" | "risksNote"> } {
@@ -72,12 +74,12 @@ async function liveBranch(directory: string | undefined, git: Git) {
 }
 
 /** The integration location of a potentially busy parent; reading it must not refresh its git index. */
-export async function cardLocation(board: Board, taskId: string, paseo: PaseoApi, git: Git = defaultGit) {
+export async function cardLocation(board: Board, taskId: string, paseo: PaseoApi, git: Git = defaultGit, continuity?: ContinuityReader) {
   const task = board.tasks.find((t) => t.id === taskId);
   if (!task) return null;
   const directory = await directoryOf(task, paseo);
   const branch = storedBranch(board, taskId) ?? (await liveBranch(directory, git));
-  return { id: task.id, title: task.title, lane: laneName(board.projects.find((p) => p.id === task.projectId), task.status), branch, directory };
+  return { id: task.id, title: task.title, lane: laneName(board.projects.find((p) => p.id === task.projectId), task.status), branch, directory, ...(continuity ? { continuity: await continuity(taskId, "parent") } : {}) };
 }
 
 /** A linked card worth a handoff: delivered (In review) or settled (nothing moves it), and neither finished nor archived. */
@@ -92,7 +94,7 @@ const wantsHandoff = (board: Board, v: LinkView) =>
  * blocker was delivered on. Branches come from the stored HEAD; only a card without one costs a `rev-parse`.
  * Linked workspaces are read only for handoffs and a parent without a stored branch.
  */
-export async function linkExtras(board: Board, taskId: string, paseo: PaseoApi, git: Git) {
+export async function linkExtras(board: Board, taskId: string, paseo: PaseoApi, git: Git, continuity?: ContinuityReader) {
   const views = linksOf(board, taskId).filter((v) => v.other);
   const seen = new Set<string>();
   const wanted = views
@@ -118,6 +120,9 @@ export async function linkExtras(board: Board, taskId: string, paseo: PaseoApi, 
     // be read from the card's directory and branch.
     const risks = handoffRisks(board, v.other!.id, left);
     left -= risks.cost;
+    const summary = continuity ? await continuity(v.other!.id, v.relation === "sub_card" ? "child" : "dependency") : undefined;
+    const summaryFits = !!summary && summary.length <= left;
+    if (summaryFits) left -= summary.length;
     const full = handoffEvidence(board, v.other!.id);
     const fits = full.length <= left;
     if (fits) left -= full.length;
@@ -127,6 +132,7 @@ export async function linkExtras(board: Board, taskId: string, paseo: PaseoApi, 
       evidence: fits ? full : `Omitted: get_task carries at most ${handoffBudget.total} characters of handoff evidence and risks, and the links before this one used them. Inspect this card's directory and branch (git log, git diff) instead.`,
       blockers: unmetBlockers(board, v.other!.id),
       ...risks.value,
+      ...(summary ? { continuity: summaryFits ? summary : "Continuity summary omitted by the total budget; inspect the linked card's Handoff." } : {}),
     });
   }
   await Promise.all(
@@ -138,5 +144,18 @@ export async function linkExtras(board: Board, taskId: string, paseo: PaseoApi, 
       if (branch) branches.set(other.id, branch);
     }),
   );
+  // Parent context shares the same budget and exposes only the parent's cross-card pitfalls.
+  for (const v of views) {
+    if (v.relation !== "sub_card_of" || handoffs.has(v.other!.id) || !continuity) continue;
+    const summary = await continuity(v.other!.id, "parent");
+    if (!summary) continue;
+    const fits = summary.length <= left;
+    if (fits) left -= summary.length;
+    handoffs.set(v.other!.id, {
+      ...(branches.has(v.other!.id) ? { branch: branches.get(v.other!.id) } : {}),
+      evidence: "", blockers: [],
+      continuity: fits ? summary : "Continuity summary omitted by the total budget; inspect the linked card's Handoff.",
+    });
+  }
   return { handoffs, branches };
 }

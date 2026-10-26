@@ -98,7 +98,10 @@ export function TaskAutomation({ task, project, active, unavailable = false }: {
           : t("Review round {n} of {max}", { n: job.reviewRounds, max: settings.maxReviewRounds })
       : "",
     job?.nudges && settings ? t("Reminder {n} of {max}", { n: job.nudges, max: settings.nudgeLimit }) : "",
-    job?.historyWarning && live && job.historyWarning.agentId === activeAgent(job) ? t("Session history {n} MB: too large for Paseo to load safely; the next instruction goes to a new session", { n: Math.round(job.historyWarning.bytes / 2 ** 20) }) : "",
+    job?.historyWarning && live && job.historyWarning.agentId === activeAgent(job) ? job.historyWarning.level === "critical" || job.historyWarning.bytes >= 300 * 2 ** 20
+      ? t("Session history {n} MB, still growing: inspect it and stop this session in Paseo", { n: Math.round(job.historyWarning.bytes / 2 ** 20) })
+      : t("Session history {n} MB: the next instruction goes to a fresh session", { n: Math.round(job.historyWarning.bytes / 2 ** 20) }) : "",
+    job?.silentSince && live ? t("Agent has not updated the card for {n} min", { n: Math.max(0, Math.floor((Date.now() - Date.parse(job.silentSince)) / 60000)) }) : "",
     job?.failures && settings ? t("Failed turns: {n} of {max}", { n: job.failures, max: settings.failureLimit }) : "",
   ].filter(Boolean);
   return (
@@ -114,6 +117,7 @@ export function TaskAutomation({ task, project, active, unavailable = false }: {
         </Label>
         {!!held.length && <Label muted size={font.sm}>{t("Waiting for blockers to be Done: {cards}", { cards: held.map((card) => `${card.title} (${laneName(project, card.status)})`).join(", ") })}</Label>}
         {!!reason && <Label muted size={font.sm}>{reason}</Label>}
+        {!!job?.rotation?.policy?.reason && <Label muted size={font.sm}>{job.rotation.policy.reason}</Label>}
         {live && !!job?.fallback?.[job.role] && <Label muted size={font.sm}>{t("On the fallback model after a provider limit")}</Label>}
         {!!job?.detail && !["working", "reviewing", "starting"].includes(job.state) && (
           <Label muted size={font.sm} lines={3}>

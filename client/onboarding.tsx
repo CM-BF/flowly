@@ -268,6 +268,7 @@ function MoreFeatures() {
     { icon: "FolderGit2", title: t("Saved with your project"), text: t("Each project's board is also kept in its folder (.flowly, ignored by git). Add the folder again to restore it.") },
     { icon: "Pencil", title: t("Describe once, start working"), text: t("Describe your task once. New cards start an agent by default; it organizes the title, description and tags. Set speed and permissions in Edit project.") },
     { icon: "MessagesSquare", title: t("Comments"), text: t("Ask about progress or request changes right on the card. Comments stay on it and go to the card's agent, which also sees them when it reads the card.") },
+    { icon: "BookOpen", title: t("Handoff"), text: t("The card keeps the current state, next steps, original instructions, review findings and information gaps. A fresh agent reads and acknowledges it; you can check it without opening old chats.") },
     { icon: "ListTree", title: t("Sub-cards"), text: t("Agents split work into sub-cards with their own workspaces; a supervised parent waits and accepts them. Card tree shows each item's steps in order, and Levels hides deeper sub-cards on the board.") },
     { icon: "Bot", title: t("Agent automation"), text: t("Optional per project: Run with agent queues a card, and Flowly starts it when its blockers are Done, reminds or retries the agent when it stalls, and can have a reviewer agent check the delivery: a panel of reviewers for foundation cards, and every reviewer notes risks beyond the acceptance criteria. Done stays yours.") },
   ];

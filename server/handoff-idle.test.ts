@@ -1,0 +1,243 @@
+import { afterEach, expect, test, vi } from "vitest";
+import { execFile } from "node:child_process";
+import { createHash } from "node:crypto";
+import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join, relative } from "node:path";
+import { promisify } from "node:util";
+import type { PaseoApi } from "@getpaseo/client";
+import { AutomationService } from "./automation";
+import { captureHandoff } from "./handoff-capture";
+import { handoffGitSnapshot } from "./handoff-git";
+import { HandoffObserver, type HandoffObserverDeps, type ManagedHandoffSession } from "./handoff-observer";
+import { HandoffService } from "./handoff-service";
+import { HandoffStore } from "./handoff-store";
+import { forgetHistory } from "./provider-history";
+import { BoardStore } from "./store";
+import type { AutomationJob } from "../shared/automation-schema";
+
+// Never reaches a daemon or a real provider history: the Paseo API is an in-memory fake; the board, the synthetic Codex and
+// Claude homes and the Git repositories live in a temporary directory.
+const run = promisify(execFile);
+const roots: string[] = [], observers: HandoffObserver[] = [], dispatchers: AutomationService[] = [];
+afterEach(async () => {
+  forgetHistory(); vi.restoreAllMocks();
+  await Promise.all(dispatchers.splice(0).map((automation) => automation.stop()));
+  await Promise.all(observers.splice(0).map((observer) => observer.stop()));
+  await Promise.all(roots.splice(0).map((path) => rm(path, { recursive: true, force: true })));
+});
+const at = "2026-10-25T02:00:00.000Z";
+const line = (value: unknown) => JSON.stringify(value) + "\n";
+const uuid = (n: number) => `019a15e5-0000-7abc-8def-${String(n).padStart(12, "0")}`;
+const git = (cwd: string, ...args: string[]) => run("git", ["-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "-c", "commit.gpgsign=false", "-C", cwd, ...args], { env: { ...process.env, GIT_TERMINAL_PROMPT: "0" } });
+async function repository(path: string, dirty = false) {
+  await mkdir(path, { recursive: true }); await git(path, "init", "-q"); await writeFile(join(path, "README.md"), "fixture\n");
+  await git(path, "add", "README.md"); await git(path, "commit", "-q", "-m", "fixture");
+  if (dirty) await writeFile(join(path, "README.md"), "fixture, edited and not committed\n");
+}
+/** Every byte Flowly owns in the data directory (board.json, handoff records, archives, receipts), by path. */
+async function bytes(directory: string) {
+  const out: Record<string, string> = {};
+  const walk = async (path: string) => {
+    for (const entry of await readdir(path, { withFileTypes: true })) {
+      const child = join(path, entry.name);
+      if (["homes", "repos"].includes(relative(directory, child))) continue;
+      if (entry.isDirectory()) await walk(child); else out[relative(directory, child)] = createHash("sha256").update(await readFile(child)).digest("hex");
+    }
+  };
+  await walk(directory); return out;
+}
+
+/**
+ * Several idle cards on real files: Codex and Claude sessions whose provider files no longer grow, a stopped job with a
+ * replaced session, a card whose workspace cannot be read (its Git observation fails), a project root with more
+ * repositories than are inspected, and a session that is gone.
+ */
+async function idleBoard() {
+  const directory = await mkdtemp(join(tmpdir(), "flowly-handoff-idle-")); roots.push(directory);
+  const repos = join(directory, "repos"), homes = join(directory, "homes"), codexHome = join(homes, "codex"), claudeHome = join(homes, "claude");
+  const alpha = join(repos, "alpha"), wide = join(repos, "wide");
+  await repository(join(alpha, "app")); await repository(join(alpha, "lib"), true); await mkdir(join(alpha, "notes"), { recursive: true });
+  for (let n = 0; n < 10; n++) await repository(join(wide, `service-${n}`));
+  let now = Date.parse(at);
+  const board = new BoardStore(directory);
+  const job = (taskId: string, state: AutomationJob["state"], implementerId: string, extra: Partial<AutomationJob> = {}): AutomationJob => ({ taskId, projectId: "project", state, role: "implementer", implementerId, generation: 1, nudges: 0, failures: 0, reviewRounds: 1, queuedAt: at, updatedAt: at, ...extra } as AutomationJob);
+  await board.mutate((value) => {
+    value.projects.push({ id: "project", title: "P", description: "", paseoProjectId: "native", primaryPath: alpha, repos: [alpha, wide, join(repos, "beta")], revision: 1, createdAt: at, updatedAt: at, archivedAt: null });
+    const card = (id: string, workspaceId: string, repoPaths: string[]) => ({ id, projectId: "project", workspaceId, sourcePath: repoPaths[0], repoPaths, title: id, description: "", status: "in_review" as const, priority: "normal" as const, position: 0, revision: 1, operationId: `create-${id}`, createdAt: at, updatedAt: at, archivedAt: null });
+    value.tasks.push(card("alpha", "ws-alpha", [alpha]), card("beta", "ws-beta", [join(repos, "beta")]), card("gamma", "ws-gamma", [wide]));
+    value.automation.push(job("alpha", "delivered", "a-impl", { reviewerId: "a-rev", verdict: "approved" }), job("beta", "stopped", "b-impl", { retired: [{ agentId: "b-old", role: "implementer", at, reason: "run_again" }] }));
+  });
+  const sessions = [
+    { taskId: "alpha", agentId: "a-impl", provider: "codex", n: 1, workspace: "ws-alpha", cwd: alpha },
+    { taskId: "alpha", agentId: "a-rev", provider: "claude", n: 2, workspace: "ws-alpha", cwd: alpha },
+    { taskId: "beta", agentId: "b-old", provider: "codex", n: 3, workspace: "ws-beta", cwd: repos },
+    { taskId: "beta", agentId: "b-impl", provider: "claude", n: 4, workspace: "ws-beta", cwd: repos },
+    { taskId: "gamma", agentId: "g-man", provider: "codex", n: 5, workspace: "ws-gamma", cwd: wide },
+    { taskId: "gamma", agentId: "g-gone", provider: "claude", n: 6, workspace: "ws-gamma", cwd: wide },
+  ] as const;
+  const actors = new Map<string, Record<string, unknown>>();
+  for (const s of sessions) {
+    const id = uuid(s.n);
+    if (s.provider === "codex") {
+      // The locator searches the day folders around the session's UUID v7 time (local time), as Codex writes them.
+      const stamp = new Date(parseInt(id.replace(/-/g, "").slice(0, 12), 16));
+      const folder = join(codexHome, "sessions", String(stamp.getFullYear()), String(stamp.getMonth() + 1).padStart(2, "0"), String(stamp.getDate()).padStart(2, "0")); await mkdir(folder, { recursive: true });
+      const event = (type: string, data: Record<string, unknown>) => ({ timestamp: at, type: "event_msg", payload: { type, ...data } });
+      await writeFile(join(folder, `rollout-idle-${id}.jsonl`), [
+        { timestamp: at, type: "session_meta", payload: { id, session_id: id, cwd: s.cwd } },
+        event("item_completed", { thread_id: id, turn_id: "t1", item: { type: "UserMessage", id: `u-${s.n}`, content: [{ type: "text", text: `Fix card ${s.taskId}` }] } }),
+        { timestamp: at, type: "response_item", payload: { type: "function_call", name: "exec_command", call_id: `c-${s.n}`, arguments: JSON.stringify({ cmd: "npm test" }) } },
+        { timestamp: at, type: "response_item", payload: { type: "function_call_output", call_id: `c-${s.n}`, output: "Process exited with code 0\nOutput:\nok" } },
+        event("token_count", { info: { last_token_usage: { total_tokens: 41_000 }, model_context_window: 258_400 } }),
+        event("item_completed", { thread_id: id, turn_id: "t1", item: { type: "AgentMessage", id: `m-${s.n}`, content: [{ type: "Text", text: `Card ${s.taskId}: tests pass; delivered.` }] } }),
+        event("task_complete", { last_agent_message: `Card ${s.taskId}: tests pass; delivered.` }),
+      ].map(line).join(""));
+    } else if (s.agentId !== "g-gone") {
+      const folder = join(claudeHome, "projects", "idle"); await mkdir(folder, { recursive: true });
+      const base = { sessionId: id, entrypoint: "sdk-cli", isSidechain: false, timestamp: at, userType: "external", cwd: s.cwd, version: "2.9.0" };
+      await writeFile(join(folder, `${id}.jsonl`), [
+        { ...base, type: "user", uuid: `u-${s.n}`, message: { role: "user", content: `Review card ${s.taskId}` } },
+        { ...base, type: "assistant", uuid: `a-${s.n}`, message: { id: `r-${s.n}`, role: "assistant", content: [{ type: "text", text: "Approved: the criteria are met." }], usage: { input_tokens: 10, cache_creation_input_tokens: 2_000, cache_read_input_tokens: 30_000, output_tokens: 400, cache_creation: { ephemeral_1h_input_tokens: 2_000 } } } },
+      ].map(line).join(""));
+    }
+    if (s.agentId !== "g-gone") actors.set(s.agentId, { id: s.agentId, provider: s.provider, model: `${s.provider}-fixture`, cwd: s.cwd, workspaceId: s.workspace, status: "idle", activeTurn: null, pendingPermissions: [], createdAt: at, updatedAt: at, lastUserMessageAt: at, lastUsage: { contextWindowUsedTokens: 41_000, contextWindowMaxTokens: 258_400 }, persistence: { provider: s.provider, nativeHandle: id, sessionId: id }, archivedAt: null });
+  }
+  const workspaces: Record<string, { workspaceDirectory: string; workspaceKind: string } | Error> = { "ws-alpha": { workspaceDirectory: alpha, workspaceKind: "local" }, "ws-beta": new Error("workspace unavailable"), "ws-gamma": { workspaceDirectory: wide, workspaceKind: "local" } };
+  const paseo = {
+    agents: { ref: (agentId: string) => ({ refresh: async () => actors.has(agentId) ? { agent: actors.get(agentId) } : null, timeline: { refetch: () => { throw new Error("idle observation must never load a timeline"); } }, send: () => { throw new Error("idle observation must never send"); } }) },
+    workspaces: { ref: (workspaceId: string) => ({ refresh: async () => { const value = workspaces[workspaceId]; if (value instanceof Error) throw value; return value ?? null; } }) },
+  } as unknown as PaseoApi;
+  // Production wiring (index.server.ts): the service's mutex and index sync; only the provider homes are redirected.
+  const wire = () => {
+    const handoffs = new HandoffService(board, () => now); handoffs.attach(paseo);
+    const deps: HandoffObserverDeps = { records: handoffs.records, board, paseo: () => paseo, serial: handoffs.serial.bind(handoffs), syncIndex: handoffs.syncIndex.bind(handoffs), onCompaction: (taskId, agentId) => handoffs.forgetRead(taskId, agentId), clock: () => now,
+      capture: (agent, previous, options) => captureHandoff(agent, previous, { ...options, codexHome, claudeHome }) };
+    const observer = new HandoffObserver(deps); observers.push(observer);
+    // The automation dispatcher (15-second pass) with the observer as its handoff bridge, as in production.
+    const automation = new AutomationService(board, { prepare: async () => { throw new Error("an idle board starts no session"); }, globalModel: async () => null, clock: () => now, historyBytes: async () => 4096, handoff: observer.bridge });
+    dispatchers.push(automation); automation.attach(paseo);
+    return { handoffs, observer, automation };
+  };
+  const managed = async (): Promise<ManagedHandoffSession[]> => sessions.map(({ taskId, agentId }) => ({ taskId, agentId }));
+  /** Every session that has a provider file was captured from it (its cursor names the file), so a broken fixture cannot pass silently. */
+  const providersRead = async (handoffs: HandoffService) => {
+    for (const s of sessions.filter((session) => session.agentId !== "g-gone")) {
+      const entry = (await handoffs.records.read(s.taskId, "project")).ledger.find((session) => session.agentId === s.agentId) ?? await handoffs.records.sessionRecord(s.taskId, s.agentId);
+      expect({ agentId: s.agentId, path: entry?.through?.path }).toEqual({ agentId: s.agentId, path: expect.stringContaining(uuid(s.n)) });
+    }
+  };
+  /** Work of other cards in the shared project root: a commit in one repository, another edit of an already-dirty file. */
+  const elsewhere = async (minute: number) => {
+    if (minute === 6) { await writeFile(join(alpha, "app", "CHANGELOG.md"), "another card's change\n"); await git(join(alpha, "app"), "add", "CHANGELOG.md"); await git(join(alpha, "app"), "commit", "-q", "-m", "another card"); }
+    if (minute === 9) await writeFile(join(alpha, "lib", "README.md"), "fixture, edited again by someone else\n");
+    if (minute === 20) { await writeFile(join(wide, "service-3", "NOTES.md"), "x\n"); await git(join(wide, "service-3"), "add", "NOTES.md"); await git(join(wide, "service-3"), "commit", "-q", "-m", "elsewhere"); }
+  };
+  return { directory, alpha, board, sessions, actors, wire, managed, providersRead, elsewhere, advance: (ms: number) => { now += ms; } };
+}
+
+test("idle cards keep their revision and every file byte through the whole idle loop and a plugin reload", async () => {
+  const failures = vi.spyOn(console, "error");
+  const x = await idleBoard();
+  let { handoffs, observer, automation } = x.wire();
+  // Warm-up: each session's last turn (start registration, end hook with its timeline), then passes that read the provider files.
+  for (const s of x.sessions) {
+    await observer.ensureSession(s.taskId, s.agentId);
+    await observer.observe(s.taskId, s.agentId, { timeline: [{ type: "user_message", text: `Fix card ${s.taskId}`, messageId: `m-${s.agentId}` }, { type: "assistant_message", text: `Card ${s.taskId}: tests pass; delivered.` }], outcome: "completed", forceGit: true });
+  }
+  for (let minute = 0; minute < 5; minute++) { x.advance(60_000); await observer.poll(x.managed); await automation.kick(); }
+  // Every session with a provider file was really read: the loop below covers provider capture of idle sessions.
+  await x.providersRead(handoffs);
+  // A real idle state also has acknowledged Flowly gaps pushed out of the 40-entry current list into the archive.
+  const beta = await handoffs.records.read("beta", "project"), unavailable = beta.gaps.find((gap) => gap.sourceId === "git-unavailable:beta");
+  expect(unavailable).toBeTruthy();
+  await handoffs.records.update("beta", "project", { handoffRevision: beta.revision, gaps: [{ id: unavailable!.id, status: "closed", note: "Checked by hand: the workspace folder was archived." }] }, { by: { kind: "human" } });
+  for (let batch = 0; batch < 5; batch++) {
+    const record = await handoffs.records.read("beta", "project");
+    await handoffs.records.update("beta", "project", { handoffRevision: record.revision, gaps: Array.from({ length: 9 }, (_, n) => ({ text: `Successor question ${batch}.${n}`, status: "open" as const })) }, { by: { kind: "agent", agentId: "b-impl" } });
+  }
+  expect((await handoffs.records.read("beta", "project")).gaps.some((gap) => gap.sourceId === "git-unavailable:beta")).toBe(false);
+  for (const s of x.sessions) await handoffs.syncIndex(s.taskId);
+
+  const before = await bytes(x.directory), revisions = await Promise.all(["alpha", "beta", "gamma"].map(async (id) => (await handoffs.records.read(id, "project")).revision));
+  for (let minute = 1; minute <= 30; minute++) {
+    if (minute === 15) { await automation.stop(); await observer.stop(); ({ handoffs, observer, automation } = x.wire()); } // Plugin reload: in-memory state (Git timers, reads) is gone.
+    await x.elsewhere(minute);
+    for (let pass = 0; pass < 4; pass++) { x.advance(15_000); await automation.kick(); }
+    await observer.poll(x.managed);
+    if (minute % 2) continue;
+    for (const s of x.sessions) {
+      await observer.ensureSession(s.taskId, s.agentId);
+      await handoffs.syncIndex(s.taskId);
+      await handoffs.context(s.taskId, s.agentId, { recordAccess: false }); // handoffDue on every Flowly tool result
+      await handoffs.context(s.taskId); // the drawer's etag read
+    }
+  }
+  expect(await Promise.all(["alpha", "beta", "gamma"].map(async (id) => (await handoffs.records.read(id, "project")).revision))).toEqual(revisions);
+  expect(await bytes(x.directory)).toEqual(before);
+  expect(failures).not.toHaveBeenCalled(); // every dispatcher pass and observation ran to its end
+  // An ACK the successor prepared from the revision it read before all that idle time still applies through
+  // flowly_update_handoff, which reads the heads itself: other cards' commits and edits in the shared root are on them.
+  const stale = await handoffs.records.read("alpha", "project"), heads = (record: typeof stale) => record.git.map(({ repo, sha, dirtyHash }) => `${relative(x.directory, repo)}:${sha}:${dirtyHash}`);
+  const observed = (await Promise.all([join(x.alpha, "app"), join(x.alpha, "lib")].map((repo) => handoffGitSnapshot(repo)))).map(({ repo, sha, dirty }) => ({ repo, sha, dirty }));
+  expect(stale.git.find((entry) => entry.repo.endsWith("app"))?.sha).not.toBe(observed[0].sha);
+  await expect(handoffs.update({ taskId: "alpha", workspaceId: "ws-alpha", agentId: "a-impl" }, { handoffRevision: revisions[0], ack: { handoffRevision: revisions[0], heads: observed, understanding: "Idle card; the shared root moved, heads verified.", items: [] } })).resolves.toMatchObject({ handoffRevision: revisions[0] + 1 });
+  // Nothing was lost by not polling the repositories while idle: the ACK's write recorded them as they are now.
+  const caught = await handoffs.records.read("alpha", "project");
+  expect(heads(caught)).not.toEqual(heads(stale));
+  expect(caught.git.filter((entry) => entry.sha).map(({ repo, sha }) => ({ repo, sha }))).toEqual(observed.map(({ repo, sha }) => ({ repo, sha })));
+  // And the card's next turn end records a change made after that.
+  await writeFile(join(x.alpha, "app", "LATER.md"), "later\n"); await git(join(x.alpha, "app"), "add", "LATER.md"); await git(join(x.alpha, "app"), "commit", "-q", "-m", "later");
+  await observer.observe("alpha", "a-impl", { timeline: [{ type: "assistant_message", text: "Checked." }], outcome: "completed", forceGit: true });
+  expect(heads(await handoffs.records.read("alpha", "project"))).not.toEqual(heads(caught));
+}, 60_000);
+
+test("a quiet running turn writes nothing either: its repositories are read every 2 minutes, an archived gap is not written again", async () => {
+  const x = await idleBoard();
+  const { handoffs, observer } = x.wire();
+  // beta's current session is in a long, quiet turn (its provider file does not grow) and its workspace cannot be read.
+  Object.assign(x.actors.get("b-impl")!, { status: "running", activeTurn: { turnId: "turn-long", startedAt: at } });
+  for (let minute = 0; minute < 3; minute++) { x.advance(60_000); await observer.poll(x.managed); }
+  await x.providersRead(handoffs);
+  const beta = await handoffs.records.read("beta", "project"), unavailable = beta.gaps.find((gap) => gap.sourceId === "git-unavailable:beta")!;
+  await handoffs.records.update("beta", "project", { handoffRevision: beta.revision, gaps: [{ id: unavailable.id, status: "closed", note: "Checked by hand: the workspace folder was archived." }] }, { by: { kind: "human" } });
+  for (let batch = 0; batch < 5; batch++) {
+    const record = await handoffs.records.read("beta", "project");
+    await handoffs.records.update("beta", "project", { handoffRevision: record.revision, gaps: Array.from({ length: 9 }, (_, n) => ({ text: `Successor question ${batch}.${n}`, status: "open" as const })) }, { by: { kind: "agent", agentId: "b-impl" } });
+  }
+  const before = await bytes(x.directory), revision = (await handoffs.records.read("beta", "project")).revision;
+  for (let minute = 0; minute < 12; minute++) { x.advance(60_000); await observer.poll(x.managed); }
+  expect((await handoffs.records.read("beta", "project")).revision).toBe(revision);
+  expect(await bytes(x.directory)).toEqual(before);
+}, 60_000);
+
+test("a transaction that changes nothing writes nothing: no revision, no receipt, no bytes", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "flowly-handoff-noop-")); roots.push(directory);
+  const store = new HandoffStore(directory), flowly = { by: { kind: "flowly" as const } };
+  const session = { agentId: "worker", n: 1, role: "implementer" as const, provider: "codex", reason: "launch", startedAt: at, finalized: false, turns: [], background: [], live: [] };
+  await store.setSession("card", "project", session, { ...flowly, sourceId: "session:worker" });
+  await store.appendNote("card", "project", { kind: "background", text: "Async shell finished" }, { ...flowly, sourceId: "capture-notice:worker:one" });
+  await store.appendInput("card", "project", { text: "Keep the old column", via: "comment", atSource: "typed", status: "open", messageId: "comment:op" }, { by: { kind: "human" }, sourceId: "comment:op", operationId: "comment:op", unconfirmed: true });
+  await store.confirmSource("card", "project", "comment:op", { ...flowly, operationId: "confirm:comment:op" });
+  // 40 newer gaps push the closed one out of the current list into the archive; observing it again must find it there.
+  const unavailable = { id: "g:git-unavailable", sourceId: "git-unavailable:card", kind: "flowly", agentId: "worker", text: "Repository state could not be observed.", status: "open" };
+  await store.capture("card", "project", { entries: [{ section: "gaps", value: unavailable }] }, flowly);
+  const gap = (await store.read("card", "project")).gaps[0];
+  await store.update("card", "project", { handoffRevision: (await store.read("card", "project")).revision, gaps: [{ id: gap.id, status: "closed", note: "Verified by hand." }] }, flowly);
+  for (let n = 0; n < 5; n++) await store.update("card", "project", { handoffRevision: (await store.read("card", "project")).revision, gaps: Array.from({ length: 9 }, (_, k) => ({ text: `Open question ${n}.${k}`, status: "open" as const })) }, flowly);
+  const archived = await store.read("card", "project");
+  expect(archived.gaps.some((value) => value.id === gap.id)).toBe(false);
+  const before = await bytes(directory);
+  const repeats = [
+    () => store.setSession("card", "project", session, { ...flowly, sourceId: "session:worker" }),
+    () => store.appendNote("card", "project", { kind: "background", text: "Async shell finished" }, { ...flowly, sourceId: "capture-notice:worker:one" }),
+    () => store.confirmSource("card", "project", "comment:op", { ...flowly, operationId: "confirm:comment:op:again" }),
+    () => store.capture("card", "project", { entries: [{ section: "gaps", value: unavailable }], git: [] }, flowly),
+    () => store.capture("card", "project", { forgetSeen: ["never-read"] }, flowly),
+    () => store.update("card", "project", { handoffRevision: archived.revision }, { by: { kind: "agent", agentId: "worker" } }),
+  ];
+  for (const repeat of repeats) expect((await repeat()).handoffRevision).toBe(archived.revision);
+  expect(await bytes(directory)).toEqual(before);
+  // A real change still writes.
+  expect((await store.appendNote("card", "project", { kind: "other", text: "New fact" }, flowly)).handoffRevision).toBe(archived.revision + 1);
+});

@@ -61,6 +61,8 @@ import { PendingRequests } from "./session-question";
 import { pendingRequests, type PendingRequest, type PermissionReply } from "../shared/permission-question";
 import { workspaceSession } from "./session";
 import { TaskProgress } from "./task-progress";
+import { TaskHandoff } from "./task-handoff";
+import { continuationPending } from "./handoff-signal";
 import { TaskUsage } from "./task-usage";
 import { SessionMarkdown } from "./session-content";
 import { TaskIdeas } from "./task-ideas";
@@ -180,6 +182,7 @@ function TaskDrawerView({
     [showNew, setShowNew] = useState(false),
     // A session started from an idea (IDEAS-SPEC §6.3): prefills the form, recorded on the idea once created.
     [ideaSession, setIdeaSession] = useState<Idea | null>(null),
+    [commentSession, setCommentSession] = useState<{ prompt: string; messageId: string } | null>(null),
     [showWrapup, setShowWrapup] = useState(false),
     [showArchived, setShowArchived] = useState(false),
     // Subagent rows the user opened or closed, by main session; otherwise they follow `urgent`.
@@ -438,6 +441,7 @@ function TaskDrawerView({
       ? t("This project is archived, so its cards can't take comments.")
       : "";
   const startSession = useStableCallback(() => setShowNew(true));
+  const startCommentSession = useStableCallback((seed?: { prompt: string; messageId: string }) => { setCommentSession(seed ?? null); setIdeaSession(null); setShowNew(true); });
   const finished = task.status === "done" || task.status === "cancelled";
   // Wrapped up while kept on the board: its workspace/sessions are archived on
   // purpose, so neither offer Wrap up again nor warn that they are unavailable.
@@ -701,6 +705,8 @@ function TaskDrawerView({
         return (
           <TaskProgress taskId={task.id} active={active} section={sectionStates.progress} />
         );
+      case "handoff":
+        return <TaskHandoff key={task.id} taskId={task.id} active={ready} disabled={!active || unavailable || !!task.archivedAt || !!project.archivedAt} section={sectionStates.handoff} index={automationCache.getQueryData<Board>(boardKey)?.handoffIndex?.find(entry => entry.taskId === task.id)} pending={continuationPending(automationCache.getQueryData<Board>(boardKey)?.automation.find((j) => j.taskId === task.id), task)} onStartSession={startSession} onOpenSession={openCardSession} />;
       case "comments":
         return (
           <TaskComments
@@ -715,7 +721,7 @@ function TaskDrawerView({
             section={sectionStates.comments}
             memory={commentMemory}
             onPosted={stableRefreshAll}
-            onStartSession={unavailable ? undefined : startSession}
+            onStartSession={unavailable ? undefined : startCommentSession}
           />
         );
       case "workpad":
@@ -1127,6 +1133,7 @@ function TaskDrawerView({
         onClose={() => {
           setShowNew(false);
           setIdeaSession(null);
+          setCommentSession(null);
         }}
         onCreated={(id, text) => {
           setHighlighted(id);
@@ -1139,7 +1146,7 @@ function TaskDrawerView({
         }}
         refresh={refreshAll}
         defaults={sessionDefaults}
-        seed={ideaSession ? { title: ideaSession.title, prompt: ideaInstruction(ideaSession) } : null}
+        seed={commentSession ? { title: "", ...commentSession } : ideaSession ? { title: ideaSession.title, prompt: ideaInstruction(ideaSession) } : null}
       />
       <WrapupModal
         task={task}

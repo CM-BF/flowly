@@ -4,6 +4,8 @@ Status: **implemented, real-UI verification pending** (2026-10-16, card "增加n
 
 ## Why
 
+2026-10-24 hybrid handoff: the existing **Handoff** tour tile and `card-handoff` one-time tip introduce the same card-owned record used by automatic replacement. They remain in place for P2; a second tip for the same record is unnecessary. The comment recipient menu names automatic routing, fresh session and save explicitly, and each accepted comment shows its actual delivery result. README and SESSION-HANDOFF-SPEC describe these choices and the bounded history reader. The safety thresholds and provider measurements remain implementation details rather than another onboarding decision.
+
 A new user opens Ultra Kanban and sees "No projects yet". The ideas the product rests on are never stated in the UI: a board project is a Paseo project root, a card is one workspace, sessions live inside the card, and card status is not session status. The headline features (cards that move by themselves, Needs you, run summaries, Ideas, Insights) are only discoverable by accident. The goal is that a first-time user, within a minute and without reading docs, understands (1) how Kanban objects map onto Paseo objects, (2) the basic loop, (3) what is special here, and ends the tour one tap from creating a project.
 
 Success: a new user can say what a project, a card and a session are, who decides Done, and where to look when an agent needs them. Anti-goals: a blocking tour for existing users, a tour that is long, a tour that creates Paseo resources, tips that nag.

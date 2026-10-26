@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { handoffContextSchema } from "./handoff-api";
 import { relations } from "./links";
 import { setupItems } from "./card-setup";
 import { connectorProviderSchema, itemTypeSchema } from "./connectors";
@@ -116,6 +117,7 @@ export const statusInputSchema = z.strictObject({
 export const progressInputSchema = z.strictObject({
   ...base,
   kind: z.enum(["progress", "blocker", "result", "question"]).default("progress"),
+  acknowledgeOpen: z.boolean().optional(),
   nextMoves: deliveryMoves,
   outputs: deliveryOutputs,
 });
@@ -366,6 +368,8 @@ export type ToolIdentity = z.infer<typeof identitySchema>;
 export const reviewLevelContextSchema = z.object({ level: reviewLevelSchema, set: z.boolean(), why: z.string() });
 export const toolContextSchema = z.object({
   identity: identitySchema,
+  /** Card continuity, with explicit previews/coverage and a bounded full-read cursor. */
+  handoff: handoffContextSchema.optional(),
   /** Latest action checklist, including for sessions created with an older skill. Optional for older servers. */
   turnChecklist: z.array(z.string()).max(8).optional(),
   /** What the card still needs before work starts (CARD-SETUP-SPEC §3.1); fix `missing` first. */
@@ -517,7 +521,7 @@ export const toolContextSchema = z.object({
       reviewLevel: reviewLevelContextSchema.optional(),
       /** `risks`: the reviewer's risks beyond the acceptance criteria (AUTOMATION-SPEC §5.2.4); `risksNote`: that they came from an earlier delivery, or were omitted to keep get_task bounded. */
       handoff: z
-        .object({ branch: z.string().optional(), directory: z.string().optional(), evidence: z.string(), blockers: z.array(z.string()), risks: z.array(z.string()).optional(), risksNote: z.string().optional() })
+        .object({ branch: z.string().optional(), directory: z.string().optional(), evidence: z.string(), blockers: z.array(z.string()), risks: z.array(z.string()).optional(), risksNote: z.string().optional(), continuity: z.string().max(1500).optional() })
         .optional(),
     }),
   ),
@@ -607,6 +611,7 @@ export const createCardInputSchema = z.strictObject({
 });
 export type CreateCardInput = z.input<typeof createCardInputSchema>;
 export const createCardResultSchema = z.object({
+  handoffDue: z.string().optional(),
   cardId: z.string(),
   title: z.string(),
   status: statusSchema,
@@ -630,6 +635,7 @@ export const updateCardInputSchema = z.strictObject({
 });
 export type UpdateCardInput = z.input<typeof updateCardInputSchema>;
 export const updateCardResultSchema = z.object({
+  handoffDue: z.string().optional(),
   cardId: z.string(),
   status: statusSchema,
   queued: z.boolean(),

@@ -4,6 +4,7 @@ import { connectorLimits, externalRefSchema, itemTypeSchema } from "./connectors
 import { z } from "zod";
 import { attentionDismissLimits, attentionDismissalSchema } from "./attention-dismiss";
 import { automationJobSchema, automationSettingsSchema, reviewLevelSchema, reviewClassificationSchema } from "./automation-schema";
+import { commentRouteSchema } from "./comments";
 
 export const statuses = [
   "backlog",
@@ -405,6 +406,14 @@ export const eventSchema = z.object({
   operationId: z.string().max(200).optional(),
   at: timestamp,
 });
+/**
+ * What a record that is not fresh is behind on, for the person (SESSION-HANDOFF-SPEC §12): only a successor's missing
+ * acknowledgement (`ack`), changes after the agent's checkpoint (`activity`), no agent checkpoint yet (`unwritten`), or
+ * something that could not be checked (`unverified`). An entry written before this field reads as `activity`.
+ */
+export const handoffBehindSchema = z.enum(["ack", "activity", "unwritten", "unverified"]);
+export type HandoffBehind = z.infer<typeof handoffBehindSchema>;
+export const handoffIndexSchema = z.object({ taskId: z.string(), fresh: z.boolean(), staleSince: z.string().optional(), open: z.number().int().nonnegative(), sessions: z.number().int().nonnegative(), behind: handoffBehindSchema.optional() });
 export const boardSchema = z.object({
   version: z.literal(5),
   revision: z.number().int().nonnegative(),
@@ -424,6 +433,8 @@ export const boardSchema = z.object({
   attentionDismissals: z.array(attentionDismissalSchema).max(attentionDismissLimits.records).default([]),
   /** One automation job per queued card (AUTOMATION-SPEC §3); absent in older files. */
   automation: z.array(automationJobSchema).default([]),
+  /** A small continuity signal; original text and history remain outside board.json. */
+  handoffIndex: z.array(handoffIndexSchema).default([]),
 });
 export const previousBoardSchema = boardSchema.extend({
   version: z.literal(2),
@@ -469,6 +480,9 @@ export const receiptSchema = z.object({
 });
 export const storageSchema = boardSchema.extend({
   agentReceipts: z.array(receiptSchema).max(5000),
+  /** Durable outbox for the infrequent cross-file source writes; removed only after confirmation. */
+  handoffConfirmations: z.array(z.object({ taskId: z.string(), sourceId: z.string().max(240) })).optional(),
+  commentRoutes: z.array(commentRouteSchema).max(5000).optional(),
 });
 export const legacyBoardSchema = boardSchema.extend({
   version: z.literal(1),
@@ -492,6 +506,7 @@ export const emptyBoard = (): Board => ({
   plans: [],
   attentionDismissals: [],
   automation: [],
+  handoffIndex: [],
   agentReceipts: [],
 });
 export const projectInput = z.strictObject({

@@ -9,6 +9,7 @@ import {
   commentTransport,
   composerNote,
   deliverComment,
+  deliveryNote,
   dismissFailure,
   editComment,
   newCommentMemory,
@@ -81,7 +82,7 @@ describe("who receives a comment", () => {
   test("a person's choice holds while it is still a recipient", () => {
     const targets = commentTargets([session("impl", 1), session("other", 2)], { workspaceId: "w", implementerId: "impl" });
     expect(resolveTarget(targets, "other")?.id).toBe("other");
-    expect(resolveTarget(targets, "gone")?.id).toBe("impl");
+    expect(resolveTarget(targets, "gone")).toBeNull();
     expect(resolveTarget(targets, null)?.id).toBe("impl");
     expect(resolveTarget({ candidates: [], defaultId: null, archivedOnly: false }, "other")).toBeNull();
   });
@@ -108,6 +109,19 @@ describe("recipients from the drawer's data", () => {
     expect(picked?.id).toBe("rev");
     expect(recipientPicker(targets, picked)).toEqual({ shown: true, opens: false });
     expect(composerNote(targets, picked, { loading: false, archivedKnown: true })).toBeNull();
+  });
+  test("an explicit Save on the card explains nothing; a save by circumstance still says why", () => {
+    // Live 2026-10-25: a managed card whose implementer is live, the person picked Save on the card,
+    // and the composer claimed "This card's only live sessions are reviewers".
+    const live = commentTargets([session("impl", 1)], { workspaceId: "w", implementerId: "impl" });
+    const known = { loading: false, archivedKnown: true };
+    expect(deliveryNote("route:save", "save", live, resolveTarget(live, "route:save"), known)).toBeNull();
+    expect(deliveryNote("route:auto", "auto", live, resolveTarget(live, "route:auto"), known)).toBeNull();
+    // An unmanaged card with only a reviewer live: nobody receives the comment, and the note says why.
+    const reviewerOnly = commentTargets([session("rev", 1, { labels: { "flowly-automation": "reviewer" } })], { workspaceId: "w" });
+    expect(deliveryNote(null, "save", reviewerOnly, resolveTarget(reviewerOnly, null), known)).toBe("reviewers");
+    // A chosen session that is gone: the explicit target is unavailable, so the note explains it.
+    expect(deliveryNote("gone", { agentId: "gone" }, reviewerOnly, resolveTarget(reviewerOnly, "gone"), known)).toBe("reviewers");
   });
   test("one or more sessions: To: opens only when there is a choice", () => {
     const one = commentTargets([session("a", 1)], { workspaceId: "w" });
@@ -161,7 +175,7 @@ describe("posting and sending", () => {
     const record = vi.fn(async (input: { taskId: string; text: string; operationId: string }) => {
       const replay = recorded.find((e) => e.id === `e-${input.operationId}`);
       if (replay) return { event: replay };
-      const event: BoardEvent = { id: `e-${input.operationId}`, taskId: input.taskId, actor: "human", action: "commented", note: input.text, at: at(recorded.length + 1) };
+      const event: BoardEvent = { id: `e-${input.operationId}`, taskId: input.taskId, actor: "human", action: "commented", operationId: input.operationId, note: input.text, at: at(recorded.length + 1) };
       recorded.push(event);
       return { event };
     });
@@ -181,7 +195,7 @@ describe("posting and sending", () => {
     const memory = draft(text);
     const result = await postComment(memory, x, { taskId: "t", target: target(), settings: { sendBehavior: "steer" } });
     expect(x.record).toHaveBeenCalledWith({ taskId: "t", text, operationId: expect.any(String) });
-    expect(x.send).toHaveBeenCalledWith("impl", text, undefined);
+    expect(x.send).toHaveBeenCalledWith("impl", text, undefined, `comment:${x.recorded[0].operationId}`);
     expect(x.record.mock.invocationCallOrder[0]).toBeLessThan(x.send.mock.invocationCallOrder[0]);
     expect(result).toEqual({ kind: "posted", event: x.recorded[0], delivery: { kind: "sent", agentId: "impl" } });
     expect(memory).toMatchObject({ draft: "", busy: false, failed: [], posted: [x.recorded[0]] });
@@ -191,18 +205,18 @@ describe("posting and sending", () => {
     const post = (text: string, settings: { sendBehavior?: "steer" | "queue" | "interrupt" } | undefined, extra: Partial<CommentTarget> = {}, alternate = false) =>
       postComment(draft(text), x, { taskId: "t", target: target({ running: true, ...extra }), settings, alternate });
     await post("Default", undefined);
-    expect(x.send).toHaveBeenLastCalledWith("impl", "Default", "steer");
+    expect(x.send).toHaveBeenLastCalledWith("impl", "Default", "steer", expect.stringMatching(/^comment:/));
     await post("Interrupt it", { sendBehavior: "interrupt" });
-    expect(x.send).toHaveBeenLastCalledWith("impl", "Interrupt it", "interrupt");
-    expect((await post("After the turn", { sendBehavior: "queue" })).kind === "posted" && x.queue).toHaveBeenLastCalledWith("impl", "After the turn");
+    expect(x.send).toHaveBeenLastCalledWith("impl", "Interrupt it", "interrupt", expect.stringMatching(/^comment:/));
+    expect((await post("After the turn", { sendBehavior: "queue" })).kind === "posted" && x.queue).toHaveBeenLastCalledWith("impl", "After the turn", expect.stringMatching(/^comment:/));
     // ⌘/Ctrl+Enter takes the alternative; a queued message cannot wait behind a permission prompt.
     await post("Alternate", { sendBehavior: "steer" }, {}, true);
-    expect(x.queue).toHaveBeenLastCalledWith("impl", "Alternate");
+    expect(x.queue).toHaveBeenLastCalledWith("impl", "Alternate", expect.stringMatching(/^comment:/));
     await post("Past the prompt", { sendBehavior: "queue" }, { pendingPermission: true });
-    expect(x.send).toHaveBeenLastCalledWith("impl", "Past the prompt", "interrupt");
+    expect(x.send).toHaveBeenLastCalledWith("impl", "Past the prompt", "interrupt", expect.stringMatching(/^comment:/));
     // An idle session just gets it.
     await deliverComment(x, target(), "Idle", "queue");
-    expect(x.send).toHaveBeenLastCalledWith("impl", "Idle", undefined);
+    expect(x.send).toHaveBeenLastCalledWith("impl", "Idle", undefined, undefined);
   });
   test("no recipient: the comment is only saved", async () => {
     const x = deps();
@@ -259,7 +273,7 @@ describe("posting and sending", () => {
     await post;
     expect(listener).toHaveBeenCalled();
     expect(memory.failed).toEqual([
-      { eventId: x.recorded[0].id, text: "Please rerun the checks", agentId: "impl", title: "Implementer", error: "This session's provider is unavailable." },
+      { eventId: x.recorded[0].id, text: "Please rerun the checks", agentId: "impl", title: "Implementer", error: "This session's provider is unavailable.", messageId: `comment:${x.recorded[0].operationId}` },
     ]);
   });
   test("every failed delivery keeps its own notice; resending one only sends it, and the others stay", async () => {
@@ -280,7 +294,7 @@ describe("posting and sending", () => {
     const recordedBefore = x.record.mock.calls.length;
     const sent = await resendComment(memory, x, memory.failed[0].eventId, target({ id: "other", title: "Other" }), { sendBehavior: "steer" });
     expect(sent).toEqual({ kind: "sent", agentId: "other" });
-    expect(x.send).toHaveBeenLastCalledWith("other", "First: rename the flag", undefined);
+    expect(x.send).toHaveBeenLastCalledWith("other", "First: rename the flag", undefined, `comment:${x.recorded[0].operationId}`);
     expect(x.record.mock.calls.length).toBe(recordedBefore);
     expect(memory.failed.map((f) => f.text)).toEqual(["Second: and add a test"]);
     // A resend that fails again keeps its entry with the new reason.
@@ -347,7 +361,17 @@ describe("the transport (the session composer's send path)", () => {
   test("queues through the daemon queue for this card", async () => {
     const x = fixture({ id: "impl", workspaceId: "w", status: "running", archivedAt: null });
     await x.transport.queue("impl", "After the turn");
-    expect(x.queue).toHaveBeenCalledWith("t", "impl", "After the turn");
+    expect(x.queue).toHaveBeenCalledWith("t", "impl", "After the turn", undefined);
     expect(x.send).not.toHaveBeenCalled();
   });
+});
+
+test("a daemon-routed pending comment never also takes the client native send path", async () => {
+  const memory = newCommentMemory(); editComment(memory, "  原文\n");
+  const record = vi.fn(async () => ({ event: { id: "route-event", taskId: "t", action: "commented", actor: "human", at: at(0), note: "  原文\n", operationId: "route-op" } as BoardEvent, delivery: { kind: "pending" as const } }));
+  const send = vi.fn(), queue = vi.fn();
+  const outcome = await postComment(memory, { record, send, queue }, { taskId: "t", target: null, deliver: "auto" });
+  expect(outcome).toMatchObject({ kind: "posted", delivery: { kind: "pending" } });
+  expect(record).toHaveBeenCalledWith(expect.objectContaining({ text: "  原文\n", deliver: "auto" }));
+  expect(send).not.toHaveBeenCalled(); expect(queue).not.toHaveBeenCalled(); expect(memory.draft).toBe("");
 });

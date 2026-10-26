@@ -23,6 +23,7 @@ export const queuedImageSchema = z.object({ file: z.string().regex(/^[A-Za-z0-9-
 export const queuedMessageSchema = z
   .object({
     id: z.string(),
+    messageId: z.string().optional(),
     text: z.string().max(20000),
     at: z.string(),
     images: z.array(queuedImageSchema).max(maxImages).optional(),
