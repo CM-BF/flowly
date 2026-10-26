@@ -50,12 +50,15 @@ export class HandoffService {
   forgetRead(taskId: string, agentId: string) { this.seen.delete(`${taskId}:${agentId}`); }
   private sweepWait?: { timer: ReturnType<typeof setTimeout>; wake: () => void };
   /**
-   * Plugin start: the store's one-time collection of every card's unreferenced bodies (SESSION-HANDOFF-SPEC §5.1), after the
-   * first polls and `pauseMs` apart per card, so it never holds them up. A stop ends it; the next start then sweeps again.
+   * Plugin start: the one-time migration of the gaps older builds wrote once per occurrence (SESSION-HANDOFF-SPEC §21.17),
+   * then the index sync and the store's one-time collection of every card's unreferenced bodies (§5.1), after the first
+   * polls and `pauseMs` apart per card, so they never hold them up. A stop ends them; the next start then picks them up again.
    */
   async sweepBodies(options: { delayMs?: number; pauseMs?: number } = {}) {
     await new Promise<void>((wake) => { const timer = setTimeout(wake, options.delayMs ?? 90_000); timer.unref?.(); this.sweepWait = { timer, wake }; });
     this.sweepWait = undefined;
+    if (this.stopped) return;
+    await this.migrateGaps({ pauseMs: options.pauseMs ?? 100 }).catch((error) => console.error("Flowly handoff gap migration failed:", error instanceof Error ? error.message : String(error)));
     if (this.stopped) return;
     await this.syncAll(options.pauseMs ?? 100);
     await this.records.sweep({ pauseMs: options.pauseMs ?? 100, stopped: () => this.stopped }).catch((error) => console.error("Flowly handoff body cleanup failed:", error instanceof Error ? error.message : String(error)));
@@ -72,6 +75,39 @@ export class HandoffService {
       await this.serial(taskId, () => this.syncIndex(taskId)).catch((error) => console.error("Flowly handoff index sync failed:", error instanceof Error ? error.message : String(error)));
       await new Promise((resolve) => setTimeout(resolve, pauseMs));
     }
+  }
+  /**
+   * The one-time gap migration (SESSION-HANDOFF-SPEC §21.17): card by card, each in its own queue (after whatever turn's
+   * capture or write holds it, never inside one) and `pauseMs` apart. A migrated card's index entry is synced in the same job.
+   * Recorded in handoffs/.gap-migration.json once every card was visited; a card that failed is retried at the next start,
+   * a stop records nothing (the next start visits every card again; a migrated one writes nothing).
+   */
+  async migrateGaps(options: { pauseMs?: number } = {}) {
+    const { recorded, cards } = await this.records.gapMigrationCards();
+    const visited: string[] = [], failed: string[] = [];
+    let migrated = 0;
+    for (const taskId of cards) {
+      if (this.stopped) return { cards: visited.length, migrated, recorded: false };
+      try {
+        await this.serial(taskId, async () => {
+          const result = await this.records.migrateLegacyGaps(taskId);
+          // A replay is a migration that committed before a crash, perhaps before its index sync.
+          if (result.stored !== "none" || result.replayed) { migrated++; await this.syncMigrated(taskId); }
+        });
+      } catch (error) {
+        if (this.stopped) return { cards: visited.length, migrated, recorded: false };
+        failed.push(taskId); console.error(`Flowly handoff gap migration skipped card ${taskId}:`, error instanceof Error ? error.message : String(error));
+      }
+      visited.push(taskId);
+      if (options.pauseMs) await new Promise((resolve) => setTimeout(resolve, options.pauseMs));
+    }
+    if (this.stopped || !cards.length && !recorded) return { cards: visited.length, migrated, recorded: false };
+    if (cards.length) await this.records.recordGapMigration({ visited, migrated, failed });
+    return { cards: visited.length, migrated, failed, recorded: true };
+  }
+  /** A card's index entry after its migration; a record whose card is no longer on the board has none. */
+  private async syncMigrated(taskId: string) {
+    await this.syncIndex(taskId).catch((error) => { if (!(error instanceof ToolError && error.code === "NOT_FOUND")) throw error; });
   }
   stop() { this.stopped = true; if (this.sweepWait) { clearTimeout(this.sweepWait.timer); this.sweepWait.wake(); } }
   private now() { return new Date(this.clock()).toISOString(); }
@@ -201,7 +237,8 @@ export class HandoffService {
     if (checkpoint && record.notes.some((note) => ["incident", "hazard"].includes(note.kind) && note.at > checkpoint.at)) add("New incident or hazard information needs to be checked.", "change");
     if (checkpoint && checkpoint.dirtyHash !== fingerprint(record)) add("Repository state changed after the checkpoint.", "change");
     if (record.git.some((repo) => repo.error)) add("Some repository state could not be verified.", "check");
-    if (record.gaps.some((gap) => gap.status === "open")) add("Information coverage has unresolved gaps.", "check");
+    // Open gaps the 40-entry list moved into the overflow index count as well.
+    if (record.gaps.some((gap) => gap.status === "open") || record.overflow.some((entry) => entry.section === "gaps" && entry.status === "open")) add("Information coverage has unresolved gaps.", "check");
     if (record.ledger.some((session) => !session.endedAt && session.through && (session.through.gaps > 0 || session.through.lagBytes > 0))) add("The current session's passive capture is incomplete; check its coverage before relying on the handoff.", "check");
     const job = jobOf(board, record.taskId);
     const reader = agentId ?? job?.implementerId;
@@ -504,7 +541,13 @@ export class HandoffService {
         if (!raw.tasks?.some((saved) => saved.id === task.id && saved.projectId === project.id)) continue;
         const source = join(folder, name + ".handoffs", task.id);
         if (!(await stat(join(source, "complete.json")).then(() => true, (error: NodeJS.ErrnoException) => { if (error.code === "ENOENT") return false; throw error; }))) continue;
-        await this.records.restoreCard(task.id, source); await this.syncIndex(task.id); return;
+        await this.records.restoreCard(task.id, source);
+        // A backup from before the gap migration brings its legacy gaps back (SESSION-HANDOFF-SPEC §21.17).
+        await this.records.migrateLegacyGaps(task.id).catch(async (error) => {
+          console.error(`Flowly handoff gap migration of restored card ${task.id} will be retried at the next start:`, error instanceof Error ? error.message : String(error));
+          await this.records.gapMigrationFailed(task.id);
+        });
+        await this.syncIndex(task.id); return;
       }
       await this.records.appendGap(task.id, project.id, { kind: "flowly", text: "No local handoff backup was available for this restored card. Read the project artifacts and verify missing instructions before continuing.", status: "open" }, { ...flowly, sourceId: `restore-missing:${task.id}` });
       await this.syncIndex(task.id);

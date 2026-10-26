@@ -8,6 +8,7 @@ import {
 } from "../shared/handoff";
 import { ToolError } from "./tool-error";
 import { handoffRequirementsHash } from "./handoff-requirements";
+import { gapMigration, gapRules, planGapMigration, type GapMigrationPlan } from "./handoff-gap-migration";
 
 export class HandoffError extends ToolError {
   constructor(code: "HANDOFF_UNAVAILABLE" | "HANDOFF_CONFLICT" | "HANDOFF_TOO_LARGE" | "ACK_MISMATCH" | "OPERATION_REUSED", message: string, readonly details?: unknown) { super(code, message, code === "HANDOFF_CONFLICT"); }
@@ -32,7 +33,8 @@ type IdentityClaim = { kind: "entry" | "finding" | "background" | "state"; secti
  * in place keeps the body of its last revision (§5.1), so a superseded version gets the body of what the record held.
  */
 type History = Pointer | { section: HandoffEntrySection; entry: HandoffEntry; removal?: Pointer["removal"] };
-type Mutation = { record: CardHandoff; history: History[]; changed: Set<string>; ackMissing?: string[] };
+/** `evict`: entries to move into the archive in this transaction once their new version has a body (a migration's closed gaps). */
+type Mutation = { record: CardHandoff; history: History[]; changed: Set<string>; ackMissing?: string[]; evict?: { section: HandoffEntrySection; id: string }[] };
 /** The top-level keys of an object that differ from another's (`set`) and those it no longer has (`unset`). */
 type KeyDelta = { set: Record<string, unknown>; unset: string[] };
 /**
@@ -295,6 +297,79 @@ export class HandoffStore {
     await this.atomic(marker, JSON.stringify({ version: sweepVersion, at: this.now(), cards }));
     return { cards, recorded: true };
   }
+  /**
+   * The one-time migration of the gaps older builds wrote once per occurrence (SESSION-HANDOFF-SPEC §21.17), one card: one
+   * Flowly transaction under a fixed operation id, so a crash is finished from its unfinished write and a rerun after it
+   * committed meets its receipt. It takes a new revision, so a reader paging the previous one is told its view changed.
+   * Nothing to migrate writes nothing. A closed gap leaves the current record and its overflow index for the archive with the
+   * reason; its open version is not archived again (the closed one holds its text, source and time). The caller runs it in
+   * the card's queue (HandoffService.serial), never inside another transaction.
+   */
+  async migrateLegacyGaps(taskId: string): Promise<{ stored: HandoffStored; replayed: boolean; plan?: GapMigrationPlan }> {
+    const found = await this.read(taskId);
+    if (!found) return { stored: "none", replayed: false };
+    let plan: GapMigrationPlan | undefined;
+    const by = { kind: "flowly" as const };
+    const { result, stored } = await this.write(taskId, found.projectId, { action: "migrate-gaps", rules: gapRules }, { by, operationId: gapMigration.operationId }, async (change) => {
+      const record = change.record, archived = record.overflow.filter((entry) => entry.section === "gaps");
+      const gaps = [...record.gaps, ...await Promise.all(archived.map((entry) => this.object(taskId, entry.contentRef) as Promise<HandoffGap>))];
+      // Session numbers and providers, also of sessions whose ledger entry is archived.
+      const sessions = new Map(record.ledger.map((entry) => [entry.agentId, { n: entry.n, provider: entry.provider }]));
+      for (const agentId of new Set(gaps.flatMap((gap) => gap.agentId && !sessions.has(gap.agentId) ? [gap.agentId] : []))) {
+        const entry = await this.entry(record, "ledger", `s:${hash(agentId).slice(0, 32)}`) as HandoffSession | null;
+        if (entry?.agentId === agentId) sessions.set(agentId, { n: entry.n, provider: entry.provider });
+      }
+      plan = planGapMigration(gaps, sessions);
+      if (!plan.close.length) return;
+      change.evict = [];
+      for (const { id, note } of plan.close) {
+        const { contentRef: _ref, ...gap } = gaps.find((value) => value.id === id)!;
+        this.replace(change, "gaps", handoffEntrySchemas.gaps.parse({ ...gap, rev: record.revision, at: record.updatedAt, status: "closed", firstAt: gap.firstAt ?? gap.at, lastAt: gap.lastAt ?? gap.at, resolution: { by, at: record.updatedAt, note } }), false);
+        change.evict.push({ section: "gaps", id });
+      }
+      for (const group of plan.groups) await this.mergeGap(change, group, { by });
+      if (plan.note) await this.append(change, "notes", { kind: "other", text: plan.note }, { by, sourceId: `${gapMigration.operationId}:note` });
+    });
+    return { stored, replayed: !!result.replayed, ...(plan ? { plan } : {}) };
+  }
+  private markers: Promise<unknown> = Promise.resolve();
+  private marker<T>(work: (path: string, marker: Record<string, unknown> | null) => Promise<T>): Promise<T> {
+    const path = join(this.root, gapMigration.marker);
+    const result = this.markers.then(async () => work(path, await this.optional<Record<string, unknown>>(path).catch(() => null)));
+    this.markers = result.catch(() => undefined);
+    return result;
+  }
+  /**
+   * Plugin start (§21.17): the cards the one-time gap migration visits. Until its marker is recorded, every card; then only
+   * the cards it could not migrate and cards whose restore was cut off (a restore migrates its card itself).
+   */
+  gapMigrationCards(): Promise<{ recorded: boolean; cards: string[] }> {
+    return this.marker(async (_path, marker) => {
+      const names = await readdir(this.root).catch((error) => { if (absent(error)) return [] as string[]; throw error; });
+      const card = (name: string, suffix: string) => name.endsWith(suffix) ? /^[A-Za-z0-9][A-Za-z0-9_.-]{0,199}$/.exec(name.slice(0, -suffix.length))?.[0] : undefined;
+      const restores = names.flatMap((name) => card(name, ".restore.json") ?? []);
+      if (marker?.version === gapMigration.version) {
+        const failed = Array.isArray(marker.failed) ? marker.failed.filter((id): id is string => typeof id === "string" && !!card(`${id}.json`, ".json")) : [];
+        return { recorded: true, cards: [...new Set([...failed, ...restores])].sort() };
+      }
+      return { recorded: false, cards: [...new Set([...names.flatMap((name) => name.endsWith(".restore.json") ? [] : card(name, ".json") ?? []), ...restores])].sort() };
+    });
+  }
+  /** Records a finished run: the cards it could not migrate, and those a restore could not migrate meanwhile, are retried at the next start. */
+  recordGapMigration(run: { visited: readonly string[]; migrated: number; failed: readonly string[] }) {
+    return this.marker(async (path, marker) => {
+      const earlier = marker?.version === gapMigration.version && Array.isArray(marker.failed) ? marker.failed.filter((id): id is string => typeof id === "string" && !run.visited.includes(id)) : [];
+      await this.atomic(path, JSON.stringify({ version: gapMigration.version, rules: gapRules, at: this.now(), cards: run.visited.length, migrated: run.migrated, failed: [...new Set([...earlier, ...run.failed])].sort() }));
+    });
+  }
+  /** A restored card whose migration failed: once the marker is recorded, the next start retries it. */
+  gapMigrationFailed(taskId: string) {
+    return this.marker(async (path, marker) => {
+      if (marker?.version !== gapMigration.version) return;
+      const failed = Array.isArray(marker.failed) ? marker.failed.filter((id): id is string => typeof id === "string") : [];
+      if (!failed.includes(taskId)) await this.atomic(path, JSON.stringify({ ...marker, failed: [...failed, taskId].sort() }));
+    });
+  }
   /** Writes `value` unless the file already holds exactly these bytes (a replayed unfinished write). */
   private async ensure(path: string, value: string) {
     const previous = await readFile(path).catch((error) => { if (absent(error)) return undefined; throw error; });
@@ -442,7 +517,7 @@ export class HandoffStore {
   }
   private pointer(section: HandoffEntrySection, entry: HandoffEntry): Pointer { return { section, id: entry.id, ref: entry.contentRef!, rev: entry.rev, at: entry.at, ...(entry.sourceId ? { sourceId: entry.sourceId } : {}) }; }
   /** `inPlace`: an observation-only write keeps each entry's body of its last revision; the next revision writes the version then in the record. */
-  private async normalize(record: CardHandoff, history: History[], inPlace = false) {
+  private async normalize(record: CardHandoff, history: History[], inPlace = false, evict: Mutation["evict"] = []) {
     const pointers: Pointer[] = [], path = this.paths(record.taskId);
     for (const section of handoffEntrySections) for (const entry of list(record, section)) {
       if (inPlace && entry.contentRef) continue;
@@ -463,6 +538,9 @@ export class HandoffStore {
         record.overflow.push({ section, id: entry.id, rev: entry.rev, at: entry.at, status: String(e.status ?? "open"), firstLine: String(e.text ?? e.what ?? e.summary ?? "").split("\n")[0].slice(0, 160), contentRef: entry.contentRef!, requirementsHash: handoffRequirementsHash(section, entry), openIds: entryOpenIds(section, entry.unconfirmed ? { ...entry, unconfirmed: false } : entry), ...(entry.sourceId ? { sourceId: entry.sourceId } : {}), ...(entry.unconfirmed ? { unconfirmed: true } : {}), ...(entry.operationId ? { operationId: entry.operationId } : {}), ...(section === "reviews" ? { cycle: (entry as HandoffReview).cycle, round: (entry as HandoffReview).round, verdict: (entry as HandoffReview).verdict } : {}) });
       }
     };
+    // Settled entries a migration moves out of the current record: their new version is written above, so its latest and
+    // source pointers name it and its archive line carries it.
+    for (const { section, id } of evict) { const index = list(record, section).findIndex((entry) => entry.id === id); if (index >= 0) archive(section, index); }
     for (const section of handoffEntrySections) {
       if ((handoffSections as readonly string[]).includes(section) && list(record, section).length > caps[section]) throw new HandoffError("HANDOFF_TOO_LARGE", `Too many handoff ${section} entries; remove or resolve an older entry first.`);
       while (list(record, section).length > caps[section]) {
@@ -533,7 +611,7 @@ export class HandoffStore {
       if (!inPlace) this.settleCounts(record);
       await this.preserveIdentities(current, record);
       const budget = agentCharacters(record); if (budget.used > budget.max) throw new HandoffError("HANDOFF_TOO_LARGE", "Agent handoff sections exceed 16000 characters.", budget);
-      const pointers = await this.normalize(record, mutation.history, inPlace), history = await this.archivedPointers(taskId, mutation.history);
+      const pointers = await this.normalize(record, mutation.history, inPlace, mutation.evict), history = await this.archivedPointers(taskId, mutation.history);
       await this.options.fault?.("bodies-synced");
       if (!inPlace) record.ops = [...record.ops.filter((id) => id !== operationId), operationId].slice(-50);
       cardHandoffSchema.parse(record); this.identities(record);
