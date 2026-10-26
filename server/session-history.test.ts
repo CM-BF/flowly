@@ -61,7 +61,8 @@ test("truncated source and skeleton budgets expose indexed scope instead of asse
   const x = await fixture("codex", { maxSkeletonBytes: 600, maxSourceBytes: 1600 });
   await writeFile(x.path, Array.from({ length: 100 }, (_, n) => json(response("message", { role: "user", content: [{ type: "input_text", text: `message-${n} ` + "x".repeat(100) }] }))).join(""));
   const page = await ready(x, { session: "#1", query: "message-99" });
-  expect(page.entries).toEqual([]); expect(page.coverage?.complete).toBe(false); expect(page.coverage!.readBytes).toBeLessThanOrEqual(1600); expect(page.coverage!.omittedEntries).toBeGreaterThan(0); expect(page.omitted).toBeGreaterThan(0); expect(page.gaps.map((gap) => gap.kind)).toContain("source_budget"); expect(page.message).toContain("within the indexed range");
+  // Past the skeleton budget the oldest messages leave (the first prompt stays) and the gaps count them (§21.15).
+  expect(page.entries).toEqual([]); expect(page.coverage?.complete).toBe(false); expect(page.coverage!.readBytes).toBeLessThanOrEqual(1600); expect(page.gaps.map((gap) => gap.kind)).toEqual(expect.arrayContaining(["source_budget", "message_index_budget"])); expect(page.message).toContain("within the indexed range");
 });
 
 test("source growth and same-inode rewrites invalidate cursors without automatically rebuilding on polling", async () => {

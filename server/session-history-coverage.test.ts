@@ -114,7 +114,7 @@ test("a planted secret behind escaped quotes is decoded and redacted in argument
   expect(page.gaps.map((gap) => gap.kind)).not.toContain("escaped_text_omitted");
 });
 
-test("past its budget the newest tool entries keep the widest level, older ones step down by age and the oldest leave, never messages", async () => {
+test("past its budget the newest tool entries keep the widest level, older ones step down by age and the oldest leave; messages within their share stay", async () => {
   const budget = 160 * 1024, x = await home({ maxSkeletonBytes: budget });
   let text = json({ timestamp: "2026-10-25T23:29:05.000Z", type: "session_meta", payload: { id: ids.reviewer } });
   for (let n = 0; n < 160; n++) {

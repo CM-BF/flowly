@@ -8,28 +8,37 @@ const string = (value: unknown) => typeof value === "string" ? value : "";
 type Kind = "message" | "call" | "output";
 const levels: Record<Kind, readonly Budget[]> = { message: excerpts.message, call: excerpts.arguments, output: excerpts.output };
 /**
- * Tool entries by age, newest first (SESSION-HANDOFF-SPEC §8.1): the share of the budget messages leave that each age
- * region holds, at its level (outputs 0–3, arguments 0–2). Past the budget the oldest entry of the newest region over its
- * share moves to the next region, and past the last region it leaves the index.
+ * Entries by lane and age, newest first (SESSION-HANDOFF-SPEC §8.1): tool calls and outputs, assistant narration, and the
+ * person's words (user messages and compaction summaries; the first prompt is pinned outside every lane). Each age region
+ * holds a share of its lane's room at its level (outputs 0–3, arguments 0–2, narration 0–1, user messages 0). Past the
+ * budget the oldest entry of the newest region over its share moves to the next region, and past the last it leaves.
  */
-const shares = [0.5, 0.25, 0.15, 0.1] as const;
+type Lane = "tool" | "narration" | "user";
+const shares: Record<Lane, readonly number[]> = { tool: [0.5, 0.25, 0.15, 0.1], narration: [0.6, 0.4], user: [1] };
+/**
+ * Messages keep at most this share of a full index (bytes and entries), so tool entries always have the rest; within it
+ * the person's words come first, and the newest narration keeps a floor of a tenth of it.
+ */
+const messageShare = 0.6, narrationFloor = 0.1;
 const levelOf = (kind: Kind, region: number) => Math.min(region, levels[kind].length - 1);
+/** Injected by Codex as a user message: host context, not the person's first prompt. */
+const hostContext = /^\s*(?:<environment_context>|<user_instructions>|# AGENTS\.md instructions)/;
 /** Excerpted on purpose, so they do not make the coverage incomplete; everything else does. */
-const intentional = new Set(["image_omitted", "encrypted_reasoning_omitted", "thinking_omitted", "developer_instructions_omitted", "message_excerpt", "call_excerpt", "output_excerpt", "call_index_reduced", "output_index_reduced"]);
+const intentional = new Set(["image_omitted", "encrypted_reasoning_omitted", "thinking_omitted", "developer_instructions_omitted", "message_excerpt", "call_excerpt", "output_excerpt", "call_index_reduced", "output_index_reduced", "message_index_reduced"]);
 /** Codex records with no conversation content in them (they still count in `growth`). */
 const codexMetadata = new Set(["event_msg", "session_meta", "turn_context", "world_state", "token_usage_record"]);
 /** A record type the index does not know, named in its gap so a real loss is not hidden among metadata. */
 const unsupported = (...names: string[]) => `unsupported_record/${names.map((name) => redactHistory(name).replace(/[^\w.-]/g, "_").slice(0, 30) || "unknown").join("/")}`;
 
-type Slot = { kind: Kind; base: Omit<SessionHistoryEntry, "text" | "truncated" | "middle">; prefix: string; first: number; variants: Variant[]; size: number };
+type Slot = { kind: Kind; lane?: Lane; base: Omit<SessionHistoryEntry, "text" | "truncated" | "middle">; prefix: string; first: number; variants: Variant[]; size: number };
 type Draft = { kind: Kind; role: SessionHistoryEntry["role"]; source: string; from: number; to: number; type: string; at?: string; tool?: SessionHistoryEntry["tool"]; prefix?: string; characters: number; decoded?: boolean; variants: Variant[]; paths: string[] };
 
 /**
  * The derived index of one session (SESSION-HANDOFF-SPEC §8.1): messages, tool calls with their arguments and tool
  * outputs, each a redacted head and tail whose omitted middle is located in the source. Bounded by bytes and entries,
- * spent from the newest entry back: the newest calls and outputs keep the widest level, older ones step down by age and
- * the oldest leave; messages never leave for a later entry, and only when messages alone fill it is a new one refused.
- * Every reduction is reported.
+ * spent from the newest entry back: the newest calls, outputs and narration keep the widest level, older ones step down
+ * by age and the oldest leave. Messages give way only past their share, narration before the person's words, and the
+ * first prompt stays; no new entry is refused while an older one could leave. Every reduction is reported.
  */
 export class HistoryRecords {
   readonly coverage: NonNullable<SessionHistoryPage["coverage"]> = { sourceBytes: 0, readBytes: 0, through: 0, totalRecords: 0, indexedEntries: 0, omittedEntries: 0, skippedLines: 0, skippedBytes: 0, complete: true };
@@ -38,12 +47,14 @@ export class HistoryRecords {
   private slots: (Slot | null)[] = [];
   private bytes = 0;
   private messageBytes = 0;
+  private messageCount = 0;
   private count = 0;
-  /** Bytes of the tool entries in each age region. */
-  private regionBytes = shares.map(() => 0);
-  /** `edge[r]`: every tool slot before this index is in region r or older; `edge[shares.length]` is the eviction edge. */
-  private edge = [0, ...shares.map(() => 0)];
-  private evicted = { call: 0, output: 0 };
+  private pinned = false;
+  /** Bytes of each lane's entries in each age region. */
+  private regionBytes = { tool: shares.tool.map(() => 0), narration: shares.narration.map(() => 0), user: shares.user.map(() => 0) };
+  /** `edge[lane][r]`: every slot of the lane before this index is in region r or older; the last one is the eviction edge. */
+  private edge = { tool: [0, ...shares.tool.map(() => 0)], narration: [0, ...shares.narration.map(() => 0)], user: [0, ...shares.user.map(() => 0)] };
+  private evicted = { call: 0, output: 0, message: 0 };
   private ordinal = 0;
   private firstAt?: number;
   private calls = new Map<string, string>();
@@ -82,18 +93,17 @@ export class HistoryRecords {
   }
   metadata() {
     const width = (kind: Kind, level: number) => levels[kind][level].head + levels[kind][level].tail;
-    const narrowest: Record<Kind, number> = { message: width("message", 0), call: width("call", 0), output: width("output", 0) };
+    // Only kinds the index keeps: a width for a kind with no entry would claim excerpts that do not exist.
+    const narrowest: Partial<Record<Kind, number>> = {};
     for (const slot of this.slots) {
       if (!slot) continue;
       const variant = slot.variants[0];
       if (variant.middle) this.gap(`${slot.kind}_excerpt`, variant.middle.to - variant.middle.from);
       if (slot.first > 0 && variant.truncated) this.gap(`${slot.kind}_index_reduced`);
-      narrowest[slot.kind] = Math.min(narrowest[slot.kind], width(slot.kind, slot.first));
+      narrowest[slot.kind] = Math.min(narrowest[slot.kind] ?? Infinity, width(slot.kind, slot.first));
     }
-    if (this.evicted.output) this.gaps.set("output_index_budget", { count: this.evicted.output, bytes: 0 });
-    if (this.evicted.call) this.gaps.set("call_index_budget", { count: this.evicted.call, bytes: 0 });
-    if (this.evicted.output || this.evicted.call) this.coverage.complete = false;
-    this.coverage.excerpts = { message: narrowest.message, arguments: narrowest.call, output: narrowest.output };
+    for (const kind of ["output", "call", "message"] as const) if (this.evicted[kind]) { this.gaps.set(`${kind}_index_budget`, { count: this.evicted[kind], bytes: 0 }); this.coverage.complete = false; }
+    this.coverage.excerpts = { ...(narrowest.message !== undefined ? { message: narrowest.message } : {}), ...(narrowest.call !== undefined ? { arguments: narrowest.call } : {}), ...(narrowest.output !== undefined ? { output: narrowest.output } : {}) };
     this.coverage.indexedEntries = this.count;
     return { coverage: this.coverage, gaps: [...this.gaps].slice(0, 20).map(([kind, value]) => ({ kind, count: value.count, ...(value.bytes ? { bytes: value.bytes } : {}) })), growth: [...this.growth].map(([type, value]) => ({ type, ...value })) };
   }
@@ -102,45 +112,76 @@ export class HistoryRecords {
     return { ...slot.base, text: slot.prefix + variant.text, truncated: variant.truncated, ...(variant.middle ? { middle: variant.middle } : {}) };
   }
   private measure(slot: Slot) { return Buffer.byteLength(JSON.stringify(this.render(slot))) + 1; }
-  /** Moves the oldest tool entry of age region `region` into the next one (a level down, or out of the index). */
-  private demote(region: number) {
-    const end = region === 0 ? this.slots.length : this.edge[region];
-    let index = this.edge[region + 1];
-    while (index < end && (!this.slots[index] || this.slots[index]!.kind === "message")) index++;
+  /** Moves the oldest entry of a lane's age region `region` into the next one (a level down, or out of the index). */
+  private demote(lane: Lane, region: number) {
+    const edge = this.edge[lane], bytes = this.regionBytes[lane], end = region === 0 ? this.slots.length : edge[region];
+    let index = edge[region + 1];
+    while (index < end && this.slots[index]?.lane !== lane) index++;
     if (index >= end) return false;
-    const slot = this.slots[index]!;
-    this.edge[region + 1] = index + 1; this.regionBytes[region] -= slot.size;
-    if (region + 1 === shares.length) { this.slots[index] = null; this.bytes -= slot.size; this.count--; this.evicted[slot.kind as "call" | "output"]++; return true; }
+    const slot = this.slots[index]!, message = slot.kind === "message";
+    edge[region + 1] = index + 1; bytes[region] -= slot.size;
+    if (region + 1 === shares[lane].length) {
+      this.slots[index] = null; this.bytes -= slot.size; this.count--; this.evicted[slot.kind]++;
+      if (message) { this.messageBytes -= slot.size; this.messageCount--; }
+      return true;
+    }
     const level = levelOf(slot.kind, region + 1);
     if (level !== slot.first) {
       slot.variants = slot.variants.slice(level - slot.first); slot.first = level;
-      const size = this.measure(slot); this.bytes += size - slot.size; slot.size = size;
+      const size = this.measure(slot); this.bytes += size - slot.size; if (message) this.messageBytes += size - slot.size; slot.size = size;
     }
-    this.regionBytes[region + 1] += slot.size;
+    bytes[region + 1] += slot.size;
     return true;
   }
-  /** For the entry limit: the oldest call or output leaves the index; messages never leave for a later entry. */
-  private evictOldest() {
-    const region = this.regionBytes.findLastIndex((bytes) => bytes > 0);
+  /** Steps down the newest region of a lane that holds more than its share of `room`. */
+  private shed(lane: Lane, room: number) {
+    const region = this.regionBytes[lane].findIndex((bytes, r) => bytes > Math.floor(shares[lane][r] * room));
+    return region >= 0 && this.demote(lane, region);
+  }
+  /**
+   * One step toward the byte budget. Messages past their share give way first: narration down to what the person's words
+   * leave it (never below its floor), then the oldest of the person's words; otherwise tool entries, in what messages leave.
+   */
+  private reduce() {
+    const sum = (lane: Lane) => this.regionBytes[lane].reduce((total, bytes) => total + bytes, 0);
+    const room = Math.floor(messageShare * this.maxBytes);
+    if (this.messageBytes > room) {
+      const narration = sum("narration"), others = this.messageBytes - narration;
+      if (this.shed("narration", Math.max(Math.floor(narrationFloor * room), room - others))) return true;
+      if (this.shed("user", Math.max(0, room - (this.messageBytes - sum("user"))))) return true;
+    }
+    return this.shed("tool", Math.max(0, this.maxBytes - this.messageBytes));
+  }
+  /** The oldest entry of a lane leaves the index. */
+  private evictOldest(lane: Lane) {
+    const region = this.regionBytes[lane].findLastIndex((bytes) => bytes > 0);
     if (region < 0) return false;
-    for (let r = region; r < shares.length; r++) this.demote(r);
+    for (let r = region; r < shares[lane].length; r++) this.demote(lane, r);
     return true;
+  }
+  /** For the entry limit: a message leaves while messages hold more than their share of the entries, otherwise a tool entry. */
+  private evictForCount() {
+    const message = () => this.evictOldest("narration") || this.evictOldest("user");
+    if (this.messageCount > messageShare * limits.entries && message()) return true;
+    return this.evictOldest("tool") || message();
   }
   private add(draft: Draft) {
     // A source timestamp longer than the schema's bound (V8 parses long free-form dates) is written in ISO form.
     const ms = draft.at ? Date.parse(draft.at) : NaN, time = Number.isFinite(ms) ? draft.at!.length <= 80 ? draft.at : new Date(ms).toISOString() : undefined;
     if (time && this.firstAt === undefined) this.firstAt = ms;
     const base: Slot["base"] = { ordinal: this.ordinal++, role: draft.role, characters: draft.characters, ...(draft.decoded ? { decoded: true } : {}), paths: draft.paths, evidence: { source: draft.source, from: draft.from, to: draft.to, type: redactHistory(draft.type).slice(0, 100) }, ...(time ? { at: time, relativeMs: ms - this.firstAt! } : {}), ...(draft.tool ? { tool: draft.tool } : {}) };
-    const slot: Slot = { kind: draft.kind, base, prefix: draft.prefix ?? "", first: 0, variants: draft.variants, size: 0 };
-    slot.size = this.measure(slot);
     const message = draft.kind === "message";
-    if (message && this.messageBytes + slot.size > this.maxBytes || this.count >= limits.entries && !this.evictOldest()) { this.coverage.omittedEntries++; this.coverage.complete = false; return; }
+    // The person's first prompt is pinned: never stepped down, never evicted.
+    const pin = message && draft.role === "user" && !this.pinned && !hostContext.test(draft.variants[0]?.text ?? "");
+    const lane: Lane | undefined = !message ? "tool" : pin ? undefined : draft.role === "assistant" && draft.type !== "claude/compact_summary" ? "narration" : "user";
+    const slot: Slot = { kind: draft.kind, ...(lane ? { lane } : {}), base, prefix: draft.prefix ?? "", first: 0, variants: draft.variants, size: 0 };
+    slot.size = this.measure(slot);
+    if (this.count >= limits.entries && !this.evictForCount()) { this.coverage.omittedEntries++; this.coverage.complete = false; return; }
+    if (pin) this.pinned = true;
     this.slots.push(slot); this.bytes += slot.size; this.count++;
-    if (message) this.messageBytes += slot.size; else this.regionBytes[0] += slot.size;
-    while (this.bytes > this.maxBytes) {
-      const room = Math.max(0, this.maxBytes - this.messageBytes), region = this.regionBytes.findIndex((bytes, r) => bytes > Math.floor(shares[r] * room));
-      if (region < 0 || !this.demote(region)) break;
-    }
+    if (message) { this.messageBytes += slot.size; this.messageCount++; }
+    if (lane) this.regionBytes[lane][0] += slot.size;
+    while (this.bytes > this.maxBytes && this.reduce());
   }
   private paths(text: string, known: string[] = []) {
     const paths = new Set(known.slice(0, 5));
@@ -164,7 +205,7 @@ export class HistoryRecords {
     if (!parts.join("").trim()) return;
     const cut = excerpt(locateFields(raw, from, parts), levels.message, { from, to });
     if (cut?.unsafe) this.gap("escaped_text_omitted");
-    if (!cut) { this.gap("escaped_text_omitted"); this.add({ kind: "message", role, source, from, to, type, at, characters: 0, variants: [{ text: "[escaped content omitted]", truncated: true }], paths: [] }); return; }
+    if (!cut) { this.gap("escaped_text_omitted"); this.add({ kind: "message", role, source, from, to, type, at, characters: 0, variants: levels.message.map(() => ({ text: "[escaped content omitted]", truncated: true })), paths: [] }); return; }
     this.add({ kind: "message", role, source, from, to, type, at, characters: cut.characters, decoded: cut.decoded, variants: cut.variants, paths: this.paths(cut.variants[0].text) });
   }
   private category(name: string): NonNullable<SessionHistoryEntry["tool"]>["category"] {
