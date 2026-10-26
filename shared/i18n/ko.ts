@@ -1,6 +1,7 @@
 import type { Catalog } from "../i18n";
 
 const catalog: Catalog = {
+  "Try it: tap a day to see its summary.": "해 보기: 날짜를 눌러 그날의 요약을 보세요.",
   "Insights is redesigned: a year of activity, a summary of each day you can page through, and how each finished card went (review rounds, waiting, tokens).": "Insights가 새로워졌습니다: 1년간의 활동, 날짜별로 넘겨 볼 수 있는 일일 요약, 완료된 각 카드의 진행 과정(리뷰 횟수, 대기, 토큰).",
   "The board opens and refreshes faster, most of all on phones: it reads only the overview and the open card.": "보드가 더 빠르게 열리고 새로 고쳐집니다. 특히 휴대폰에서: 개요와 열린 카드만 읽습니다.",
   "Settings fill the screen on phones, and Settings → Cards can turn off the running sweep on cards and sessions.": "휴대폰에서 설정이 전체 화면으로 열리고, 설정 → 카드에서 카드와 세션의 실행 중 스윕을 끌 수 있습니다.",
@@ -1366,7 +1367,6 @@ const catalog: Catalog = {
   "No card was worked on in the last 30 days.": "최근 30일 동안 작업한 카드가 없습니다.",
   "Ship a change through a pull request": "풀 리퀘스트로 변경 배포",
   "See which days were busy, and turn what agents keep redoing into skills.": "어느 날이 바빴는지 보고, 에이전트가 반복하는 일을 스킬로 만드세요.",
-  "Sample data from a project's Insights page.": "어느 프로젝트 Insights 페이지의 예시 데이터입니다.",
   "A year of agent turns per day; tap a day for its summary.": "1년 동안의 일별 에이전트 턴. 날짜를 누르면 요약을 봅니다.",
   "Drafted from your cards; added to the project only when you say so.": "카드에서 초안을 만들고, 원할 때만 프로젝트에 추가합니다.",
   "Review rounds and tokens per card, last 7 days.": "최근 7일 카드당 리뷰 왕복과 토큰.",

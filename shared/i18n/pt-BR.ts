@@ -1,6 +1,7 @@
 import type { Catalog } from "../i18n";
 
 const catalog: Catalog = {
+  "Try it: tap a day to see its summary.": "Experimente: toque em um dia para ver o resumo dele.",
   "Insights is redesigned: a year of activity, a summary of each day you can page through, and how each finished card went (review rounds, waiting, tokens).": "O Insights foi redesenhado: um ano de atividade, um resumo de cada dia para folhear e como foi cada cartão concluído (rodadas de revisão, espera, tokens).",
   "The board opens and refreshes faster, most of all on phones: it reads only the overview and the open card.": "O quadro abre e atualiza mais rápido, principalmente no celular: ele lê só a visão geral e o cartão aberto.",
   "Settings fill the screen on phones, and Settings → Cards can turn off the running sweep on cards and sessions.": "No celular, as configurações ocupam a tela inteira, e em Configurações → Cartões dá para desligar a varredura em execução em cartões e sessões.",
@@ -1366,7 +1367,6 @@ const catalog: Catalog = {
   "No card was worked on in the last 30 days.": "Nenhum cartão foi trabalhado nos últimos 30 dias.",
   "Ship a change through a pull request": "Entregar uma mudança por pull request",
   "See which days were busy, and turn what agents keep redoing into skills.": "Veja quais dias foram movimentados e transforme o que os agentes repetem em skills.",
-  "Sample data from a project's Insights page.": "Dados de exemplo da página Insights de um projeto.",
   "A year of agent turns per day; tap a day for its summary.": "Um ano de turnos de agentes por dia; toque em um dia para ver o resumo.",
   "Drafted from your cards; added to the project only when you say so.": "Rascunhadas a partir dos seus cartões; adicionadas ao projeto só quando você quiser.",
   "Review rounds and tokens per card, last 7 days.": "Rodadas de revisão e tokens por cartão, últimos 7 dias.",

@@ -1,6 +1,7 @@
 import type { Catalog } from "../i18n";
 
 const catalog: Catalog = {
+  "Try it: tap a day to see its summary.": "Попробуйте: нажмите на день, чтобы увидеть его сводку.",
   "Insights is redesigned: a year of activity, a summary of each day you can page through, and how each finished card went (review rounds, waiting, tokens).": "Insights переработан: активность за год, сводка по каждому дню с перелистыванием и то, как прошла каждая завершённая карточка (раунды ревью, ожидание, токены).",
   "The board opens and refreshes faster, most of all on phones: it reads only the overview and the open card.": "Доска открывается и обновляется быстрее, особенно на телефоне: она читает только обзор и открытую карточку.",
   "Settings fill the screen on phones, and Settings → Cards can turn off the running sweep on cards and sessions.": "На телефоне настройки открываются на весь экран, а в Настройки → Карточки можно выключить анимацию выполнения на карточках и сессиях.",
@@ -1366,7 +1367,6 @@ const catalog: Catalog = {
   "No card was worked on in the last 30 days.": "За последние 30 дней ни над одной карточкой не работали.",
   "Ship a change through a pull request": "Отправить изменение через pull request",
   "See which days were busy, and turn what agents keep redoing into skills.": "Смотрите, какие дни были загружены, и превращайте то, что агенты повторяют, в навыки.",
-  "Sample data from a project's Insights page.": "Пример данных со страницы Insights проекта.",
   "A year of agent turns per day; tap a day for its summary.": "Год ходов агентов по дням; нажмите на день, чтобы увидеть сводку.",
   "Drafted from your cards; added to the project only when you say so.": "Составляются по вашим карточкам; добавляются в проект только по вашему решению.",
   "Review rounds and tokens per card, last 7 days.": "Раунды ревью и токены на карточку за 7 дней.",

@@ -1,6 +1,7 @@
 import type { Catalog } from "../i18n";
 
 const catalog: Catalog = {
+  "Try it: tap a day to see its summary.": "試してみる：日をタップしてその日のサマリーを見てください。",
   "Insights is redesigned: a year of activity, a summary of each day you can page through, and how each finished card went (review rounds, waiting, tokens).": "Insights を刷新しました：1 年分のアクティビティ、日ごとにめくれるサマリー、完了した各カードの経過（レビュー回数、待ち時間、トークン）。",
   "The board opens and refreshes faster, most of all on phones: it reads only the overview and the open card.": "ボードの表示と更新が速くなりました（特にスマートフォン）：概要と開いているカードだけを読み込みます。",
   "Settings fill the screen on phones, and Settings → Cards can turn off the running sweep on cards and sessions.": "スマートフォンでは設定が全画面で開き、設定 → カードでカードとセッションの実行中スイープをオフにできます。",
@@ -1366,7 +1367,6 @@ const catalog: Catalog = {
   "No card was worked on in the last 30 days.": "直近 30 日に作業されたカードはありません。",
   "Ship a change through a pull request": "プルリクエストで変更を出荷する",
   "See which days were busy, and turn what agents keep redoing into skills.": "どの日が忙しかったかを見て、エージェントが繰り返している作業をスキルにします。",
-  "Sample data from a project's Insights page.": "あるプロジェクトの Insights ページのサンプルデータ。",
   "A year of agent turns per day; tap a day for its summary.": "1 年分の日ごとのエージェントのターン。日をタップすると要約が見られます。",
   "Drafted from your cards; added to the project only when you say so.": "カードから下書きされ、あなたが決めたときだけプロジェクトに追加されます。",
   "Review rounds and tokens per card, last 7 days.": "直近 7 日のカードごとのレビュー往復とトークン。",

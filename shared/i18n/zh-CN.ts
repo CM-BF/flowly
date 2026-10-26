@@ -1,6 +1,7 @@
 import type { Catalog } from "../i18n";
 
 const catalog: Catalog = {
+  "Try it: tap a day to see its summary.": "试一下：点某一天看当天总结。",
   "Insights is redesigned: a year of activity, a summary of each day you can page through, and how each finished card went (review rounds, waiting, tokens).": "Insights 全新设计：一年的活跃度、可逐日翻看的每日总结，以及每张完成卡片的过程（评审轮次、等待、token）。",
   "The board opens and refreshes faster, most of all on phones: it reads only the overview and the open card.": "看板打开和刷新更快，手机上尤其明显：只读取概览和当前打开的卡片。",
   "Settings fill the screen on phones, and Settings → Cards can turn off the running sweep on cards and sessions.": "手机上的设置改为全屏，在设置 → 卡片中可以关闭卡片和会话上的扫光动画。",
@@ -1366,7 +1367,6 @@ const catalog: Catalog = {
   "No card was worked on in the last 30 days.": "最近 30 天没有卡片有动作。",
   "Ship a change through a pull request": "通过 PR 交付改动",
   "See which days were busy, and turn what agents keep redoing into skills.": "看哪些天比较忙，并把 agent 反复在做的事沉淀成 skill。",
-  "Sample data from a project's Insights page.": "来自某个项目 Insights 页的示例数据。",
   "A year of agent turns per day; tap a day for its summary.": "一年里每天的 agent 轮次；点某一天看当天总结。",
   "Drafted from your cards; added to the project only when you say so.": "从你的卡片总结而来；只有你同意才会加入项目。",
   "Review rounds and tokens per card, last 7 days.": "最近 7 天每卡的来回轮数和 token。",
