@@ -3,7 +3,7 @@ import type { PaseoApi } from "@getpaseo/client";
 import { automationOf, automationSessionRole, jobOf } from "../shared/automation";
 import type { Board, HandoffBehind } from "../shared/model";
 import type { ToolIdentity } from "../shared/tools";
-import { handoffOpenIds, handoffUpdateSchema, type CardHandoff, type HandoffUpdate } from "../shared/handoff";
+import { handoffGapOpen, handoffOpenIds, handoffUpdateSchema, type CardHandoff, type HandoffUpdate } from "../shared/handoff";
 import { handoffView } from "../shared/handoff-view";
 import type { HandoffContextView, HandoffInputRecord } from "../shared/handoff-api";
 import type { BoardStore } from "./store";
@@ -237,8 +237,7 @@ export class HandoffService {
     if (checkpoint && record.notes.some((note) => ["incident", "hazard"].includes(note.kind) && note.at > checkpoint.at)) add("New incident or hazard information needs to be checked.", "change");
     if (checkpoint && checkpoint.dirtyHash !== fingerprint(record)) add("Repository state changed after the checkpoint.", "change");
     if (record.git.some((repo) => repo.error)) add("Some repository state could not be verified.", "check");
-    // Open gaps the 40-entry list moved into the overflow index count as well.
-    if (record.gaps.some((gap) => gap.status === "open") || record.overflow.some((entry) => entry.section === "gaps" && entry.status === "open")) add("Information coverage has unresolved gaps.", "check");
+    if (handoffGapOpen(record)) add("Information coverage has unresolved gaps.", "check");
     if (record.ledger.some((session) => !session.endedAt && session.through && (session.through.gaps > 0 || session.through.lagBytes > 0))) add("The current session's passive capture is incomplete; check its coverage before relying on the handoff.", "check");
     const job = jobOf(board, record.taskId);
     const reader = agentId ?? job?.implementerId;

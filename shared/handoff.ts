@@ -131,6 +131,13 @@ export function handoffOpenIds(record: CardHandoff): string[] {
   const ids = handoffEntrySections.flatMap((section) => record[section].flatMap((entry) => section === "reviews" && !currentReview(entry as HandoffReview) ? [] : entryOpenIds(section, entry)));
   return [...new Set([...ids, ...record.overflow.flatMap((e) => e.unconfirmed || (e.section === "reviews" && !currentReview(e)) ? [] : e.openIds)])];
 }
+/**
+ * Whether any gap is open where the record keeps it: the current list or the overflow index the 40-entry list moves older
+ * entries into. The due check and the rotation's staleness check both read this, so neither misses an open gap in the overflow.
+ */
+export function handoffGapOpen(record: CardHandoff) {
+  return record.gaps.some((gap) => gap.status === "open") || record.overflow.some((entry) => entry.section === "gaps" && entry.status === "open");
+}
 /** `supersededSnapshots`: archived ledger versions so far not returned because the next version holds the same history (Flowly observation snapshots); their bodies stay on disk under entries/. */
 export type HandoffPage = { taskId: string; revision: number; items: { section: string; id: string; origin: "current" | "archive"; value?: unknown; text?: string; field?: "text" | "json"; offset?: number; complete: boolean }[]; openIds: string[]; openIdsTotal: number; total: number; omitted: number; supersededSnapshots?: number; nextCursor?: string; complete: boolean; viewChanged?: boolean };
 export type HandoffWriteResult = { ok: true; handoffRevision: number; replayed?: boolean; at: string; budget: ReturnType<typeof agentCharacters>; open: { inputs: number; questions: number; findings: number; running: number; gaps: number }; handoffDue: string | null; ackMissing?: string[] };

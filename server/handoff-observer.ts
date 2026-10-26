@@ -3,7 +3,7 @@ import { isDeepStrictEqual } from "node:util";
 import type { PaseoApi } from "@getpaseo/client";
 import type { AgentModel } from "../shared/agent-defaults";
 import { automationSessionRole, isLive, jobOf } from "../shared/automation";
-import { type CardHandoff, type HandoffSession } from "../shared/handoff";
+import { handoffGapOpen, type CardHandoff, type HandoffSession } from "../shared/handoff";
 import type { Board } from "../shared/model";
 import type { SessionPolicyFacts } from "../shared/session-measurement";
 import { handoffView } from "../shared/handoff-view";
@@ -653,7 +653,7 @@ export class HandoffObserver {
   }
   private stale(record: CardHandoff) {
     return !record.state || !record.next.length || !record.checkpoint || record.inputs.some((input) => input.status === "open" && !input.unconfirmed)
-      || record.gaps.some((gap) => gap.status === "open") || record.reviews.some((review) => time(review.at) > time(record.checkpoint?.at))
+      || handoffGapOpen(record) || record.reviews.some((review) => time(review.at) > time(record.checkpoint?.at))
       || record.notes.some((note) => ["incident", "hazard"].includes(note.kind) && time(note.at) > time(record.checkpoint?.at))
       || record.git.some((git) => git.error) || record.checkpoint?.dirtyHash !== digest(JSON.stringify(record.git.map(({ repo, sha, dirtyHash, error }) => ({ repo, sha, dirtyHash, error }))));
   }

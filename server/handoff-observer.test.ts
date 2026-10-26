@@ -1,4 +1,5 @@
 import { afterEach, expect, test, vi } from "vitest";
+import { createHash } from "node:crypto";
 import { mkdtemp, rm, mkdir, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -404,4 +405,29 @@ test("an ACK of the revision a successor read leaves open a grouped gap that gre
   x.setBatch(batch(offset)); x.advance(60_000); await x.observer.observe("card", "worker");
   const after = await x.read();
   expect(after.gaps.filter((gap) => gap.status === "open").map((gap) => ({ id: gap.id, count: gap.count, settled: gap.resolution?.count }))).toEqual(grouped.map((gap, index) => ({ id: gap.id, count: index ? 3 : 2, settled: 1 })));
+});
+
+test("an open gap that only the overflow index holds keeps the rotation's finalize turn, as the due check counts it", async () => {
+  const x = await fixture(); await x.observer.observe("card", "worker");
+  // 41 open gaps: the oldest leaves the 40-entry list for the overflow index; the 40 in the list are then closed.
+  const gaps = Array.from({ length: 41 }, (_, n) => ({ section: "gaps" as const, value: { id: `g:real-${n}`, sourceId: `real:${n}`, kind: "flowly", agentId: "worker", text: `Real gap ${n}`, status: "open" } }));
+  for (let start = 0; start < gaps.length; start += 20) await x.records.capture("card", "project", { entries: gaps.slice(start, start + 20) }, flowly);
+  let record = await x.read();
+  expect(record.overflow.filter((entry) => entry.section === "gaps").map((entry) => [entry.id, entry.status])).toEqual([["g:real-0", "open"]]);
+  for (let start = 0; start < record.gaps.length; start += 10) {
+    record = await x.read();
+    await x.records.update("card", "project", { handoffRevision: record.revision, gaps: record.gaps.filter((gap) => gap.status === "open").slice(0, 10).map((gap) => ({ id: gap.id, status: "closed" as const, note: "checked" })) }, { by: { kind: "agent", agentId: "worker" } });
+  }
+  // Otherwise fresh: state, a next step and a checkpoint that matches the repository the rotation reads.
+  record = await x.read();
+  expect(record.gaps.some((gap) => gap.status === "open")).toBe(false);
+  const dirtyHash = createHash("sha256").update(JSON.stringify([{ repo: x.directory, sha: "a".repeat(40) }])).digest("hex");
+  await x.records.update("card", "project", { handoffRevision: record.revision, state: "Implemented the parser; tests pass.", set: [{ section: "next", text: "Review the parser." }] }, { by: { kind: "agent", agentId: "worker" } }, { dirtyHash });
+  expect((await x.observer.bridge.prepare(rotation())).finalize).toContain("update the card handoff");
+  // Control: with that gap closed too the record is fresh, and the safe rotation skips the finalize turn.
+  record = await x.read();
+  await x.records.update("card", "project", { handoffRevision: record.revision, gaps: [{ id: "g:real-0", status: "closed", note: "checked" }] }, { by: { kind: "agent", agentId: "worker" } });
+  record = await x.read();
+  await x.records.update("card", "project", { handoffRevision: record.revision, state: "Implemented the parser; tests pass. Gaps checked." }, { by: { kind: "agent", agentId: "worker" } }, { dirtyHash });
+  expect((await x.observer.bridge.prepare(rotation())).finalize).toBeUndefined();
 });
