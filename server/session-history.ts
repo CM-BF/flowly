@@ -4,48 +4,30 @@ import { lstat, mkdir, open, opendir, readFile, rename, unlink } from "node:fs/p
 import { dirname, join } from "node:path";
 import { z } from "zod";
 import { sessionHistoryEntrySchema, sessionHistoryLimits as limits, sessionHistoryPageSchema, sessionHistoryQuerySchema, type SessionHistoryEntry, type SessionHistoryPage, type SessionHistoryQuery } from "../shared/session-history";
-import { lineHint, redactCaptureText } from "./handoff-capture-records";
+import { lineHint } from "./handoff-capture-records";
 import { locateProviderHistory, type HistoryAgent, type NativeHistoryFile } from "./provider-history";
+import { HistoryRecords } from "./session-history-records";
 import { ToolError } from "./tool-error";
 
 const digest = (value: string | Uint8Array) => createHash("sha256").update(value).digest("hex");
 const jsonBytes = (value: unknown) => Buffer.byteLength(JSON.stringify(value));
-const object = (value: unknown): Record<string, unknown> => value !== null && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
-const string = (value: unknown) => typeof value === "string" ? value : "";
-const redact = (value: string) => redactCaptureText(value)
-  .replace(/((?:set-)?cookie(?:\\?["'])?\s*[:=]\s*(?:\\?["'])?)[^\r\n"'\\]+/gi, "$1[redacted]")
-  .replace(/\b([a-z][a-z0-9+.-]*:\/\/)[^\s/@:]+:[^\s/@]+@/gi, "$1[redacted]@");
-// Escaped embedded languages are not safe to redact as if they were ordinary prose.
-const safeText = (value: string) => value.includes("\\") ? "[escaped content omitted]" : redact(value);
-function safeArguments(input: unknown): { value: unknown; omitted: boolean } {
-  let nodes = 0, characters = 0, omitted = false;
-  const walk = (value: unknown, depth: number): unknown => {
-    if (++nodes > 256 || depth > 6) throw new Error("Argument structure budget");
-    if (typeof value === "string") {
-      characters += value.length; if (characters > 64 * 1024) throw new Error("Argument text budget");
-      if (/^[\s]*[\[{\"]/.test(value)) {
-        let decoded: unknown; try { decoded = JSON.parse(value); } catch { /* An opaque command may start with a bracket. */ }
-        if (decoded !== undefined) return walk(decoded, depth + 1);
-      }
-      const safe = safeText(value); if (safe === "[escaped content omitted]") omitted = true;
-      return safe;
-    }
-    if (Array.isArray(value)) return value.map((item) => walk(item, depth + 1));
-    if (value && typeof value === "object") return Object.fromEntries(Object.entries(value).map(([key, item]) => { if (++nodes > 256) throw new Error("Argument field budget"); return [key, /password|passwd|secret|credential|token|apikey|authorization|cookie|privatekey/i.test(key.replace(/[^a-z0-9]/gi, "")) ? "[redacted]" : walk(item, depth + 1)]; }));
-    if (value === null || typeof value === "number" || typeof value === "boolean") return value;
-    throw new Error("Unsupported arguments");
-  };
-  try { return { value: walk(input ?? {}, 0), omitted }; }
-  catch { return { value: "[arguments omitted: bounded parser]", omitted: true }; }
-}
 const yieldLoop = () => new Promise<void>((resolve) => setImmediate(resolve));
 const stamp = (s: { dev: number; ino: number; size: number; mtimeMs: number; ctimeMs: number; birthtimeMs: number }) => `${s.dev}:${s.ino}:${s.birthtimeMs}:${s.size}:${s.mtimeMs}:${s.ctimeMs}`;
 type Source = { path: string; ref: string; stamp: string; bytes: number };
-type Manifest = { version: 1; agentId: string; provider: string; sessionId: string; snapshot: string; previous?: string; bodyHash: string; bodyBytes: number; builtAt: string; sources: Source[]; directories: { path: string; stamp: string | null }[]; coverage: NonNullable<SessionHistoryPage["coverage"]>; gaps: SessionHistoryPage["gaps"]; growth: NonNullable<SessionHistoryPage["growth"]> };
+/** Format 2 indexes tool outputs and full arguments (SESSION-HANDOFF-SPEC §21.13); an older index is rebuilt once. */
+const version = 2;
+type Manifest = { version: typeof version; agentId: string; provider: string; sessionId: string; snapshot: string; previous?: string; bodyHash: string; bodyBytes: number; builtAt: string; sources: Source[]; directories: { path: string; stamp: string | null }[]; coverage: NonNullable<SessionHistoryPage["coverage"]>; gaps: SessionHistoryPage["gaps"]; growth: NonNullable<SessionHistoryPage["growth"]> };
 type Options = { codexHome?: string; claudeHome?: string; /** Small limits are injectable for synthetic fault tests only. */ maxSourceBytes?: number; maxSkeletonBytes?: number; now?: () => number };
 const cursorSchema = z.object({ v: z.literal(1), agentId: z.string().max(240), snapshot: z.string().regex(/^[a-f0-9]{64}$/), query: z.string().regex(/^[a-f0-9]{64}$/), offset: z.number().int().min(0).max(limits.entries) }).strict();
-const manifestSchema = z.object({ version: z.literal(1), agentId: z.string().max(240), provider: z.enum(["codex", "claude"]), sessionId: z.string().max(240), snapshot: z.string().regex(/^[a-f0-9]{64}$/), previous: z.string().regex(/^[a-f0-9]{64}$/).optional(), bodyHash: z.string().regex(/^[a-f0-9]{64}$/), bodyBytes: z.number().int().min(0).max(limits.skeletonBytes), builtAt: z.string(), sources: z.array(z.object({ path: z.string().min(1).max(4096), ref: z.string().max(100), stamp: z.string().max(300), bytes: z.number().nonnegative() })).min(1).max(limits.subagents + 1), directories: z.array(z.object({ path: z.string().max(4096), stamp: z.string().max(300).nullable() })).max(2), coverage: sessionHistoryPageSchema.shape.coverage.unwrap(), gaps: sessionHistoryPageSchema.shape.gaps, growth: sessionHistoryPageSchema.shape.growth.unwrap() });
-const message = "This is a redacted, incomplete skeleton: tool output, images, reasoning and oversized records are omitted. Search covers stored excerpts only within the indexed range, not full source text; use the card handoff and saved artifacts for full details.";
+const manifestSchema = z.object({ version: z.literal(version), agentId: z.string().max(240), provider: z.enum(["codex", "claude"]), sessionId: z.string().max(240), snapshot: z.string().regex(/^[a-f0-9]{64}$/), previous: z.string().regex(/^[a-f0-9]{64}$/).optional(), bodyHash: z.string().regex(/^[a-f0-9]{64}$/), bodyBytes: z.number().int().min(0).max(limits.skeletonBytes), builtAt: z.string(), sources: z.array(z.object({ path: z.string().min(1).max(4096), ref: z.string().max(100), stamp: z.string().max(300), bytes: z.number().nonnegative() })).min(1).max(limits.subagents + 1), directories: z.array(z.object({ path: z.string().max(4096), stamp: z.string().max(300).nullable() })).max(2), coverage: sessionHistoryPageSchema.shape.coverage.unwrap(), gaps: sessionHistoryPageSchema.shape.gaps, growth: sessionHistoryPageSchema.shape.growth.unwrap() });
+const message = "Redacted excerpts, not a transcript: messages, tool arguments and tool outputs keep a head and tail; an entry's middle gives the omitted part's source bytes. Images, reasoning and oversized records are left out. Search covers stored excerpts within the indexed range; coverage and gaps say what is missing.";
+/** Shrinks an entry's text to fit a page, keeping the query's first match in view. */
+function shrink(text: string, needle: string | undefined) {
+  const length = Math.floor(text.length * 0.75), lower = needle ? text.toLocaleLowerCase() : "", at = needle && lower.length === text.length ? lower.indexOf(needle) : -1;
+  if (at < 0) return text.slice(0, length);
+  const start = Math.max(0, Math.min(at - Math.floor((length - needle!.length) / 2), text.length - length)), end = Math.min(text.length, start + length);
+  return `${start > 0 ? "…" : ""}${text.slice(start + (start > 0 ? 1 : 0), end - (end < text.length ? 1 : 0))}${end < text.length ? "…" : ""}`;
+}
 
 /** Only receives an already-authorized ledger identity. Never calls a Paseo API or edits native history. */
 export class SessionHistory {
@@ -62,7 +44,10 @@ export class SessionHistory {
     const path = this.paths(agentId).manifest;
     const info = await lstat(path).catch(() => null); if (!info) return null;
     if (!info.isFile() || info.size > 32 * 1024) throw new Error("Invalid derived-history manifest");
-    const manifest = manifestSchema.parse(JSON.parse(await readFile(path, "utf8")));
+    const data: unknown = JSON.parse(await readFile(path, "utf8"));
+    // An index of an older format covers less; it is replaced on this read, not served.
+    if (data && typeof data === "object" && typeof (data as { version?: unknown }).version === "number" && (data as { version: number }).version < version) return null;
+    const manifest = manifestSchema.parse(data);
     if (manifest.agentId !== agentId) throw new Error("Invalid derived-history manifest");
     return manifest;
   }
@@ -120,7 +105,7 @@ export class SessionHistory {
     try { entries = body.toString("utf8").split("\n").filter(Boolean).map((line) => sessionHistoryEntrySchema.parse(JSON.parse(line))); }
     catch { return this.empty(agent.id, "unavailable", "skeleton_invalid", "The derived evidence cannot be decoded; rebuild explicitly. Native history is unchanged."); }
     const needle = query.query?.toLocaleLowerCase(), roles = query.roles && new Set(query.roles);
-    const matched = entries.filter((entry) => (!roles || roles.has(entry.role)) && (!needle || `${entry.text}\n${entry.tool?.name ?? ""}\n${entry.tool?.arguments ?? ""}\n${entry.paths.join("\n")}`.toLocaleLowerCase().includes(needle)));
+    const matched = entries.filter((entry) => (!roles || roles.has(entry.role)) && (!needle || `${entry.text}\n${entry.tool?.name ?? ""}\n${entry.tool?.outcome ?? ""}\n${entry.paths.join("\n")}`.toLocaleLowerCase().includes(needle)));
     if (cursor && cursor.offset > matched.length) throw new ToolError("HISTORY_CURSOR_INVALID", "This history cursor is beyond its indexed view. Start the query again.");
     const nearby = query.around === undefined ? 0 : matched.findIndex((entry) => entry.ordinal >= query.around!);
     const start = cursor?.offset ?? (query.around !== undefined ? Math.max(0, (nearby < 0 ? matched.length : nearby) - Math.floor(query.limit / 2)) : 0);
@@ -133,7 +118,7 @@ export class SessionHistory {
       const fits = () => jsonBytes({ ...page, entries: [...page.entries, entry], nextCursor: nextCursor(offset + 1) }) <= limits.pageBytes;
       if (!fits() && page.entries.length) break;
       // One non-ASCII excerpt must still make progress inside the hard response budget.
-      while (!fits() && entry.text.length) entry = { ...entry, text: entry.text.slice(0, Math.floor(entry.text.length * .75)), truncated: true };
+      while (!fits() && entry.text.length) entry = { ...entry, text: shrink(entry.text, needle), truncated: true };
       if (!fits()) { delete page.growth; if (!fits()) throw new ToolError("HISTORY_UNAVAILABLE", "History metadata exceeds the response budget."); }
       page.entries.push(entry); offset++;
     }
@@ -172,7 +157,7 @@ export class SessionHistory {
   private async build(agent: HistoryAgent & { id: string }) {
     const location = await locateProviderHistory(agent, { ...this.options, signal: this.controller.signal });
     if (!location.file) throw new Error("Source unavailable");
-    const records = new SkeletonRecords(location.file.sessionId, this.options.maxSkeletonBytes);
+    const records = new HistoryRecords(location.file.sessionId, this.options.maxSkeletonBytes);
     const sources: Source[] = [], directories: Manifest["directories"] = [];
     const main = await this.scan(location.file, "main", records, false); sources.push(main);
     if (location.file.provider === "claude" && !this.controller.signal.aborted) {
@@ -192,15 +177,15 @@ export class SessionHistory {
     if (this.controller.signal.aborted) throw new Error("Stopped");
     const unstable = (await Promise.all(sources.map(async (source) => stamp(await lstat(source.path)) !== source.stamp))).some(Boolean) || (await Promise.all(directories.map(async (directory) => { const current = await lstat(directory.path).catch(() => null); return (current ? stamp(current) : null) !== directory.stamp; }))).some(Boolean);
     if (unstable) throw new Error("Source changed during build");
-    const body = records.lines.join(""), bodyHash = digest(body), builtAt = new Date((this.options.now ?? Date.now)()).toISOString();
+    const body = records.body(), bodyHash = digest(body), builtAt = new Date((this.options.now ?? Date.now)()).toISOString();
     const snapshot = digest(JSON.stringify({ sources, directories, bodyHash, builtAt }));
     const prior = await this.manifest(agent.id).catch(() => null), previous = prior?.snapshot === snapshot ? prior.previous : prior?.snapshot;
-    const manifest: Manifest = { version: 1, agentId: agent.id, provider: location.file.provider, sessionId: location.file.sessionId, sources, directories, snapshot, ...(previous ? { previous } : {}), bodyHash, bodyBytes: Buffer.byteLength(body), builtAt, ...records.metadata() };
+    const manifest: Manifest = { version, agentId: agent.id, provider: location.file.provider, sessionId: location.file.sessionId, sources, directories, snapshot, ...(previous ? { previous } : {}), bodyHash, bodyBytes: Buffer.byteLength(body), builtAt, ...records.metadata() };
     const paths = this.paths(agent.id); await mkdir(paths.folder, { recursive: true, mode: 0o700 });
     await this.atomic(join(paths.folder, `${snapshot}.jsonl`), body); await this.atomic(paths.manifest, JSON.stringify(manifest));
     await this.retire(agent.id, manifest);
   }
-  private async scan(file: NativeHistoryFile, ref: string, records: SkeletonRecords, textOnly: boolean): Promise<Source> {
+  private async scan(file: NativeHistoryFile, ref: string, records: HistoryRecords, textOnly: boolean): Promise<Source> {
     const handle = await open(file.path, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
     try {
       const initial = await handle.stat(); if (!initial.isFile()) throw new Error("Source not a file");
@@ -246,84 +231,4 @@ export class SessionHistory {
     await Promise.race([this.active, new Promise<void>((resolve) => { timer = setTimeout(resolve, 900); })]);
     if (timer) clearTimeout(timer);
   }
-}
-
-class SkeletonRecords {
-  readonly lines: string[] = [];
-  readonly coverage: NonNullable<SessionHistoryPage["coverage"]> = { sourceBytes: 0, readBytes: 0, through: 0, totalRecords: 0, indexedEntries: 0, omittedEntries: 0, skippedLines: 0, skippedBytes: 0, complete: true };
-  private gaps = new Map<string, { count: number; bytes: number }>();
-  private growth = new Map<string, { bytes: number; lines: number }>();
-  private bytes = 0;
-  private ordinal = 0;
-  private firstAt?: number;
-  private calls = new Map<string, string>();
-  private identityMismatch = false;
-  constructor(private sessionId: string, private maxBytes = limits.skeletonBytes) { this.maxBytes = Math.min(maxBytes, limits.skeletonBytes); }
-  gap(kind: string, bytes = 0) { if (this.gaps.size >= 19 && !this.gaps.has(kind)) kind = "other_gaps"; const gap = this.gaps.get(kind) ?? { count: 0, bytes: 0 }; gap.count++; gap.bytes += bytes; this.gaps.set(kind, gap); if (!["tool_output_omitted", "image_omitted", "encrypted_reasoning_omitted"].includes(kind)) this.coverage.complete = false; }
-  grow(type: string, bytes: number) { if (this.growth.size >= 15 && !this.growth.has(type)) type = "other"; const value = this.growth.get(type) ?? { bytes: 0, lines: 0 }; value.bytes += bytes; value.lines++; this.growth.set(type, value); }
-  metadata() { return { coverage: this.coverage, gaps: [...this.gaps].slice(0, 20).map(([kind, value]) => ({ kind, count: value.count, ...(value.bytes ? { bytes: value.bytes } : {}) })), growth: [...this.growth].map(([type, value]) => ({ type, ...value })) }; }
-  private entry(role: SessionHistoryEntry["role"], text: string, source: string, from: number, to: number, type: string, at?: string, tool?: SessionHistoryEntry["tool"], knownPaths: string[] = []) {
-    if (!text.trim() && !tool) return;
-    const safe = tool ? text : safeText(text), time = at && Number.isFinite(Date.parse(at)) ? at : undefined, ms = time ? Date.parse(time) : undefined;
-    if (!tool && safe === "[escaped content omitted]") this.gap("escaped_text_omitted");
-    if (ms !== undefined && this.firstAt === undefined) this.firstAt = ms;
-    const value: SessionHistoryEntry = { ordinal: this.ordinal++, role, text: safe.slice(0, tool ? 300 : 2000), characters: safe.length, truncated: safe.length > (tool ? 300 : 2000), paths: [], evidence: { source, from, to, type: redact(type).slice(0, 100) }, ...(time ? { at: time, relativeMs: ms! - this.firstAt! } : {}), ...(tool ? { tool } : {}) };
-    const pathText = `${safe}\n${tool?.arguments ?? ""}`, paths = new Set(knownPaths.slice(0, 5));
-    for (const match of pathText.matchAll(/(?:^|[\s"'(=])((?:\/|\.\.?\/)[\w@.+/~\/-]{1,239})/g)) { paths.add(match[1]); if (paths.size === 5) break; }
-    value.paths = [...paths];
-    const line = JSON.stringify(value) + "\n", size = Buffer.byteLength(line);
-    if (this.bytes + size > this.maxBytes || this.lines.length >= limits.entries) { this.coverage.omittedEntries++; this.coverage.complete = false; return; }
-    this.lines.push(line); this.bytes += size; this.coverage.indexedEntries++;
-  }
-  private text(content: unknown) { if (typeof content === "string") return content; if (!Array.isArray(content)) return ""; return content.flatMap((part) => { const block = object(part); if (["image", "input_image"].includes(string(block.type))) this.gap("image_omitted"); return ["text", "input_text", "output_text"].includes(string(block.type)) ? [string(block.text)] : []; }).join("\n"); }
-  private tool(name: string, args: unknown, source: string, from: number, to: number, type: string, at?: string, outcome?: string) {
-    const category = /exec|shell|Bash|stdin/.test(name) ? "exec" : /file|read|write|edit|patch/.test(name) ? "file" : /browser|screenshot/.test(name) ? "browser" : /agent|workflow|task/i.test(name) ? "agent" : /fetch|search|web/.test(name) ? "network" : "other";
-    const sanitized = safeArguments(args), argumentsText = JSON.stringify(sanitized.value).slice(0, 300);
-    if (sanitized.omitted) this.gap("tool_arguments_omitted");
-    const safeOutcome = outcome ? safeText(outcome).slice(0, 300) : undefined;
-    if (safeOutcome === "[escaped content omitted]") this.gap("tool_result_excerpt_omitted");
-    const tool: NonNullable<SessionHistoryEntry["tool"]> = { name: safeText(name).slice(0, 100), category, ...(argumentsText ? { arguments: argumentsText } : {}), ...(safeOutcome ? { outcome: safeOutcome } : {}) };
-    const data = object(sanitized.value);
-    const paths = ["file_path", "filePath", "path", "cwd", "workdir", "directory"].map((key) => redact(string(data[key]))).filter((path) => path.length > 0 && path.length <= 240 && !/[\r\n]|:\/\/|\[(?:redacted|escaped|arguments)/.test(path)).slice(0, 5);
-    this.entry("tool", safeOutcome ?? `${tool.name}: ${argumentsText}`, source, from, to, type, at, tool, paths);
-  }
-  line(raw: Buffer, provider: "codex" | "claude", source: string, from: number, to: number, textOnly: boolean) {
-    let value: Record<string, unknown>;
-    try { value = object(JSON.parse(raw.toString("utf8"))); } catch { this.gap("invalid_json", raw.length); return; }
-    const type = string(value.type), payload = object(value.payload), at = string(value.timestamp);
-    if (!textOnly && (value.sessionId && value.sessionId !== this.sessionId || type === "session_meta" && payload.id && payload.id !== this.sessionId)) this.identityMismatch = true;
-    if (this.identityMismatch) { this.gap("session_identity_mismatch", raw.length); return; }
-    if (provider === "codex") {
-      if (type === "response_item" && payload.type === "message" && ["user", "assistant"].includes(string(payload.role))) this.entry(payload.role as "user" | "assistant", this.text(payload.content), source, from, to, type + "/message", at);
-      else if (type === "response_item" && ["function_call", "custom_tool_call"].includes(string(payload.type))) {
-        const callId = string(payload.call_id); if (callId) this.rememberCall(callId, string(payload.name));
-        this.tool(string(payload.name), payload.arguments ?? payload.input, source, from, to, type + "/" + payload.type, at);
-      }
-      else if (type === "response_item" && /output/.test(string(payload.type))) {
-        this.gap("tool_output_omitted");
-        let result = object(payload.output);
-        if (typeof payload.output === "string") { try { result = object(JSON.parse(payload.output)); } catch { /* Prose output is intentionally not retained. */ } }
-        const callId = string(payload.call_id), name = this.calls.get(callId) ?? "tool_result"; this.calls.delete(callId);
-        const exit = result.exit_code, error = string(result.error);
-        if (typeof exit === "number" && Number.isSafeInteger(exit)) this.tool(name, {}, source, from, to, "codex/result_status", at, `exit ${exit}`);
-        else if (error || result.is_error === true || result.isError === true) this.tool(name, {}, source, from, to, "codex/result_error", at, error || "Tool reported failure; output omitted.");
-      }
-      else if (type === "compacted" || type === "response_item" && payload.type === "reasoning") this.gap("encrypted_reasoning_omitted");
-      else if (!["event_msg", "session_meta", "turn_context"].includes(type)) this.gap("unsupported_record");
-      return;
-    }
-    if (value.isSidechain === true && !textOnly) { this.gap("sidechain_omitted"); return; }
-    const msg = object(value.message), content = msg.content;
-    if (type === "user" || type === "assistant") {
-      if (value.isMeta === true) return;
-      const role = type === "assistant" || value.isCompactSummary === true ? "assistant" : "user";
-      this.entry(role, this.text(content), source, from, to, value.isCompactSummary ? "claude/compact_summary" : `claude/${type}`, at);
-      if (!textOnly && Array.isArray(content)) for (const item of content) {
-        const block = object(item);
-        if (block.type === "tool_use") { this.rememberCall(string(block.id), string(block.name)); this.tool(string(block.name), block.input, source, from, to, "claude/tool_use", at); }
-        if (block.type === "tool_result") { const callId = string(block.tool_use_id), name = this.calls.get(callId) ?? "tool_error"; this.calls.delete(callId); this.gap("tool_output_omitted"); if (block.is_error === true) this.tool(name, {}, source, from, to, "claude/tool_error", at, this.text(block.content).slice(0, 300)); }
-      }
-    } else if (!["system", "progress", "file-history-snapshot", "queue-operation"].includes(type)) this.gap("unsupported_record");
-  }
-  private rememberCall(id: string, name: string) { if (!id) return; this.calls.set(id, name); if (this.calls.size > 64) this.calls.delete(this.calls.keys().next().value!); }
 }

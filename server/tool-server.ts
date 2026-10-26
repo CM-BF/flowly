@@ -205,7 +205,7 @@ export class ToolServer {
         );
         mcp.registerTool(
           "flowly_session_history",
-          { description: "Read bounded, redacted excerpts from a session in this card's handoff ledger. Select its exact agent ID or #number; search with query, around and roles, then follow nextCursor. First access may return building. Coverage, omitted and gaps describe the indexed range; no match never proves a missing detail does not exist. Original histories are not loaded through Paseo or rewritten. Changed source snapshots require an explicit rebuild; large tool/image payloads are omitted. Use original handoff inputs for exact human wording.", inputSchema: sessionHistoryQuerySchema, outputSchema: sessionHistoryPageSchema, annotations: { readOnlyHint: true, openWorldHint: false } },
+          { description: "Read bounded, redacted excerpts from a session in this card's handoff ledger. Select its exact agent ID or #number; search with query, around and roles, then follow nextCursor. First access may return building. Coverage, omitted and gaps describe the indexed range; no match never proves a missing detail does not exist. Original histories are not loaded through Paseo or rewritten. Changed source snapshots require an explicit rebuild. Messages, tool arguments and tool outputs are head-and-tail excerpts (middle gives the omitted source bytes); images, reasoning and records over 256 KiB are not indexed. Use original handoff inputs for exact human wording.", inputSchema: sessionHistoryQuerySchema, outputSchema: sessionHistoryPageSchema, annotations: { readOnlyHint: true, openWorldHint: false } },
           input => call(() => this.agents.readSessionHistory(identity, input)),
         );
         mcp.registerTool(

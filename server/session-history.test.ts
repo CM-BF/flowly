@@ -42,9 +42,10 @@ test("first read only queues a skeleton; Codex semantic excerpts paginate/search
   const snapshot = page.snapshot;
   while (true) { expect(Buffer.byteLength(JSON.stringify(page))).toBeLessThanOrEqual(8192); sessionHistoryPageSchema.parse(page); ordinals.push(...page.entries.map((entry) => entry.ordinal)); if (!page.nextCursor) break; page = await x.read({ session: "#1", cursor: page.nextCursor }); }
   expect(ordinals).toEqual(Array.from({ length: 27 }, (_, n) => n));
-  const search = await x.read({ session: "#1", query: "npm test", roles: ["tool"] }); expect(search.entries[0].tool).toMatchObject({ name: "exec_command", category: "exec", arguments: expect.stringContaining("npm test") });
-  const outcome = await x.read({ session: "#1", query: "exit 7", roles: ["tool"] }); expect(outcome.entries[0].tool?.outcome).toBe("exit 7");
-  expect(JSON.stringify(page)).not.toContain("PRIVATE_OUTPUT_SENTINEL"); expect(page.snapshot).toBe(snapshot); expect(page.evidenceRef).toContain("session-history/"); expect(await readFile(x.path, "utf8")).toBe(native);
+  const search = await x.read({ session: "#1", query: "npm test", roles: ["tool"] }); expect(search.entries[0].tool).toMatchObject({ name: "exec_command", category: "exec", kind: "call" }); expect(search.entries[0].text).toContain("npm test");
+  // Tool outputs are indexed as bounded excerpts (SESSION-HANDOFF-SPEC §21.13), with the exit code as the outcome.
+  const outcome = await x.read({ session: "#1", query: "exit 7", roles: ["tool"] }); expect(outcome.entries[0].tool).toMatchObject({ kind: "output", outcome: "exit 7" }); expect(outcome.entries[0].text).toContain("PRIVATE_OUTPUT_SENTINEL");
+  expect(page.snapshot).toBe(snapshot); expect(page.evidenceRef).toContain("session-history/"); expect(await readFile(x.path, "utf8")).toBe(native);
 });
 
 test("images, giant lines and credentials never enter derived evidence while exact skipped volume remains visible", async () => {
@@ -204,14 +205,16 @@ test("nested encoded tool arguments redact short credential values before serial
   const x = await fixture(), secret = "short-pass-852", command = `echo '${JSON.stringify({ password: secret })}'`;
   await writeFile(x.path, json(response("function_call", { name: "exec_command", arguments: JSON.stringify({ cmd: command, workdir: "src" }) })) + json(response("custom_tool_call", { name: "exec", input: { nested: [{ credentials: { password: secret } }], cmd: command } })));
   const page = await ready(x), evidence = await readFile(join(x.directory, page.evidenceRef!), "utf8");
-  expect(JSON.stringify(page)).not.toContain(secret); expect(evidence).not.toContain(secret); expect(page.entries[0].tool?.arguments).toContain("[redacted]"); expect(page.entries[0].tool?.arguments).toContain("echo");
+  expect(JSON.stringify(page)).not.toContain(secret); expect(evidence).not.toContain(secret); expect(page.entries[0].text).toContain("[redacted]"); expect(page.entries[0].text).toContain("echo");
 });
 
-test("opaque or overly deep tool argument encoding is explicitly omitted instead of leaking uncertain values", async () => {
+test("overly deep tool argument structures are omitted explicitly, and escaped values are decoded and redacted instead", async () => {
   const x = await fixture(), secret = "opaque-pass-512";
-  let nested: unknown = { password: secret }; for (let n = 0; n < 10; n++) nested = { next: nested };
+  let nested: unknown = { password: secret }; for (let n = 0; n < 20; n++) nested = { next: nested };
   const opaque = `echo \\"password\\":\\"${secret}\\"`;
   await writeFile(x.path, json(response("function_call", { name: "exec_command", arguments: JSON.stringify(nested) })) + json(response("function_call", { name: "exec_command", arguments: JSON.stringify({ cmd: opaque }) })));
   const page = await ready(x), evidence = await readFile(join(x.directory, page.evidenceRef!), "utf8");
   expect(evidence).not.toContain(secret); expect(JSON.stringify(page)).not.toContain(secret); expect(page.gaps.map((gap) => gap.kind)).toContain("tool_arguments_omitted"); expect(page.coverage?.complete).toBe(false);
+  expect(page.entries[0].text).toContain("[arguments omitted: bounded parser]");
+  expect(page.entries[1]).toMatchObject({ decoded: true }); expect(page.entries[1].text).toContain('echo "password":[redacted]');
 });
