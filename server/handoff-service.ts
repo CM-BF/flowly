@@ -57,12 +57,16 @@ export class HandoffService {
     await new Promise<void>((wake) => { const timer = setTimeout(wake, options.delayMs ?? 90_000); timer.unref?.(); this.sweepWait = { timer, wake }; });
     this.sweepWait = undefined;
     if (this.stopped) return;
-    await this.syncUnclassified(options.pauseMs ?? 100);
+    await this.syncAll(options.pauseMs ?? 100);
     await this.records.sweep({ pauseMs: options.pauseMs ?? 100, stopped: () => this.stopped }).catch((error) => console.error("Flowly handoff body cleanup failed:", error instanceof Error ? error.message : String(error)));
   }
-  /** Index entries written before `behind` existed read as `activity` until their card syncs; plugin start syncs them once. */
-  private async syncUnclassified(pauseMs: number) {
-    const ids = (await this.board.read()).handoffIndex.filter((entry) => !entry.fresh && !entry.behind).map((entry) => entry.taskId);
+  /**
+   * Plugin start syncs every index entry once (SESSION-HANDOFF-SPEC §12, §21.16): a record lost or unreadable while the
+   * daemon was down reaches the card face, and an entry written by an older version (before `behind`) reads by the
+   * current rules. An entry that agrees with its record is not rewritten.
+   */
+  private async syncAll(pauseMs: number) {
+    const ids = (await this.board.read()).handoffIndex.map((entry) => entry.taskId);
     for (const taskId of ids) {
       if (this.stopped) return;
       await this.serial(taskId, () => this.syncIndex(taskId)).catch((error) => console.error("Flowly handoff index sync failed:", error instanceof Error ? error.message : String(error)));
@@ -71,15 +75,26 @@ export class HandoffService {
   }
   stop() { this.stopped = true; if (this.sweepWait) { clearTimeout(this.sweepWait.timer); this.sweepWait.wake(); } }
   private now() { return new Date(this.clock()).toISOString(); }
+  /**
+   * The card's queue. A job that meets a lost or unreadable record (HANDOFF_UNAVAILABLE: the observer's poll, an agent's
+   * or a person's write) brings the card's index entry up to date before the next job, so the card face warns without
+   * waiting for a drawer read (SESSION-HANDOFF-SPEC §12, §21.16); an entry already `unverified` is left alone.
+   */
   serial<T>(taskId: string, action: () => Promise<T>): Promise<T> {
-    const job = (this.mutations.get(taskId) ?? Promise.resolve()).then(() => {
+    const job = (this.mutations.get(taskId) ?? Promise.resolve()).then(async () => {
       if (this.stopped) throw new ToolError("HANDOFF_UNAVAILABLE", "The handoff service is stopping. Keep the unsent draft.");
-      return action();
+      try { return await action(); }
+      catch (error) { await this.indexLoss(taskId, error); throw error; }
     });
     const tail = job.catch(() => undefined);
     this.mutations.set(taskId, tail);
     void tail.finally(() => { if (this.mutations.get(taskId) === tail) this.mutations.delete(taskId); });
     return job;
+  }
+  private async indexLoss(taskId: string, error: unknown) {
+    if (!(error instanceof ToolError) || error.code !== "HANDOFF_UNAVAILABLE" || this.stopped) return;
+    const entry = (await this.board.read().catch(() => undefined))?.handoffIndex.find((item) => item.taskId === taskId);
+    if (entry && entry.behind !== "unverified") await this.syncIndex(taskId).catch((failure) => console.error("Flowly handoff index sync failed:", failure instanceof Error ? failure.message : String(failure)));
   }
   private api() {
     if (!this.paseo) throw new ToolError("PASEO_UNAVAILABLE", "Handoff observation is waiting for the local Paseo connection.", true);
@@ -154,10 +169,11 @@ export class HandoffService {
    * not read), so the card face and the folded summary agree with the body even on a quiet card that nobody writes to
    * (SESSION-HANDOFF-SPEC §12, §21.15). Serialized with the card's writes; the read waits for it only briefly.
    */
-  private async refreshIndex(taskId: string) {
+  private async refreshIndex(taskId: string, wait = true) {
     if (this.refreshing.has(taskId) || this.stopped) return;
     this.refreshing.add(taskId);
     const job = this.serial(taskId, () => this.syncIndex(taskId)).catch((error) => console.error("Flowly handoff index refresh failed:", error instanceof Error ? error.message : String(error))).finally(() => this.refreshing.delete(taskId));
+    if (!wait) return;
     let timer: ReturnType<typeof setTimeout> | undefined;
     await Promise.race([job, new Promise<void>((resolve) => { timer = setTimeout(resolve, 1500); timer.unref?.(); })]);
     if (timer) clearTimeout(timer);
@@ -209,7 +225,8 @@ export class HandoffService {
       record = existing ?? await this.records.read(task.id, project.id);
     }
     catch (error) {
-      if (options.person && board.handoffIndex.find((entry) => entry.taskId === taskId)?.behind !== "unverified") await this.refreshIndex(taskId);
+      // Any read that meets the loss brings the index up to date; only the person's drawer waits for it (briefly).
+      if (board.handoffIndex.find((entry) => entry.taskId === taskId)?.behind !== "unverified") await this.refreshIndex(taskId, !!options.person);
       return { revision: 0, fresh: false, due: ["The durable handoff is unavailable; do not guess missing requirements."], unavailable: error instanceof Error ? error.message : String(error) };
     }
     const { changes, behind, ...status } = this.due(record, board, agentId);
