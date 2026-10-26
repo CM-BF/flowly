@@ -157,13 +157,14 @@ test("a query hit deep inside a long non-ASCII entry is shown around the match i
   expect(page.entries[0].text).toContain(replicaCodeword); expect(page.entries[0].truncated).toBe(true);
 });
 
-// Format 2 indexes could hold an entry that made them unreadable, and left out Claude's mid-turn deliveries (§21.15).
-for (const format of [1, 2]) test(`an index built by format ${format} is rebuilt on the next read instead of serving its narrower coverage`, async () => {
+// Format 2 indexes could hold an entry that made them unreadable, and left out Claude's mid-turn deliveries (§21.15);
+// format 3 ones could hold a manifest read() refuses, grep lines cut by the .pgpass rule and Claude previews only (§21.16).
+for (const format of [1, 2, 3]) test(`an index built by format ${format} is rebuilt on the next read instead of serving its narrower coverage`, async () => {
   const x = await home(); await x.write(ids.predecessor, replicaRollout("predecessor", ids.predecessor));
   const first = await ready(x.reader, x.agent(ids.predecessor));
   const manifest = join(x.directory, first.evidenceRef!.split("/").slice(0, -1).join("/"), "current.json");
   await writeFile(manifest, (await readFile(manifest, "utf8")).replace(/^\{"version":\d+/, `{"version":${format}`));
   expect((await x.reader.read(x.agent(ids.predecessor), { session: "#1" })).status).toBe("building");
   const rebuilt = await ready(x.reader, x.agent(ids.predecessor)); expect(rebuilt.status).toBe("ready");
-  expect(JSON.parse(await readFile(manifest, "utf8")).version).toBe(3);
+  expect(JSON.parse(await readFile(manifest, "utf8")).version).toBe(4);
 });

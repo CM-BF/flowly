@@ -1,7 +1,11 @@
 import { z } from "zod";
 
-/** Derived excerpts, never a complete transcript. Budgets include UTF-8 JSON overhead. */
-export const sessionHistoryLimits = { pageBytes: 8 * 1024, skeletonBytes: 2 * 1024 * 1024, lineBytes: 256 * 1024, chunkBytes: 64 * 1024, sourceBytes: 2 * 1024 ** 3, records: 200_000, entries: 10_000, queue: 16, subagentBytes: 200 * 1024, subagents: 32, entryChars: 4400 } as const;
+/** Derived excerpts, never a complete transcript. */
+/**
+ * Budgets include UTF-8 JSON overhead. `persisted*`: Claude's large tool results saved under the session's tool-results/
+ * folder, read per build (count, per file, in total); `subagentEntries`: entries of a subagents/ folder listed per build.
+ */
+export const sessionHistoryLimits = { pageBytes: 8 * 1024, skeletonBytes: 2 * 1024 * 1024, lineBytes: 256 * 1024, chunkBytes: 64 * 1024, sourceBytes: 2 * 1024 ** 3, records: 200_000, entries: 10_000, queue: 16, subagentBytes: 200 * 1024, subagents: 32, subagentEntries: 4096, persisted: 256, persistedBytes: 4 * 1024 * 1024, persistedTotalBytes: 128 * 1024 * 1024, entryChars: 4400 } as const;
 /**
  * Head and tail characters an entry keeps, by level (SESSION-HANDOFF-SPEC §8.1). An index that would pass its byte or
  * entry budget is spent from the newest entry back: the newest calls, outputs and narration keep level 0, older ones step

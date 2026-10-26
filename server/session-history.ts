@@ -1,12 +1,13 @@
 import { createHash, randomUUID } from "node:crypto";
 import { constants } from "node:fs";
-import { lstat, mkdir, open, opendir, readFile, rename, unlink } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import type { Stats } from "node:fs";
+import { lstat, mkdir, open, opendir, readFile, realpath, rename, unlink } from "node:fs/promises";
+import { basename, dirname, join } from "node:path";
 import { z } from "zod";
 import { sessionHistoryEntrySchema, sessionHistoryLimits as limits, sessionHistoryPageSchema, sessionHistoryQuerySchema, type SessionHistoryEntry, type SessionHistoryPage, type SessionHistoryQuery } from "../shared/session-history";
 import { lineHint } from "./handoff-capture-records";
 import { locateProviderHistory, type HistoryAgent, type NativeHistoryFile } from "./provider-history";
-import { HistoryRecords } from "./session-history-records";
+import { HistoryRecords, type PersistedOutput } from "./session-history-records";
 import { redactHistory, unescapeLayers } from "./session-history-text";
 import { ToolError } from "./tool-error";
 
@@ -15,23 +16,32 @@ const jsonBytes = (value: unknown) => Buffer.byteLength(JSON.stringify(value));
 const yieldLoop = () => new Promise<void>((resolve) => setImmediate(resolve));
 const stamp = (s: { dev: number; ino: number; size: number; mtimeMs: number; ctimeMs: number; birthtimeMs: number }) => `${s.dev}:${s.ino}:${s.birthtimeMs}:${s.size}:${s.mtimeMs}:${s.ctimeMs}`;
 type Source = { path: string; ref: string; stamp: string; bytes: number };
+/** Persisted tool results read in one build: the session's tool-results/ folder (`real`: its resolved path), budgets used. */
+type Persisted = { folder: string; real?: string | null; files: Map<string, PersistedOutput>; count: number; bytes: number; sources: Source[] };
+/**
+ * The manifest read() accepts, by size, and the share of it a build's source list may use: persisted tool results up to
+ * the first bound, subagent transcripts (read after them) up to the second (SESSION-HANDOFF-SPEC §8.1).
+ */
+const manifestBytes = 256 * 1024, persistedListBytes = 160 * 1024, sourceListBytes = 200 * 1024;
 /**
  * Format 2 indexes tool outputs and full arguments (SESSION-HANDOFF-SPEC §21.13); format 3 checks every entry against the
- * schema before publishing, gives messages a bounded share and indexes Claude's mid-turn deliveries (§21.15). An older
- * index is rebuilt once.
+ * schema before publishing, gives messages a bounded share and indexes Claude's mid-turn deliveries (§21.15); format 4
+ * checks the manifest too, keeps grep lines over JSONL and logs whole, indexes Claude's persisted tool results from their
+ * files and reads subagents newest first without counting their metadata files (§21.16). An older index is rebuilt once.
  */
-const version = 3;
+const version = 4;
 type Manifest = { version: typeof version; agentId: string; provider: string; sessionId: string; snapshot: string; previous?: string; bodyHash: string; bodyBytes: number; builtAt: string; sources: Source[]; directories: { path: string; stamp: string | null }[]; coverage: NonNullable<SessionHistoryPage["coverage"]>; gaps: SessionHistoryPage["gaps"]; growth: NonNullable<SessionHistoryPage["growth"]> };
 type Options = { codexHome?: string; claudeHome?: string; /** Small limits are injectable for synthetic fault tests only. */ maxSourceBytes?: number; maxSkeletonBytes?: number; now?: () => number };
 const cursorSchema = z.object({ v: z.literal(1), agentId: z.string().max(240), snapshot: z.string().regex(/^[a-f0-9]{64}$/), query: z.string().regex(/^[a-f0-9]{64}$/), offset: z.number().int().min(0).max(limits.entries) }).strict();
 /** What read() accepts; the builder publishes nothing else (SESSION-HANDOFF-SPEC §21.16). */
-export const sessionHistoryManifestSchema = z.object({ version: z.literal(version), agentId: z.string().max(240), provider: z.enum(["codex", "claude"]), sessionId: z.string().max(240), snapshot: z.string().regex(/^[a-f0-9]{64}$/), previous: z.string().regex(/^[a-f0-9]{64}$/).optional(), bodyHash: z.string().regex(/^[a-f0-9]{64}$/), bodyBytes: z.number().int().min(0).max(limits.skeletonBytes), builtAt: z.string(), sources: z.array(z.object({ path: z.string().min(1).max(4096), ref: z.string().max(100), stamp: z.string().max(300), bytes: z.number().nonnegative() })).min(1).max(limits.subagents + 1), directories: z.array(z.object({ path: z.string().max(4096), stamp: z.string().max(300).nullable() })).max(2), coverage: sessionHistoryPageSchema.shape.coverage.unwrap(), gaps: sessionHistoryPageSchema.shape.gaps, growth: sessionHistoryPageSchema.shape.growth.unwrap() });
+export const sessionHistoryManifestSchema = z.object({ version: z.literal(version), agentId: z.string().max(240), provider: z.enum(["codex", "claude"]), sessionId: z.string().max(240), snapshot: z.string().regex(/^[a-f0-9]{64}$/), previous: z.string().regex(/^[a-f0-9]{64}$/).optional(), bodyHash: z.string().regex(/^[a-f0-9]{64}$/), bodyBytes: z.number().int().min(0).max(limits.skeletonBytes), builtAt: z.string(), sources: z.array(z.object({ path: z.string().min(1).max(4096), ref: z.string().max(100), stamp: z.string().max(300), bytes: z.number().nonnegative() })).min(1).max(1 + limits.subagents + limits.persisted), directories: z.array(z.object({ path: z.string().max(4096), stamp: z.string().max(300).nullable() })).max(2), coverage: sessionHistoryPageSchema.shape.coverage.unwrap(), gaps: sessionHistoryPageSchema.shape.gaps, growth: sessionHistoryPageSchema.shape.growth.unwrap() });
 /**
  * The manifest as read() will accept it: read() refuses one that does not conform, and a rebuild would build the same one,
  * so a value past a bound is bounded here (SESSION-HANDOFF-SPEC §21.16). One that still does not conform fails the build
  * (`build_failed`), which publishes nothing and keeps the previous index.
  */
 function publishable(manifest: Manifest): Manifest {
+  if (jsonBytes(manifest) > manifestBytes) throw new Error("Derived-history manifest over its size bound");
   if (sessionHistoryManifestSchema.safeParse(manifest).success) return manifest;
   const count = (value: number) => Number.isFinite(value) ? Math.max(0, Math.floor(value)) : 0;
   const bounded: Manifest = { ...manifest,
@@ -74,7 +84,7 @@ export class SessionHistory {
   private async manifest(agentId: string): Promise<Manifest | null> {
     const path = this.paths(agentId).manifest;
     const info = await lstat(path).catch(() => null); if (!info) return null;
-    if (!info.isFile() || info.size > 32 * 1024) throw new Error("Invalid derived-history manifest");
+    if (!info.isFile() || info.size > manifestBytes) throw new Error("Invalid derived-history manifest");
     const data: unknown = JSON.parse(await readFile(path, "utf8"));
     // An index of an older format covers less; it is replaced on this read, not served.
     if (data && typeof data === "object" && typeof (data as { version?: unknown }).version === "number" && (data as { version: number }).version < version) return null;
@@ -190,21 +200,10 @@ export class SessionHistory {
     if (!location.file) throw new Error("Source unavailable");
     const records = new HistoryRecords(location.file.sessionId, this.options.maxSkeletonBytes);
     const sources: Source[] = [], directories: Manifest["directories"] = [];
-    const main = await this.scan(location.file, "main", records, false); sources.push(main);
-    if (location.file.provider === "claude" && !this.controller.signal.aborted) {
-      const sessionDirectory = join(dirname(location.file.path), location.file.sessionId), folder = join(sessionDirectory, "subagents");
-      for (const path of [sessionDirectory, folder]) { const info = await lstat(path).catch(() => null); directories.push({ path, stamp: info ? stamp(info) : null }); }
-      if ((await lstat(sessionDirectory).catch(() => null))?.isDirectory() && (await lstat(folder).catch(() => null))?.isDirectory()) {
-        const entries = await opendir(folder); let count = 0;
-        for await (const item of entries) {
-          if (++count > limits.subagents) { records.gap("subagent_count_budget"); break; }
-          if (!item.isFile() || !item.name.endsWith(".jsonl")) { records.gap("subagent_unsupported_entry"); continue; }
-          const path = join(folder, item.name), info = await lstat(path);
-          if (info.size > limits.subagentBytes) { sources.push({ path, ref: `subagent:${digest(item.name).slice(0, 24)}`, stamp: stamp(info), bytes: info.size }); records.coverage.sourceBytes += info.size; records.gap("subagent_size_budget", info.size); continue; }
-          sources.push(await this.scan({ ...location.file, path }, `subagent:${digest(item.name).slice(0, 24)}`, records, true));
-        }
-      }
-    }
+    const sessionDirectory = join(dirname(location.file.path), location.file.sessionId);
+    const persisted: Persisted = { folder: join(sessionDirectory, "tool-results"), files: new Map(), count: 0, bytes: 0, sources };
+    const main = await this.scan(location.file, "main", records, false, location.file.provider === "claude" ? persisted : undefined); sources.unshift(main);
+    if (location.file.provider === "claude" && !this.controller.signal.aborted) await this.subagents(location.file, sessionDirectory, records, sources, directories);
     if (this.controller.signal.aborted) throw new Error("Stopped");
     const unstable = (await Promise.all(sources.map(async (source) => stamp(await lstat(source.path)) !== source.stamp))).some(Boolean) || (await Promise.all(directories.map(async (directory) => { const current = await lstat(directory.path).catch(() => null); return (current ? stamp(current) : null) !== directory.stamp; }))).some(Boolean);
     if (unstable) throw new Error("Source changed during build");
@@ -216,7 +215,69 @@ export class SessionHistory {
     await this.atomic(join(paths.folder, `${snapshot}.jsonl`), body); await this.atomic(paths.manifest, JSON.stringify(manifest));
     await this.retire(agent.id, manifest);
   }
-  private async scan(file: NativeHistoryFile, ref: string, records: HistoryRecords, textOnly: boolean): Promise<Source> {
+  /**
+   * Claude's subagent transcripts (subagents/agent-<id>.jsonl), newest first up to the cap and indexed oldest first, so
+   * the newest is the last to leave a full index. Their agent-<id>.meta.json files are metadata; a workflows/ folder (the
+   * transcripts of workflow runs) and anything else are named gaps (SESSION-HANDOFF-SPEC §8.1).
+   */
+  private async subagents(file: NativeHistoryFile, sessionDirectory: string, records: HistoryRecords, sources: Source[], directories: Manifest["directories"]) {
+    const folder = join(sessionDirectory, "subagents");
+    for (const path of [sessionDirectory, folder]) { const info = await lstat(path).catch(() => null); directories.push({ path, stamp: info ? stamp(info) : null }); }
+    if (!(await lstat(sessionDirectory).catch(() => null))?.isDirectory() || !(await lstat(folder).catch(() => null))?.isDirectory()) return;
+    const transcripts: { name: string; path: string; info: Stats }[] = [];
+    let listed = 0;
+    for await (const item of await opendir(folder)) {
+      if (++listed > limits.subagentEntries) { records.gap("subagent_listing_budget"); break; }
+      if (item.isFile() && item.name.endsWith(".meta.json")) continue;
+      if (item.isDirectory() && item.name === "workflows") { records.gap("subagent_workflows_not_indexed"); continue; }
+      if (!item.isFile() || !item.name.endsWith(".jsonl")) { records.gap("subagent_unsupported_entry"); continue; }
+      const path = join(folder, item.name), info = await lstat(path).catch(() => null);
+      if (info?.isFile()) transcripts.push({ name: item.name, path, info });
+    }
+    transcripts.sort((a, b) => b.info.mtimeMs - a.info.mtimeMs || (a.name < b.name ? -1 : 1));
+    for (const skipped of transcripts.slice(limits.subagents)) { records.coverage.sourceBytes += skipped.info.size; records.gap("subagent_count_budget", skipped.info.size); }
+    for (const { name, path, info } of transcripts.slice(0, limits.subagents).reverse()) {
+      if (this.controller.signal.aborted) return;
+      const ref = `subagent:${digest(name).slice(0, 24)}`;
+      if (jsonBytes([...sources, { path, ref, stamp: stamp(info), bytes: info.size }]) > sourceListBytes) { records.coverage.sourceBytes += info.size; records.gap("subagent_count_budget", info.size); continue; }
+      if (info.size > limits.subagentBytes) { sources.push({ path, ref, stamp: stamp(info), bytes: info.size }); records.coverage.sourceBytes += info.size; records.gap("subagent_size_budget", info.size); continue; }
+      sources.push(await this.scan({ ...file, path }, ref, records, true));
+    }
+  }
+  /**
+   * The persisted tool results a record names (`HistoryRecords.persistedPaths`): read whole when the file is a regular
+   * file directly in this session's tool-results/ folder and within the per-file, count, total and source-list budgets;
+   * each one read becomes a source, so a later change shows as changed. Anything else is left for a named gap.
+   */
+  private async persisted(raw: Buffer, records: HistoryRecords, state: Persisted) {
+    const found = new Map<string, PersistedOutput>();
+    for (const path of records.persistedPaths(raw)) {
+      const known = state.files.get(path); if (known) { found.set(path, known); continue; }
+      const name = basename(path), ref = `tool-results:${digest(name).slice(0, 24)}`;
+      const read = await this.readPersisted(path, name, ref, state).catch((error) => { if (String(error).includes("changed during build")) throw error; return undefined; });
+      const output: PersistedOutput = read ?? { ref, bytes: (await lstat(path).catch(() => null))?.size ?? 0 };
+      if (output.fields) { state.files.set(path, output); records.coverage.sourceBytes += output.bytes; records.coverage.readBytes += output.bytes; }
+      found.set(path, output);
+    }
+    return found;
+  }
+  private async readPersisted(path: string, name: string, ref: string, state: Persisted): Promise<PersistedOutput | undefined> {
+    if (!/^[\w-][\w.-]{0,199}$/.test(name) || state.count >= limits.persisted) return undefined;
+    state.real ??= await realpath(state.folder).catch(() => null);
+    if (!state.real || await realpath(dirname(path)).catch(() => null) !== state.real) return undefined;
+    const info = await lstat(path).catch(() => null);
+    if (!info?.isFile() || info.size > limits.persistedBytes || state.bytes + info.size > limits.persistedTotalBytes) return undefined;
+    const source: Source = { path, ref, stamp: stamp(info), bytes: info.size };
+    if (jsonBytes([...state.sources, source]) > persistedListBytes) return undefined;
+    const handle = await open(path, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
+    let buffer: Buffer;
+    try { buffer = await handle.readFile(); if (stamp(await handle.stat()) !== source.stamp) throw new Error("Source changed during build"); } finally { await handle.close(); }
+    state.count++; state.bytes += info.size; state.sources.push(source);
+    const text = buffer.toString("utf8");
+    // Bytes that are not UTF-8 decode to replacement characters: the text is then located by the whole file only.
+    return { ref, bytes: info.size, fields: [Buffer.byteLength(text) === buffer.length ? { text, start: 0, bytes: buffer.length, utf8: true } : { text }] };
+  }
+  private async scan(file: NativeHistoryFile, ref: string, records: HistoryRecords, textOnly: boolean, persisted?: Persisted): Promise<Source> {
     const handle = await open(file.path, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
     try {
       const initial = await handle.stat(); if (!initial.isFile()) throw new Error("Source not a file");
@@ -224,13 +285,22 @@ export class SessionHistory {
       records.coverage.sourceBytes += initial.size;
       const budget = Math.min(this.options.maxSourceBytes ?? limits.sourceBytes, limits.sourceBytes);
       let position = 0, start = 0, parts: Buffer[] = [], length = 0, skipping = false, prefix = Buffer.alloc(0);
+      // Complete records of the chunk, indexed in order once it is read: one that names persisted tool results waits for them.
+      const ready: { raw: Buffer; from: number; to: number }[] = [];
       const finish = (end: number, terminated: boolean) => {
         const hint = lineHint(prefix.subarray(0, 512));
         if (skipping) { records.gap("long_line", end - start); records.coverage.skippedLines++; records.coverage.skippedBytes += end - start; }
         else if (!terminated) records.gap("partial_line", end - start);
-        else records.line(Buffer.concat(parts, length), file.provider, ref, start, end, textOnly);
+        else ready.push({ raw: Buffer.concat(parts, length), from: start, to: end });
         records.grow(hint.type, end - start); records.coverage.totalRecords++; records.coverage.through += end - start;
         start = end; parts = []; length = 0; skipping = false; prefix = Buffer.alloc(0);
+      };
+      const flush = async () => {
+        for (const { raw, from, to } of ready.splice(0)) {
+          const saved = persisted && raw.includes("<persisted-output>") ? await this.persisted(raw, records, persisted) : undefined;
+          if (this.controller.signal.aborted) throw new Error("Stopped");
+          records.line(raw, file.provider, ref, from, to, textOnly, saved);
+        }
       };
       while (position < initial.size && records.coverage.readBytes < budget && records.coverage.totalRecords < limits.records) {
         if (this.controller.signal.aborted) throw new Error("Stopped");
@@ -246,10 +316,11 @@ export class SessionHistory {
           if (newline >= 0 && newline < bytesRead) finish(position + end, true);
           offset = end;
         }
-        position += offset; await yieldLoop();
+        await flush(); position += offset; await yieldLoop();
         if (offset < bytesRead) break;
       }
       if (start < position) finish(position, false);
+      await flush();
       if (position < initial.size) { records.gap("source_budget", initial.size - position); records.coverage.complete = false; }
       if (stamp(await handle.stat()) !== source.stamp) throw new Error("Source changed during build");
       return source;

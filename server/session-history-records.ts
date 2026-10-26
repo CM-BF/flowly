@@ -30,6 +30,19 @@ const codexMetadata = new Set(["event_msg", "session_meta", "turn_context", "wor
 /** A record type the index does not know, named in its gap so a real loss is not hidden among metadata. */
 const unsupported = (...names: string[]) => `unsupported_record/${names.map((name) => redactHistory(name).replace(/[^\w.-]/g, "_").slice(0, 30) || "unknown").join("/")}`;
 
+/**
+ * Claude Code's stand-in for a tool result too large for the transcript: the path of the file that holds it (under the
+ * session's tool-results/ folder) and its stated size.
+ */
+export function persistedStub(text: string): { path: string; bytes: number } | undefined {
+  const match = /^<persisted-output>\r?\n[^\r\n]{0,200}?\((\d{1,9}(?:\.\d{1,3})?)\s?(B|KB|MB|GB)\)[^\r\n]{0,80}? saved to: ([^\r\n]{1,4096})\r?\n/.exec(text);
+  if (!match) return undefined;
+  const scale = { B: 1, KB: 1024, MB: 1024 ** 2, GB: 1024 ** 3 }[match[2] as "B" | "KB" | "MB" | "GB"];
+  return { path: match[3].trim(), bytes: Math.round(Number(match[1]) * scale) };
+}
+/** A persisted tool result as the builder read it: its source ref, size, and its text (absent when it was not read). */
+export type PersistedOutput = { ref: string; bytes: number; fields?: Field[] };
+
 type Slot = { kind: Kind; lane?: Lane; base: Omit<SessionHistoryEntry, "text" | "truncated" | "middle">; prefix: string; first: number; variants: Variant[]; size: number };
 type Draft = { kind: Kind; role: SessionHistoryEntry["role"]; source: string; from: number; to: number; type: string; at?: string; tool?: SessionHistoryEntry["tool"]; prefix?: string; characters: number; decoded?: boolean; variants: Variant[]; paths: string[] };
 
@@ -189,15 +202,15 @@ export class HistoryRecords {
     for (const match of text.matchAll(/(?:^|[\s"'(=])((?:\/|\.\.?\/)[\w@.+/~\/-]{1,239})/g)) { if (paths.size === 5) break; paths.add(match[1].slice(0, 240)); }
     return [...paths];
   }
-  /** Text parts of a content array (or a string); images and thinking are counted, never kept. */
-  private parts(content: unknown): string[] {
+  /** Text parts of a content array (or a string); images and thinking are counted (`count`), never kept. */
+  private parts(content: unknown, count = true): string[] {
     if (typeof content === "string") return [content];
     if (!Array.isArray(content)) return [];
     return content.flatMap((part) => {
       const block = object(part), type = string(block.type);
-      if (["image", "input_image"].includes(type)) this.gap("image_omitted");
+      if (count && ["image", "input_image"].includes(type)) this.gap("image_omitted");
       // Claude's readable reasoning: the index is not the model's reasoning (§21.3), and says what it leaves out.
-      if (type === "thinking" || type === "redacted_thinking") this.gap("thinking_omitted");
+      if (count && (type === "thinking" || type === "redacted_thinking")) this.gap("thinking_omitted");
       return ["text", "input_text", "output_text"].includes(type) && typeof block.text === "string" ? [block.text] : [];
     });
   }
@@ -235,16 +248,28 @@ export class HistoryRecords {
     if (!cut) { this.gap("escaped_text_omitted"); this.add({ kind: "call", role: "tool", source, from, to, type, at, tool, prefix: `${tool.name}: `, characters: 0, variants: levels.call.map(() => ({ text: "[escaped content omitted]", truncated: true })), paths: known.slice(0, 5) }); return; }
     this.add({ kind: "call", role: "tool", source, from, to, type, at, tool, prefix: `${tool.name}: `, characters: cut.characters, decoded: cut.decoded || decoded, variants: cut.variants, paths: this.paths(cut.variants[0].text, known) });
   }
-  /** A tool's output: bounded head and tail, its exit code or error as `outcome`. */
-  private output(name: string, parts: string[], outcome: string | undefined, raw: Buffer, source: string, from: number, to: number, type: string, at?: string) {
-    if (!parts.join("").trim() && !outcome) return;
+  /**
+   * A tool's output: bounded head and tail, its exit code or error as `outcome`. `fields` are located in the record at
+   * `from`–`to` of `source`, or are the whole of a persisted output's file (`source` is then that file).
+   */
+  private output(name: string, fields: Field[], outcome: string | undefined, source: string, from: number, to: number, type: string, at?: string) {
+    if (!fields.map((field) => field.text).join("").trim() && !outcome) return;
     const tool = { name: redactHistory(name).slice(0, 100), category: this.category(name), kind: "output" as const, ...(outcome ? { outcome: sanitizeText(outcome)?.text.slice(0, 300) ?? "error" } : {}) };
-    const cut = parts.length ? excerpt(locateFields(raw, from, parts), levels.output, { from, to }) : { characters: 0, decoded: false, unsafe: false, variants: levels.output.map(() => ({ text: "", truncated: false })) };
+    const cut = fields.length ? excerpt(fields, levels.output, { from, to }) : { characters: 0, decoded: false, unsafe: false, variants: levels.output.map(() => ({ text: "", truncated: false })) };
     if (cut?.unsafe) this.gap("escaped_text_omitted");
     if (!cut) { this.gap("escaped_text_omitted"); this.add({ kind: "output", role: "tool", source, from, to, type, at, tool, characters: 0, variants: levels.output.map(() => ({ text: "[escaped content omitted]", truncated: true })), paths: [] }); return; }
     this.add({ kind: "output", role: "tool", source, from, to, type, at, tool, characters: cut.characters, decoded: cut.decoded, variants: cut.variants, paths: this.paths(cut.variants[0].text) });
   }
-  line(raw: Buffer, provider: "codex" | "claude", source: string, from: number, to: number, textOnly: boolean) {
+  /** The files a Claude record's persisted tool results name, for the builder to read before the record (`line`). */
+  persistedPaths(raw: Buffer): string[] {
+    let value: Record<string, unknown>;
+    try { value = object(JSON.parse(raw.toString("utf8"))); } catch { return []; }
+    const content = object(value.message).content;
+    if (value.type !== "user" || value.isSidechain === true || !Array.isArray(content)) return [];
+    return content.flatMap((item) => { const block = object(item); return block.type === "tool_result" ? this.parts(block.content, false).flatMap((part) => { const stub = persistedStub(part); return stub ? [stub.path] : []; }) : []; });
+  }
+  /** `persisted`: the persisted tool results this record names, as the builder read them (`persistedPaths`). */
+  line(raw: Buffer, provider: "codex" | "claude", source: string, from: number, to: number, textOnly: boolean, persisted?: ReadonlyMap<string, PersistedOutput>) {
     let value: Record<string, unknown>;
     try { value = object(JSON.parse(raw.toString("utf8"))); } catch { this.gap("invalid_json", raw.length); return; }
     const type = string(value.type), payload = object(value.payload), at = string(value.timestamp);
@@ -263,7 +288,7 @@ export class HistoryRecords {
         if (block.type === "tool_use") { this.rememberCall(string(block.id), string(block.name)); this.call(string(block.name), block.input, raw, source, from, to, "claude/tool_use", at); }
         if (block.type === "tool_result") {
           const callId = string(block.tool_use_id), name = this.calls.get(callId) ?? "tool_result"; this.calls.delete(callId);
-          this.output(name, this.parts(block.content), block.is_error === true ? "error" : undefined, raw, source, from, to, "claude/tool_result", at);
+          this.toolResult(name, this.parts(block.content), block.is_error === true ? "error" : undefined, raw, source, from, to, at, persisted);
         }
       }
     } else if (type === "attachment") this.attachment(object(value.attachment), raw, source, from, to, at);
@@ -273,6 +298,23 @@ export class HistoryRecords {
       const queued = value.content;
       if (typeof queued === "string" && queued.includes("<task-notification>") && !this.repeatedNotice(queued)) this.message("user", [queued], raw, source, from, to, "claude/queue-operation", at);
     } else if (!claudeMetadataRecords.has(type) && type !== "pr-link") this.gap(unsupported(type));
+  }
+  /**
+   * A Claude tool result. One that Claude Code saved to a file (a <persisted-output> stub with a 2 KB preview) is indexed
+   * from that file when the builder read it, its middle located in the file's bytes; otherwise the preview is indexed
+   * and the loss is a named gap (SESSION-HANDOFF-SPEC §8.1).
+   */
+  private toolResult(name: string, parts: string[], outcome: string | undefined, raw: Buffer, source: string, from: number, to: number, at: string, persisted?: ReadonlyMap<string, PersistedOutput>) {
+    const fields = locateFields(raw, from, parts);
+    const saved = fields.findIndex((field) => persistedStub(field.text)), stub = saved >= 0 ? persistedStub(fields[saved].text)! : undefined, file = stub && persisted?.get(stub.path);
+    if (!stub || !file?.fields) {
+      // The file's size when it is there, otherwise the size the stub states.
+      if (stub) this.gap("persisted_output_not_indexed", file?.bytes || stub.bytes);
+      return this.output(name, fields, outcome, source, from, to, "claude/tool_result", at);
+    }
+    this.output(name, file.fields, outcome, file.ref, 0, file.bytes, "claude/tool_result/persisted", at);
+    const rest = fields.filter((_, index) => index !== saved);
+    if (rest.some((field) => field.text.trim())) this.output(name, rest, undefined, source, from, to, "claude/tool_result", at);
   }
   /**
    * Claude Code run through the SDK writes what arrives during a turn (a person's words, a task notice) only as an
@@ -306,7 +348,7 @@ export class HistoryRecords {
     } else if (type === "response_item" && /output/.test(item)) {
       const callId = string(payload.call_id), name = this.calls.get(callId) ?? "tool_result"; this.calls.delete(callId);
       const output = payload.output, parts = typeof output === "string" ? [output] : Array.isArray(output) ? this.parts(output) : output === undefined ? [] : [JSON.stringify(output)];
-      this.output(name, parts, codexOutcome(output, parts), raw, source, from, to, type + "/" + item, at);
+      this.output(name, locateFields(raw, from, parts), codexOutcome(output, parts), source, from, to, type + "/" + item, at);
     } else if (type === "compacted" || type === "response_item" && item === "reasoning") this.gap("encrypted_reasoning_omitted");
     else if (!codexMetadata.has(type)) this.gap(type === "response_item" ? unsupported(type, item) : unsupported(type));
   }

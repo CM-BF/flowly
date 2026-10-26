@@ -116,8 +116,11 @@ export function safeArguments(input: unknown): { value: unknown; omitted: boolea
   catch { return { value: "[arguments omitted: bounded parser]", omitted: true, decoded: false }; }
 }
 
-/** A decoded string of a source record and the file offset of its JSON string token, when found. */
-export type Field = { text: string; start?: number; bytes?: number };
+/**
+ * A decoded string of a source record and the file offset of its JSON string token, when found. `utf8`: the text is a
+ * file's own bytes from `start` (a persisted tool result), not a JSON string token.
+ */
+export type Field = { text: string; start?: number; bytes?: number; utf8?: boolean };
 /**
  * Where each string sits in the raw record: the token JSON.stringify writes, found in order. Codex (serde_json) and
  * Claude Code (JSON.stringify) escape strings the same way; a string not found is located by its record only.
@@ -149,11 +152,13 @@ function joined(fields: Field[]) {
     }
     return undefined;
   };
-  // The token is `"` + escaped prefix + escaped suffix + `"`: measure whichever side of the position is shorter.
+  // The token is `"` + escaped prefix + escaped suffix + `"` (a file's own bytes have no quotes or escapes): measure
+  // whichever side of the position is shorter.
   const byteAt = (position: number) => {
     const found = find(position), start = found?.field.start, bytes = found?.field.bytes;
     if (!found || start === undefined || bytes === undefined) return undefined;
-    const { field: { text }, within } = found;
+    const { field: { text, utf8 }, within } = found;
+    if (utf8) return within <= text.length / 2 ? start + Buffer.byteLength(text.slice(0, within)) : start + bytes - Buffer.byteLength(text.slice(within));
     return within <= text.length / 2 ? start + Buffer.byteLength(JSON.stringify(text.slice(0, within))) - 1 : start + bytes - Buffer.byteLength(JSON.stringify(text.slice(within))) + 1;
   };
   return { text, byteAt, fieldAt: (position: number) => find(position)?.index };
@@ -247,7 +252,7 @@ export function excerpt(fields: Field[], levels: readonly Budget[], record: { fr
   if (!fields.length) return undefined;
   const { text: source, byteAt, fieldAt } = joined(fields), located = fields.every((field) => field.start !== undefined);
   // The bytes of the fields' contents, from inside the first token's opening quote to the last one's closing quote.
-  const span = located ? { from: fields[0].start! + 1, to: byteAt(source.length)! } : record;
+  const span = located ? { from: fields[0].start! + (fields[0].utf8 ? 0 : 1), to: byteAt(source.length)! } : record;
   const widest = { head: Math.max(...levels.map((level) => level.head)), tail: Math.max(...levels.map((level) => level.tail)) };
   let head: Side, tail: Side, whole: Sanitized | undefined;
   if (source.length <= widest.head + widest.tail + 2 * margin) {
