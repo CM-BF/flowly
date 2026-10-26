@@ -147,10 +147,13 @@ test("malformed complete JSON is a visible information gap, never an apparently 
   x.render(); await tick(); expect(text(x.render() as unknown as ReactNode)).toContain("This entry could not be decoded; its contents are not verified.");
 });
 
-/** The live P2 card at the end: approved and delivered, every input done, the record older than later workspace activity. */
+/**
+ * The live P2 card at the end: approved and delivered, every input done, the repository as the checkpoint saw it; the
+ * reviewer's approval is the only entry after the checkpoint (the implementer's own delivery note is not news, §21.15).
+ */
 function settledContext(): HandoffContextView {
   const r = record(); r.inputs[0].status = "done";
-  return { ...context(r), due: ["Repository state changed after the checkpoint."], changes: ["Repository state changed after the checkpoint."], behind: "activity", staleSince: at, view: { ...context(r).view!, openIds: [], openIdsTotal: 0 } };
+  return { ...context(r), due: ["A review arrived after the last checkpoint."], changes: ["A review arrived after the last checkpoint."], behind: "activity", staleSince: at, view: { ...context(r).view!, openIds: [], openIdsTotal: 0 } };
 }
 const index = { taskId: "a", fresh: false, staleSince: at, open: 0, sessions: 3, behind: "activity" as const };
 const notices = (tree: Element[]) => tree.filter(e => e.type as unknown === "Notice" && e.props.tone === "warning").map(e => text(e.props.children as ReactNode));
@@ -169,7 +172,7 @@ test("a record behind later activity, with nothing unresolved and no agent about
   // The sentence makes no claim about agents: a session may still be running on the card.
   expect(muted(tree)).toContain(neutral); expect(all).not.toContain("no agent is about to continue");
   // The staleness stays readable for whoever continues later, under a neutral title.
-  expect(all).toContain("Repository state changed after the checkpoint."); expect(groups(tree)).toContain("Changed since it was recorded"); expect(groups(tree)).not.toContain("Needs checking");
+  expect(all).toContain("A review arrived after the last checkpoint."); expect(groups(tree)).toContain("Changed since it was recorded"); expect(groups(tree)).not.toContain("Needs checking");
   expect(summary(tree)).toBe("Handoff recorded before later activity · 0 unresolved items · 3 sessions");
 });
 test("the warning stays when an agent is about to continue from the record or items are unresolved", () => {
@@ -187,7 +190,7 @@ test("a successor that never acknowledged is a muted fact when no agent continue
   expect(warnings(tree)).toEqual([]); expect(muted(tree)).toContain(ack);
   expect(summary(tree)).toMatch(/^Handoff recorded · /); expect(text(tree as unknown as ReactNode)).not.toContain("before later activity");
   // Later activity and a missing acknowledgement: neutral, and the acknowledgement is not listed as a change.
-  host.query = { ...settledContext(), due: ["Repository state changed after the checkpoint.", line], ackRequired: true };
+  host.query = { ...settledContext(), due: ["A review arrived after the last checkpoint.", line], ackRequired: true };
   tree = renderCard({ index, pending: false }).render();
   expect(warnings(tree)).toEqual([]); expect(muted(tree)).toContain(ack); expect(summary(tree)).toMatch(/^Handoff recorded before later activity · /);
   expect(text(tree as unknown as ReactNode)).not.toContain(line);
@@ -195,12 +198,16 @@ test("a successor that never acknowledged is a muted fact when no agent continue
   tree = renderCard({ index, pending: true }).render();
   expect(notices(tree)).toEqual(expect.arrayContaining(["Handoff needs checking · recently", ack])); expect(summary(tree)).toMatch(/^Handoff needs checking · /);
 });
-test("an unavailable record is a warning even when nothing is unresolved and no agent continues", () => {
+test("an unavailable record is a warning even when nothing is unresolved and no agent continues, in the summary too", () => {
   host.query = { revision: 0, fresh: false, due: ["The durable handoff is unavailable; do not guess missing requirements."], unavailable: "The known handoff file is missing; recover it before continuing.", staleSince: at };
-  const tree = renderCard({ index, pending: false }).render();
-  expect(notices(tree)).toEqual(["The known handoff file is missing; recover it before continuing.", "Handoff needs checking · recently"]);
-  expect(muted(tree).join(" ")).not.toContain("before later activity"); expect(muted(tree)).not.toContain(neutral);
-  expect(groups(tree)).toEqual(["Needs checking"]);
+  for (const older of [index, { ...index, fresh: true, behind: undefined }]) {
+    // The index entry may still be the calm one from before the loss: the summary follows the body that was read.
+    const tree = renderCard({ index: older, pending: false }).render();
+    expect(notices(tree)).toEqual(["The known handoff file is missing; recover it before continuing.", "Handoff needs checking · recently"]);
+    expect(muted(tree).join(" ")).not.toContain("before later activity"); expect(muted(tree)).not.toContain(neutral);
+    expect(groups(tree)).toEqual(["Needs checking"]);
+    expect(summary(tree)).toMatch(/^Handoff needs checking · 0 unresolved items · /);
+  }
 });
 test("a record no agent wrote says so and keeps its to-do lines under Needs checking, not as changes", () => {
   const r = record(); r.inputs[0].status = "done";

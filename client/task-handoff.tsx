@@ -32,7 +32,8 @@ const sectionLabels: Record<string, string> = {
  * No detail fetch while folded. Background reads never seed or replace a person's draft. `pending`: an agent is about to
  * continue from this record (`continuationPending`); only then, with unresolved items, or with a record that could not
  * be read or checked, is a record that is not fresh a warning (SESSION-HANDOFF-SPEC §12). The summary and the body use
- * the same rule; a missing acknowledgement is a warning only with them.
+ * the same rule; a missing acknowledgement is a warning only with them. A record the drawer could not read makes the
+ * summary a warning too, whatever the index entry still says (the read also brings that entry up to date).
  */
 export function TaskHandoff({ taskId, active, disabled, section, index, pending = true, onStartSession, onOpenSession }: {
   taskId: string; active: boolean; disabled: boolean; section: SectionState; index?: HandoffIndex; pending?: boolean;
@@ -86,7 +87,7 @@ export function TaskHandoff({ taskId, active, disabled, section, index, pending 
     if (fresh) { if (!result.automation) onStartSession(); }
     else if (agentId && onOpenSession(agentId) === false) setError(t("The session list changed. Refresh the card before opening that session."));
   });
-  const summary = index ? [t(handoffToneLabels[handoffTone(index, pending)]), tn(index.open, "{n} unresolved item", "{n} unresolved items"), tn(index.sessions, "{n} session", "{n} sessions")].join(" · ") : t("The next agent continues from this card.");
+  const summary = index ? [t(handoffToneLabels[handoffTone(index, pending, !!context?.unavailable)]), tn(index.open, "{n} unresolved item", "{n} unresolved items"), tn(index.sessions, "{n} session", "{n} sessions")].join(" · ") : t("The next agent continues from this card.");
   const tone = context && handoffTone({ fresh: context.fresh, open: Math.max(index?.open ?? 0, context.view?.openIdsTotal ?? 0), behind: context.behind }, pending, !!context.unavailable);
   const ack = t("The new agent has not acknowledged this handoff yet.");
   // Behind later activity: only the changes are listed (the acknowledgement has its own line); recorded: nothing to list.

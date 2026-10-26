@@ -57,7 +57,17 @@ export class HandoffService {
     await new Promise<void>((wake) => { const timer = setTimeout(wake, options.delayMs ?? 90_000); timer.unref?.(); this.sweepWait = { timer, wake }; });
     this.sweepWait = undefined;
     if (this.stopped) return;
+    await this.syncUnclassified(options.pauseMs ?? 100);
     await this.records.sweep({ pauseMs: options.pauseMs ?? 100, stopped: () => this.stopped }).catch((error) => console.error("Flowly handoff body cleanup failed:", error instanceof Error ? error.message : String(error)));
+  }
+  /** Index entries written before `behind` existed read as `activity` until their card syncs; plugin start syncs them once. */
+  private async syncUnclassified(pauseMs: number) {
+    const ids = (await this.board.read()).handoffIndex.filter((entry) => !entry.fresh && !entry.behind).map((entry) => entry.taskId);
+    for (const taskId of ids) {
+      if (this.stopped) return;
+      await this.serial(taskId, () => this.syncIndex(taskId)).catch((error) => console.error("Flowly handoff index sync failed:", error instanceof Error ? error.message : String(error)));
+      await new Promise((resolve) => setTimeout(resolve, pauseMs));
+    }
   }
   stop() { this.stopped = true; if (this.sweepWait) { clearTimeout(this.sweepWait.timer); this.sweepWait.wake(); } }
   private now() { return new Date(this.clock()).toISOString(); }
@@ -114,20 +124,43 @@ export class HandoffService {
   }
   async syncIndex(taskId: string) {
     const { board, task, project } = await this.card(taskId);
-    await this.reconcile(taskId, board);
-    // A known record whose file is missing is a warning for the person, not an empty record no agent wrote.
-    const existing = await this.records.read(task.id), missing = !existing && board.handoffIndex.some((entry) => entry.taskId === task.id);
-    const record = existing ?? await this.records.read(task.id, project.id);
-    const status = this.due(record, board), behind = missing ? "unverified" : status.behind;
+    let summary: { fresh: boolean; open: number; sessions?: number; behind?: HandoffBehind };
+    try {
+      await this.reconcile(taskId, board);
+      // A known record whose file is missing is a warning for the person, not an empty record no agent wrote.
+      const existing = await this.records.read(task.id), missing = !existing && board.handoffIndex.some((entry) => entry.taskId === task.id);
+      const record = existing ?? await this.records.read(task.id, project.id), status = this.due(record, board);
+      summary = { fresh: !status.due.length, open: handoffOpenIds(record).length, sessions: Math.max(0, ...record.ledger.map((entry) => entry.n)), ...(missing ? { behind: "unverified" as const } : status.behind ? { behind: status.behind } : {}) };
+      if (missing) summary.fresh = false;
+    } catch (error) {
+      // An unreadable or invalid record is preserved for recovery and is a warning on the card face, not a failed sync.
+      if (!(error instanceof ToolError) || error.code !== "HANDOFF_UNAVAILABLE") throw error;
+      const old = board.handoffIndex.find((entry) => entry.taskId === task.id);
+      summary = { fresh: false, open: old?.open ?? 0, behind: "unverified" };
+    }
     await this.board.transaction((current) => {
       if (!current.tasks.some((card) => card.id === task.id && card.projectId === project.id)) return { value: undefined, changed: false };
       const old = current.handoffIndex.find((entry) => entry.taskId === task.id);
       // A call caught in flight is not an open id, so catching one does not rewrite board.json.
-      const next = { taskId: task.id, fresh: !status.due.length, ...(status.due.length ? { staleSince: old?.staleSince ?? this.now() } : {}), open: handoffOpenIds(record).length, sessions: Math.max(0, ...record.ledger.map((entry) => entry.n)), ...(behind ? { behind } : {}) };
+      const next = { taskId: task.id, fresh: summary.fresh, ...(!summary.fresh ? { staleSince: old?.staleSince ?? this.now() } : {}), open: summary.open, sessions: summary.sessions ?? old?.sessions ?? 0, ...(summary.behind ? { behind: summary.behind } : {}) };
       if (JSON.stringify(old) === JSON.stringify(next)) return { value: undefined, changed: false };
       current.handoffIndex = [...current.handoffIndex.filter((entry) => entry.taskId !== task.id), next];
       return { value: undefined, changed: true };
     });
+  }
+  private refreshing = new Set<string>();
+  /**
+   * The drawer's read brings the card's index entry up to date when it disagrees with the record it just read (or could
+   * not read), so the card face and the folded summary agree with the body even on a quiet card that nobody writes to
+   * (SESSION-HANDOFF-SPEC §12, §21.15). Serialized with the card's writes; the read waits for it only briefly.
+   */
+  private async refreshIndex(taskId: string) {
+    if (this.refreshing.has(taskId) || this.stopped) return;
+    this.refreshing.add(taskId);
+    const job = this.serial(taskId, () => this.syncIndex(taskId)).catch((error) => console.error("Flowly handoff index refresh failed:", error instanceof Error ? error.message : String(error))).finally(() => this.refreshing.delete(taskId));
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    await Promise.race([job, new Promise<void>((resolve) => { timer = setTimeout(resolve, 1500); timer.unref?.(); })]);
+    if (timer) clearTimeout(timer);
   }
   /**
    * What the next agent must check (`due`, agent-facing English), and for the person what the record is behind on
@@ -144,7 +177,11 @@ export class HandoffService {
     if (!checkpoint) add("There is no agent checkpoint yet.", "unwritten");
     if (record.inputs.some((input) => input.status === "open" && !input.unconfirmed) || record.overflow.some((entry) => entry.section === "inputs" && entry.status === "open" && !entry.unconfirmed)) add("Original inputs still need a disposition.", "check");
     if (record.pendingOperations.length) add("Some source records are not yet confirmed by their board operation.", "check");
-    if (checkpoint && record.reviews.some((review) => !review.unconfirmed && review.at > checkpoint.at)) add("A review arrived after the last checkpoint.", "change");
+    // A delivery (`prepareDelivery`'s placeholder, verdict "incomplete") by the agent that wrote the checkpoint is that
+    // agent's own note: the turn checklist writes the handoff first, so it is not news (SESSION-HANDOFF-SPEC §21.15).
+    const after = checkpoint ? record.reviews.filter((review) => !review.unconfirmed && review.at > checkpoint.at) : [];
+    if (after.some((review) => review.verdict !== "incomplete")) add("A review arrived after the last checkpoint.", "change");
+    if (after.some((review) => review.verdict === "incomplete" && review.reviewerId !== checkpoint!.agentId)) add("Another session delivered after the last checkpoint.", "change");
     if (checkpoint && record.notes.some((note) => ["incident", "hazard"].includes(note.kind) && note.at > checkpoint.at)) add("New incident or hazard information needs to be checked.", "change");
     if (checkpoint && checkpoint.dirtyHash !== fingerprint(record)) add("Repository state changed after the checkpoint.", "change");
     if (record.git.some((repo) => repo.error)) add("Some repository state could not be verified.", "check");
@@ -171,8 +208,15 @@ export class HandoffService {
       if (!existing && board.handoffIndex.some((entry) => entry.taskId === task.id)) throw new ToolError("HANDOFF_UNAVAILABLE", "The known handoff file is missing; recover it before continuing.");
       record = existing ?? await this.records.read(task.id, project.id);
     }
-    catch (error) { return { revision: 0, fresh: false, due: ["The durable handoff is unavailable; do not guess missing requirements."], unavailable: error instanceof Error ? error.message : String(error) }; }
+    catch (error) {
+      if (options.person && board.handoffIndex.find((entry) => entry.taskId === taskId)?.behind !== "unverified") await this.refreshIndex(taskId);
+      return { revision: 0, fresh: false, due: ["The durable handoff is unavailable; do not guess missing requirements."], unavailable: error instanceof Error ? error.message : String(error) };
+    }
     const { changes, behind, ...status } = this.due(record, board, agentId);
+    if (options.person) {
+      const entry = board.handoffIndex.find((item) => item.taskId === taskId);
+      if (entry && (entry.fresh !== !status.due.length || entry.open !== handoffOpenIds(record).length || entry.behind !== behind || entry.sessions !== Math.max(0, ...record.ledger.map((session) => session.n)))) await this.refreshIndex(taskId);
+    }
     const key = `${taskId}:${agentId ?? "ui"}`;
     const role = agentId && automationSessionRole(board, agentId, taskId)?.role;
     const base = { revision: record.revision, fresh: !status.due.length, ...status, ...(options.person ? { changes, ...(behind ? { behind } : {}) } : {}), ...(options.forGate ? { requirementsFingerprint: handoffRefusalFingerprint(record) } : {}), staleSince: board.handoffIndex.find((entry) => entry.taskId === taskId)?.staleSince, currentAgentId: jobOf(board, taskId)?.implementerId, attachmentRoot: join(this.records.root, taskId) };
