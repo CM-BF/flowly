@@ -39,6 +39,8 @@ const sha = (value: string) => createHash("sha256").update(value).digest("hex");
 /** Writes a body the way the store names it and returns its name. */
 async function body(folder: string, value: unknown) { const text = JSON.stringify(value), ref = bodyName(text); await writeFile(join(folder, "entries", `${ref}.json`), text); return ref; }
 
+// About 150 fsynced writes: 0.9 s alone, 2.7–3.9 s under the full suite's load (on 671c056 too), so the default 5 s
+// timeout failed one full run of three on 2026-10-25.
 test("every body a current entry, overflow entry, archive line, seal or pointer names stays; what a revision supersedes goes once it is durable", async () => {
   const { store, handoffs, read, restart } = await fixture();
   // 41 open gaps: the oldest is moved to the overflow index (and archived). 101 notes: the oldest is archived.
@@ -68,7 +70,7 @@ test("every body a current entry, overflow entry, archive line, seal or pointer 
     await expect(reader.update("card", "project", { handoffRevision: explicit.handoffRevision - 1, operationId: "op:state", state: "Working on the store." }, agent)).resolves.toMatchObject({ replayed: true, handoffRevision: explicit.handoffRevision });
   }
   await clean(handoffs);
-});
+}, 30_000);
 
 test("an observation write rewrites only the card's observation file and keeps the entry's body until the next revision", async () => {
   const { store, handoffs, folder, read } = await fixture();
