@@ -305,8 +305,8 @@ export class HistoryRecords {
    * and the loss is a named gap (SESSION-HANDOFF-SPEC §8.1).
    */
   private toolResult(name: string, parts: string[], outcome: string | undefined, raw: Buffer, source: string, from: number, to: number, at: string, persisted?: ReadonlyMap<string, PersistedOutput>) {
-    const fields = locateFields(raw, from, parts);
-    const saved = fields.findIndex((field) => persistedStub(field.text)), stub = saved >= 0 ? persistedStub(fields[saved].text)! : undefined, file = stub && persisted?.get(stub.path);
+    const fields = locateFields(raw, from, parts), stubs = fields.map((field) => persistedStub(field.text));
+    const saved = stubs.findIndex(Boolean), stub = stubs[saved], file = stub && persisted?.get(stub.path);
     if (!stub || !file?.fields) {
       // The file's size when it is there, otherwise the size the stub states.
       if (stub) this.gap("persisted_output_not_indexed", file?.bytes || stub.bytes);

@@ -61,7 +61,7 @@ export function TaskHandoff({ taskId, active, disabled, section, index, pending 
   const pendingMarks = useRef(new Map<string, { id: string; revision: number }>());
   const [full, setFull] = useState(false);
   const context = query.data;
-  const refresh = async () => { await Promise.all([cache.invalidateQueries({ queryKey: key }), cache.invalidateQueries({ queryKey: boardKey })]); };
+  const refresh = async () => { await Promise.all([cache.invalidateQueries({ queryKey: key }), cache.invalidateQueries({ queryKey: folded }), cache.invalidateQueries({ queryKey: boardKey })]); };
   const perform = async (action: () => Promise<void>) => {
     if (disabled || !active || locked.current) return;
     locked.current = true; setBusy(true); setError("");
