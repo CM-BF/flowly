@@ -22,6 +22,7 @@ const catalog: Catalog = {
   "Handoff recorded before later activity": "引き継ぎ記録はその後の作業より前のもの",
   "No agent handoff written": "エージェントの引き継ぎ記録なし",
   "Nothing is unresolved. An agent that continues from this record checks it against the workspace first.": "未解決の項目はありません。この記録から続けるエージェントは、まずワークスペースと照らし合わせて確認します。",
+  "Open problems remain; they are listed below. An agent that continues from this record checks it against the workspace first.": "未解決の問題が残っています（下に一覧）。この記録から続けるエージェントは、まずワークスペースと照らし合わせて確認します。",
   "Changed since it was recorded": "記録後の変化",
   "{n} unresolved items": "未解決 {n} 件",
   "Received": "受信済み",

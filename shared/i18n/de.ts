@@ -22,6 +22,7 @@ const catalog: Catalog = {
   "Handoff recorded before later activity": "Übergabe vor späteren Änderungen erfasst",
   "No agent handoff written": "Kein Agent hat eine Übergabe geschrieben",
   "Nothing is unresolved. An agent that continues from this record checks it against the workspace first.": "Nichts ist offen. Ein Agent, der von diesem Stand aus weitermacht, prüft ihn zuerst im Workspace.",
+  "Open problems remain; they are listed below. An agent that continues from this record checks it against the workspace first.": "Offene Probleme bleiben; sie stehen unten. Ein Agent, der von diesem Stand aus weitermacht, prüft ihn zuerst im Workspace.",
   "Changed since it was recorded": "Seit der Erfassung geändert",
   "{n} unresolved items": "{n} offene Punkte",
   "Received": "Empfangen",

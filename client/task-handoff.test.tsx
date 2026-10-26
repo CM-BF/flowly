@@ -175,6 +175,16 @@ test("a record behind later activity, with nothing unresolved and no agent about
   expect(all).toContain("A review arrived after the last checkpoint."); expect(groups(tree)).toContain("Changed since it was recorded"); expect(groups(tree)).not.toContain("Needs checking");
   expect(summary(tree)).toBe("Handoff recorded before later activity · 0 unresolved items · 3 sessions");
 });
+test("an open problem on a settled card is named, not denied", () => {
+  // Final check of the post-acceptance fixes: the neutral line said "Nothing is unresolved" above an Open problems list.
+  const query = settledContext();
+  query.view!.record.problems.push({ id: "op:flaky", rev: 1, at, by: { kind: "agent", agentId: "agent-1" }, text: "The flaky checkout test still fails one run in ten.", status: "open" } as never);
+  host.query = query;
+  const tree = renderCard({ index, pending: false }).render();
+  expect(warnings(tree)).toEqual([]);
+  expect(muted(tree)).toContain("Open problems remain; they are listed below. An agent that continues from this record checks it against the workspace first.");
+  expect(muted(tree)).not.toContain(neutral);
+});
 test("the warning stays when an agent is about to continue from the record or items are unresolved", () => {
   for (const [extra, query] of [[{ index, pending: true }, settledContext()], [{ index: { ...index, open: 1 }, pending: false }, { ...context(), staleSince: at, behind: "activity" as const }]] as const) {
     host.query = query; const tree = renderCard(extra).render();

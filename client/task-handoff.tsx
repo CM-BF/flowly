@@ -99,6 +99,8 @@ export function TaskHandoff({ taskId, active, disabled, section, index, pending 
   // Behind later activity: only the changes are listed (the acknowledgement has its own line); recorded: nothing to list.
   const dueLines = !context || tone === "recorded" ? [] : tone === "settled" ? context.changes ?? context.due : context.due;
   const since = context?.staleSince ? ` · ${relativeTime(context.staleSince)}` : "";
+  // Open problems are not acknowledgement items, so the neutral tone can still apply; the line must not claim nothing is open.
+  const openProblems = (context?.view?.record.problems ?? []).filter((p) => p.status === "open").length;
   return <Section id={taskId} title={t("Handoff")} open={section.open} onToggle={section.onToggle} summary={summary} count={index?.open}>
     <Label muted size={font.sm}>{t("The next agent reads this record and checks it against the workspace. Missing or outdated information is shown here.")}</Label>
     {query.isPending ? <Label muted>{t("Loading…")}</Label> : query.error ? <Notice>{message(query.error)}</Notice> : context ? <>
@@ -107,7 +109,7 @@ export function TaskHandoff({ taskId, active, disabled, section, index, pending 
       {tone === "check" && <Notice tone="warning">{t("Handoff needs checking")}{since}</Notice>}
       {(tone === "settled" || tone === "unwritten") && <View style={{ gap: 2 }}>
         <Label muted size={font.sm}>{t(handoffToneLabels[tone])}{since}</Label>
-        <Label muted size={font.sm}>{t("Nothing is unresolved. An agent that continues from this record checks it against the workspace first.")}</Label>
+        <Label muted size={font.sm}>{openProblems ? t("Open problems remain; they are listed below. An agent that continues from this record checks it against the workspace first.") : t("Nothing is unresolved. An agent that continues from this record checks it against the workspace first.")}</Label>
       </View>}
       {!!context.ackRequired && (tone === "check" ? <Notice tone="warning">{ack}</Notice> : <Label muted size={font.sm}>{ack}</Label>)}
       {!!dueLines.length && <Group title={tone === "settled" ? t("Changed since it was recorded") : t("Needs checking")} count={dueLines.length}>{dueLines.map((text, i) => <Label key={i} size={font.sm}>{text}</Label>)}</Group>}

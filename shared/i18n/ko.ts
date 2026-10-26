@@ -22,6 +22,7 @@ const catalog: Catalog = {
   "Handoff recorded before later activity": "인계 기록이 이후 작업보다 이전임",
   "No agent handoff written": "에이전트가 작성한 인계 없음",
   "Nothing is unresolved. An agent that continues from this record checks it against the workspace first.": "해결되지 않은 항목이 없습니다. 이 기록에서 이어받는 에이전트는 먼저 작업 공간과 대조합니다.",
+  "Open problems remain; they are listed below. An agent that continues from this record checks it against the workspace first.": "해결되지 않은 문제가 남아 있으며 아래에 나열되어 있습니다. 이 기록에서 이어받는 에이전트는 먼저 작업 공간과 대조합니다.",
   "Changed since it was recorded": "기록 이후 바뀐 점",
   "{n} unresolved items": "미해결 항목 {n}개",
   "Received": "수신됨",

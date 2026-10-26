@@ -22,6 +22,7 @@ const catalog: Catalog = {
   "Handoff recorded before later activity": "交接記錄早於之後的活動",
   "No agent handoff written": "沒有 agent 寫過交接",
   "Nothing is unresolved. An agent that continues from this record checks it against the workspace first.": "沒有未解決的事項。從這份記錄接著做的 agent 會先對照工作區核實它。",
+  "Open problems remain; they are listed below. An agent that continues from this record checks it against the workspace first.": "仍有未解決的問題，列在下面。從這份記錄接著做的 agent 會先對照工作區核實它。",
   "Changed since it was recorded": "記錄之後的變化",
   "{n} unresolved items": "{n} 項未解決",
   "Received": "已收到",

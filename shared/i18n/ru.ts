@@ -22,6 +22,7 @@ const catalog: Catalog = {
   "Handoff recorded before later activity": "Передача записана до последующих изменений",
   "No agent handoff written": "Агент не написал передачу",
   "Nothing is unresolved. An agent that continues from this record checks it against the workspace first.": "Нерешённых пунктов нет. Агент, который продолжит по этой записи, сначала сверит её с рабочей областью.",
+  "Open problems remain; they are listed below. An agent that continues from this record checks it against the workspace first.": "Остаются открытые проблемы; они перечислены ниже. Агент, который продолжит по этой записи, сначала сверит её с рабочей областью.",
   "Changed since it was recorded": "Изменения после записи",
   "{n} unresolved items": "Нерешённых пунктов: {n}",
   "Received": "Получено",
