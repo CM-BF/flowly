@@ -161,8 +161,11 @@ const margin = 1024;
 const windowFloor = 64 * 1024, nearby = 4 * 1024;
 /** The end of a line that a rule's match continues past: `password:`, `Authorization: Bearer`, a credential name, an opening quote. */
 const carries = /(?:[:=]|\b(?:bearer|basic|token)|(?:token|key|secret|passw|auth|cookie|credential)[\w-]*\\?["']?)[ \t]*(?:\\?["'])?[ \t]*\r?$/i;
-/** Before a start inside a line, what a match running past a `,"` can begin with: a single-quoted credential value, a private key. */
-const spansElements = /(?:token|key|secret|passw|auth)[\w-]*["']?\s*[=:]\s*'|-----BEGIN /i;
+/**
+ * Before a start inside a line, what a match running past a `,"` can begin with: a single-quoted credential value, a
+ * private key, a mysql command line (its `-p` value may follow anything on the line).
+ */
+const spansElements = /(?:token|key|secret|passw|auth)[\w-]*["']?\s*[=:]\s*'|-----BEGIN |\b(?:mysql|mysqldump|mysqladmin|mariadb)\b/i;
 /** A .pgpass line, whose password runs to the end of the line. */
 const pgpassLine = /^[^:\s]+:(?:\d{1,5}|\*):/;
 const whitespace = (code: number) => code === 32 || code >= 9 && code <= 13;
@@ -176,7 +179,7 @@ function carried(source: string, line: number, floor: number) {
   }
   return 0;
 }
-/** Whether a match could run across the `,"` at `at`: inside a URL's user info, a single-quoted credential value, a private key, a .pgpass line. */
+/** Whether a match could run across the `,"` at `at`: inside a URL's user info, a single-quoted credential value, a private key, a mysql command, a .pgpass line. */
 function insideMatch(source: string, at: number, from: number, line: number) {
   if (spansElements.test(source.slice(from, at)) || line >= 0 && pgpassLine.test(source.slice(line, line + 300))) return true;
   for (let i = at - 1; i >= Math.max(0, at - nearby); i--) {
@@ -191,7 +194,8 @@ function insideMatch(source: string, at: number, from: number, line: number) {
  * rule but the private-key rules matches within a line, so the window starts at a line, stepping back over a line that
  * ends in a credential name, a `:` or `=`, or an opening quote. A line that starts more than 4 KiB back (compact JSON,
  * a minified file) may instead start at an element's opening quote after a comma: no rule's match crosses a `,"` except
- * a URL's user info, a single-quoted value or a private key, which keep the line start. Neither within 64 KiB: 0.
+ * a URL's user info, a single-quoted value, a private key or a mysql command line, which keep the line start. Neither
+ * within 64 KiB: 0.
  * Not covered: a quoted value that spans lines, and matches longer than 64 KiB other than private keys.
  */
 export function tailWindowStart(source: string, nominal: number): number {

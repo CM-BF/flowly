@@ -81,8 +81,9 @@ test("a tail window starts at a line, or inside a long compact line at a JSON el
   expect(lines.slice(tailWindowStart(lines, nominal(lines)))).toMatch(/^second line /);
   const carried = `${flat(9000)}\nexport API_TOKEN=\n${flat(3000, 1)}`;
   expect(carried.slice(tailWindowStart(carried, nominal(carried)))).toMatch(/^export API_TOKEN=\n/);
-  // Inside a URL's user info, a single-quoted credential value or a private key the window falls back to the line start (here 0).
-  for (const risky of [`{"u":"https://user:${'p,"'.repeat(3000)}@host"}`, `{"cfg":"x", password='${'q,"'.repeat(3000)}'}`, `-----BEGIN PRIVATE KEY-----${'x,"'.repeat(3000)}`]) {
+  // Inside a URL's user info, a single-quoted credential value, a private key or a mysql command line (its -p value can
+  // follow any text on the line) the window falls back to the line start (here 0).
+  for (const risky of [`{"u":"https://user:${'p,"'.repeat(3000)}@host"}`, `{"cfg":"x", password='${'q,"'.repeat(3000)}'}`, `-----BEGIN PRIVATE KEY-----${'x,"'.repeat(3000)}`, `mysql -u root ${'"k":"alpha beta gamma",'.repeat(400)} -pZq77vY app`]) {
     expect(redactHistory(risky)).toContain("[redacted");
     expect(tailWindowStart(risky, nominal(risky))).toBe(0);
   }
