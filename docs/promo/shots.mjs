@@ -35,9 +35,8 @@ if (want('ideas')) {
   await s.page.getByText('Good idea', { exact: true }).first().click(); await s.page.waitForTimeout(1200); await shot(s, '04b-good-idea-two-paths');
   await s.context.close();
 }
-if (want('next-moves')) { // needs `node docs/promo/next-moves.mjs setup`; its session ends its turn with three suggested moves
-  const s = await open({ w: 1700, h: 1000 });
-  await s.page.getByText('Tinylink', { exact: true }).first().click(); await s.page.waitForTimeout(1500);
+if (want('next-moves')) { // needs `node docs/promo/next-moves.mjs setup` (temp project 'Tinylink NM', not the permanent Tinylink); its session ends its turn with three suggested moves
+  const s = await open({ w: 1700, h: 1000, project: 'Tinylink NM' });
   await button(s.page, /^Open task Add rate limiting/).click(); await s.page.getByText('Haiku · Add rate limiting').first().waitFor({ timeout: 15000 });
   for (let i = 0; i < 60 && (await s.page.getByText('Running', { exact: false }).first().isVisible().catch(() => false)); i++) await s.page.waitForTimeout(3000);
   await s.page.getByText('Haiku · Add rate limiting').first().click(); await s.page.waitForTimeout(3500);
