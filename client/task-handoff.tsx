@@ -16,6 +16,7 @@ import { Badge, Button, Label, Notice, TextBox, font, message, radius, relativeT
 
 const changed = createChangedReader();
 export const handoffKey = (taskId: string) => ["flowly", "handoff", taskId] as const;
+const statusKey = (taskId: string) => ["flowly", "handoff-status", taskId] as const;
 export type HandoffIndex = { taskId: string; fresh: boolean; staleSince?: string; open: number; sessions: number; behind?: HandoffBehind };
 
 const statusLabels: Record<HandoffInput["status"], string> = {
@@ -29,7 +30,9 @@ const sectionLabels: Record<string, string> = {
 };
 
 /**
- * No detail fetch while folded. Background reads never seed or replace a person's draft. `pending`: an agent is about to
+ * No detail fetch while folded: a folded section of a card with a handoff asks once for the record's status (whether it
+ * reads; the read also brings the card's index entry up to date), so a lost record is a warning in the summary without
+ * unfolding it. Background reads never seed or replace a person's draft. `pending`: an agent is about to
  * continue from this record (`continuationPending`); only then, with unresolved items, or with a record that could not
  * be read or checked, is a record that is not fresh a warning (SESSION-HANDOFF-SPEC §12). The summary and the body use
  * the same rule; a missing acknowledgement is a warning only with them. A record the drawer could not read makes the
@@ -43,6 +46,8 @@ export function TaskHandoff({ taskId, active, disabled, section, index, pending 
   const { colors } = useTheme();
   const cache = useQueryClient();
   const key = useMemo(() => handoffKey(taskId), [taskId]);
+  const folded = useMemo(() => statusKey(taskId), [taskId]);
+  const status = useQuery({ queryKey: folded, queryFn: async () => (await read({ taskId, status: true })).value ?? null, enabled: active && !section.open && !!index, refetchInterval: false, staleTime: 30_000 });
   const query = useQuery({ queryKey: key, queryFn: () => changed<HandoffContextView>(cache, key, etag => read({ taskId, ...(etag ? { etag } : {}) })), enabled: active && section.open, refetchInterval: active && section.open ? 5000 : false });
   const [draft, setDraft] = useState("");
   const [focused, setFocused] = useState(false);
@@ -87,7 +92,8 @@ export function TaskHandoff({ taskId, active, disabled, section, index, pending 
     if (fresh) { if (!result.automation) onStartSession(); }
     else if (agentId && onOpenSession(agentId) === false) setError(t("The session list changed. Refresh the card before opening that session."));
   });
-  const summary = index ? [t(handoffToneLabels[handoffTone(index, pending, !!context?.unavailable)]), tn(index.open, "{n} unresolved item", "{n} unresolved items"), tn(index.sessions, "{n} session", "{n} sessions")].join(" · ") : t("The next agent continues from this card.");
+  const unavailable = !!(context?.unavailable || status.data?.unavailable);
+  const summary = index ? [t(handoffToneLabels[handoffTone(index, pending, unavailable)]), tn(index.open, "{n} unresolved item", "{n} unresolved items"), tn(index.sessions, "{n} session", "{n} sessions")].join(" · ") : t("The next agent continues from this card.");
   const tone = context && handoffTone({ fresh: context.fresh, open: Math.max(index?.open ?? 0, context.view?.openIdsTotal ?? 0), behind: context.behind }, pending, !!context.unavailable);
   const ack = t("The new agent has not acknowledged this handoff yet.");
   // Behind later activity: only the changes are listed (the acknowledgement has its own line); recorded: nothing to list.

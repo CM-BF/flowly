@@ -5,7 +5,8 @@ import { handoffBehindSchema } from "./model";
 
 const id = z.string().min(1).max(200);
 export const handoffGetInputSchema = z.strictObject({ handoff: z.literal("full").optional(), handoffCursor: z.string().max(4096).optional() });
-export const handoffReadInputSchema = z.strictObject({ taskId: id, etag: z.string().optional(), cursor: z.string().max(4096).optional(), full: z.boolean().optional() });
+/** `status`: only whether the record reads and what it is behind on, for a folded Handoff section (no record, no page). */
+export const handoffReadInputSchema = z.strictObject({ taskId: id, etag: z.string().optional(), cursor: z.string().max(4096).optional(), full: z.boolean().optional(), status: z.boolean().optional() });
 export const handoffViewSchema = z.object({
   revision: z.number().int().nonnegative(), record: cardHandoffSchema,
   openIds: z.array(z.string()), openIdsTotal: z.number().int().nonnegative(),

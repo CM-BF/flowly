@@ -214,8 +214,11 @@ export class HandoffService {
     const behind: HandoffBehind | undefined = !due.length ? undefined : unverified ? "unverified" : !checkpoint ? "unwritten" : changes.length ? "activity" : "ack";
     return { due, ackRequired, changes, behind };
   }
-  /** `person`: the drawer's read, which also gets what the record is behind on (`behind`, `changes`). */
-  async context(taskId: string, agentId?: string, options: { full?: boolean; cursor?: string; recordAccess?: boolean; forGate?: boolean; person?: boolean } = {}): Promise<HandoffContextView> {
+  /**
+   * `person`: the drawer's read, which also gets what the record is behind on (`behind`, `changes`); `status`: without the
+   * record (a folded Handoff section).
+   */
+  async context(taskId: string, agentId?: string, options: { full?: boolean; cursor?: string; recordAccess?: boolean; forGate?: boolean; person?: boolean; status?: boolean } = {}): Promise<HandoffContextView> {
     const { board, task, project } = await this.card(taskId);
     let record: CardHandoff;
     try {
@@ -237,6 +240,7 @@ export class HandoffService {
     const key = `${taskId}:${agentId ?? "ui"}`;
     const role = agentId && automationSessionRole(board, agentId, taskId)?.role;
     const base = { revision: record.revision, fresh: !status.due.length, ...status, ...(options.person ? { changes, ...(behind ? { behind } : {}) } : {}), ...(options.forGate ? { requirementsFingerprint: handoffRefusalFingerprint(record) } : {}), staleSince: board.handoffIndex.find((entry) => entry.taskId === taskId)?.staleSince, currentAgentId: jobOf(board, taskId)?.implementerId, attachmentRoot: join(this.records.root, taskId) };
+    if (options.status) return base;
     if (options.full) return { ...base, page: await this.records.page(taskId, { cursor: options.cursor, scope: "all" }) };
     const previousRead = agentId ? this.seen.get(key) : undefined;
     if (agentId && (previousRead === record.revision || options.recordAccess === false)) return { ...base, unchanged: previousRead === record.revision };

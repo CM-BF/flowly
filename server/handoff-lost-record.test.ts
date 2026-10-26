@@ -74,3 +74,15 @@ test("plugin start leaves a readable record's index entry as it is when it agree
   await x.h.sweepBodies({ delayMs: 0, pauseMs: 0 });
   expect(await x.index()).toEqual(before); expect(x.commits()).toBe(0);
 });
+
+test("a folded section's status read gets no record, and on a quiet card whose record was lost marks the index", async () => {
+  const x = await lost("none");
+  const status = await x.h.context("t", undefined, { person: true, status: true });
+  expect(status).toMatchObject({ revision: expect.any(Number), fresh: true, due: [] }); expect(status.view).toBeUndefined(); expect(status.page).toBeUndefined();
+  // Nothing polls a card whose job is over; the person opens its drawer with the section folded.
+  await x.store.mutate((board) => { board.automation[0].state = "delivered"; board.tasks[0].status = "done"; });
+  await rm(join(x.h.records.root, "t.json"));
+  expect((await x.h.context("t", undefined, { person: true, status: true })).unavailable).toBeTruthy();
+  expect(await x.index()).toMatchObject({ behind: "unverified" });
+  expect(await x.tone()).toBe("check");
+});
