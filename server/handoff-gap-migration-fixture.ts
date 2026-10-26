@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { mkdtemp, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { HandoffSession } from "../shared/handoff";
 import { HandoffService } from "./handoff-service";
 import { handoffSource } from "./handoff-source";
 import { BoardStore } from "./store";
@@ -23,7 +24,7 @@ export function legacyGap(agentId: string, prefix: LegacyPrefix, kind: string, o
   return { section: "gaps" as const, value: { id: `g:${sha(sourceId).slice(0, 32)}`, sourceId, kind: "flowly", agentId, text, status: "open", at } };
 }
 export const many = (count: number, make: (n: number) => ReturnType<typeof legacyGap>) => Array.from({ length: count }, (_, n) => make(n));
-export const session = (agentId: string, n: number, role: "implementer" | "reviewer" | "manual", provider = "codex") => ({ agentId, n, role, provider, reason: n === 1 ? "launch" : "replacement", startedAt: at, finalized: false, turns: [], background: [], live: [] });
+export const session = (agentId: string, n: number, role: "implementer" | "reviewer" | "manual", provider = "codex") => ({ agentId, n, role, provider, reason: n === 1 ? "launch" : "replacement", startedAt: at, finalized: false, turns: [], background: [] as HandoffSession["background"], live: [] });
 
 /** A provider history file of `lines` (JSON values, or raw strings) in `dir`: each line's byte offset and the cursor identity (`dev:ino:birthtime:epoch`) the observer records for it. */
 export async function rollout(dir: string, lines: readonly unknown[], name = "rollout.jsonl") {
