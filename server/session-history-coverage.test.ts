@@ -114,7 +114,7 @@ test("a planted secret behind escaped quotes is decoded and redacted in argument
   expect(page.gaps.map((gap) => gap.kind)).not.toContain("escaped_text_omitted");
 });
 
-test("past its budget the index steps outputs and arguments down, then drops the oldest tool entries, never messages", async () => {
+test("past its budget the newest tool entries keep the widest level, older ones step down by age and the oldest leave, never messages", async () => {
   const budget = 160 * 1024, x = await home({ maxSkeletonBytes: budget });
   let text = json({ timestamp: "2026-10-25T23:29:05.000Z", type: "session_meta", payload: { id: ids.reviewer } });
   for (let n = 0; n < 160; n++) {
@@ -128,13 +128,23 @@ test("past its budget the index steps outputs and arguments down, then drops the
   const lines = evidence.split("\n").filter(Boolean).map((line) => JSON.parse(line) as SessionHistoryEntry);
   for (let n = 0; n < 160; n++) expect(lines.some((entry) => !entry.tool && entry.text.startsWith(`message-${n} `))).toBe(true);
   expect(page.coverage).toMatchObject({ excerpts: { output: 0, arguments: 300, message: 2000 }, omittedEntries: 0, complete: false });
-  // What stays is the newest tool entries: outputs as located stubs with their exit codes, calls at their shortest.
+  // What stays is the newest tool entries, the newest at the widest level, narrower by age.
   const tools = lines.filter((entry) => entry.tool), kept = new Set(tools.map((entry) => entry.ordinal)), all = Array.from({ length: 160 }, (_, n) => [3 * n + 1, 3 * n + 2]).flat();
   expect(tools.length).toBeGreaterThan(40); expect(tools.length).toBeLessThan(280);
   expect(all.filter((ordinal) => kept.has(ordinal))).toEqual(all.slice(all.length - tools.length));
-  const last = tools.at(-1)!; expect(last.text).toMatch(/^\[\d+ characters not indexed · source bytes \d+–\d+\]$/); expect(last.tool).toMatchObject({ kind: "output", outcome: "exit 1" });
+  const outputs = tools.filter((entry) => entry.tool?.kind === "output"), last = outputs.at(-1)!;
+  expect(last.tool).toMatchObject({ kind: "output", outcome: "exit 1" });
+  expect(last.text).toMatch(/^Process exited with code 1\nOutput:\noutput-159-head /); expect(last.text).toMatch(/ output-159-tail$/);
+  expect(last.text.split("\n[…")[0].length).toBeGreaterThanOrEqual(sessionHistoryExcerpts.output[0].head - 200);
+  expect(outputs[0].text).toMatch(/^\[\d+ characters not indexed · source bytes \d+–\d+\]$/);
+  // Levels by the text kept (3,000 / 1,200 / 400 characters or a stub): never wider for an older output.
+  const band = (entry: SessionHistoryEntry) => /characters not indexed/.test(entry.text) ? 0 : entry.text.length < 800 ? 1 : entry.text.length < 2000 ? 2 : 3;
+  const bands = outputs.map(band); expect(bands).toEqual([...bands].sort((a, b) => a - b)); expect(new Set(bands)).toEqual(new Set([0, 1, 2, 3]));
+  const calls = tools.filter((entry) => entry.tool?.kind === "call");
+  expect(calls.at(-1)!.text).toContain("run step-159 "); expect(calls.at(-1)!.text.length).toBeGreaterThan(calls[0].text.length);
   const kinds = new Map(page.gaps.map((gap) => [gap.kind, gap.count]));
   expect((kinds.get("output_index_budget") ?? 0) + (kinds.get("call_index_budget") ?? 0)).toBe(320 - tools.length);
+  expect(kinds.get("output_index_reduced")).toBeGreaterThan(0); expect(kinds.get("call_index_reduced")).toBeGreaterThan(0);
   expect(sessionHistoryExcerpts.output.at(-1)).toEqual({ head: 0, tail: 0 });
 });
 

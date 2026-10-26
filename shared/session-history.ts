@@ -4,8 +4,8 @@ import { z } from "zod";
 export const sessionHistoryLimits = { pageBytes: 8 * 1024, skeletonBytes: 2 * 1024 * 1024, lineBytes: 256 * 1024, chunkBytes: 64 * 1024, sourceBytes: 2 * 1024 ** 3, records: 200_000, entries: 10_000, queue: 16, subagentBytes: 200 * 1024, subagents: 32, entryChars: 4400 } as const;
 /**
  * Head and tail characters an entry keeps, by level (SESSION-HANDOFF-SPEC §8.1). An index that would pass its byte or
- * entry budget steps outputs and arguments down a level (never messages); past the last level the oldest calls and
- * outputs leave the index by age. The omitted middle is located in the source by raw byte range.
+ * entry budget is spent from the newest entry back: the newest calls and outputs keep level 0, older ones step down by
+ * age (never messages), and the oldest leave the index. The omitted middle is located in the source by raw byte range.
  */
 export const sessionHistoryExcerpts = {
   message: [{ head: 1500, tail: 500 }],
@@ -35,7 +35,10 @@ export const sessionHistoryEntrySchema = z.object({
    * redaction, re-serialized arguments) the middle lies within those bytes.
    */
   middle: z.object({ from: z.number().int().nonnegative(), to: z.number().int().nonnegative(), characters: z.number().int().nonnegative(), exact: z.boolean() }).optional(),
-  /** The text was JSON- or script-escaped and is shown decoded, because a credential was only visible decoded. */
+  /**
+   * The text was JSON- or script-escaped and is shown decoded: stored so because a credential was only visible decoded,
+   * or on this page only because the query matched its decoded form.
+   */
   decoded: z.boolean().optional(),
   paths: z.array(z.string().max(240)).max(5).default([]),
   evidence: z.object({ source: z.string().max(100), from: z.number().int().nonnegative(), to: z.number().int().nonnegative(), type: z.string().max(100) }),
@@ -48,7 +51,7 @@ export const sessionHistoryPageSchema = z.object({
   entries: z.array(sessionHistoryEntrySchema).max(20), nextCursor: z.string().max(2048).optional(), viewChanged: z.boolean().optional(),
   matches: z.number().int().nonnegative().optional(), omitted: z.number().int().nonnegative(),
   coverage: z.object({ sourceBytes: z.number().nonnegative(), readBytes: z.number().nonnegative(), through: z.number().nonnegative(), totalRecords: z.number().nonnegative(), indexedEntries: z.number().nonnegative(), omittedEntries: z.number().nonnegative(), skippedLines: z.number().nonnegative(), skippedBytes: z.number().nonnegative(), complete: z.boolean(),
-    /** Head plus tail characters at the level each kind ended on (`sessionHistoryExcerpts`). */
+    /** The narrowest head plus tail characters a kept entry of each kind has (`sessionHistoryExcerpts`; the newest keep the widest). */
     excerpts: z.object({ message: z.number().int().nonnegative(), arguments: z.number().int().nonnegative(), output: z.number().int().nonnegative() }).optional() }).optional(),
   gaps: z.array(sessionHistoryGapSchema).max(20),
   growth: z.array(z.object({ type: z.string().max(100), bytes: z.number().nonnegative(), lines: z.number().nonnegative() })).max(16).optional(),

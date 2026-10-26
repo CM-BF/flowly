@@ -7,6 +7,7 @@ import { sessionHistoryEntrySchema, sessionHistoryLimits as limits, sessionHisto
 import { lineHint } from "./handoff-capture-records";
 import { locateProviderHistory, type HistoryAgent, type NativeHistoryFile } from "./provider-history";
 import { HistoryRecords } from "./session-history-records";
+import { redactHistory, unescapeLayers } from "./session-history-text";
 import { ToolError } from "./tool-error";
 
 const digest = (value: string | Uint8Array) => createHash("sha256").update(value).digest("hex");
@@ -20,13 +21,23 @@ type Manifest = { version: typeof version; agentId: string; provider: string; se
 type Options = { codexHome?: string; claudeHome?: string; /** Small limits are injectable for synthetic fault tests only. */ maxSourceBytes?: number; maxSkeletonBytes?: number; now?: () => number };
 const cursorSchema = z.object({ v: z.literal(1), agentId: z.string().max(240), snapshot: z.string().regex(/^[a-f0-9]{64}$/), query: z.string().regex(/^[a-f0-9]{64}$/), offset: z.number().int().min(0).max(limits.entries) }).strict();
 const manifestSchema = z.object({ version: z.literal(version), agentId: z.string().max(240), provider: z.enum(["codex", "claude"]), sessionId: z.string().max(240), snapshot: z.string().regex(/^[a-f0-9]{64}$/), previous: z.string().regex(/^[a-f0-9]{64}$/).optional(), bodyHash: z.string().regex(/^[a-f0-9]{64}$/), bodyBytes: z.number().int().min(0).max(limits.skeletonBytes), builtAt: z.string(), sources: z.array(z.object({ path: z.string().min(1).max(4096), ref: z.string().max(100), stamp: z.string().max(300), bytes: z.number().nonnegative() })).min(1).max(limits.subagents + 1), directories: z.array(z.object({ path: z.string().max(4096), stamp: z.string().max(300).nullable() })).max(2), coverage: sessionHistoryPageSchema.shape.coverage.unwrap(), gaps: sessionHistoryPageSchema.shape.gaps, growth: sessionHistoryPageSchema.shape.growth.unwrap() });
-const message = "Redacted excerpts, not a transcript: messages, tool arguments and tool outputs keep a head and tail; an entry's middle gives the omitted part's source bytes. Images, reasoning and oversized records are left out. Search covers stored excerpts within the indexed range; coverage and gaps say what is missing.";
+const message = "Redacted excerpts, not a transcript: messages, tool arguments and tool outputs keep a head and tail (the newest widest); an entry's middle gives the omitted part's source bytes. Images, reasoning and oversized records are left out. Search covers stored excerpts, decoded where escaped, within the indexed range; coverage and gaps say what is missing.";
 /** Shrinks an entry's text to fit a page, keeping the query's first match in view. */
 function shrink(text: string, needle: string | undefined) {
   const length = Math.floor(text.length * 0.75), lower = needle ? text.toLocaleLowerCase() : "", at = needle && lower.length === text.length ? lower.indexOf(needle) : -1;
   if (at < 0) return text.slice(0, length);
   const start = Math.max(0, Math.min(at - Math.floor((length - needle!.length) / 2), text.length - length)), end = Math.min(text.length, start + length);
   return `${start > 0 ? "…" : ""}${text.slice(start + (start > 0 ? 1 : 0), end - (end < text.length ? 1 : 0))}${end < text.length ? "…" : ""}`;
+}
+
+/**
+ * Escaped text is stored as written (its characters map onto the source), so a phrase with a quote, an escaped newline
+ * or `\u`-escaped CJK is also matched against its decoded, redacted view, which the page then shows (`decoded`).
+ */
+function decodedMatch(entry: SessionHistoryEntry, needle: string): SessionHistoryEntry[] {
+  if (!entry.text.includes("\\") || !unescapeLayers(entry.text).toLocaleLowerCase().includes(needle)) return [];
+  const view = redactHistory(unescapeLayers(entry.text));
+  return view.toLocaleLowerCase().includes(needle) ? [{ ...entry, text: view, decoded: true }] : [];
 }
 
 /** Only receives an already-authorized ledger identity. Never calls a Paseo API or edits native history. */
@@ -105,7 +116,7 @@ export class SessionHistory {
     try { entries = body.toString("utf8").split("\n").filter(Boolean).map((line) => sessionHistoryEntrySchema.parse(JSON.parse(line))); }
     catch { return this.empty(agent.id, "unavailable", "skeleton_invalid", "The derived evidence cannot be decoded; rebuild explicitly. Native history is unchanged."); }
     const needle = query.query?.toLocaleLowerCase(), roles = query.roles && new Set(query.roles);
-    const matched = entries.filter((entry) => (!roles || roles.has(entry.role)) && (!needle || `${entry.text}\n${entry.tool?.name ?? ""}\n${entry.tool?.outcome ?? ""}\n${entry.paths.join("\n")}`.toLocaleLowerCase().includes(needle)));
+    const matched = entries.flatMap((entry) => roles && !roles.has(entry.role) ? [] : !needle || `${entry.text}\n${entry.tool?.name ?? ""}\n${entry.tool?.outcome ?? ""}\n${entry.paths.join("\n")}`.toLocaleLowerCase().includes(needle) ? [entry] : decodedMatch(entry, needle));
     if (cursor && cursor.offset > matched.length) throw new ToolError("HISTORY_CURSOR_INVALID", "This history cursor is beyond its indexed view. Start the query again.");
     const nearby = query.around === undefined ? 0 : matched.findIndex((entry) => entry.ordinal >= query.around!);
     const start = cursor?.offset ?? (query.around !== undefined ? Math.max(0, (nearby < 0 ? matched.length : nearby) - Math.floor(query.limit / 2)) : 0);
