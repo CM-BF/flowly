@@ -104,8 +104,11 @@ test("the older build's rules, counted over the bytes its pass read; a file that
     exec(8),
   ]);
   const end = file.offsets.at(-1)!, targets = [{ kind: "opaque_tool_background" as const }, { kind: "unknown_response_type" as const, hint: "agent_message" }, { kind: "unknown_event_type" as const, hint: "thread_goal_updated" }, { kind: "unknown_record_type" as const, hint: "world_state" }];
-  // exec(8) starts at `end`: past what the pass read.
-  expect(await countLegacyHistory({ path: file.path, identity: file.identity, end, provider: "codex", targets })).toEqual([file.offsets.slice(1, 5), [file.offsets[11]], [file.offsets[12]], [file.offsets[13]]]);
+  // exec(8) starts at `end`: past what the pass read. The long line is not parsed: it is listed with where it is and what
+  // today's capture would call it (SESSION-HANDOFF-SPEC §21.19).
+  expect(await countLegacyHistory({ path: file.path, identity: file.identity, end, provider: "codex", targets })).toEqual({ found: [file.offsets.slice(1, 5), [file.offsets[11]], [file.offsets[12]], [file.offsets[13]]], long: [{ start: file.offsets[8], end: file.offsets[9], hint: "response_item/custom_tool_call", at: stamp }] });
+  // No target: only the long lines.
+  expect(await countLegacyHistory({ path: file.path, identity: file.identity, end, provider: "codex", targets: [] })).toEqual({ found: [], long: [{ start: file.offsets[8], end: file.offsets[9], hint: "response_item/custom_tool_call", at: stamp }] });
   expect(await countLegacyHistory({ path: file.path, identity: file.identity.replace(/^\d+/, "1"), end, provider: "codex", targets })).toBeNull();
   expect(await countLegacyHistory({ path: file.path, identity: file.identity, end: file.size + 1, provider: "codex", targets })).toBeNull();
   expect(await countLegacyHistory({ path: join(x.dir, "gone.jsonl"), identity: file.identity, end, provider: "codex", targets })).toBeNull();
@@ -115,8 +118,10 @@ test("the older build's rules, counted over the bytes its pass read; a file that
     { type: "assistant", sessionId: "c", isSidechain: true, message: { content: [{ type: "tool_use", id: "t3", name: "Workflow", input: {} }] } },
     { type: "assistant", sessionId: "c", message: { content: [{ type: "tool_use", id: "t4", name: "Bash", input: {} }] } },
     { type: "cost-state", sessionId: "c" },
+    // A long paste whose message id JSON writes after the text: read from the line's end, as today's capture does.
+    { type: "user", sessionId: "c", message: { role: "user", content: "p".repeat(300_000) }, uuid: "u-1" },
   ], "claude.jsonl");
-  expect(await countLegacyHistory({ path: claude.path, identity: claude.identity, end: claude.size, provider: "claude", targets: [{ kind: "opaque_tool_background" }, { kind: "unknown_record_type", hint: "cost-state" }] })).toEqual([[0], [claude.offsets[3]]]);
+  expect(await countLegacyHistory({ path: claude.path, identity: claude.identity, end: claude.size, provider: "claude", targets: [{ kind: "opaque_tool_background" }, { kind: "unknown_record_type", hint: "cost-state" }] })).toEqual({ found: [[0], [claude.offsets[3]]], long: [{ start: claude.offsets[4], end: claude.size, hint: "user", messageId: "u-1" }] });
 });
 
 test("a group's text ends whole within the 300 characters a gap holds, at the largest counts and session labels", () => {
@@ -124,7 +129,7 @@ test("a group's text ends whole within the 300 characters a gap holds, at the la
   const gaps = [1, 2].map((n) => ({ ...legacyGap(agentId, "opaque", "opaque_tool_background", n).value, rev: 1, by: { kind: "flowly" as const } }) as HandoffGap);
   const [bucket] = gapBuckets(gaps, sessions);
   for (const basis of ["recorded", "history", "atLeast"] as const) {
-    const text = planGapMigration(gaps, sessions, new Map([[bucket.key, { count: 99_999, basis }]])).groups[0].text;
+    const text = planGapMigration(gaps, sessions, { measures: new Map([[bucket.key, { count: 99_999, basis }]]), capped: [] }).groups[0].text;
     expect(text.length).toBeLessThanOrEqual(300);
     expect(text).toMatch(/flowly_session_history(?: before relying on it)?\.$/);
   }

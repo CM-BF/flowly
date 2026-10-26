@@ -8,7 +8,7 @@ import {
 } from "../shared/handoff";
 import { ToolError } from "./tool-error";
 import { handoffRequirementsHash } from "./handoff-requirements";
-import { gapBuckets, gapMigration, gapRules, legacyGap, legacyGapText, legacyPrefixes, legacySource, planGapMigration, type GapBucket, type GapMeasure, type GapMigrationPlan } from "./handoff-gap-migration";
+import { gapBuckets, gapMigration, gapRules, legacyGap, legacyGapText, legacyPrefixes, legacySource, longLineStart, planGapMigration, type CappedSession, type GapBucket, type GapInspection, type GapMeasure, type GapMigrationPlan } from "./handoff-gap-migration";
 import { legacyCountKinds, type LegacyCountKind, type LegacyHistory } from "./handoff-gap-migration-history";
 
 export class HandoffError extends ToolError {
@@ -309,7 +309,8 @@ export class HandoffStore {
    * Nothing to migrate writes nothing. A closed gap leaves the current record and its overflow index for the archive with the
    * reason; its open version is not archived again (the closed one holds its text, source and time). The open gaps the
    * overflow index holds come back into the list it emptied, unchanged. `history` counts what a capped pass of an older build
-   * did not record (gapMeasures). The caller runs it in the card's queue (HandoffService.serial), never inside another transaction.
+   * did not record and finds the long lines it skipped without listing them (gapInspection). The caller runs it in the card's
+   * queue (HandoffService.serial), never inside another transaction.
    */
   async migrateLegacyGaps(taskId: string, history?: LegacyHistory): Promise<{ stored: HandoffStored; replayed: boolean; plan?: GapMigrationPlan }> {
     const found = await this.read(taskId);
@@ -325,8 +326,8 @@ export class HandoffStore {
         const entry = await this.entry(record, "ledger", `s:${hash(agentId).slice(0, 32)}`) as HandoffSession | null;
         if (entry?.agentId === agentId) sessions.set(agentId, { n: entry.n, provider: entry.provider });
       }
-      plan = planGapMigration(gaps, sessions, await this.gapMeasures(record, gaps, gapBuckets(gaps, sessions), history));
-      if (!plan.close.length) return;
+      plan = planGapMigration(gaps, sessions, await this.gapInspection(record, gaps, gapBuckets(gaps, sessions), sessions, history));
+      if (!plan.close.length && !plan.added.length) return;
       change.evict = [];
       for (const { id, note } of plan.close) {
         const { contentRef: _ref, ...gap } = gaps.find((value) => value.id === id)!;
@@ -334,7 +335,7 @@ export class HandoffStore {
         this.replace(change, "gaps", handoffEntrySchemas.gaps.parse({ ...gap, rev: record.revision, status: "closed", resolution: { by, at: record.updatedAt, note } }), false);
         change.evict.push({ section: "gaps", id });
       }
-      for (const group of plan.groups) await this.mergeGap(change, group, { by });
+      for (const group of [...plan.groups, ...plan.added]) await this.mergeGap(change, group, { by });
       if (plan.note) await this.append(change, "notes", { kind: "other", text: plan.note }, { by, sourceId: `${gapMigration.operationId}:note` });
       // The noise pushed real gaps into the overflow index, where the drawer and the default view count them as omitted. They
       // come back while the list has room, the newest first (the oldest leave first again), as they are: same rev, time and body.
@@ -347,45 +348,56 @@ export class HandoffStore {
     return { stored, replayed: !!result.replayed, ...(plan ? { plan } : {}) };
   }
   /**
-   * How many occurrences each group states (SESSION-HANDOFF-SPEC §21.17). 684a8fd and 786d9cd kept 100 gaps per capture pass
-   * and only counted the rest in that pass's coverage text. A pass wrote its gaps and the session's ledger version in one
-   * transaction, so the entries nobody touched since share that time. When no pass of the session hit the cap, its entries
-   * are every occurrence. When one did, the occurrences are counted in the session's provider history by those builds' rules,
-   * over the bytes up to the cursor of its last pass, less the ones someone settled (acknowledged, closed or annotated); when
-   * the history is gone, changed or not the cursor's file, the entries are a lower bound ("at least").
+   * How many occurrences each group states (SESSION-HANDOFF-SPEC §21.17), and what a capped pass did not list (§21.19).
+   * 684a8fd and 786d9cd kept 100 gaps per capture pass and only counted the rest in that pass's coverage text. A pass wrote
+   * its gaps and the session's ledger version in one transaction, so the entries nobody touched since share that time. When
+   * no pass of the session hit the cap, its entries are every occurrence. When one did, the occurrences are counted in the
+   * session's provider history by those builds' rules, over the bytes up to the cursor of its last pass, less the ones
+   * someone settled (acknowledged, closed or annotated), and so are the lines over 256 KiB that build skipped: the ones no
+   * gap of the record lists (an older build's, today's or this migration's, whatever its status) are returned. When the
+   * history is gone, changed, not the cursor's file, or the session's legacy gaps name another file, nothing is counted
+   * there: the entries are a lower bound ("at least") and the session is reported as not read.
    */
-  private async gapMeasures(record: CardHandoff, gaps: readonly HandoffGap[], buckets: readonly GapBucket[], history?: LegacyHistory) {
-    const measures = new Map<string, GapMeasure>();
-    if (!buckets.length) return measures;
-    const lines = await this.archiveLines(record.taskId);
-    for (const agentId of new Set(buckets.map((bucket) => bucket.agentId))) {
+  private async gapInspection(record: CardHandoff, gaps: readonly HandoffGap[], buckets: readonly GapBucket[], sessions: ReadonlyMap<string, { provider: string }>, history?: LegacyHistory): Promise<GapInspection> {
+    const measures = new Map<string, GapMeasure>(), capped: CappedSession[] = [];
+    const agents = new Set(gaps.flatMap((gap) => legacyGap(gap) ? [gap.agentId ?? ""] : []));
+    if (!agents.size) return { measures, capped };
+    const lines = await this.archiveLines(record.taskId), archived = lines.filter((line) => line.section === "gaps").map((line) => line.sourceId);
+    for (const agentId of agents) {
       const mine = buckets.filter((bucket) => bucket.agentId === agentId), own = gaps.filter((gap) => (gap.agentId ?? "") === agentId && legacyGap(gap));
       const passes = new Map<string, number>();
       for (const gap of own) if (gap.status === "open" && !gap.resolution) passes.set(gap.at, (passes.get(gap.at) ?? 0) + 1);
       const last = [...passes.keys()].sort().at(-1), versions = agentId ? await this.ledgerVersions(record, agentId, new Set(passes.keys()), lines) : [];
-      const capped = [...passes.values()].some((count) => count >= legacyGapsPerPass) || versions.some((version) => /\b\d+ additional capture gaps omitted\b/.test(version.skeleton ?? ""));
-      if (!capped) { for (const bucket of mine) measures.set(bucket.key, { count: bucket.gaps.length, basis: "recorded" }); continue; }
+      const isCapped = [...passes.values()].some((count) => count >= legacyGapsPerPass) || versions.some((version) => /\b\d+ additional capture gaps omitted\b/.test(version.skeleton ?? ""));
+      if (!isCapped) { for (const bucket of mine) measures.set(bucket.key, { count: bucket.gaps.length, basis: "recorded" }); continue; }
       // The cursor where that build's last pass ended; one a later build moved in place would also count what that build read.
       const cursor = versions.find((version) => version.at === last && version.through && Date.parse(version.through.at) <= Date.parse(last))?.through;
       const countable = mine.filter((bucket) => legacyCountKinds.has(bucket.kind) && (bucket.kind === "opaque_tool_background" || bucket.hint));
       const sources = new Map(countable.map((bucket) => [bucket.key, bucket.gaps.map((gap) => legacySource(gap.sourceId))]));
-      const provider = [...sources.values()][0]?.[0]?.provider;
-      const same = provider && cursor && [...sources.values()].every((list) => list.every((source) => source?.file === cursor.identity && source.provider === provider));
-      const offsets = history && same ? await history({ path: cursor.path, identity: cursor.identity, end: cursor.offset, provider, targets: countable.map(({ kind, hint }) => ({ kind: kind as LegacyCountKind, ...(hint ? { hint } : {}) })) }).catch(() => null) : null;
+      // Every legacy source of the session must name the cursor's file: one that names another (a replaced or truncated file) means the history no longer holds what that build read.
+      const named = own.flatMap((gap) => legacySource(gap.sourceId) ?? []), ledger = sessions.get(agentId)?.provider;
+      const provider = named[0]?.provider ?? (ledger === "codex" || ledger === "claude" ? ledger : undefined);
+      const same = provider && cursor && named.every((source) => source.file === cursor.identity && source.provider === provider) && [...sources.values()].every((list) => list.every((source) => source !== null));
+      const read = history && same ? await history({ path: cursor.path, identity: cursor.identity, end: cursor.offset, provider, targets: countable.map(({ kind, hint }) => ({ kind: kind as LegacyCountKind, ...(hint ? { hint } : {}) })) }).catch(() => null) : null;
       for (const bucket of mine) {
-        const index = countable.indexOf(bucket), found = offsets && index >= 0 ? new Set(offsets[index]) : null;
+        const index = countable.indexOf(bucket), found = read && index >= 0 ? new Set(read.found[index]) : null;
         const grouped = new Set((sources.get(bucket.key) ?? []).map((source) => source?.offset));
         if (!found || [...grouped].some((offset) => offset === undefined || !found.has(offset))) { measures.set(bucket.key, { count: bucket.gaps.length, basis: "atLeast" }); continue; }
         // Entries of these occurrences someone settled, still listed or archived: not part of what the group asks to check.
         const text = hash(legacyGapText(bucket.kind, bucket.hint)), prefix = legacyPrefixes[bucket.kind];
-        const settled = new Set([...own.map((gap) => gap.sourceId), ...lines.filter((line) => line.section === "gaps").map((line) => line.sourceId)].flatMap((sourceId) => {
+        const settled = new Set([...own.map((gap) => gap.sourceId), ...archived].flatMap((sourceId) => {
           const source = legacySource(sourceId);
           return source && source.prefix === prefix && source.agentId === agentId && source.textHash === text && source.file === cursor!.identity && !grouped.has(source.offset) ? [source.offset] : [];
         }));
         measures.set(bucket.key, { count: [...found].filter((offset) => !settled.has(offset)).length, basis: "history" });
       }
+      if (!read || !cursor) { capped.push({ agentId, file: cursor?.identity ?? "", read: false, lines: [] }); continue; }
+      // Long lines an older build's or today's gap lists (any status), by the start its source names. The ones this migration
+      // listed are not among them: a rerun derives the same entries again, which changes nothing (mergeGap).
+      const covered = new Set([...gaps.map((gap) => gap.sourceId), ...archived].flatMap((sourceId) => { const start = sourceId && longLineStart(sourceId, agentId, cursor.identity); return typeof start === "number" ? [start] : []; }));
+      capped.push({ agentId, file: cursor.identity, read: true, lines: read.long.filter((line) => !covered.has(line.start)) });
     }
-    return measures;
+    return { measures, capped };
   }
   /** The session's ledger versions written at `times` (current, overflow or archived). */
   private async ledgerVersions(record: CardHandoff, agentId: string, times: ReadonlySet<string>, lines: readonly Pointer[]) {

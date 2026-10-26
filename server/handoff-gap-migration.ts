@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import type { HandoffGap } from "../shared/handoff";
 import { locatedGapKinds } from "./handoff-capture";
+import type { LegacyLongLine } from "./handoff-gap-migration-history";
 import { handoffSource } from "./handoff-source";
 
 /**
@@ -34,6 +35,15 @@ export function legacySource(sourceId: string | undefined): LegacySource | null 
   const match = legacySourceId.exec(sourceId ?? "");
   return match ? { prefix: match[1], agentId: match[2], provider: match[3] as "codex" | "claude", file: match[5], offset: Number(match[6]), textHash: match[7] } : null;
 }
+/**
+ * Where a long-line gap of `agentId` on `file` (a cursor identity, `dev:ino:birthtime:epoch`) starts, from its source: an
+ * older build's (`capture-gap:long:<agent>:<file>:<start>:<text hash>`) or today's (`capture-gap:<agent>:long:<agent>:<file>:<start>`).
+ */
+const longSource = /^capture-gap:(?:[^:]+:)?long:([^:]+):(\d+:\d+:[\d.]+:\d+):(\d+)(?::[0-9a-f]{64})?$/;
+export function longLineStart(sourceId: string, agentId: string, file: string) {
+  const match = longSource.exec(sourceId);
+  return match && match[1] === agentId && match[2] === file ? Number(match[3]) : undefined;
+}
 export type LegacyGap = { kind: string; hint?: string; located: boolean; provider?: string };
 /**
  * A gap an older build wrote: Flowly's, no count, its source the capture gap id and the hash of its text (hashed whole when
@@ -52,7 +62,7 @@ export const legacyGapText = (kind: string, hint?: string) => `Capture gap (${ki
 /** The source prefix those builds gave a kind (`opaque:`, `type:`, `event:`, `response:`). */
 export const legacyPrefixes: Readonly<Record<string, string>> = { opaque_tool_background: "opaque", unknown_record_type: "type", unknown_event_type: "event", unknown_response_type: "response" };
 
-export type GapGroupDraft = { id: string; sourceId: string; agentId: string; text: string; count: number };
+export type GapGroupDraft = { id: string; sourceId: string; agentId: string; text: string; count: number; firstAt?: string; lastAt?: string };
 /**
  * How many occurrences a group states. `recorded`: the entries are every occurrence (no pass of that session hit the older
  * build's 100-gap cap); `history`: counted in the session's provider history over the bytes the older build read; `atLeast`:
@@ -61,16 +71,35 @@ export type GapGroupDraft = { id: string; sourceId: string; agentId: string; tex
 export type GapMeasure = { count: number; basis: "recorded" | "history" | "atLeast" };
 /** The open legacy gaps one group would replace: of one session, kind and type hint. */
 export type GapBucket = { key: string; agentId: string; kind: string; hint?: string; gaps: HandoffGap[] };
+/**
+ * A session one of whose older-build passes hit the 100-gap cap (§21.19): the identity of the file its cursor names, whether
+ * its provider history could be read up to that build's last cursor, and the lines over 256 KiB that build skipped that no
+ * gap of an older build or of today's capture lists (none when not read).
+ */
+export type CappedSession = { agentId: string; file: string; read: boolean; lines: readonly LegacyLongLine[] };
+export type GapInspection = { measures: ReadonlyMap<string, GapMeasure>; capped: readonly CappedSession[] };
 export type GapMigrationPlan = {
   close: { id: string; note: string }[];
   groups: GapGroupDraft[];
-  /** Closed as metadata, per type hint; opaque script gaps replaced; identical gaps grouped (and into how many); open gaps left as they were. */
-  counts: { metadata: Record<string, number>; opaque: number; opaqueGroups: number; duplicates: number; duplicateGroups: number; kept: number };
+  /** New open gaps for the long lines capped passes skipped without listing them. */
+  added: GapGroupDraft[];
+  /**
+   * Closed as metadata, per type hint; opaque script gaps replaced; identical gaps grouped (and into how many); single gaps a
+   * capped session's history showed to stand for more; long lines now listed; skipped compaction records; open gaps left as they were.
+   */
+  counts: { metadata: Record<string, number>; opaque: number; opaqueGroups: number; duplicates: number; duplicateGroups: number; singles: number; lines: number; compactions: number; kept: number };
   note?: string;
 };
 type Sessions = ReadonlyMap<string, { n: number; provider: string }>;
 const plural = (count: number, word: string) => `${count} ${word}${count === 1 ? "" : "s"}`;
 const bucketKey = (agentId: string, kind: string, hint?: string) => `${agentId}\0${kind}\0${hint ?? ""}`;
+const draftId = (sourceId: string) => `g:${createHash("sha256").update(sourceId).digest("hex").slice(0, 32)}`;
+const sessionLabel = (agentId: string, sessions: Sessions) => { const known = sessions.get(agentId); return known ? `#${known.n} (${agentId.slice(0, 8)})` : agentId ? `(${agentId.slice(0, 8)})` : "(unknown)"; };
+/** "session #1 (…)", "sessions #1 (…) and #2 (…)". */
+const sessionList = (agentIds: readonly string[], sessions: Sessions) => {
+  const labels = agentIds.map((agentId) => sessionLabel(agentId, sessions));
+  return `${labels.length === 1 ? "session" : "sessions"} ${labels.length > 1 ? `${labels.slice(0, -1).join(", ")} and ${labels.at(-1)}` : labels[0]}`;
+};
 
 /**
  * Sorts the open gaps: metadata is closed with the reason; a session's opaque_tool_background gaps go into one bucket; open
@@ -98,14 +127,16 @@ function sortGaps(gaps: readonly HandoffGap[], sessions: Sessions) {
     const bucket = buckets.get(key) ?? { key, agentId: gap.agentId ?? "", kind: legacy.kind, ...(legacy.hint ? { hint: legacy.hint } : {}), gaps: [] };
     bucket.gaps.push(gap); buckets.set(key, bucket);
   }
-  // One gap of a kind that today's capture would also keep as one is already in the grouped form; a script gap is
-  // replaced even alone, because the text says why it is there.
-  const groups = [...buckets.values()].filter((bucket) => bucket.kind === "opaque_tool_background" || bucket.gaps.length >= 2);
-  kept += [...buckets.values()].filter((bucket) => !groups.includes(bucket)).reduce((sum, bucket) => sum + bucket.gaps.length, 0);
-  return { close, metadata, groups, kept };
+  return { close, metadata, buckets: [...buckets.values()], kept };
 }
-/** The buckets a migration would group, to measure before planning (GapMeasure). */
-export const gapBuckets = (gaps: readonly HandoffGap[], sessions: Sessions) => sortGaps(gaps, sessions).groups;
+/** Every bucket a migration may group, singles included, to measure before planning (GapMeasure). */
+export const gapBuckets = (gaps: readonly HandoffGap[], sessions: Sessions) => sortGaps(gaps, sessions).buckets;
+/**
+ * Whether a bucket becomes one grouped gap. A script gap is replaced even alone, because the text says why it is there; two or
+ * more identical gaps are grouped; one gap of another kind is already in today's grouped form, unless a capped session's
+ * history shows it stood for more occurrences (§21.19).
+ */
+const groupsBucket = (bucket: GapBucket, measure: GapMeasure) => bucket.kind === "opaque_tool_background" || bucket.gaps.length >= 2 || measure.basis === "history" && measure.count > bucket.gaps.length;
 
 const capNote = "; it stopped recording after 100 gaps per capture pass";
 /** At most 300 characters for any count below 100,000 and session label up to "#99 (xxxxxxxx)" (a test holds it). */
@@ -119,36 +150,87 @@ function groupText(bucket: GapBucket, measure: GapMeasure, label: string) {
   }
   return `Capture gap (${bucket.kind})${bucket.hint ? `: ${bucket.hint}` : ""}: ${amount} occurrence${count === 1 ? "" : "s"} in session ${label} that an older build did not preserve${atLeast ? capNote : ""}. That session's raw history holds ${count === 1 && !atLeast ? "it" : "them"}.`;
 }
+/** Today's located long-line gap (HandoffObserver.captureGaps); the hint and message id give way so it ends whole in 300 characters. */
+function lineText(line: LegacyLongLine) {
+  const head = `Capture gap (long_line) in bytes ${line.start}–${line.end}: `, tail = `, ${line.end - line.start} bytes. This content was not preserved; that range of the session's raw history holds it.`;
+  return head + `${line.hint}${line.messageId ? `, message ${line.messageId}` : ""}`.slice(0, 300 - head.length - tail.length) + tail;
+}
+/** The long lines past the own gaps of one session: counted, with where the first ones are (at most 300 characters). */
+function moreText(lines: readonly LegacyLongLine[], label: string) {
+  const ranges = lines.slice(0, 3).map((line) => `${line.start}–${line.end}`).join(", ");
+  return lines.length === 1
+    ? `Capture gap (long_line): 1 more line over 256 KiB in session ${label} that an older build skipped and never listed, in bytes ${ranges}. This content was not preserved; that session's raw history holds it.`
+    : `Capture gap (long_line): ${lines.length} more lines over 256 KiB in session ${label} that an older build skipped and never listed, the first in bytes ${ranges}. This content was not preserved; that session's raw history holds them.`;
+}
+/** Own gaps per session for the long lines a capped pass did not list, like today's own located gaps per kind (captureLimits.hints); the rest are one counted gap. */
+const ownLines = 8;
+/**
+ * The gaps for the long lines capped passes skipped without listing them, by today's rules: a Codex `compacted` record is a
+ * compaction, not a gap (CaptureRecords.longLine); every other line is a gap in today's located form, the first `ownLines` of
+ * a session each its own, the rest one counted gap. Their times are the lines' own.
+ */
+function lineDrafts(session: CappedSession, sessions: Sessions) {
+  const lines = session.lines.filter((line) => !line.hint.startsWith("compacted")), drafts: GapGroupDraft[] = [];
+  const times = (list: readonly LegacyLongLine[]) => { const at = list.flatMap((line) => line.at ? [line.at] : []).sort(); return at.length ? { firstAt: at[0], lastAt: at.at(-1)! } : {}; };
+  for (const line of lines.slice(0, ownLines)) {
+    const sourceId = handoffSource(`legacy-long:${session.agentId}:${session.file}:${line.start}`);
+    drafts.push({ id: draftId(sourceId), sourceId, agentId: session.agentId, text: lineText(line), count: 1, ...times([line]) });
+  }
+  const rest = lines.slice(ownLines);
+  if (rest.length) {
+    const sourceId = handoffSource(`legacy-long:${session.agentId}:${session.file}:more`);
+    drafts.push({ id: draftId(sourceId), sourceId, agentId: session.agentId, text: moreText(rest, sessionLabel(session.agentId, sessions)), count: rest.length, ...times(rest) });
+  }
+  return { drafts, lines: lines.length, compactions: session.lines.length - lines.length };
+}
+/**
+ * What the note says about the capped sessions (§21.19): where the history was read, what was counted again and listed, and
+ * that the kinds it cannot recognize may be missing; where it could not be read, that the groups are a lower bound and
+ * skipped lines and other kinds may be missing.
+ */
+function capParts(capped: readonly CappedSession[], sessions: Sessions, lines: number, compactions: number) {
+  const read = capped.filter((session) => session.read).map((session) => session.agentId), unread = capped.filter((session) => !session.read).map((session) => session.agentId);
+  const parts: string[] = [];
+  if (read.length) parts.push(`an older build stopped recording after 100 gaps per capture pass in ${sessionList(read, sessions)}: script calls and unknown record, event and response types there are counted in ${read.length === 1 ? "the session's" : "each session's"} provider history up to where that build read`
+    + (lines ? `, and ${plural(lines, "line")} over 256 KiB that it skipped and never listed ${lines === 1 ? "is now a gap" : "are now gaps"}` : "")
+    + (compactions ? ` (${plural(compactions, "skipped compaction record")} ${compactions === 1 ? "is" : "are"} not a gap under capture rules v2)` : "")
+    + "; other kinds it raised past that cap (unparsable lines, images, system notices, tool-call problems) are not counted again and may be missing");
+  if (unread.length) parts.push(`${read.length ? "in" : "an older build stopped recording after 100 gaps per capture pass in"} ${sessionList(unread, sessions)}${read.length ? " it also stopped recording after 100 gaps per pass" : ""} and ${unread.length === 1 ? "that session's provider history" : "their provider histories"} could not be read: ${unread.length === 1 ? "its" : "their"} groups say "at least", and lines over 256 KiB it skipped and other kinds past that cap may be missing`);
+  return parts;
+}
 
 /**
- * Of the open gaps only: metadata is closed with the reason; each bucket (gapBuckets) becomes one open gap that states its
- * `measures` count (the entries themselves when not measured); everything else is not touched.
+ * Of the open gaps only: metadata is closed with the reason; each bucket that groups (groupsBucket) becomes one open gap
+ * that states its measured count (the entries themselves when not measured); the long lines capped sessions skipped without
+ * listing them become gaps (lineDrafts); everything else is not touched.
  */
-export function planGapMigration(gaps: readonly HandoffGap[], sessions: Sessions, measures: ReadonlyMap<string, GapMeasure> = new Map()): GapMigrationPlan {
+export function planGapMigration(gaps: readonly HandoffGap[], sessions: Sessions, inspection: GapInspection = { measures: new Map(), capped: [] }): GapMigrationPlan {
   const sorted = sortGaps(gaps, sessions);
-  const plan: GapMigrationPlan = { close: sorted.close, groups: [], counts: { metadata: sorted.metadata, opaque: 0, opaqueGroups: 0, duplicates: 0, duplicateGroups: 0, kept: sorted.kept } };
-  let counted = false, bounded = false;
-  for (const bucket of sorted.groups) {
+  const plan: GapMigrationPlan = { close: sorted.close, groups: [], added: [], counts: { metadata: sorted.metadata, opaque: 0, opaqueGroups: 0, duplicates: 0, duplicateGroups: 0, singles: 0, lines: 0, compactions: 0, kept: sorted.kept } };
+  for (const bucket of sorted.buckets) {
     const opaque = bucket.kind === "opaque_tool_background", entries = bucket.gaps.length;
-    const measure = measures.get(bucket.key) ?? { count: entries, basis: "recorded" as const };
-    counted ||= measure.basis === "history"; bounded ||= measure.basis === "atLeast";
-    const known = sessions.get(bucket.agentId), label = known ? `#${known.n} (${bucket.agentId.slice(0, 8)})` : bucket.agentId ? `(${bucket.agentId.slice(0, 8)})` : "(unknown)";
+    const measure = inspection.measures.get(bucket.key) ?? { count: entries, basis: "recorded" as const };
+    if (!groupsBucket(bucket, measure)) { plan.counts.kept += entries; continue; }
     // Not the live capture's group of the same session, kind and hint: its counts are its own, so later occurrences reopen it.
     // No firstAt/lastAt: the entries' times are when Flowly wrote them, not when the calls ran.
-    const sourceId = handoffSource(`legacy-gaps:${bucket.agentId}:${bucket.kind}\0${bucket.hint ?? ""}`), id = `g:${createHash("sha256").update(sourceId).digest("hex").slice(0, 32)}`;
-    plan.groups.push({ id, sourceId, agentId: bucket.agentId, text: groupText(bucket, measure, label).slice(0, 300), count: Math.max(1, measure.count) });
+    const sourceId = handoffSource(`legacy-gaps:${bucket.agentId}:${bucket.kind}\0${bucket.hint ?? ""}`), id = draftId(sourceId);
+    plan.groups.push({ id, sourceId, agentId: bucket.agentId, text: groupText(bucket, measure, sessionLabel(bucket.agentId, sessions)).slice(0, 300), count: Math.max(1, measure.count) });
     const note = `grouped by capture rules v2 into ${id}`;
     for (const gap of bucket.gaps) plan.close.push({ id: gap.id, note });
-    if (opaque) { plan.counts.opaque += entries; plan.counts.opaqueGroups++; } else { plan.counts.duplicates += entries; plan.counts.duplicateGroups++; }
+    if (opaque) { plan.counts.opaque += entries; plan.counts.opaqueGroups++; } else if (entries === 1) plan.counts.singles++; else { plan.counts.duplicates += entries; plan.counts.duplicateGroups++; }
   }
-  if (!plan.close.length) return plan;
+  for (const session of inspection.capped) {
+    const listed = lineDrafts(session, sessions);
+    plan.added.push(...listed.drafts); plan.counts.lines += listed.lines; plan.counts.compactions += listed.compactions;
+  }
+  if (!plan.close.length && !plan.added.length) return plan;
   const metadata = Object.entries(plan.counts.metadata).sort((a, b) => b[1] - a[1]), closed = metadata.reduce((sum, [, count]) => sum + count, 0);
   const parts = [
     closed ? `closed ${closed} metadata record${closed === 1 ? "" : "s"} (${metadata.map(([hint, count]) => `${hint} ${count}`).join(", ")})` : "",
     plan.counts.opaque ? `replaced ${plural(plan.counts.opaque, "per-call opaque_tool_background gap")} with ${plural(plan.counts.opaqueGroups, "grouped gap")}, one per session, to acknowledge once` : "",
     plan.counts.duplicates ? `grouped ${plan.counts.duplicates} identical gaps into ${plan.counts.duplicateGroups}` : "",
-    counted ? "where an older build stopped recording after 100 gaps per capture pass, a group's count is what that build read, counted in the session's provider history" : "",
-    bounded ? "where that history could not be counted, a group says \"at least\"" : "",
+    plan.counts.singles ? `replaced ${plural(plan.counts.singles, "single gap")} that stood for more occurrences with ${plural(plan.counts.singles, "counted group")}` : "",
+    ...capParts(inspection.capped, sessions, plan.counts.lines, plan.counts.compactions),
   ].filter(Boolean);
   plan.note = `Capture rules v2 (a one-time migration of the gaps older builds wrote once per occurrence): ${parts.join("; ")}. ${plural(plan.counts.kept, "other open gap")} unchanged. Each closed gap keeps its text and the reason in the archive.`.slice(0, 2000);
   return plan;

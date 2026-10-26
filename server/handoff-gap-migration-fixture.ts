@@ -13,7 +13,7 @@ import { HandoffStore, type HandoffContext } from "./handoff-store";
 export const at = "2026-10-25T00:43:30.367Z";
 export const flowly: HandoffContext = { by: { kind: "flowly" } };
 const sha = (value: string) => createHash("sha256").update(value).digest("hex");
-export type LegacyPrefix = "type" | "opaque" | "event" | "response" | "handle" | "timeline" | "long";
+export type LegacyPrefix = "type" | "opaque" | "event" | "response" | "handle" | "timeline" | "long" | "parse";
 /** One gap exactly as 786d9cd's observer stored it (`capture-gap:${gap.id}:${digest(text)}`, entryId("g", source)). */
 export function legacyGap(agentId: string, prefix: LegacyPrefix, kind: string, offset: number, options: { hint?: string; bytes?: [number, number]; provider?: "codex" | "claude" | "timeline"; session?: string; file?: string } = {}) {
   const { hint, bytes, provider = prefix === "timeline" ? "timeline" : "codex", session = `0199${agentId.padEnd(4, "0").slice(0, 4)}-0000-7000-8000-000000000001`, file = "16777232:139102801:1792722513530.101:0" } = options;
