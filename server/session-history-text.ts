@@ -250,11 +250,12 @@ export function excerpt(fields: Field[], levels: readonly Budget[], record: { fr
     }
     return { shown: "", at: 0, exact: true };
   };
-  const back = (budget: number) => {
+  /** `floor`: where the head ends; the tail never starts before it, so the two never overlap. */
+  const back = (budget: number, floor = 0) => {
     const { safe } = tail, length = tail.source.length;
     if (!budget || !safe) return { shown: "", at: source.length, exact: true };
     if (safe.decoded) { const cut = snapTail(safe.text, safe.text.length - budget); return { shown: safe.text.slice(cut), at: source.length - (safe.text.length - cut), exact: false }; }
-    for (let t = snapTail(tail.source, length - budget), tries = 0; t < length && tries < 9; t = snapTail(tail.source, length - Math.floor((length - t) * 0.75)), tries++) {
+    for (let t = Math.max(snapTail(tail.source, length - budget), floor - tail.offset), tries = 0; t < length && tries < 9; t = snapTail(tail.source, length - Math.floor((length - t) * 0.75)), tries++) {
       const shown = safe.text === tail.source ? tail.source.slice(t) : redactHistory(tail.source.slice(t));
       if (safe.text.endsWith(shown) && shown.length <= budget + 64) return { shown, at: tail.offset + t, exact: true };
     }
@@ -262,7 +263,13 @@ export function excerpt(fields: Field[], levels: readonly Budget[], record: { fr
   };
   const variant = (budget: Budget): Variant => {
     if (whole && whole.text.length <= budget.head + budget.tail + 80) return { text: whole.text, truncated: false };
-    const first = front(budget.head), last = back(budget.tail), exact = located && first.exact && last.exact;
+    const first = front(budget.head);
+    let last = back(budget.tail);
+    // A text shorter than both budgets that redaction made longer than them: the tail starts where the head ends, and
+    // when the two meet the excerpt is the whole redacted text.
+    if (last.at < first.at) last = back(budget.tail, first.at);
+    if (whole && last.at === first.at && first.shown + last.shown === whole.text) return { text: whole.text, truncated: false };
+    const exact = located && first.exact && last.exact;
     // Exact only inside one string: across fields the bytes also hold the JSON between them.
     const middle = { from: located && first.exact ? byteAt(first.at)! : span.from, to: located && last.exact ? byteAt(last.at)! : span.to, characters: Math.max(0, last.at - first.at), exact: exact && fieldAt(first.at) === fieldAt(last.at) };
     return { text: first.shown || last.shown ? `${first.shown}\n${marker(middle)}\n${last.shown}` : stub(middle), truncated: true, middle };

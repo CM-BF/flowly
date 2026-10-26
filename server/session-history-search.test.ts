@@ -1,14 +1,15 @@
 import { afterEach, expect, test, vi } from "vitest";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import type { SessionHistoryPage } from "../shared/session-history";
 import { SessionHistory } from "./session-history";
 import { HistoryRecords } from "./session-history-records";
-import { forgetHistory } from "./provider-history";
+import { releaseHistory } from "./session-history-fixture";
 
 const roots: string[] = [], readers: SessionHistory[] = [];
-afterEach(async () => { await Promise.all(readers.splice(0).map((reader) => reader.stop())); forgetHistory(); await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true }))); });
+// Every manifest these tests publish is one read() accepts (SESSION-HANDOFF-SPEC §21.16).
+afterEach(async () => { expect(await releaseHistory(readers, roots)).toEqual([]); });
 const id = "01a1756e-0561-7d21-845f-0000000000b2";
 const json = (value: unknown) => JSON.stringify(value) + "\n";
 

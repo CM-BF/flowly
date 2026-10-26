@@ -24,7 +24,23 @@ const version = 3;
 type Manifest = { version: typeof version; agentId: string; provider: string; sessionId: string; snapshot: string; previous?: string; bodyHash: string; bodyBytes: number; builtAt: string; sources: Source[]; directories: { path: string; stamp: string | null }[]; coverage: NonNullable<SessionHistoryPage["coverage"]>; gaps: SessionHistoryPage["gaps"]; growth: NonNullable<SessionHistoryPage["growth"]> };
 type Options = { codexHome?: string; claudeHome?: string; /** Small limits are injectable for synthetic fault tests only. */ maxSourceBytes?: number; maxSkeletonBytes?: number; now?: () => number };
 const cursorSchema = z.object({ v: z.literal(1), agentId: z.string().max(240), snapshot: z.string().regex(/^[a-f0-9]{64}$/), query: z.string().regex(/^[a-f0-9]{64}$/), offset: z.number().int().min(0).max(limits.entries) }).strict();
-const manifestSchema = z.object({ version: z.literal(version), agentId: z.string().max(240), provider: z.enum(["codex", "claude"]), sessionId: z.string().max(240), snapshot: z.string().regex(/^[a-f0-9]{64}$/), previous: z.string().regex(/^[a-f0-9]{64}$/).optional(), bodyHash: z.string().regex(/^[a-f0-9]{64}$/), bodyBytes: z.number().int().min(0).max(limits.skeletonBytes), builtAt: z.string(), sources: z.array(z.object({ path: z.string().min(1).max(4096), ref: z.string().max(100), stamp: z.string().max(300), bytes: z.number().nonnegative() })).min(1).max(limits.subagents + 1), directories: z.array(z.object({ path: z.string().max(4096), stamp: z.string().max(300).nullable() })).max(2), coverage: sessionHistoryPageSchema.shape.coverage.unwrap(), gaps: sessionHistoryPageSchema.shape.gaps, growth: sessionHistoryPageSchema.shape.growth.unwrap() });
+/** What read() accepts; the builder publishes nothing else (SESSION-HANDOFF-SPEC §21.16). */
+export const sessionHistoryManifestSchema = z.object({ version: z.literal(version), agentId: z.string().max(240), provider: z.enum(["codex", "claude"]), sessionId: z.string().max(240), snapshot: z.string().regex(/^[a-f0-9]{64}$/), previous: z.string().regex(/^[a-f0-9]{64}$/).optional(), bodyHash: z.string().regex(/^[a-f0-9]{64}$/), bodyBytes: z.number().int().min(0).max(limits.skeletonBytes), builtAt: z.string(), sources: z.array(z.object({ path: z.string().min(1).max(4096), ref: z.string().max(100), stamp: z.string().max(300), bytes: z.number().nonnegative() })).min(1).max(limits.subagents + 1), directories: z.array(z.object({ path: z.string().max(4096), stamp: z.string().max(300).nullable() })).max(2), coverage: sessionHistoryPageSchema.shape.coverage.unwrap(), gaps: sessionHistoryPageSchema.shape.gaps, growth: sessionHistoryPageSchema.shape.growth.unwrap() });
+/**
+ * The manifest as read() will accept it: read() refuses one that does not conform, and a rebuild would build the same one,
+ * so a value past a bound is bounded here (SESSION-HANDOFF-SPEC §21.16). One that still does not conform fails the build
+ * (`build_failed`), which publishes nothing and keeps the previous index.
+ */
+function publishable(manifest: Manifest): Manifest {
+  if (sessionHistoryManifestSchema.safeParse(manifest).success) return manifest;
+  const count = (value: number) => Number.isFinite(value) ? Math.max(0, Math.floor(value)) : 0;
+  const bounded: Manifest = { ...manifest,
+    gaps: manifest.gaps.slice(0, 20).map((gap) => ({ kind: gap.kind.slice(0, 80), count: count(gap.count), ...(gap.bytes !== undefined && count(gap.bytes) ? { bytes: count(gap.bytes) } : {}) })),
+    growth: manifest.growth.slice(0, 16).map((item) => ({ type: item.type.slice(0, 100), bytes: count(item.bytes), lines: count(item.lines) })) };
+  const checked = sessionHistoryManifestSchema.safeParse(bounded);
+  if (!checked.success) throw new Error(`Derived-history manifest out of bounds: ${checked.error.issues.map((issue) => issue.path.join(".")).slice(0, 5).join(", ")}`);
+  return bounded;
+}
 const message = "Redacted excerpts, not a transcript: messages, tool arguments and tool outputs keep a head and tail (the newest widest); an entry's middle gives the omitted part's source bytes. Images, reasoning and oversized records are left out. Search covers stored excerpts, decoded where escaped, within the indexed range; coverage and gaps say what is missing.";
 /** Shrinks an entry's text to fit a page, keeping the query's first match in view. */
 function shrink(text: string, needle: string | undefined) {
@@ -62,7 +78,7 @@ export class SessionHistory {
     const data: unknown = JSON.parse(await readFile(path, "utf8"));
     // An index of an older format covers less; it is replaced on this read, not served.
     if (data && typeof data === "object" && typeof (data as { version?: unknown }).version === "number" && (data as { version: number }).version < version) return null;
-    const manifest = manifestSchema.parse(data);
+    const manifest = sessionHistoryManifestSchema.parse(data);
     if (manifest.agentId !== agentId) throw new Error("Invalid derived-history manifest");
     return manifest;
   }
@@ -195,7 +211,7 @@ export class SessionHistory {
     const body = records.body(), bodyHash = digest(body), builtAt = new Date((this.options.now ?? Date.now)()).toISOString();
     const snapshot = digest(JSON.stringify({ sources, directories, bodyHash, builtAt }));
     const prior = await this.manifest(agent.id).catch(() => null), previous = prior?.snapshot === snapshot ? prior.previous : prior?.snapshot;
-    const manifest: Manifest = { version, agentId: agent.id, provider: location.file.provider, sessionId: location.file.sessionId, sources, directories, snapshot, ...(previous ? { previous } : {}), bodyHash, bodyBytes: Buffer.byteLength(body), builtAt, ...records.metadata() };
+    const manifest = publishable({ version, agentId: agent.id, provider: location.file.provider, sessionId: location.file.sessionId, sources, directories, snapshot, ...(previous ? { previous } : {}), bodyHash, bodyBytes: Buffer.byteLength(body), builtAt, ...records.metadata() });
     const paths = this.paths(agent.id); await mkdir(paths.folder, { recursive: true, mode: 0o700 });
     await this.atomic(join(paths.folder, `${snapshot}.jsonl`), body); await this.atomic(paths.manifest, JSON.stringify(manifest));
     await this.retire(agent.id, manifest);

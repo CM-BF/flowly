@@ -1,15 +1,15 @@
 import { afterEach, expect, test, vi } from "vitest";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { sessionHistoryLimits, type SessionHistoryEntry, type SessionHistoryPage } from "../shared/session-history";
 import { rotationLimits } from "../shared/session-rotation";
 import { SessionHistory } from "./session-history";
-import { forgetHistory } from "./provider-history";
-import { filler, replicaCodeword } from "./session-history-fixture";
+import { filler, replicaCodeword, releaseHistory } from "./session-history-fixture";
 
 const roots: string[] = [], readers: SessionHistory[] = [];
-afterEach(async () => { await Promise.all(readers.splice(0).map((reader) => reader.stop())); forgetHistory(); await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true }))); });
+// Every manifest these tests publish is one read() accepts (SESSION-HANDOFF-SPEC §21.16).
+afterEach(async () => { expect(await releaseHistory(readers, roots)).toEqual([]); });
 
 /**
  * One long automation run at the size Flowly rotates at, with the per-call shape of the live P2 predecessor: a 1.2 KB

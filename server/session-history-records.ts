@@ -68,7 +68,7 @@ export class HistoryRecords {
     const gap = this.gaps.get(kind) ?? { count: 0, bytes: 0 }; gap.count++; gap.bytes += bytes; this.gaps.set(kind, gap);
     if (!intentional.has(kind)) this.coverage.complete = false;
   }
-  grow(type: string, bytes: number) { if (this.growth.size >= 15 && !this.growth.has(type)) type = "other"; const value = this.growth.get(type) ?? { bytes: 0, lines: 0 }; value.bytes += bytes; value.lines++; this.growth.set(type, value); }
+  grow(type: string, bytes: number) { type = type.slice(0, 100); if (this.growth.size >= 15 && !this.growth.has(type)) type = "other"; const value = this.growth.get(type) ?? { bytes: 0, lines: 0 }; value.bytes += bytes; value.lines++; this.growth.set(type, value); }
   /**
    * The jsonl body, in source order. Every entry is checked against the entry schema first: read() refuses the whole
    * index over one entry that does not conform, and a rebuild would build the same body (SESSION-HANDOFF-SPEC §21.15).
@@ -98,7 +98,7 @@ export class HistoryRecords {
     for (const slot of this.slots) {
       if (!slot) continue;
       const variant = slot.variants[0];
-      if (variant.middle) this.gap(`${slot.kind}_excerpt`, variant.middle.to - variant.middle.from);
+      if (variant.middle) this.gap(`${slot.kind}_excerpt`, Math.max(0, variant.middle.to - variant.middle.from));
       if (slot.first > 0 && variant.truncated) this.gap(`${slot.kind}_index_reduced`);
       narrowest[slot.kind] = Math.min(narrowest[slot.kind] ?? Infinity, width(slot.kind, slot.first));
     }

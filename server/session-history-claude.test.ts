@@ -1,17 +1,18 @@
 import { afterEach, expect, test, vi } from "vitest";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import type { SessionHistoryPage } from "../shared/session-history";
 import { SessionHistory } from "./session-history";
-import { forgetHistory } from "./provider-history";
+import { releaseHistory } from "./session-history-fixture";
 
 // Claude Code run through the SDK (Paseo's entrypoint) writes what arrives during a turn only as an `attachment` record
 // of type queued_command, and a task notice absorbed into a running turn only as queue-operation records; the routine
 // attachments and bookkeeping records are host metadata (SESSION-HANDOFF-SPEC §8.1, §21.15). Synthetic records with the
 // shapes of this machine's sdk-cli transcripts, the same ones the capture tests use.
 const roots: string[] = [], readers: SessionHistory[] = [];
-afterEach(async () => { await Promise.all(readers.splice(0).map((reader) => reader.stop())); forgetHistory(); await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true }))); });
+// Every manifest these tests publish is one read() accepts (SESSION-HANDOFF-SPEC §21.16).
+afterEach(async () => { expect(await releaseHistory(readers, roots)).toEqual([]); });
 const id = "c1a17565-6df7-4f20-b755-0000000000d5", cwd = "/tmp/plugin-test-history-claude";
 const base = { sessionId: id, entrypoint: "sdk-cli", isSidechain: false, timestamp: "2026-10-25T10:00:00.000Z", userType: "external", cwd, version: "2.9.0" };
 

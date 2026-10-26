@@ -1,14 +1,14 @@
 import { afterEach, expect, test, vi } from "vitest";
-import { mkdir, mkdtemp, open, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, open, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { sessionHistoryExcerpts, sessionHistoryLimits, sessionHistoryPageSchema, type SessionHistoryEntry, type SessionHistoryPage, type SessionHistoryQuery } from "../shared/session-history";
 import { SessionHistory } from "./session-history";
-import { forgetHistory } from "./provider-history";
-import { replicaCodeword, replicaRollout, replicaSecrets, filler, type ReplicaRole } from "./session-history-fixture";
+import { replicaCodeword, replicaRollout, replicaSecrets, filler, type ReplicaRole, releaseHistory } from "./session-history-fixture";
 
 const roots: string[] = [], readers: SessionHistory[] = [];
-afterEach(async () => { await Promise.all(readers.splice(0).map((reader) => reader.stop())); forgetHistory(); await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true }))); });
+// Every manifest these tests publish is one read() accepts (SESSION-HANDOFF-SPEC §21.16).
+afterEach(async () => { expect(await releaseHistory(readers, roots)).toEqual([]); });
 const ids: Record<ReplicaRole, string> = { predecessor: "01a17565-6df7-7f20-b755-0000000000a1", successor: "01a1756e-0561-7d21-845f-0000000000a2", reviewer: "01a17572-9c5e-7f83-9ba0-0000000000a3" };
 const json = (value: unknown) => JSON.stringify(value) + "\n";
 

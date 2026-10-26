@@ -1,15 +1,16 @@
 import { afterEach, expect, test, vi } from "vitest";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { sessionHistoryEntrySchema, sessionHistoryLimits, type SessionHistoryPage } from "../shared/session-history";
 import { SessionHistory } from "./session-history";
-import { forgetHistory } from "./provider-history";
+import { releaseHistory } from "./session-history-fixture";
 
 // Every entry the builder publishes conforms to the entry schema (SESSION-HANDOFF-SPEC §8.1, §21.15): one entry that does
 // not would make read() report the whole index unavailable, and a rebuild would build the same body again.
 const roots: string[] = [], readers: SessionHistory[] = [];
-afterEach(async () => { await Promise.all(readers.splice(0).map((reader) => reader.stop())); forgetHistory(); await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true }))); });
+// Every manifest these tests publish is one read() accepts (SESSION-HANDOFF-SPEC §21.16).
+afterEach(async () => { expect(await releaseHistory(readers, roots)).toEqual([]); });
 
 async function build(provider: "codex" | "claude", id: string, text: string) {
   const root = await mkdtemp(join(tmpdir(), "flowly-history-entries-")); roots.push(root);

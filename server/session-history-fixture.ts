@@ -1,3 +1,8 @@
+import { readdir, readFile, rm } from "node:fs/promises";
+import { join } from "node:path";
+import { forgetHistory } from "./provider-history";
+import { sessionHistoryManifestSchema, type SessionHistory } from "./session-history";
+
 /**
  * Synthesized replicas of the three Codex rollouts of the live P2 acceptance (2026-10-25): predecessor, successor and
  * reviewer of one card. The record types, sizes and placements are the ones that made the first history index miss the
@@ -133,4 +138,22 @@ export function replicaRollout(role: ReplicaRole, sessionId: string, start = "20
     r.end();
   }
   return r.text();
+}
+/** Every manifest a reader published under its directory, and whether read() would accept it (SESSION-HANDOFF-SPEC §21.16). */
+export async function publishedManifests(directory: string) {
+  const folders = await readdir(join(directory, "session-history")).catch(() => [] as string[]);
+  return Promise.all(folders.sort().map(async (folder) => {
+    const path = join(directory, "session-history", folder, "current.json"), result = sessionHistoryManifestSchema.safeParse(JSON.parse(await readFile(path, "utf8")));
+    return { path, valid: result.success, ...(result.success ? {} : { issues: result.error.issues.map((issue) => `${issue.path.join(".")}: ${issue.message}`) }) };
+  }));
+}
+/**
+ * A test's teardown: stops its readers, then reads back every manifest they published under `<root>/derived` and removes
+ * the roots. Returns the manifests read() would refuse, which a test expects to be none.
+ */
+export async function releaseHistory(readers: SessionHistory[], roots: string[]) {
+  await Promise.all(readers.splice(0).map((reader) => reader.stop())); forgetHistory();
+  const published = (await Promise.all(roots.map((root) => publishedManifests(join(root, "derived"))))).flat();
+  await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
+  return published.filter((manifest) => !manifest.valid);
 }

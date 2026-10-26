@@ -1,17 +1,17 @@
 import { afterEach, expect, test, vi } from "vitest";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { sessionHistoryExcerpts, sessionHistoryLimits, type SessionHistoryEntry, type SessionHistoryPage } from "../shared/session-history";
 import { rotationLimits } from "../shared/session-rotation";
 import { SessionHistory } from "./session-history";
-import { forgetHistory } from "./provider-history";
-import { filler } from "./session-history-fixture";
+import { filler, releaseHistory } from "./session-history-fixture";
 
 // Messages have a bounded share of the index too (SESSION-HANDOFF-SPEC §8.1, §21.15): a long, chatty Claude session used
 // to fill the 2 MiB with its oldest narration, keep no tool entry and refuse its newest prompt, narration and result.
 const roots: string[] = [], readers: SessionHistory[] = [];
-afterEach(async () => { await Promise.all(readers.splice(0).map((reader) => reader.stop())); forgetHistory(); await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true }))); });
+// Every manifest these tests publish is one read() accepts (SESSION-HANDOFF-SPEC §21.16).
+afterEach(async () => { expect(await releaseHistory(readers, roots)).toEqual([]); });
 const cwd = "/tmp/plugin-test-history-messages";
 
 async function build(id: string, text: string, maxSkeletonBytes?: number) {
