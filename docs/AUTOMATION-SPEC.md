@@ -317,7 +317,7 @@ AutomationJob {
 
 ### 5.3 无人值守项目与按卡片要求的评审（基准测试的发现）
 
-状态：设计（2026-10-26，分支 `fix/unattended-review`）。效果由基准测试 agent 用新版本重跑 Flowly 组，与旧版本和原生组按题配对比较。
+状态：已实现（2026-10-26，分支 `fix/unattended-review`），typecheck 与全部单元测试通过；未安装到 daemon。效果由基准测试 agent 用新版本重跑 Flowly 组，与旧版本和原生组按题配对比较。
 
 来源：基准测试 agent（88ff9d01）用 Terminal-Bench 4.0 的真实题目比较原生单 agent、Flowly、Dynamic workflows 与两者组合。所有角色都是 gpt-6.1-sol、max 推理、fast；每次尝试 2 小时上限；只看官方隐藏测试。Flowly 冻结在 `69422d88`，自动化设置全用缺省值。25 道题里 Flowly 整题通过 8/23 次，原生 13/25；Flowly 平均每题 $3.18、42 分钟，原生 $0.77、18 分钟。用户让它把 Flowly 的问题交给这里修。逐题核对了证据（看板、rollout、隐藏测试的输出），事实与原因如下：
 
@@ -356,8 +356,8 @@ AutomationJob {
 
 #### 5.3.4 无人值守项目（`unattended`）
 
-- 设置 `AutomationSettings.unattended?: true`，意思是这个项目里没人回答自动化 session 的问题（例如基准测试、夜间批量运行）。缺省没有这个键，即关闭，行为与今天相同。只在人打开时写入，关掉就删除这个键。
-- 打开时，如果这张卡的 job 还活着（`liveStates`），而调用者是它的自动化 session（`automationSessionRole` 认出的实现者、评审者，包括被换下的评审者和轮换中的 session），那么 `flowly_report_progress kind=question|blocker` 和 `flowly_update_status status=blocked` 返回 `UNATTENDED`，什么都不记录：不记事件、不记回执、不改 handoff。检查放在同一请求的重发判断之后，所以打开开关之前已经记下的同一请求仍照常返回 `replayed`。返回的消息：
+- 设置 `AutomationSettings.unattended?: boolean`（只存 `true`），意思是这个项目里没人回答自动化 session 的问题（例如基准测试、夜间批量运行）。缺省没有这个键，即关闭，行为与今天相同。只在人打开时写入，关掉就删除这个键。
+- 打开时，如果这张卡的 job 还活着（`liveStates`），而调用者是它当前的实现者或评审者（被换下或正在交接的 session 在这之前已被 `RETIRED_SESSION` / `FINALIZING` 拒绝），那么 `flowly_report_progress kind=question|blocker` 和 `flowly_update_status status=blocked` 返回 `UNATTENDED`，什么都不记录：不记事件、不记回执、不改 handoff。检查放在同一请求的重发判断之后，所以打开开关之前已经记下的同一请求仍照常返回 `replayed`。返回的消息：
   - 实现者：“Nobody answers questions in this project: agent automation runs it unattended, so nothing was recorded. Decide yourself: take the most reasonable reading of the card, write your assumption in the workpad and the delivery note, and continue to a delivery with flowly_update_status status=in_review. If part of the work cannot be done safely, deliver the rest and say in the note what you did not do and why.”
   - 评审者：“Nobody answers questions in this project: agent automation runs it unattended, so nothing was recorded. Decide yourself and give your verdict now with flowly_submit_review: approve, or changes with your doubts as concrete findings the implementer can act on.”
   CLI fallback 走同一个 API 动作，同样拒绝。人自己开的 session（job 不认得的 session）不受影响；job 已经 `delivered`、`stopped` 或 `failed` 时，自动化不再驱动 session，人和 session 说话时 agent 照常可以提问。
@@ -381,7 +381,7 @@ AutomationJob {
 #### 5.3.6 Deep 判据收窄
 
 - Deep 是之后难以撤销、又有别的东西依赖它的设计：长期运行的系统的持久化数据和存储格式、有其它使用者的 schema 和协议、安全与权限实施、用户数据的迁移与删除、并发与崩溃恢复。**一个自足、由测试验证的程序**（参考 CLI 的克隆、解析器、模拟器或硬件模块、一道基准测试题）是 Standard，即使它读写某种文件格式、实现某个协议或者有并发：它的错误由测试发现，修起来也只影响它自己。
-- 改动的位置：分类器说明（`classifierPrompt`，加上这两个 Standard 例子）、Deep 评审说明开头一句、skill 的子卡片一段、开工说明里给子卡设 Deep 的括号、`flowly_create_card` 的 `review_level` 描述。关键词回退不变，它只在模型失败时用。
+- 改动的位置：分类器说明（`classifierPrompt`，加上这两个 Standard 例子）、Deep 评审说明开头一句、skill 的子卡片一段、开工说明里给子卡设 Deep 的括号、`flowly_create_card` 的 `review_level` 描述。关键词回退不变，它只在模型失败时用。分类输入的规则版本 `policy` 从 1 改为 2：按旧判据缓存的判断不再匹配，每张需要分类的卡在下一次保存或评审时按新判据重判一次（一次便宜的 helper 调用）。
 
 #### 5.3.7 目录工作区里的子卡片
 

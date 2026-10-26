@@ -85,6 +85,11 @@ export const automationSettingsSchema = z.strictObject({
   levels: levelSettingsSchema.optional(),
   /** Sessions start in the provider's no-approval mode (claude bypassPermissions, codex full-access). */
   fullAccess: z.boolean().default(true),
+  /**
+   * Nobody answers this project's automated sessions (AUTOMATION-SPEC §5.3.4): their questions and blockers are refused
+   * and they decide, record assumptions and deliver. Stored only while on, so a board stays readable by older builds.
+   */
+  unattended: z.boolean().optional(),
   /** Reminders after a turn that ended without a delivery, a question or a blocker (Hermes stop nudges). */
   nudgeLimit: z.number().int().min(0).max(automationLimits.nudges).default(2),
   /** Consecutive failed turns before automation gives up (Hermes `failure_limit`). */

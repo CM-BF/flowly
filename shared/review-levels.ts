@@ -31,7 +31,7 @@ const ancestorLimit = 20;
 /** All classifier inputs; parent context is a title only, never inherited instructions. */
 export function classificationInput(board: LevelBoard, card: LevelCard) {
   return {
-    policy: 1,
+    policy: 2,
     title: card.title,
     description: card.description,
     acceptance: board.workpads?.find((w) => w.taskId === card.id)?.acceptance.map((item) => item.text) ?? [],

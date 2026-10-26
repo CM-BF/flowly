@@ -1477,6 +1477,8 @@ const catalog: Catalog = {
   "Review rounds": "검토 횟수",
   "Full access": "전체 접근",
   "Agents run without asking for permissions (Claude bypass, Codex full access), whatever Permissions the implementer, the reviewer or the project default model chose. Off: those Permissions apply, agents may stop to ask, and the card shows it.": "에이전트가 권한을 묻지 않고 실행됩니다(Claude bypass, Codex full access). 구현 담당, 검토 담당, 프로젝트 기본 모델에서 고른 권한보다 우선합니다. 끄면 그 권한이 적용되고, 확인을 위해 멈출 수 있으며 카드에 표시됩니다.",
+  "Unattended": "무인 실행",
+  "Nobody answers questions in this project (benchmarks, overnight runs). Agents decide open questions themselves, write down their assumptions and deliver; a question or blocker from an automated session is refused.": "이 프로젝트에서는 아무도 질문에 답하지 않습니다(벤치마크, 야간 실행 등). 에이전트가 열린 질문을 스스로 결정하고 세운 가정을 기록한 뒤 결과물을 제출합니다. 자동화 세션의 질문이나 차단 보고는 거부됩니다.",
   "Agents can split a card into sub-cards, each with its own workspace. The parent card shows Sub-cards 2/3, waits while they run and is woken to accept them and finish. New sub-card is in every card's menu.": "에이전트는 카드를 하위 카드로 나눌 수 있으며, 각 하위 카드는 자체 workspace를 가집니다. 상위 카드는 '하위 카드 2/3'을 표시하고, 하위 카드가 실행되는 동안 기다렸다가 끝나면 깨어나 승인하고 마무리합니다. '새 하위 카드'는 모든 카드의 메뉴에 있습니다.",
   "New sub-card": "새 하위 카드",
   "Sub-cards {done}/{total}": "하위 카드 {done}/{total}",

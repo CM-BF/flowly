@@ -168,11 +168,11 @@ test("a takeover implementer gets the panel's complete list of changes, not a cl
   expect(takeover.prompt).toContain("fix all of them");
 });
 
-test("panel reviewers get the delivery note, earlier changes and comments, and run in the foreground of the same turn", () => {
+test("panel reviewers get the card's description, the delivery note, earlier changes and comments, and run in the foreground of the same turn", () => {
   const text = reviewPrompt(3, 3, 3);
-  expect(text).toContain("the delivery note, every change requested in earlier rounds and the people's comments");
+  expect(text).toContain("the card's description word for word (its requirements and prohibitions), the acceptance criteria, the delivery note, every change requested in earlier rounds and the people's comments");
   expect(text).toContain("in the foreground, and wait for all of them in this same turn");
-  expect(text).toContain("do not end your turn before you call flowly_submit_review (or ask a person with flowly_report_progress kind=question");
+  expect(text).toContain("do not end your turn before you call flowly_submit_review (or ask a person, only for what only they can give): a turn that ends with neither counts as an unfinished review");
   expect(text).not.toContain("workflow");
 });
 

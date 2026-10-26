@@ -95,6 +95,24 @@ function levelContext(board: LevelBoard, task: Task) {
 }
 
 /** A project-memory refusal as the tool error agents read (PROJECT-MEMORY-SPEC §4.1). */
+/**
+ * An unattended project's rule (AUTOMATION-SPEC §5.3.4): nobody answers questions from the sessions automation drives,
+ * so a question or blocker from one is refused before anything is recorded and the session decides itself.
+ */
+function refuseUnattended(board: Board, identity: { agentId: string; taskId: string }) {
+  const task = board.tasks.find((t) => t.id === identity.taskId);
+  if (!automationOf(board.projects.find((p) => p.id === task?.projectId))?.unattended) return;
+  // Replaced and handing-off sessions never get here (RETIRED_SESSION, FINALIZING): only the job's current sessions.
+  const session = automationSessionRole(board, identity.agentId, identity.taskId);
+  if (!session || !isLive(session.job)) return;
+  throw new ToolError(
+    "UNATTENDED",
+    session.role === "reviewer"
+      ? "Nobody answers questions in this project: agent automation runs it unattended, so nothing was recorded. Decide yourself and give your verdict now with flowly_submit_review: approve, or changes with your doubts as concrete findings the implementer can act on."
+      : "Nobody answers questions in this project: agent automation runs it unattended, so nothing was recorded. Decide yourself: take the most reasonable reading of the card, write your assumption in the workpad and the delivery note, and continue to a delivery with flowly_update_status status=in_review. If part of the work cannot be done safely, deliver the rest and say in the note what you did not do and why.",
+  );
+}
+
 function memoryToolError(e: unknown): unknown {
   return e instanceof MemoryError ? new ToolError(e.code, e.message) : e;
 }
@@ -955,6 +973,7 @@ export class AgentService {
           changed: false,
         };
       }
+      if (questionKind) refuseUnattended(board, identity);
       const age = this.clock() - Date.parse(signed.issuedAt);
       if (age > 15 * 60 * 1000 || age < -30000)
         throw new ToolError(

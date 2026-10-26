@@ -799,7 +799,7 @@ export class AutomationService {
       const note = (action: string, text?: string) => this.store.event(board, { taskId: job.taskId, actor: "system", action, agentId, ...(text ? { note: text } : {}) });
       if (outcome.kind === "failed" && this.deps.handoff?.measure && poisonedSession(outcome.message)) {
         if (pendingInstruction) job.instruction = pendingInstruction;
-        else this.instruct(job, job.role, job.workInstructions?.[job.role]?.fresh ?? (job.role === "reviewer" ? roundPrompt(job, settings) : startPrompt({ review: !!settings.reviewer, again: true })), undefined, "retry");
+        else this.instruct(job, job.role, job.workInstructions?.[job.role]?.fresh ?? (job.role === "reviewer" ? roundPrompt(job, settings) : opening(settings, true)), undefined, "retry");
         job.state = job.role === "reviewer" ? "reviewing" : "working";
         beginRotation(job, "history", now, { forced: true });
         job.rotation!.policy = { rule: "R0", boundary: "followup", reason: "The failed turn exceeded the provider context; continue from the card in a fresh conversation." };
@@ -903,7 +903,7 @@ export class AutomationService {
         case "nudge":
           job.nudges = decision.count;
           job.turnAt = now;
-          this.instruct(job, job.role, nudgePrompt(decision.count, settings.nudgeLimit, job.role), undefined, "nudge");
+          this.instruct(job, job.role, nudgePrompt(decision.count, settings.nudgeLimit, job.role, !!settings.unattended), undefined, "nudge");
           note("automation_nudged", `Reminder ${decision.count} of ${settings.nudgeLimit}`);
           break;
         case "retry":
@@ -997,7 +997,7 @@ export class AutomationService {
       const changes = job.verdict === "changes" ? (job.changes ?? (recorded ? `The reviewer's requested changes, still to do:\n${recorded}` : undefined)) : undefined;
       const substantive = this.deps.handoff && pending?.kind && ["nudge", "retry", "cooldown"].includes(pending.kind) ? job.workInstructions?.implementer : pending;
       const carried = substantive?.role === "implementer" ? substantive.text : changes ?? (this.deps.handoff ? job.workInstructions?.implementer?.text : undefined);
-      this.instruct(job, "implementer", [note, startPrompt({ review: !!settings.reviewer, again: false }), job.feedback, carried].filter(Boolean).join("\n\n"), undefined, carried ? "changes" : "start");
+      this.instruct(job, "implementer", [note, opening(settings, false), job.feedback, carried].filter(Boolean).join("\n\n"), undefined, carried ? "changes" : "start");
     }
     const replacementModel = fallbackModel(settings, role);
     const model = replacementModel ? automationExecution(replacementModel, project?.agentModel, settings.fullAccess) : undefined;
@@ -1053,7 +1053,7 @@ export class AutomationService {
       if (j.hold === "history_runaway") throw new ToolError("NEEDS_PERSON", "History kept growing across three sessions. Inspect the card's pitfalls and choose Run again to start a new run.");
       if (j.rotation) return { value: { ...j }, changed: false };
       const settings = automationOf(board.projects.find(p => p.id === j.projectId))!;
-      if (!j.instruction) this.instruct(j, j.role, j.workInstructions?.[j.role]?.text ?? (j.role === "reviewer" ? roundPrompt(j, settings) : startPrompt({ review: !!settings.reviewer, again: true })), undefined, "requested");
+      if (!j.instruction) this.instruct(j, j.role, j.workInstructions?.[j.role]?.text ?? (j.role === "reviewer" ? roundPrompt(j, settings) : opening(settings, true)), undefined, "requested");
       if (j.role === "reviewer") j.instruction!.reviewDelivery = j.deliveryEvent;
       // Waiting parents retain their child signature; the continuation explicitly reads the current child state.
       if (["needs_human", "waiting", "retry_wait"].includes(j.state)) j.state = j.role === "reviewer" ? "reviewing" : "working";
@@ -1116,10 +1116,10 @@ export class AutomationService {
     if (carry.verbatim) return carry.text;
     const followup = carry.kind && ["nudge", "retry", "cooldown"].includes(carry.kind);
     const outstanding = job.workInstructions?.[r.role];
-    const substantive = (followup ? outstanding?.fresh : carry.fresh)?.replace(startPrompt({ review: !!settings.reviewer, again: false }), startPrompt({ review: !!settings.reviewer, again: true }));
+    const substantive = (followup ? outstanding?.fresh : carry.fresh)?.replace(opening(settings, false), opening(settings, true));
     const task = r.role === "reviewer"
       ? [roundPrompt(job, settings), substantive && !substantive.includes("You are the reviewer of this card") ? substantive : ""]
-      : [startPrompt({ review: !!settings.reviewer, again: true }), job.feedback, job.verdict === "changes" ? job.changes : "", substantive];
+      : [opening(settings, true), job.feedback, job.verdict === "changes" ? job.changes : "", substantive];
     const note = r.reason === "history" && !r.policy ? rotationNote(r.role, megabytes(r.bytes ?? 0)) : `[Flowly automation] The previous ${r.role} session gives way after ${(r.policy?.reason ?? r.reason).replace(/\.$/, "")}. Continue the card from its recorded state; do not redo completed work.`;
     return [note, continuity, ...task].filter(Boolean).join("\n\n");
   }
@@ -1216,16 +1216,15 @@ export class AutomationService {
    */
   private rotate(board: Board, job: AutomationJob, role: Role, bytes: number) {
     const settings = automationOf(board.projects.find((p) => p.id === job.projectId))!;
-    const review = !!settings.reviewer;
     const old = role === "reviewer" ? job.reviewerId : job.implementerId;
     // A retry's fresh text starts the card from scratch; the new session takes over instead.
-    const fresh = job.instruction!.fresh.replace(startPrompt({ review, again: false }), startPrompt({ review, again: true }));
+    const fresh = job.instruction!.fresh.replace(opening(settings, false), opening(settings, true));
     const parts =
       role === "reviewer"
         ? // A reminder or retry alone would leave the new reviewer without its round, lens and panel instructions.
           [fresh.includes("You are the reviewer of this card") ? "" : roundPrompt(job, settings)]
         : [
-            fresh.includes("Follow the Flowly skill:") ? "" : startPrompt({ review, again: true }),
+            fresh.includes("Follow the Flowly skill:") ? "" : opening(settings, true),
             job.feedback && !fresh.includes(job.feedback) ? job.feedback : "",
             // The reviewer's requested changes still to do (as a fallback takeover carries them, §4.5).
             job.verdict === "changes" && job.changes && !fresh.includes(job.changes) ? job.changes : "",
@@ -1392,7 +1391,7 @@ export class AutomationService {
       job.turnAt = now;
       job.updatedAt = now;
       const settings = automationOf(board.projects.find((p) => p.id === job.projectId))!;
-      this.instruct(job, "implementer", [startPrompt({ review: !!settings.reviewer, again: !!job.implementerId }), job.feedback].filter(Boolean).join("\n\n"), [startPrompt({ review: !!settings.reviewer, again: false }), job.feedback].filter(Boolean).join("\n\n"), job.implementerId ? "again" : "start");
+      this.instruct(job, "implementer", [opening(settings, !!job.implementerId), job.feedback].filter(Boolean).join("\n\n"), [opening(settings, false), job.feedback].filter(Boolean).join("\n\n"), job.implementerId ? "again" : "start");
       this.store.event(board, { taskId: job.taskId, actor: "system", action: "automation_started" });
       return { value: { ...job }, changed: true };
     });
@@ -1432,7 +1431,7 @@ export class AutomationService {
       delete job.retryAt;
       const settings = automationOf(board.projects.find((p) => p.id === job.projectId))!;
       const retry = job.code === "cooldown" ? cooldownPrompt(job.cooldowns ?? 1, job.detail ?? "") : retryPrompt(job.failures, settings.failureLimit, job.detail ?? "");
-      if (!job.instruction) this.instruct(job, job.role, retry, job.role === "reviewer" ? roundPrompt(job, settings) : startPrompt({ review: !!settings.reviewer, again: false }), job.code === "cooldown" ? "cooldown" : "retry");
+      if (!job.instruction) this.instruct(job, job.role, retry, job.role === "reviewer" ? roundPrompt(job, settings) : opening(settings, false), job.code === "cooldown" ? "cooldown" : "retry");
       delete job.code;
       delete job.detail;
       return { value: { ...job }, changed: true };
@@ -1861,7 +1860,7 @@ export class AutomationService {
       if (code === "agent_request_outcome_unknown" || message.includes("agent_request_outcome_unknown"))
         return waitForPerson("interrupted", "The daemon cannot confirm whether the instruction reached the provider. Check the session before resuming.", true);
       if (this.deps.handoff?.measure && poisonedSession(message) && !job.pendingOp && !job.rotation && !paused && activeAgent(job)) {
-        if (!job.instruction) this.instruct(job, role, job.workInstructions?.[role]?.fresh ?? (role === "reviewer" && settings ? roundPrompt(job, settings) : startPrompt({ review: !!settings?.reviewer, again: true })), undefined, "retry");
+        if (!job.instruction) this.instruct(job, role, job.workInstructions?.[role]?.fresh ?? (role === "reviewer" && settings ? roundPrompt(job, settings) : opening(settings, true)), undefined, "retry");
         beginRotation(job, "history", this.now(), { forced: true });
         job.rotation!.policy = { rule: "R0", boundary: "followup", reason: "The conversation rejected its context and cannot safely continue." };
         job.state = role === "reviewer" ? "reviewing" : "working"; switched = true;
@@ -1989,7 +1988,7 @@ export class AutomationService {
           if (!j || !isLive(j) || j.generation !== job.generation || !automationAllowed(b, j)) return { value: null, changed: false };
           const settings = automationOf(b.projects.find((p) => p.id === j.projectId))!;
           if (j.pendingRole && j.pendingRole !== j.role) { delete j.pendingOp; delete j.pendingRole; }
-          this.instruct(j, j.role, j.role === "reviewer" ? roundPrompt(j, settings) : startPrompt({ review: !!settings.reviewer, again: !!j.implementerId || !!j.retired?.length }));
+          this.instruct(j, j.role, j.role === "reviewer" ? roundPrompt(j, settings) : opening(settings, !!j.implementerId || !!j.retired?.length));
           if (j.role === "reviewer") j.instruction!.reviewDelivery = j.deliveryEvent;
           j.updatedAt = this.now();
           return { value: { ...j }, changed: true };
@@ -2154,8 +2153,13 @@ function roundPrompt(job: AutomationJob, settings: AutomationSettings) {
   return reviewPrompt(job.reviewRounds, plan.max, plan.size, plan.level, {
     ...(plan.level === "standard" ? {} : { why: reasonText(plan.reason) }),
     ...(job.risks?.length ? { earlier: { round: job.risksFrom?.round, risks: job.risks } } : {}),
+    unattended: !!settings.unattended,
   });
 }
+
+/** The implementer's opening instruction under the project's settings: a reviewer to expect, nobody to ask (§5.3.4). */
+const opening = (settings: AutomationSettings | null | undefined, again: boolean) =>
+  startPrompt({ review: !!settings?.reviewer, again, unattended: !!settings?.unattended });
 
 /** A reviewer session's title: the level of the round it was created for, else its model slot. */
 function reviewTitle(job: AutomationJob) {

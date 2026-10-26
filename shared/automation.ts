@@ -561,24 +561,38 @@ export function automationExecution(model: AgentModel, project: AgentModel | nul
 export const automationTag = "[Flowly automation]";
 export const isAutomationMessage = (text: string) => text.trimStart().startsWith(automationTag);
 const tag = automationTag;
+/** What makes a card Deep (§5.3.6): mistakes that are expensive to undo because other work or stored data depends on them. */
+export const deepCriteria =
+  "foundation work that later cards or stored data depend on: persistent storage formats of a long-lived system, schemas and protocols with other users, security and permission enforcement, data migrations, concurrency and crash recovery. A self-contained program verified by tests (a clone of a reference CLI, a parser, an emulator or hardware block, a benchmark task) is standard, even when it reads a file format, implements a protocol or runs concurrently.";
+/** The unattended project's rule (§5.3.4): nobody answers, so automated sessions decide and deliver. */
+export const unattendedNote =
+  "This project runs unattended: nobody answers questions. Never ask or report a blocker (flowly_report_progress kind=question or blocker, status=blocked, or your own question tool): decide yourself, write down your assumptions and deliver. If part of the work cannot be done safely, deliver the rest and say in the note what you did not do and why.";
 const lifecycle =
-  "Follow the Flowly skill: read flowly_get_task, fix setup.missing, set the stage that matches the work, keep the workpad current. End by delivering with flowly_update_status status=in_review and a note on what changed, how you verified it and what you did not run. If flowly_get_task's workspace.kind is worktree, commit your changes on that worktree's branch before delivering: parents and dependent cards merge branches, so uncommitted work never reaches them. Any other workspace (directory) is the project root's own checkout with no branch of its own: leave your changes uncommitted there unless the card or the repository's rules ask for a commit. If the delivery returns WORKPAD_OPEN or SETUP_INCOMPLETE, fix what you can, then retry in this same turn with acknowledgeOpen=true and a note explaining each remaining item; do not end the turn on the refusal. A progress result (kind=result) does not end an automated turn. If you cannot continue without a person (a decision, credentials, access), ask with flowly_report_progress kind=question or set status=blocked with the reason, then end your turn: nobody is watching this session live, so do not wait and do not guess. If the card is too big for one session or has parallel parts, split it into sub-cards with flowly_create_card (review_level=deep for foundation sub-cards: storage formats, schemas, protocols, external interfaces, security, data migrations, concurrency) and end your turn; you are woken when they settle.";
+  `Follow the Flowly skill: read flowly_get_task, fix setup.missing, set the stage that matches the work, keep the workpad current. Meet every explicit requirement and prohibition in the card's description and comments; never add forbidden content, hard-code expected outputs, or edit tests or inputs to make checks pass. End by delivering with flowly_update_status status=in_review and a note on what changed, how you verified it and what you did not run; in a workspace without Git history, list every file you created, changed or deleted, since the reviewer has no diff. If flowly_get_task's workspace.kind is worktree, commit your changes on that worktree's branch before delivering: parents and dependent cards merge branches, so uncommitted work never reaches them. Any other workspace (directory) is the project root's own checkout with no branch of its own: leave your changes uncommitted there unless the card or the repository's rules ask for a commit. If the delivery returns WORKPAD_OPEN or SETUP_INCOMPLETE, fix what you can, then retry in this same turn with acknowledgeOpen=true and a note explaining each remaining item; do not end the turn on the refusal. A progress result (kind=result) does not end an automated turn. Doubt is not a reason to stop: if the task looks impossible, contradictory or wrong, test that conclusion first, then complete it on the most reasonable reading, deliver every required output, and state your doubts and the assumptions you chose in the delivery note. Ask with flowly_report_progress kind=question or set status=blocked with the reason only when only a person can unblock you (credentials, access, a decision only they can make) or going on would cause irreversible harm, then end your turn: nobody is watching this session live, so do not wait. If the card is too big for one session or has parts that can run in parallel, split it into sub-cards with flowly_create_card and end your turn; you are woken when they settle. In a directory workspace automated sub-cards share the project root and run one at a time, so split there only when a part needs its own session, not for speed. Give review_level=deep only to ${deepCriteria}`;
 
-export function startPrompt(input: { review: boolean; again: boolean }) {
+export function startPrompt(input: { review: boolean; again: boolean; unattended?: boolean }) {
   return [
     input.again
       ? `${tag} Flowly's agent automation queued this card again. Continue from the current state of the workspace and the card; do not redo work that is already done.`
       : `${tag} Flowly's agent automation started this session to work on this card unattended, from start to finish.`,
     lifecycle,
     input.review ? "After you deliver, a reviewer agent checks the work and may send you requested changes." : "",
+    input.unattended ? unattendedNote : "",
   ]
     .filter(Boolean)
     .join("\n\n");
 }
 
-export function nudgePrompt(count: number, limit: number, role: AutomationJob["role"] = "implementer") {
-  if (role === "reviewer") return `${tag} Your review ended without a verdict (reminder ${count} of ${limit}). Continue checking the delivery, then call flowly_submit_review verdict=approve or verdict=changes with concrete findings. You only review: do not edit files or change card status. If a person must decide, use flowly_report_progress kind=question and end your turn.`;
-  return `${tag} Your turn ended without a delivery, a question or a blocker (reminder ${count} of ${limit}). If the card is finished, deliver it now with flowly_update_status status=in_review. If the delivery returns WORKPAD_OPEN or SETUP_INCOMPLETE, fix what you can, then retry in this same turn with acknowledgeOpen=true and a note explaining each remaining item; do not end the turn on the refusal. If work remains, continue it. If you need a person, ask with flowly_report_progress kind=question or set status=blocked with the reason. If you are the reviewer, submit your verdict with flowly_submit_review. Without one of these after the last reminder, automation stops.`;
+export function nudgePrompt(count: number, limit: number, role: AutomationJob["role"] = "implementer", unattended = false) {
+  if (role === "reviewer") return `${tag} Your review ended without a verdict (reminder ${count} of ${limit}). Continue checking the delivery, then call flowly_submit_review verdict=approve or verdict=changes with concrete findings. You only review: do not edit files or change card status. ${reviewerDecides(unattended)}`;
+  return `${tag} Your turn ended without a delivery${unattended ? "" : ", a question or a blocker"} (reminder ${count} of ${limit}). If the card is finished, deliver it now with flowly_update_status status=in_review. If the delivery returns WORKPAD_OPEN or SETUP_INCOMPLETE, fix what you can, then retry in this same turn with acknowledgeOpen=true and a note explaining each remaining item; do not end the turn on the refusal. If work remains, continue it; doubt is not a reason to stop: deliver on the most reasonable reading and state your assumptions in the note. ${unattended ? "Nobody answers questions in this project: do not ask or report a blocker." : "Ask with flowly_report_progress kind=question or set status=blocked with the reason only when only a person can unblock you."} If you are the reviewer, submit your verdict with flowly_submit_review. Without ${unattended ? "a delivery" : "one of these"} after the last reminder, automation stops.`;
+}
+
+/** Whether the delivery meets the card is the reviewer's call (§5.3.2); a person is asked only for what only they can give. */
+function reviewerDecides(unattended: boolean) {
+  return unattended
+    ? "Whether the delivery meets the card is yours to decide, and nobody answers questions in this project: decide the verdict yourself."
+    : "Whether the delivery meets the card is yours to decide, not a person's. Ask a person with flowly_report_progress kind=question only for what only they can give (credentials, access, an authorization, or a preference the card and comments leave open), then end your turn.";
 }
 
 export function retryPrompt(count: number, limit: number, error: string) {
@@ -601,14 +615,14 @@ export function takeoverNote(role: AutomationJob["role"], limited: string) {
 const lenses = [
   "Lens for this round: the artifact. Read the diff cold before the delivery note, form your own judgment, then compare it with the note and investigate every mismatch.",
   "Lens for this round: execution. Run the build, the tests and the reported behavior yourself; verify each claim of the delivery instead of re-reading it.",
-  "Lens for this round: the contract. Re-read the original card and its acceptance criteria and audit the delivery strictly against them, including every change requested in earlier rounds and in the comments.",
+  "Lens for this round: the contract. Re-read the original card, its comments and its acceptance criteria and audit the delivery strictly against every requirement and prohibition in them, including every change requested in earlier rounds and in the comments.",
 ];
 
 /** What each reviewer of a panel round focuses on (§5.1); a panel of n takes the first n. */
 const panelFocuses = [
   "the artifact: read the diff cold before the delivery note, then investigate every mismatch with the note",
   "execution: run the build, the tests and the reported behavior, and verify each claim of the delivery",
-  "the contract: the card's acceptance criteria, every change requested in earlier rounds and every comment",
+  "the contract: every requirement and prohibition in the card's description and comments, the acceptance criteria and every change requested in earlier rounds",
   "integration and regressions: callers and users of the changed code, other cards' work, data and cleanup",
   "failure paths and safety: errors, races, retries, authorization and data loss",
 ];
@@ -629,7 +643,7 @@ export const designQuestions = [
  */
 const deepAngles = {
   contract:
-    "contract and correctness: the card's acceptance criteria, every change requested in earlier rounds and every comment, and whether the code does what it claims on every input, not only the tested ones",
+    "contract and correctness: every requirement and prohibition in the card's description and comments, the acceptance criteria, every change requested in earlier rounds, and whether the code does what it claims on every input, not only the tested ones",
   design: `design and scale: answer each of these questions with evidence from the code (file and line), every round: ${designQuestions.map((q, i) => `(${i + 1}) ${q}`).join(" ")} A question the code cannot answer is a finding when it must block the delivery, else a risk`,
   failure:
     "failure, data safety and security: errors, crashes and restarts mid-operation, retries, races, partial writes, data loss, and every permission, credential or trust boundary the change touches",
@@ -649,6 +663,20 @@ const risksRequest = [
   'Write each risk as one plain sentence saying what could go wrong, when, and how bad (for example: "The supported six-month workload has not been measured, so storage costs beyond the tested workload remain uncertain."). List every risk you still see: Flowly keeps only the latest list, shows it on the card and gives it to the parent card. Send at most 10 risks, each under 500 characters: merge related ones and keep the most serious. Risks never block approval; confirmed serious delivery blockers must be findings requiring changes, not entries in risks.',
 ].join(" ");
 
+/** What every round checks whatever its lens (§5.3.1): the card's own requirements, the changed files, regressions. */
+const audit =
+  "Every round, whatever its lens: (1) list each explicit requirement and prohibition in the card's description and the people's comments (required outputs, files, formats and paths; must, must not, do not, never; inputs that must stay unchanged; tools or methods that are not allowed) and check the delivery against each one: the workpad's acceptance criteria were written by the implementer and may leave some out. (2) Inspect every file the delivery added, changed or deleted, tests, test data, fixtures and generated files included, for forbidden content (binary or encoded payloads, copied tools or reference implementations, hard-coded expected outputs) and for checks made to pass by editing tests or inputs or by bypassing them. (3) Compare with the state before the card: nothing that worked may break. A violated requirement or prohibition, a gamed check or a regression is a finding requiring changes, never a risk. If the implementer reports that something cannot be done, is contradictory or that a check is wrong, treat that as a claim to test, not a fact: try to refute it (reread the card, check the inputs, try the direct approach). Refuted, it is a finding; neither refuted nor confirmed, request changes with your doubt and what to try next; approve only when it is confirmed and the delivery handles it the way the card asks.";
+
+/** When to request changes (§5.3.5): later rounds verify earlier findings instead of opening new fronts. */
+function convergence(round: number) {
+  return [
+    round > 1
+      ? `This is round ${round}: first check each finding of the earlier rounds against the new delivery and look for regressions. Raise a new finding only for a violated requirement or prohibition, a regression, a gamed check or a confirmed serious problem; do not hold the card for newly found minor edge cases (put them in risks).`
+      : "",
+    "Request changes only for violated requirements or prohibitions, regressions, gamed checks, real defects in the behavior the card requires, and the confirmed serious problems below; rare edge cases the card does not ask for (extreme sizes or depths, resource limits, signals, contrived timing races) go in risks. Send every confirmed finding at once, not one per round.",
+  ].filter(Boolean).join(" ");
+}
+
 /** Risks a verdict of an earlier round reported (§5.2.4), handed to the reviewer of every later round. */
 export type EarlierRisks = { round?: number; risks: readonly string[] };
 function earlierRisksText(earlier: EarlierRisks) {
@@ -664,7 +692,7 @@ function earlierRisksText(earlier: EarlierRisks) {
  * (§5.2): a Light round is serial on its own cap, a Deep round is a panel with fixed angles from the first round.
  * `earlier`: the risks earlier rounds reported, which a reviewer session new to this card has never seen.
  */
-export function reviewPrompt(round: number, max: number, reviewers = 1, level: ReviewLevel = "standard", { why, earlier }: { why?: string; earlier?: EarlierRisks } = {}) {
+export function reviewPrompt(round: number, max: number, reviewers = 1, level: ReviewLevel = "standard", { why, earlier, unattended = false }: { why?: string; earlier?: EarlierRisks; unattended?: boolean } = {}) {
   const panel = reviewers > 1;
   const deep = level === "deep" && panel;
   const kind = level === "standard" ? "review" : `${level} review`;
@@ -674,19 +702,21 @@ export function reviewPrompt(round: number, max: number, reviewers = 1, level: R
     level === "standard"
       ? ""
       : level === "deep"
-        ? `Review level: deep${why ? `, because ${why}` : ""}. Deep review is for foundation work (storage formats, schemas, protocols, external interfaces, security, data migrations, concurrency): later cards build on it, so its design mistakes are the most expensive to fix afterwards.`
+        ? `Review level: deep${why ? `, because ${why}` : ""}. Deep review is for foundation work that later cards or stored data depend on (persistent storage formats, schemas and protocols with other users, security, data migrations, concurrency): its design mistakes are the most expensive to fix afterwards.`
         : `Review level: light${why ? `, because ${why}` : ""}: one reviewer and at most ${max} rounds; check it as carefully as any other card.`,
-    "Read flowly_get_task: the card, its workpad (acceptance criteria and checks), the people's comments (what they asked for counts like the card's requirements) and the delivery note in its activity. Inspect the actual changes in this workspace (git status, git diff, git log) and run the relevant checks.",
+    "Read flowly_get_task: the card, its workpad (acceptance criteria and checks), the people's comments (what they asked for counts like the card's requirements) and the delivery note in its activity. Inspect the actual changes in this workspace (git status, git diff, git log) and run the relevant checks. Without Git history there is no diff: find the changed files yourself (for example files modified since the card started) instead of relying on the delivery note alone.",
     earlier?.risks.length ? earlierRisksText(earlier) : "",
     panel
       ? [
-          `${deep ? `This card gets a deep review, so every round, this one included, checks the delivery with ${reviewers} independent reviewers at once.` : `Earlier rounds of this cycle requested changes${round > 1 ? ` (${round - 1} so far)` : ""} or the project reviews every round this way, so this round checks the delivery with ${reviewers} independent reviewers at once instead of one more serial pass.`} Start them in parallel with your subagent tool, in the foreground, and wait for all of them in this same turn (in Claude Code: ${reviewers} Agent calls in one message, not in the background); do not end your turn before you call flowly_submit_review (or ask a person with flowly_report_progress kind=question when only they can decide): a turn that ends with neither counts as an unfinished review. One reviewer per focus:`,
+          `${deep ? `This card gets a deep review, so every round, this one included, checks the delivery with ${reviewers} independent reviewers at once.` : `Earlier rounds of this cycle requested changes${round > 1 ? ` (${round - 1} so far)` : ""} or the project reviews every round this way, so this round checks the delivery with ${reviewers} independent reviewers at once instead of one more serial pass.`} Start them in parallel with your subagent tool, in the foreground, and wait for all of them in this same turn (in Claude Code: ${reviewers} Agent calls in one message, not in the background); do not end your turn before you call flowly_submit_review${unattended ? ": a turn that ends without it" : " (or ask a person, only for what only they can give): a turn that ends with neither"} counts as an unfinished review. One reviewer per focus:`,
           ...(deep ? deepFocuses(reviewers) : panelFocuses.slice(0, reviewers)).map((focus, i) => `${i + 1}. ${focus}.`),
-          `Give each the card id, this workspace's path and its focus, plus what you read in flowly_get_task: the acceptance criteria, the delivery note, every change requested in earlier rounds and the people's comments${handOn}. Tell it to report findings with file, problem and evidence, and risks the acceptance criteria do not cover as plain sentences; they only read and run checks, never edit files or call Flowly tools. If you cannot start subagents, review from each focus in turn yourself, independently. Then confirm each finding yourself (drop what you cannot reproduce or point to), merge duplicates and send every confirmed finding at once: the implementer gets one complete list instead of one problem per round. Merge the risks they report the same way: drop duplicates and keep the most serious, at most 10.`,
+          `Give each the card id, this workspace's path and its focus, plus what you read in flowly_get_task: the card's description word for word (its requirements and prohibitions), the acceptance criteria, the delivery note, every change requested in earlier rounds and the people's comments${handOn}. Tell it to check the requirements, the prohibitions and the added or changed files as described below, to report findings with file, problem and evidence, and risks the acceptance criteria do not cover as plain sentences; they only read and run checks, never edit files or call Flowly tools. If you cannot start subagents, review from each focus in turn yourself, independently. Then confirm each finding yourself (drop what you cannot reproduce or point to), merge duplicates and send every confirmed finding at once: the implementer gets one complete list instead of one problem per round. Merge the risks they report the same way: drop duplicates and keep the most serious, at most 10.`,
         ].join("\n")
       : lenses[Math.min(round, lenses.length) - 1],
+    audit,
+    convergence(round),
     risksRequest,
-    "Then call flowly_submit_review exactly once: verdict=changes with concrete findings the implementer can act on (file, problem, expected fix), including the confirmed serious problems above even if the acceptance criteria omit them; verdict=approve only when the acceptance criteria are met, the relevant checks pass, and no such confirmed findings remain unresolved. Do not edit files, commit, push or change the card status. If only a person can decide something, ask with flowly_report_progress kind=question and end your turn.",
+    `Then call flowly_submit_review exactly once: verdict=changes with concrete findings the implementer can act on (file, problem, expected fix), including the confirmed serious problems above even if the acceptance criteria omit them; verdict=approve only when the card's requirements and prohibitions and the acceptance criteria are met, the relevant checks pass, and no such confirmed findings remain unresolved. Do not edit files, commit, push or change the card status. ${reviewerDecides(unattended)}`,
   ]
     .filter(Boolean)
     .join("\n\n");

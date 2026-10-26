@@ -1477,6 +1477,8 @@ const catalog: Catalog = {
   "Review rounds": "Rondas de revisión",
   "Full access": "Acceso total",
   "Agents run without asking for permissions (Claude bypass, Codex full access), whatever Permissions the implementer, the reviewer or the project default model chose. Off: those Permissions apply, agents may stop to ask, and the card shows it.": "Los agentes se ejecutan sin pedir permisos (bypass en Claude, full access en Codex), sean cuales sean los permisos elegidos para el implementador, el revisor o el modelo predeterminado del proyecto. Desactivado: se aplican esos permisos, los agentes pueden detenerse a preguntar y la tarjeta lo muestra.",
+  "Unattended": "Desatendido",
+  "Nobody answers questions in this project (benchmarks, overnight runs). Agents decide open questions themselves, write down their assumptions and deliver; a question or blocker from an automated session is refused.": "Nadie responde preguntas en este proyecto (benchmarks, ejecuciones nocturnas). Los agentes deciden por sí mismos las cuestiones abiertas, anotan sus supuestos y entregan; se rechaza cualquier pregunta o bloqueo de una sesión automatizada.",
   "Agents can split a card into sub-cards, each with its own workspace. The parent card shows Sub-cards 2/3, waits while they run and is woken to accept them and finish. New sub-card is in every card's menu.": "Los agentes pueden dividir una tarjeta en subtarjetas, cada una con su propio workspace. La tarjeta padre muestra Subtarjetas 2/3, espera mientras se ejecutan y se despierta para aceptarlas y terminar. Nueva subtarjeta está en el menú de cada tarjeta.",
   "New sub-card": "Nueva subtarjeta",
   "Sub-cards {done}/{total}": "Subtarjetas {done}/{total}",
