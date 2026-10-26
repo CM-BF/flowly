@@ -1,16 +1,27 @@
 import { redactCaptureText } from "./handoff-capture-records";
 
 /** JSON keys whose value is a credential: the names the argument walker redacts by key. */
-export const secretKey = /password|passwd|secret|credential|token|apikey|authorization|cookie|privatekey/i;
+export const secretKey = /password|passwd|passphrase|secret|credential|token|apikey|authorization|cookie|privatekey/i;
+/** A credential key, compared without its separators: one of `secretKey`, or exactly a short name (Docker's `auth`). */
+export const credentialKey = (key: string) => { const name = key.replace(/[^a-z0-9]/gi, ""); return secretKey.test(name) || /^(?:auth|pass|pwd)$/i.test(name); };
 
 const redactOnce = (value: string) => redactCaptureText(value)
   // A tail window can start inside a private key: everything up to its END line goes.
-  .replace(/^(?:(?!-----BEGIN )[\s\S])*?-----END (?:[A-Z ]*PRIVATE KEY|OPENSSH PRIVATE KEY)-----/, "[redacted private key]")
+  .replace(/^(?:(?!-----BEGIN )[\s\S])*?-----END (?:[A-Z ]*PRIVATE KEY(?: BLOCK)?|OPENSSH PRIVATE KEY)-----/, "[redacted private key]")
+  .replace(/-----BEGIN PGP PRIVATE KEY BLOCK-----[\s\S]*?(?:-----END PGP PRIVATE KEY BLOCK-----|$)/g, "[redacted private key]")
   .replace(/((?:set-)?cookie(?:\\?["'])?\s*[:=]\s*(?:\\?["'])?)[^\r\n"'\\]+/gi, "$1[redacted]")
   .replace(/\b([a-z][a-z0-9+.-]*:\/\/)[^\s/@:]+:[^\s/@]+@/gi, "$1[redacted]@")
-  .replace(/("([^"\\\r\n]{1,100})"\s*:\s*)"((?:[^"\\\r\n]|\\.){1,4000})"/g, (all, head: string, key: string, value: string) => value !== "[redacted]" && secretKey.test(key.replace(/[^a-z0-9]/gi, "")) ? `${head}"[redacted]"` : all);
+  // .netrc (`machine host login user password secret`, on one line or several) and .pgpass (`host:port:db:user:secret`).
+  .replace(/(\b(?:machine[ \t]+\S+|default)(?:\s+(?:login|account)\s+\S+)*\s+password\s+)[^\s"']+/gi, "$1[redacted]")
+  .replace(/^([ \t]*password[ \t]+)[^\s"']+(?=[ \t]*\r?$)/gim, "$1[redacted]")
+  .replace(/^([^:\s]+:(?:\d{1,5}|\*):[^:\s]+:[^:\s]+:)[^\r\n]+/gm, "$1[redacted]")
+  // Password flags: `mysql -pSECRET`, `--password SECRET` (`--password=SECRET` is a KEY=value).
+  .replace(/(\b(?:mysql|mysqldump|mysqladmin|mariadb(?:-dump)?)\b[^\r\n]*?[ \t]-p)[^\s"'-][^\s"']*/gi, "$1[redacted]")
+  .replace(/((?:^|[ \t])--(?:password|passwd|pass)[ \t]+)[^\s"'-][^\s"']*/gim, "$1[redacted]")
+  .replace(/("([^"\\\r\n]{1,100})"\s*:\s*)"((?:[^"\\\r\n]|\\.){1,4000})"/g, (all, head: string, key: string, value: string) => value !== "[redacted]" && credentialKey(key) ? `${head}"[redacted]"` : all);
 /**
- * The capture redaction plus cookies, credentials in any URL scheme and JSON string values under credential keys, run
+ * The capture redaction plus cookies, credentials in any URL scheme, .netrc and .pgpass lines, password flags, PGP
+ * private keys and JSON string values under credential keys, run
  * until nothing changes: the capture patterns are not idempotent on their own (`password="x"}` becomes
  * `password=[redacted]}`, whose unquoted value a second pass swallows), and `sanitizeText` needs a redacted text to
  * redact to itself.
@@ -75,7 +86,7 @@ export function safeArguments(input: unknown): { value: unknown; omitted: boolea
       return safe.text;
     }
     if (Array.isArray(value)) return value.map((item) => walk(item, depth + 1));
-    if (value && typeof value === "object") return Object.fromEntries(Object.entries(value).map(([key, item]) => { if (++nodes > 4096) throw new Error("Argument field budget"); return [key, secretKey.test(key.replace(/[^a-z0-9]/gi, "")) ? "[redacted]" : walk(item, depth + 1)]; }));
+    if (value && typeof value === "object") return Object.fromEntries(Object.entries(value).map(([key, item]) => { if (++nodes > 4096) throw new Error("Argument field budget"); return [key, credentialKey(key) ? "[redacted]" : walk(item, depth + 1)]; }));
     if (value === null || typeof value === "number" || typeof value === "boolean") return value;
     throw new Error("Unsupported arguments");
   };
@@ -142,14 +153,66 @@ const stub = (middle: Middle) => `[${middle.characters} characters not indexed �
 
 /**
  * Characters past a cut that are redacted with it, so a credential across the cut is seen whole (or by what the
- * patterns know it by: a token's start or first 40 characters, a private key's BEGIN or END line).
+ * patterns know it by: a token's start or first 40 characters, a private key's BEGIN or END line). A match that starts
+ * before a window and runs more than this far into it would show; where a window may start keeps such matches whole.
  */
 const margin = 1024;
+/** How far back from its nominal start a tail window may begin; beyond that it is the whole text. */
+const windowFloor = 64 * 1024, nearby = 4 * 1024;
+/** The end of a line that a rule's match continues past: `password:`, `Authorization: Bearer`, a credential name, an opening quote. */
+const carries = /(?:[:=]|\b(?:bearer|basic|token)|(?:token|key|secret|passw|auth|cookie|credential)[\w-]*\\?["']?)[ \t]*(?:\\?["'])?[ \t]*\r?$/i;
+/** Before a start inside a line, what a match running past a `,"` can begin with: a single-quoted credential value, a private key. */
+const spansElements = /(?:token|key|secret|passw|auth)[\w-]*["']?\s*[=:]\s*'|-----BEGIN /i;
+/** A .pgpass line, whose password runs to the end of the line. */
+const pgpassLine = /^[^:\s]+:(?:\d{1,5}|\*):/;
+const whitespace = (code: number) => code === 32 || code >= 9 && code <= 13;
+/** Steps back over lines whose end a rule's match continues past (bounded by `floor`; past it, the whole text). */
+function carried(source: string, line: number, floor: number) {
+  while (line > 0) {
+    if (!carries.test(source.slice(Math.max(0, line - 121), line - 1))) return line;
+    const previous = source.lastIndexOf("\n", line - 2) + 1;
+    if (previous < floor) return 0;
+    line = previous;
+  }
+  return 0;
+}
+/** Whether a match could run across the `,"` at `at`: inside a URL's user info, a single-quoted credential value, a private key, a .pgpass line. */
+function insideMatch(source: string, at: number, from: number, line: number) {
+  if (spansElements.test(source.slice(from, at)) || line >= 0 && pgpassLine.test(source.slice(line, line + 300))) return true;
+  for (let i = at - 1; i >= Math.max(0, at - nearby); i--) {
+    const code = source.charCodeAt(i);
+    if (whitespace(code) || code === 64) return false;
+    if (code === 47) return source[i - 1] === "/" && source[i - 2] === ":";
+  }
+  return true;
+}
+/**
+ * Where a tail window may start without beginning inside a credential rule's match (SESSION-HANDOFF-SPEC §8.1). Every
+ * rule but the private-key rules matches within a line, so the window starts at a line, stepping back over a line that
+ * ends in a credential name, a `:` or `=`, or an opening quote. A line that starts more than 4 KiB back (compact JSON,
+ * a minified file) may instead start at an element's opening quote after a comma: no rule's match crosses a `,"` except
+ * a URL's user info, a single-quoted value or a private key, which keep the line start. Neither within 64 KiB: 0.
+ * Not covered: a quoted value that spans lines, and matches longer than 64 KiB other than private keys.
+ */
+export function tailWindowStart(source: string, nominal: number): number {
+  const floor = Math.max(0, nominal - windowFloor), newline = source.lastIndexOf("\n", nominal - 1), line = newline + 1 >= floor && newline >= 0 ? newline + 1 : -1;
+  if (line >= 0 && nominal - line <= nearby) return carried(source, line, floor);
+  const lowest = Math.max(line, floor, nominal - nearby);
+  for (let quote = source.lastIndexOf('"', nominal); quote > lowest; quote = source.lastIndexOf('"', quote - 1)) {
+    let before = quote - 1;
+    while (before > lowest && (source.charCodeAt(before) === 32 || source.charCodeAt(before) === 9)) before--;
+    if (source[before] !== ",") continue;
+    if (!insideMatch(source, quote, Math.max(line, floor), line)) return quote;
+    break;
+  }
+  return line >= 0 ? carried(source, line, floor) : 0;
+}
 type Side = { source: string; safe?: Sanitized; offset: number };
 /**
  * Head and tail of the redacted fields at each level (SESSION-HANDOFF-SPEC §8.1), or undefined when a text short enough
- * to show whole cannot be made safe. Only a head window and a tail window (the widest level plus `margin`) are redacted,
- * so a large output costs no more than a small one. A side is cut in the source's own characters when its shown text is
+ * to show whole cannot be made safe. Only a head window and a tail window (the widest level plus `margin`, the tail
+ * starting where `tailWindowStart` puts it) are redacted, so a large output costs about what a small one does, unless
+ * its last 64 KiB have no line start and no safe element boundary. A side is cut in the source's own characters when its shown text is
  * a prefix (suffix) of its redacted window, so a credential cut in half shows no more than the whole redaction does, and
  * the omitted middle is then exact source bytes. A decoded side, or unlocated fields, name the bytes that contain it; a
  * side that cannot be made safe shows nothing and the middle grows over it.
@@ -166,12 +229,9 @@ export function excerpt(fields: Field[], levels: readonly Budget[], record: { fr
     if (!whole && source.length <= widest.head + widest.tail + 80) return undefined;
     head = tail = { source, safe: whole, offset: 0 };
   } else {
-    let end = widest.head + margin, start = source.length - widest.tail - margin;
+    let end = widest.head + margin;
     if (high(source.charCodeAt(end - 1))) end--;
-    // The tail window starts at whitespace, so it never begins inside a token whose prefix is what names it a credential.
-    const floor = Math.max(0, start - 64 * 1024);
-    while (start > floor && !/\s/.test(source[start - 1])) start--;
-    if (start === floor && floor > 0) start = 0;
+    const start = tailWindowStart(source, source.length - widest.tail - margin);
     head = { source: source.slice(0, end), safe: sanitizeText(source.slice(0, end)), offset: 0 };
     tail = { source: source.slice(start), safe: sanitizeText(source.slice(start)), offset: start };
   }
