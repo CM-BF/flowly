@@ -1,4 +1,4 @@
-import { sessionHistoryExcerpts as excerpts, sessionHistoryLimits as limits, type SessionHistoryEntry, type SessionHistoryPage } from "../shared/session-history";
+import { sessionHistoryEntrySchema, sessionHistoryExcerpts as excerpts, sessionHistoryLimits as limits, type SessionHistoryEntry, type SessionHistoryPage } from "../shared/session-history";
 import { excerpt, locateFields, redactHistory, safeArguments, sanitizeText, type Budget, type Field, type Variant } from "./session-history-text";
 
 const object = (value: unknown): Record<string, unknown> => value !== null && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
@@ -52,8 +52,28 @@ export class HistoryRecords {
     if (!intentional.has(kind)) this.coverage.complete = false;
   }
   grow(type: string, bytes: number) { if (this.growth.size >= 15 && !this.growth.has(type)) type = "other"; const value = this.growth.get(type) ?? { bytes: 0, lines: 0 }; value.bytes += bytes; value.lines++; this.growth.set(type, value); }
-  /** The jsonl body, in source order. */
-  body() { return this.slots.flatMap((slot) => slot ? [JSON.stringify(this.render(slot)) + "\n"] : []).join(""); }
+  /**
+   * The jsonl body, in source order. Every entry is checked against the entry schema first: read() refuses the whole
+   * index over one entry that does not conform, and a rebuild would build the same body (SESSION-HANDOFF-SPEC §21.15).
+   * A field past its bound is bounded (`entry_bounded`); an entry that still does not conform leaves (`entry_invalid`).
+   */
+  body() {
+    return this.slots.flatMap((slot, index) => {
+      if (!slot) return [];
+      const entry = this.publishable(this.render(slot));
+      if (!entry) { this.slots[index] = null; this.bytes -= slot.size; this.count--; this.gap("entry_invalid"); return []; }
+      return [JSON.stringify(entry) + "\n"];
+    }).join("");
+  }
+  private publishable(entry: SessionHistoryEntry): SessionHistoryEntry | undefined {
+    if (sessionHistoryEntrySchema.safeParse(entry).success) return entry;
+    this.gap("entry_bounded");
+    const { at, relativeMs, tool, ...rest } = entry;
+    const bounded: SessionHistoryEntry = { ...rest, text: entry.text.slice(0, limits.entryChars), paths: entry.paths.filter((path) => path.length <= 240).slice(0, 5), evidence: { ...entry.evidence, source: entry.evidence.source.slice(0, 100), type: entry.evidence.type.slice(0, 100) },
+      ...(at !== undefined && at.length <= 80 ? { at, ...(relativeMs !== undefined ? { relativeMs } : {}) } : {}),
+      ...(tool ? { tool: { name: tool.name.slice(0, 100), category: tool.category, ...(tool.kind ? { kind: tool.kind } : {}), ...(tool.outcome !== undefined ? { outcome: tool.outcome.slice(0, 300) } : {}) } } : {}) };
+    return sessionHistoryEntrySchema.safeParse(bounded).success ? bounded : undefined;
+  }
   metadata() {
     const width = (kind: Kind, level: number) => levels[kind][level].head + levels[kind][level].tail;
     const narrowest: Record<Kind, number> = { message: width("message", 0), call: width("call", 0), output: width("output", 0) };
@@ -101,9 +121,10 @@ export class HistoryRecords {
     return true;
   }
   private add(draft: Draft) {
-    const time = draft.at && Number.isFinite(Date.parse(draft.at)) ? draft.at : undefined, ms = time ? Date.parse(time) : undefined;
-    if (ms !== undefined && this.firstAt === undefined) this.firstAt = ms;
-    const base: Slot["base"] = { ordinal: this.ordinal++, role: draft.role, characters: draft.characters, ...(draft.decoded ? { decoded: true } : {}), paths: draft.paths, evidence: { source: draft.source, from: draft.from, to: draft.to, type: redactHistory(draft.type).slice(0, 100) }, ...(time ? { at: time, relativeMs: ms! - this.firstAt! } : {}), ...(draft.tool ? { tool: draft.tool } : {}) };
+    // A source timestamp longer than the schema's bound (V8 parses long free-form dates) is written in ISO form.
+    const ms = draft.at ? Date.parse(draft.at) : NaN, time = Number.isFinite(ms) ? draft.at!.length <= 80 ? draft.at : new Date(ms).toISOString() : undefined;
+    if (time && this.firstAt === undefined) this.firstAt = ms;
+    const base: Slot["base"] = { ordinal: this.ordinal++, role: draft.role, characters: draft.characters, ...(draft.decoded ? { decoded: true } : {}), paths: draft.paths, evidence: { source: draft.source, from: draft.from, to: draft.to, type: redactHistory(draft.type).slice(0, 100) }, ...(time ? { at: time, relativeMs: ms - this.firstAt! } : {}), ...(draft.tool ? { tool: draft.tool } : {}) };
     const slot: Slot = { kind: draft.kind, base, prefix: draft.prefix ?? "", first: 0, variants: draft.variants, size: 0 };
     slot.size = this.measure(slot);
     const message = draft.kind === "message";
@@ -117,7 +138,8 @@ export class HistoryRecords {
   }
   private paths(text: string, known: string[] = []) {
     const paths = new Set(known.slice(0, 5));
-    for (const match of text.matchAll(/(?:^|[\s"'(=])((?:\/|\.\.?\/)[\w@.+/~\/-]{1,239})/g)) { if (paths.size === 5) break; paths.add(match[1]); }
+    // At most 240 characters, the schema's bound, whatever the prefix (`./` and `../` made a match of 241 or 242).
+    for (const match of text.matchAll(/(?:^|[\s"'(=])((?:\/|\.\.?\/)[\w@.+/~\/-]{1,239})/g)) { if (paths.size === 5) break; paths.add(match[1].slice(0, 240)); }
     return [...paths];
   }
   /** Text parts of a content array (or a string); images and thinking are counted, never kept. */
