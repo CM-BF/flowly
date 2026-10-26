@@ -1,4 +1,6 @@
 import { sessionHistoryEntrySchema, sessionHistoryExcerpts as excerpts, sessionHistoryLimits as limits, type SessionHistoryEntry, type SessionHistoryPage } from "../shared/session-history";
+import { createHash } from "node:crypto";
+import { claudeMetadataRecords, claudeRoutineAttachments } from "./handoff-capture-records";
 import { excerpt, locateFields, redactHistory, safeArguments, sanitizeText, type Budget, type Field, type Variant } from "./session-history-text";
 
 const object = (value: unknown): Record<string, unknown> => value !== null && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
@@ -16,6 +18,8 @@ const levelOf = (kind: Kind, region: number) => Math.min(region, levels[kind].le
 const intentional = new Set(["image_omitted", "encrypted_reasoning_omitted", "thinking_omitted", "developer_instructions_omitted", "message_excerpt", "call_excerpt", "output_excerpt", "call_index_reduced", "output_index_reduced"]);
 /** Codex records with no conversation content in them (they still count in `growth`). */
 const codexMetadata = new Set(["event_msg", "session_meta", "turn_context", "world_state", "token_usage_record"]);
+/** A record type the index does not know, named in its gap so a real loss is not hidden among metadata. */
+const unsupported = (...names: string[]) => `unsupported_record/${names.map((name) => redactHistory(name).replace(/[^\w.-]/g, "_").slice(0, 30) || "unknown").join("/")}`;
 
 type Slot = { kind: Kind; base: Omit<SessionHistoryEntry, "text" | "truncated" | "middle">; prefix: string; first: number; variants: Variant[]; size: number };
 type Draft = { kind: Kind; role: SessionHistoryEntry["role"]; source: string; from: number; to: number; type: string; at?: string; tool?: SessionHistoryEntry["tool"]; prefix?: string; characters: number; decoded?: boolean; variants: Variant[]; paths: string[] };
@@ -43,6 +47,8 @@ export class HistoryRecords {
   private ordinal = 0;
   private firstAt?: number;
   private calls = new Map<string, string>();
+  /** Task notices already indexed: Claude writes one absorbed mid-turn as queue-operation records and may deliver it again. */
+  private notices = new Set<string>();
   private identityMismatch = false;
   private readonly maxBytes: number;
   constructor(private sessionId: string, maxBytes: number = limits.skeletonBytes) { this.maxBytes = Math.min(maxBytes, limits.skeletonBytes); }
@@ -209,6 +215,7 @@ export class HistoryRecords {
     if (type === "user" || type === "assistant") {
       if (value.isMeta === true) return;
       const role = type === "assistant" || value.isCompactSummary === true ? "assistant" : "user";
+      if (role === "user" && typeof content === "string" && this.repeatedNotice(content)) return;
       this.message(role, this.parts(content), raw, source, from, to, value.isCompactSummary ? "claude/compact_summary" : `claude/${type}`, at);
       if (!textOnly && Array.isArray(content)) for (const item of content) {
         const block = object(item);
@@ -218,14 +225,40 @@ export class HistoryRecords {
           this.output(name, this.parts(block.content), block.is_error === true ? "error" : undefined, raw, source, from, to, "claude/tool_result", at);
         }
       }
-    } else if (!["system", "progress", "file-history-snapshot", "queue-operation"].includes(type)) this.gap("unsupported_record");
+    } else if (type === "attachment") this.attachment(object(value.attachment), raw, source, from, to, at);
+    else if (type === "queue-operation") {
+      // A task notice absorbed into a running turn is written only here (enqueue, then remove); a person's queued words
+      // are recorded where they are delivered (an attachment or a user record).
+      const queued = value.content;
+      if (typeof queued === "string" && queued.includes("<task-notification>") && !this.repeatedNotice(queued)) this.message("user", [queued], raw, source, from, to, "claude/queue-operation", at);
+    } else if (!claudeMetadataRecords.has(type) && type !== "pr-link") this.gap(unsupported(type));
+  }
+  /**
+   * Claude Code run through the SDK writes what arrives during a turn (a person's words, a task notice) only as an
+   * attachment of type queued_command: no user record repeats it. Routine attachments are host metadata.
+   */
+  private attachment(attachment: Record<string, unknown>, raw: Buffer, source: string, from: number, to: number, at: string) {
+    const subtype = string(attachment.type);
+    if (subtype === "queued_command") {
+      const prompt = attachment.prompt;
+      if (typeof prompt === "string" && this.repeatedNotice(prompt)) return;
+      this.message("user", this.parts(prompt), raw, source, from, to, "claude/attachment/queued_command", at);
+    } else if (!claudeRoutineAttachments.has(subtype)) this.gap(unsupported("attachment", subtype));
+  }
+  /** Whether this task notice was indexed already (remembers it otherwise); any other text is never a repeat. */
+  private repeatedNotice(text: string) {
+    if (!text.includes("<task-notification>")) return false;
+    const key = createHash("sha256").update(text).digest("hex");
+    if (this.notices.has(key)) return true;
+    this.notices.add(key); if (this.notices.size > 64) this.notices.delete(this.notices.values().next().value!);
+    return false;
   }
   private codex(type: string, payload: Record<string, unknown>, raw: Buffer, source: string, from: number, to: number, at: string) {
     const item = string(payload.type);
     if (type === "response_item" && item === "message") {
       const role = string(payload.role);
       if (role === "user" || role === "assistant") this.message(role, this.parts(payload.content), raw, source, from, to, type + "/message", at);
-      else this.gap(role === "developer" || role === "system" ? "developer_instructions_omitted" : "unsupported_record");
+      else this.gap(role === "developer" || role === "system" ? "developer_instructions_omitted" : unsupported(type, "message", role));
     } else if (type === "response_item" && ["function_call", "custom_tool_call"].includes(item)) {
       const callId = string(payload.call_id); if (callId) this.rememberCall(callId, string(payload.name));
       this.call(string(payload.name), payload.arguments ?? payload.input, raw, source, from, to, type + "/" + item, at);
@@ -234,7 +267,7 @@ export class HistoryRecords {
       const output = payload.output, parts = typeof output === "string" ? [output] : Array.isArray(output) ? this.parts(output) : output === undefined ? [] : [JSON.stringify(output)];
       this.output(name, parts, codexOutcome(output, parts), raw, source, from, to, type + "/" + item, at);
     } else if (type === "compacted" || type === "response_item" && item === "reasoning") this.gap("encrypted_reasoning_omitted");
-    else if (!codexMetadata.has(type)) this.gap("unsupported_record");
+    else if (!codexMetadata.has(type)) this.gap(type === "response_item" ? unsupported(type, item) : unsupported(type));
   }
   private rememberCall(id: string, name: string) { if (!id) return; this.calls.set(id, name); if (this.calls.size > 64) this.calls.delete(this.calls.keys().next().value!); }
 }

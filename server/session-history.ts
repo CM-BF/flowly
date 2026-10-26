@@ -17,7 +17,7 @@ const stamp = (s: { dev: number; ino: number; size: number; mtimeMs: number; cti
 type Source = { path: string; ref: string; stamp: string; bytes: number };
 /**
  * Format 2 indexes tool outputs and full arguments (SESSION-HANDOFF-SPEC §21.13); format 3 checks every entry against the
- * schema before publishing (§21.15). An older index is rebuilt once.
+ * schema before publishing and indexes Claude's mid-turn deliveries (§21.15). An older index is rebuilt once.
  */
 const version = 3;
 type Manifest = { version: typeof version; agentId: string; provider: string; sessionId: string; snapshot: string; previous?: string; bodyHash: string; bodyBytes: number; builtAt: string; sources: Source[]; directories: { path: string; stamp: string | null }[]; coverage: NonNullable<SessionHistoryPage["coverage"]>; gaps: SessionHistoryPage["gaps"]; growth: NonNullable<SessionHistoryPage["growth"]> };

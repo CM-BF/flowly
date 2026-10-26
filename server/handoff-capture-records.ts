@@ -1018,11 +1018,12 @@ export class CaptureRecords {
   }
 }
 const metadataRecords = new Set(["session_meta", "turn_context", "world_state", "inter_agent_communication_metadata"]);
-/** Claude Code bookkeeping records (titles, cost and mode state, file-history backups, queue operations, request debug copies). */
-const claudeMetadataRecords = new Set(["progress", "file-history-snapshot", "file-history-delta", "queue-operation", "summary", "custom-title", "ai-title", "agent-name", "last-prompt", "system", "atis-latch", "cost-state", "mode", "permission-mode", "api-request", "api-request-blob", "api-request-shape"]);
+/** Claude Code bookkeeping records (titles, cost and mode state, file-history backups, queue operations, request debug copies). Shared with the history index. */
+export const claudeMetadataRecords: ReadonlySet<string> = new Set(["progress", "file-history-snapshot", "file-history-delta", "queue-operation", "summary", "custom-title", "ai-title", "agent-name", "last-prompt", "system", "atis-latch", "cost-state", "mode", "permission-mode", "api-request", "api-request-blob", "api-request-shape"]);
 /**
  * Attachments the Claude Code host adds on its own (reminders, tool and skill listings, environment, model and date,
  * prompt snapshots, files and memories re-read from disk, effort and mode switches): re-injected or on disk, never a delivery.
+ * Shared with the history index.
  */
-const claudeRoutineAttachments = new Set(["total_tokens_reminder", "deferred_tools_record", "deferred_tools_delta", "environment", "date", "model", "skill_listing", "instructions", "session_context", "credential_org", "remote_session_change", "silent_turn_reminder", "prompt_snapshot", "mcp_instructions_delta", "agent_listing_delta", "auto_mode", "task_reminder", "edited_text_file", "budget_usd", "command_permissions", "nested_memory", "ultra_effort_enter", "ultra_effort_exit", "thinking_drop", "file", "compact_file_reference", "invoked_skills", "read_truncation_notice", "workflow_size_guideline_change"]);
+export const claudeRoutineAttachments: ReadonlySet<string> = new Set(["total_tokens_reminder", "deferred_tools_record", "deferred_tools_delta", "environment", "date", "model", "skill_listing", "instructions", "session_context", "credential_org", "remote_session_change", "silent_turn_reminder", "prompt_snapshot", "mcp_instructions_delta", "agent_listing_delta", "auto_mode", "task_reminder", "edited_text_file", "budget_usd", "command_permissions", "nested_memory", "ultra_effort_enter", "ultra_effort_exit", "thinking_drop", "file", "compact_file_reference", "invoked_skills", "read_truncation_notice", "workflow_size_guideline_change"]);
 const metadataEvents = new Set(["task_started", "turn_aborted", "agent_reasoning", "agent_reasoning_raw_content", "item_started", "warning", "error", "context_compacted", "thread_settings_applied"]);
