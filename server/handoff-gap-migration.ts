@@ -67,7 +67,8 @@ export function planGapMigration(gaps: readonly HandoffGap[], sessions: Sessions
     const provider = legacy.provider ?? (legacy.kind === "unknown_timeline_type" ? "timeline" : sessions.get(gap.agentId ?? "")?.provider);
     const metadata = (gapMetadataV2 as Record<string, Record<string, ReadonlySet<string>>>)[legacy.kind]?.[provider ?? ""];
     if (legacy.hint && metadata?.has(legacy.hint)) {
-      plan.close.push({ id: gap.id, note: `classified as metadata by capture rules v2: a ${provider} ${legacy.hint} record is not task content; an older build recorded it as a gap once per occurrence`.slice(0, 300) });
+      // Short on purpose: every closed version is an item of the full read; the gap's own text names the record type.
+      plan.close.push({ id: gap.id, note: "classified as metadata by capture rules v2" });
       plan.counts.metadata[legacy.hint] = (plan.counts.metadata[legacy.hint] ?? 0) + 1;
       continue;
     }
@@ -86,10 +87,10 @@ export function planGapMigration(gaps: readonly HandoffGap[], sessions: Sessions
     const sourceId = handoffSource(`legacy-gaps:${bucket.agentId}:${bucket.kind}\0${bucket.hint ?? ""}`), id = `g:${createHash("sha256").update(sourceId).digest("hex").slice(0, 32)}`;
     const times = bucket.gaps.map((gap) => gap.firstAt ?? gap.at).filter(Boolean).sort();
     const text = opaque
-      ? `Capture gap (opaque_tool_background): ${plural(count, "script or workflow call")} of session ${label} predate Flowly's background detection (an older build wrote one gap per call). Whether one left work running was not checked; verify running processes before relying on that.`
+      ? `Capture gap (opaque_tool_background): ${plural(count, "script or workflow call")} of session ${label} predate Flowly's background detection (an older build wrote one gap per call). Not checked for work left running: verify running processes or search flowly_session_history before relying on it.`
       : `Capture gap (${bucket.kind})${bucket.hint ? `: ${bucket.hint}` : ""}: ${count} occurrences in session ${label}, written one by one by an older build and grouped here. This content was not preserved; that session's raw history holds it.`;
     plan.groups.push({ id, sourceId, agentId: bucket.agentId, text: text.slice(0, 300), count, ...(times.length ? { firstAt: times[0], lastAt: times.at(-1) } : {}) });
-    const note = `grouped by capture rules v2 into ${id}, which counts this session's ${count} per-occurrence entries for one acknowledgement`;
+    const note = `grouped by capture rules v2 into ${id}`;
     for (const gap of bucket.gaps) plan.close.push({ id: gap.id, note });
     if (opaque) { plan.counts.opaque += count; plan.counts.opaqueGroups++; } else { plan.counts.duplicates += count; plan.counts.duplicateGroups++; }
   }

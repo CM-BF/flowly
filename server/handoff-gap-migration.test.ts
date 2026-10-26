@@ -84,7 +84,7 @@ test("legacy gaps of every kind: metadata closed with the reason, scripts groupe
   // Metadata: closed, text and source kept, the reason and the first time in the closed version.
   for (const { value } of legacy.metadata) {
     const closed = await version(x, value.id);
-    expect(closed).toMatchObject({ text: value.text, sourceId: value.sourceId, status: "closed", firstAt: at, resolution: { by: { kind: "flowly" }, note: expect.stringMatching(/^classified as metadata by capture rules v2\b/) } });
+    expect(closed).toMatchObject({ text: value.text, sourceId: value.sourceId, at, status: "closed", rev: after.record.revision, resolution: { by: { kind: "flowly" }, at: after.record.updatedAt, note: "classified as metadata by capture rules v2" } });
   }
   // Scripts: one open gap per session that counts them and says why; each legacy entry closed into it.
   const groups = [...after.all.values()].filter((gap) => gap.sourceId?.startsWith("legacy-gaps:"));
@@ -96,7 +96,7 @@ test("legacy gaps of every kind: metadata closed with the reason, scripts groupe
   expect(group("w1", "opaque_tool_background").text.length).toBeLessThanOrEqual(300);
   for (const { value } of [...legacy.opaque, ...legacy.duplicates]) {
     const closed = await version(x, value.id), into = group(value.agentId, value.text.slice("Capture gap (".length).split(")")[0]);
-    expect(closed).toMatchObject({ text: value.text, status: "closed", resolution: { by: { kind: "flowly" }, note: expect.stringContaining(into.id) } });
+    expect(closed).toMatchObject({ text: value.text, at, status: "closed", resolution: { by: { kind: "flowly" }, note: `grouped by capture rules v2 into ${into.id}` } });
   }
   // Everything else is exactly as it was (current entries and overflow index entries alike).
   for (const id of untouched) {

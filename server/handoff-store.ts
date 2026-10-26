@@ -324,7 +324,8 @@ export class HandoffStore {
       change.evict = [];
       for (const { id, note } of plan.close) {
         const { contentRef: _ref, ...gap } = gaps.find((value) => value.id === id)!;
-        this.replace(change, "gaps", handoffEntrySchemas.gaps.parse({ ...gap, rev: record.revision, at: record.updatedAt, status: "closed", firstAt: gap.firstAt ?? gap.at, lastAt: gap.lastAt ?? gap.at, resolution: { by, at: record.updatedAt, note } }), false);
+        // `at` stays when the gap was recorded; the resolution says when and why it was closed.
+        this.replace(change, "gaps", handoffEntrySchemas.gaps.parse({ ...gap, rev: record.revision, status: "closed", resolution: { by, at: record.updatedAt, note } }), false);
         change.evict.push({ section: "gaps", id });
       }
       for (const group of plan.groups) await this.mergeGap(change, group, { by });
