@@ -27,3 +27,15 @@ For a session already in the card's workspace, select it in the drawer and choos
 Tool requests use the card and project revisions. On an uncertain response, retry the identical request and parameters to recover its durable receipt. The CLI calls the running plugin service and requires the matching `PASEO_AGENT_ID`; it does not edit the board file. The service listens only on loopback and uses private per-session credentials. Restarting or reloading the plugin preserves board history and receipts.
 
 Usage statistics read the local Claude Code and Codex session logs on the machine that runs Paseo, only to add up token counts per card, session and day. That reading and counting happens locally. When automatic summaries are on, every completed turn also starts a short extra child session in the card's workspace. It receives the card title and description, the lane, the previous summary and a bounded excerpt of the turn's transcript, so the model you chose in Settings (Haiku by default, then Codex) can update the card's summary. The daily digest in Insights does the same for a project's day. Both are switches in Settings, and a manual Refresh always works. Board data, receipts and credentials stay in the plugin's data folder, and the tool service listens on 127.0.0.1 only.
+
+## Skills
+
+Skills are on by default. Once a week, the model you choose in Settings reads the project's cards, your messages and the shell commands agents ran, and drafts reusable skills from practices that keep coming back. Drafts only appear on the Insights page. Flowly writes files into your project only when you click **Add to project**: the skill goes to `.agents/skills/<name>/` with a symlink under `.claude/skills/`. Flowly never commits or pushes it, and never edits skills you wrote yourself. The model and schedule are set, or Skills turned off, in Settings.
+
+## Storage
+
+When your Paseo supports it (`node:sqlite` with a recent, safe SQLite version), board data lives in a local SQLite file in `~/.paseo/plugin-data/flowly/` on the daemon machine. Otherwise Flowly keeps using the JSON file. Flowly backs the database up automatically about once a day and keeps the latest seven backups. In Settings you can back up now, restore a backup, or export everything back to JSON. Existing data is migrated on first start; the previous `board.json` is replaced by a marker file, not deleted.
+
+## Usage data
+
+Anonymous usage data is on by default. About once a day Flowly sends one event to PostHog Cloud (US) with the Flowly and Node versions, the OS and CPU type, the interface language, which features are switched on, rough counts of projects and cards, and counts of events such as cards created, turns and ideas accepted. It never sends card, project or session names, messages, prompts, summaries, commands, file paths, repository or branch names, hostnames, usernames or tokens, and it does not store your IP address. Turn it off in Settings → General → Usage data, or set `DO_NOT_TRACK=1` (or `FLOWLY_TELEMETRY=0`) in the environment of the Paseo daemon. The exact fields are in `server/telemetry.ts` and `docs/TELEMETRY-SPEC.md`.
