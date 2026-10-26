@@ -146,3 +146,31 @@ test("malformed complete JSON is a visible information gap, never an apparently 
   host.read.mockResolvedValueOnce(page(r, [{ section: "reviews", id: "bad", field: "json", text: "{bad json", offset: 0, origin: "archive", complete: true }]));
   x.render(); await tick(); expect(text(x.render() as unknown as ReactNode)).toContain("This entry could not be decoded; its contents are not verified.");
 });
+
+/** The live P2 card at the end: approved and delivered, every input done, the record older than later workspace activity. */
+function settledContext(): HandoffContextView {
+  const r = record(); r.inputs[0].status = "done";
+  return { ...context(r), due: ["Repository state changed after the checkpoint."], staleSince: at, view: { ...context(r).view!, openIds: [], openIdsTotal: 0 } };
+}
+const notices = (tree: Element[]) => tree.filter(e => e.type as unknown === "Notice" && e.props.tone === "warning").map(e => text(e.props.children as ReactNode));
+test("a record behind later activity, with nothing unresolved and no agent about to continue, is a neutral line, not a warning", () => {
+  host.query = settledContext();
+  const index = { taskId: "a", fresh: false, staleSince: at, open: 0, sessions: 3 };
+  const tree = renderCard({ index, pending: false }).render(), all = text(tree as unknown as ReactNode);
+  expect(notices(tree).join(" ")).not.toContain("Handoff needs checking");
+  expect(tree.some(e => e.type as unknown === "Label" && e.props.muted && text(e.props.children as ReactNode).startsWith("Handoff recorded before later activity · recently"))).toBe(true);
+  // The staleness stays readable for whoever continues later, under a neutral title.
+  const groups = tree.filter(e => typeof e.type === "function" && e.type.name === "Group").map(e => e.props.title);
+  expect(all).toContain("Repository state changed after the checkpoint."); expect(groups).toContain("Changed since it was recorded"); expect(groups).not.toContain("Needs checking");
+  expect(tree.find(e => e.type as unknown === "Section")!.props.summary).toBe("Handoff recorded before later activity · 0 unresolved items · 3 sessions");
+});
+test("the warning stays when an agent is about to continue from the record or items are unresolved", () => {
+  host.query = settledContext();
+  const index = { taskId: "a", fresh: false, staleSince: at, open: 0, sessions: 3 };
+  for (const [extra, query] of [[{ index, pending: true }, settledContext()], [{ index: { ...index, open: 1 }, pending: false }, { ...context(), staleSince: at }]] as const) {
+    host.query = query; const tree = renderCard(extra).render();
+    expect(notices(tree).join(" ")).toContain("Handoff needs checking · recently");
+    expect(tree.find(e => e.type as unknown === "Section")!.props.summary).toMatch(/^Handoff needs checking · /);
+  }
+  host.query = { ...settledContext(), ackRequired: true }; expect(notices(renderCard({ index, pending: false }).render()).join(" ")).toContain("Handoff needs checking");
+});

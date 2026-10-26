@@ -19,7 +19,7 @@ import { SignalMark } from "./task-automation";
 import type { AutomationSignal } from "./automation-view";
 import type { Below } from "../shared/card-tree";
 import { belowLabel, belowSignals } from "./board-levels";
-import type { HandoffIndex } from "./task-handoff";
+import { handoffToneLabels, type HandoffSignal } from "./handoff-signal";
 
 export type CardDrag = {
   start(task: Task, point: Point): void;
@@ -149,7 +149,7 @@ export function TaskCard({
   attentionDismissed?: boolean;
   /** What agent automation is doing with the card (AUTOMATION-SPEC §6.1). */
   automation?: AutomationSignal | null;
-  handoff?: HandoffIndex;
+  handoff?: HandoffSignal;
   /** Its sub-cards: how many are finished of all (SUB-CARDS-SPEC §6). */
   subCards?: { done: number; total: number } | null;
   /** A sub-card's parent: its title for the breadcrumb, and the whole path ("Main › C5") for the label (CARD-TREE-SPEC §2.5). */
@@ -299,7 +299,7 @@ export function TaskCard({
           parentPath ? t("Sub-card of {title}", { title: parentPath }) : "",
           heldBy ? t("Held by {title}", { title: heldMore ? `${heldBy} +${heldMore}` : heldBy }) : "",
           automation?.text ?? "",
-          handoff ? `${t("Handoff")}: ${handoff.fresh ? t("Handoff recorded") : t("Handoff needs checking")}` : "",
+          handoff ? `${t("Handoff")}: ${t(handoffToneLabels[handoff.tone])}` : "",
           subCards ? t("Sub-cards {done}/{total}", subCards) : "",
           belowLabel(below),
           progress ? t("Progress: {state}", { state: progress.state }) : "",
@@ -370,7 +370,7 @@ export function TaskCard({
           attentionDismissed={attentionDismissed}
           display={display}
         />
-        {!!handoff && (handoff.sessions > 1 || handoff.open > 0 || !handoff.fresh) && <Label muted size={font.sm} selectable={false}>{handoff.fresh ? t("Handoff recorded") : t("Handoff needs checking")} · {tn(handoff.open, "{n} unresolved item", "{n} unresolved items")}</Label>}
+        {!!handoff && (handoff.sessions > 1 || handoff.open > 0 || !handoff.fresh) && <Label muted size={font.sm} selectable={false}>{t(handoffToneLabels[handoff.tone])} · {tn(handoff.open, "{n} unresolved item", "{n} unresolved items")}</Label>}
       </Pressable>
       {accent && (
         // Urgent/High: a stripe down the left edge, readable from across the board.

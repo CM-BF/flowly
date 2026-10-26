@@ -76,6 +76,7 @@ import { laneRows, sameRows } from "./lane-rows";
 import { LiveTaskCard, type CardDrag, type LiveTaskCardProps } from "./card";
 import { useAutomationActions } from "./task-automation";
 import { automationMenu, automationSignal, workspaceKnownMissing } from "./automation-view";
+import { handoffSignal } from "./handoff-signal";
 import { useConnections } from "./connectors";
 import { faceKey, familyOf } from "../shared/connectors";
 import { cardProgress, useSummaries } from "./task-progress";
@@ -1333,7 +1334,7 @@ function BoardContent(
       heldBy: blockers.get(t.id)?.held ? blockers.get(t.id)!.stuckTitles[0] : "",
       heldMore: blockers.get(t.id)?.held ? blockers.get(t.id)!.stuckTitles.length - 1 : 0,
       automation: automationSignal(automationIndex.get(t.id), t, blockers.get(t.id)),
-      handoff: handoffIndex.get(t.id),
+      handoff: handoffSignal(handoffIndex.get(t.id), automationIndex.get(t.id), t),
       subCards: subCardIndex.get(t.id) ?? null,
     };
     cardDerived.set(t, derived);

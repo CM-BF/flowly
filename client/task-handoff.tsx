@@ -8,6 +8,7 @@ import type { CardHandoff, HandoffInput, HandoffQuestion, HandoffReview, Handoff
 import { msg, t, tn } from "../shared/i18n";
 import { boardKey, createChangedReader } from "./queries";
 import { Disclosure, Section, type SectionState } from "./disclosure";
+import { handoffTone, handoffToneLabels } from "./handoff-signal";
 import { newMessageId } from "./sent-images";
 import { useShortcutBlock } from "./shortcuts";
 import { Badge, Button, Label, Notice, TextBox, font, message, radius, relativeTime, space, useTheme } from "./ui";
@@ -26,9 +27,13 @@ const sectionLabels: Record<string, string> = {
   notes: msg("Handoff notes"), gaps: msg("Information gaps"), inputs: msg("Original instructions"), questions: msg("Questions and answers"), reviews: msg("Review rounds"), ledger: msg("Session handoffs"),
 };
 
-/** No detail fetch while folded. Background reads never seed or replace a person's draft. */
-export function TaskHandoff({ taskId, active, disabled, section, index, onStartSession, onOpenSession }: {
-  taskId: string; active: boolean; disabled: boolean; section: SectionState; index?: HandoffIndex;
+/**
+ * No detail fetch while folded. Background reads never seed or replace a person's draft. `pending`: an agent is working
+ * on the card or about to continue from this record (`continuationPending`); only then, or with unresolved items, is a
+ * record behind later activity a warning (SESSION-HANDOFF-SPEC §12).
+ */
+export function TaskHandoff({ taskId, active, disabled, section, index, pending = true, onStartSession, onOpenSession }: {
+  taskId: string; active: boolean; disabled: boolean; section: SectionState; index?: HandoffIndex; pending?: boolean;
   onStartSession(): void; onOpenSession(agentId: string): boolean | void;
 }) {
   const read = useRpc(rpc.readHandoff), note = useRpc(rpc.noteHandoff), mark = useRpc(rpc.markHandoffInput), resume = useRpc(rpc.continueHandoff);
@@ -79,15 +84,21 @@ export function TaskHandoff({ taskId, active, disabled, section, index, onStartS
     if (fresh) { if (!result.automation) onStartSession(); }
     else if (agentId && onOpenSession(agentId) === false) setError(t("The session list changed. Refresh the card before opening that session."));
   });
-  const summary = index ? [index.fresh ? t("Handoff recorded") : t("Handoff needs checking"), tn(index.open, "{n} unresolved item", "{n} unresolved items"), tn(index.sessions, "{n} session", "{n} sessions")].join(" · ") : t("The next agent continues from this card.");
+  const summary = index ? [t(handoffToneLabels[handoffTone(index, pending)]), tn(index.open, "{n} unresolved item", "{n} unresolved items"), tn(index.sessions, "{n} session", "{n} sessions")].join(" · ") : t("The next agent continues from this card.");
+  const tone = context && handoffTone({ fresh: context.fresh, open: Math.max(index?.open ?? 0, context.view?.openIdsTotal ?? 0) }, pending, context.ackRequired);
+  const since = context?.staleSince ? ` · ${relativeTime(context.staleSince)}` : "";
   return <Section id={taskId} title={t("Handoff")} open={section.open} onToggle={section.onToggle} summary={summary} count={index?.open}>
     <Label muted size={font.sm}>{t("The next agent reads this record and checks it against the workspace. Missing or outdated information is shown here.")}</Label>
     {query.isPending ? <Label muted>{t("Loading…")}</Label> : query.error ? <Notice>{message(query.error)}</Notice> : context ? <>
       {!!context.unavailable && <Notice tone="warning">{context.unavailable}</Notice>}
       {!!context.currentAgentId && <Label muted size={font.sm}>{t("Current session")} · {context.currentAgentId.slice(0, 8)}</Label>}
-      {!context.fresh && <Notice tone="warning">{t("Handoff needs checking")}{context.staleSince ? ` · ${relativeTime(context.staleSince)}` : ""}</Notice>}
+      {tone === "check" && <Notice tone="warning">{t("Handoff needs checking")}{since}</Notice>}
+      {tone === "settled" && <View style={{ gap: 2 }}>
+        <Label muted size={font.sm}>{t("Handoff recorded before later activity")}{since}</Label>
+        <Label muted size={font.sm}>{t("Nothing is unresolved and no agent is about to continue. An agent that continues later checks the record against the workspace first.")}</Label>
+      </View>}
       {!!context.ackRequired && <Notice tone="warning">{t("The new agent has not acknowledged this handoff yet.")}</Notice>}
-      {!!context.due.length && <Group title={t("Needs checking")} count={context.due.length}>{context.due.map((text, i) => <Label key={i} size={font.sm}>{text}</Label>)}</Group>}
+      {!!context.due.length && <Group title={tone === "settled" ? t("Changed since it was recorded") : t("Needs checking")} count={context.due.length}>{context.due.map((text, i) => <Label key={i} size={font.sm}>{text}</Label>)}</Group>}
       {context.view ? <>
         <HandoffRecord record={context.view.record} currentAgentId={context.currentAgentId} disabled={disabled || busy} truncated={context.view.truncatedIds} onMark={markInput} onReadFull={() => setFull(true)} onContinue={(agentId) => void continueSession(false, agentId)} />
         {(!context.view.complete || !!context.view.omitted || !!context.view.truncatedIds.length) && <Notice tone="warning">{t("Preview only: {omitted} entries omitted; {truncated} entries shortened. Read every page for the full record.", { omitted: context.view.omitted, truncated: context.view.truncatedIds.length })}</Notice>}
