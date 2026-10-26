@@ -137,10 +137,15 @@ export function redactCaptureText(text: string): string {
   return text
     .replace(/-----BEGIN (?:[A-Z ]*PRIVATE KEY|OPENSSH PRIVATE KEY)-----[\s\S]*?(?:-----END [A-Z ]*PRIVATE KEY-----|$)/g, "[redacted private key]")
     .replace(/data:[\w.+/-]+;base64,[A-Za-z0-9+/=]+/gi, "[inline data omitted]")
-    .replace(/(https?:\/\/)[^\s/@]+:[^\s/@]+@/g, "$1[redacted]@")
+    // The user name holds no colon (the first one ends it), so a long run of colons is not rescanned for each.
+    .replace(/(https?:\/\/)[^\s/@:]+:[^\s/@]+@/g, "$1[redacted]@")
     .replace(/((?:proxy-)?Authorization(?:\\?["'])?\s*[:=]\s*(?:\\?["'])?(?:Bearer|Basic|token)\s+)[^\s"'<>\\,}]+/gi, "$1[redacted]")
-    .replace(/\b((?:[A-Z_][A-Z0-9_]*(?:TOKEN|KEY|SECRET|PASSWORD|PASSWD|AUTH)[A-Z0-9_]*|api[_-]?key|password|secret|token)["']?\s*[=:]\s*)("[^"]*"|'[^']*'|[^\s,;<>]+)/gi, "$1[redacted]")
-    .replace(/\b(?:eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_.-]+|gh[pousr]_[A-Za-z0-9]{16,}|github_pat_[A-Za-z0-9_]{20,}|glpat-[A-Za-z0-9_-]{16,}|npm_[A-Za-z0-9]{20,}|sk-[A-Za-z0-9_-]{16,}|xox[abprs]-[A-Za-z0-9-]{10,}|AKIA[0-9A-Z]{16})/g, "[redacted]")
+    // Bounded names: an unbounded one backtracks over a long word for each of its positions (quadratic in the word).
+    .replace(/\b((?:[A-Z_][A-Z0-9_]{0,80}(?:TOKEN|KEY|SECRET|PASSWORD|PASSWD|AUTH)[A-Z0-9_]{0,80}|api[_-]?key|password|secret|token)["']?\s*[=:]\s*)("[^"]*"|'[^']*'|[^\s,;<>]+)/gi, "$1[redacted]")
+    // A JWT starts where no base64url character precedes it, so `eyJ-eyJ-…` is one start, not one per `eyJ` (each of
+    // which scanned the rest of the run for its dot); after a `-` its payload segment (`.eyJ…`) still matches.
+    .replace(/(?<![A-Za-z0-9_-])eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_.-]+/g, "[redacted]")
+    .replace(/\b(?:gh[pousr]_[A-Za-z0-9]{16,}|github_pat_[A-Za-z0-9_]{20,}|glpat-[A-Za-z0-9_-]{16,}|npm_[A-Za-z0-9]{20,}|sk-[A-Za-z0-9_-]{16,}|xox[abprs]-[A-Za-z0-9-]{10,}|AKIA[0-9A-Z]{16})/g, "[redacted]")
     .replace(/[A-Za-z0-9_+=-]{40,}/g, (value) => /^[0-9a-f]+$/i.test(value) ? value : /\d/.test(value) && /[a-z]/i.test(value) ? "[redacted]" : value);
 }
 

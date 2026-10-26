@@ -29,14 +29,16 @@ const redactOnce = (value: string) => redactCaptureText(value)
   .replace(/-----BEGIN PGP PRIVATE KEY BLOCK-----[\s\S]*?(?:-----END PGP PRIVATE KEY BLOCK-----|$)/g, "[redacted private key]")
   // A cookie header or value: name=value pairs, or one token (a test named "cookie: keeps SameSite" is not one).
   .replace(/((?:set-)?cookie(?:\\?["'])?\s*[:=]\s*(?:\\?["'])?)(?=[^\s=;,"'\\]*=|[^\s;,"'\\]+(?:[;,"'\\]|[ \t]*(?:\r?\n|$))|[A-Za-z0-9%._~+/-]{16})[^\r\n"'\\]+/gi, "$1[redacted]")
-  .replace(/\b([a-z][a-z0-9+.-]*:\/\/)[^\s/@:]+:[^\s/@]+@/gi, "$1[redacted]@")
+  // A bounded scheme: an unbounded one rescans a run like `x-x-x-…` from each of its word boundaries (quadratic).
+  .replace(/\b([a-z][a-z0-9+.-]{0,31}:\/\/)[^\s/@:]+:[^\s/@]+@/gi, "$1[redacted]@")
   .replace(netrc, "$1$2[redacted]")
   // A `password` line on its own (a .netrc entry over several lines, cut above it): kept for privacy, so a line that is
   // exactly "password reset" reads "password [redacted]".
   .replace(/^([ \t]*password[ \t]+)[^\s"']+(?=[ \t]*\r?$)/gim, "$1[redacted]")
   .replace(pgpass, "$1[redacted]")
-  // Password flags: `mysql -pSECRET`, `--password SECRET` (`--password=SECRET` is a KEY=value).
-  .replace(/(\b(?:mysql|mysqldump|mysqladmin|mariadb(?:-dump)?)\b[^\r\n]*?[ \t]-p)[^\s"'-][^\s"']*/gi, "$1[redacted]")
+  // Password flags: `mysql -pSECRET` (any -p after the command's name on its line; the rest of the line from the first
+  // name is one match, so many names on a line cost one pass), `--password SECRET` (`--password=SECRET` is a KEY=value).
+  .replace(/\b(?:mysql|mysqldump|mysqladmin|mariadb(?:-dump)?)\b[^\r\n]*/gi, (command) => command.replace(/([ \t]-p)[^\s"'-][^\s"']*/g, "$1[redacted]"))
   .replace(/((?:^|[ \t])--(?:password|passwd|pass)[ \t]+)[^\s"'-][^\s"']*/gim, "$1[redacted]")
   .replace(/("([^"\\\r\n]{1,100})"\s*:\s*)"((?:[^"\\\r\n]|\\.){1,4000})"/g, (all, head: string, key: string, value: string) => value !== "[redacted]" && credentialKey(key) ? `${head}"[redacted]"` : all);
 /**
@@ -185,7 +187,7 @@ const carries = /(?:[:=]|\b(?:bearer|basic|token)|(?:token|key|secret|passw|auth
  * Before a start inside a line, what a match running past a `,"` can begin with: a single-quoted credential value, a
  * private key, a mysql command line (its `-p` value may follow anything on the line).
  */
-const spansElements = /(?:token|key|secret|passw|auth)[\w-]*["']?\s*[=:]\s*'|-----BEGIN |\b(?:mysql|mysqldump|mysqladmin|mariadb)\b/i;
+const spansElements = /(?:token|key|secret|passw|auth)[\w-]{0,80}["']?\s*[=:]\s*'|-----BEGIN |\b(?:mysql|mysqldump|mysqladmin|mariadb)\b/i;
 /** A .pgpass line, whose password runs to the end of the line. */
 const pgpassLine = new RegExp(`^${pgpassPrefix}`);
 const whitespace = (code: number) => code === 32 || code >= 9 && code <= 13;
