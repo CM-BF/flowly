@@ -718,7 +718,7 @@ function WorkflowNumbers({ projectId, flow, active }: { projectId: string; flow:
       ? tn(WINDOW_DAYS, "Too few cards finished in the last {n} day", "Too few cards finished in the last {n} days")
       : [
           tn(flow.finished, "Last 7 days: {n} card finished", "Last 7 days: {n} cards finished"),
-          t("median {n} review rounds", { n: fmt(flow.rounds) }),
+          tn(flow.rounds ?? 0, "median {n} review round", "median {n} review rounds", { n: fmt(flow.rounds) }),
           t("{share} in one pass", { share: flow.onePassShare === null ? "—" : percent(flow.onePassShare) }),
           tokens.error ? "" : t("{n} tokens per card", { n: tokens.data ? (perCard == null ? "—" : compactNumber(perCard)) : "…" }),
         ]
@@ -734,7 +734,7 @@ function WorkflowNumbers({ projectId, flow, active }: { projectId: string; flow:
                 key={m.model || "other"}
                 first={i === 0}
                 label={m.model ? modelLabel(m.model) : t("Other models")}
-                note={[t("{n} rounds", { n: fmt(m.rounds) }), modelTokens(tokens.data, m.model)].filter(Boolean).join(" · ")}
+                note={[tn(m.rounds ?? 0, "{n} round", "{n} rounds", { n: fmt(m.rounds) }), modelTokens(tokens.data, m.model)].filter(Boolean).join(" · ")}
                 value={tn(m.finished, "{n} card", "{n} cards")}
               />
             ))}
