@@ -1,5 +1,42 @@
 # Implementation progress
 
+## Hybrid handoff P2: review of the gap migration (round 2) — 2026-10-25
+
+A review of `b8459f3` gave one finding (safety-r2-outcome-F1-cap-drops-other-kinds). It was accepted; one part was done differently from the review's wording, with a reason (`compacted` records). Spec: SESSION-HANDOFF-SPEC §21.19 (decisions with reasons), §21.17 (rows, rehearsal, table, card faces, not done), §5.7, §16 #48 and §17.3.
+
+- [x] safety-r2-outcome-F1-cap-drops-other-kinds (`fd970f5`). The older builds' 100-gaps-per-pass cap dropped every kind, not only script calls. Round 1 recounted only script calls and groups of two or more, so on a copy of live data 15 lines over 256 KiB in 5 capped sessions (C5b, C5b.2 and C5b.3 among them) appeared nowhere in the record, while the note said a group's count was "what that build read".
+  - `countLegacyHistory` also returns every long line in the bytes the old pass read: start, end, today's `lineHint` of its first 2048 bytes, and the message id also from its last 2048, as today's capture reads them.
+  - In a capped session, each long line that no older-build or today's long-line gap lists (any status, matched by file identity and start in the source) becomes a gap in today's located form, in the same transaction: count 1, the line's own time, source `legacy-long:<session>:<file>:<start>`. The first 8 per session are their own gaps; the rest are one counted gap that names the first 3 ranges.
+  - A `compacted` record is not given a gap, unlike the review's "every long line". Today's capture reads a skipped `compacted` line as a compaction, not lost content (`CaptureRecords.longLine`), and the migration converts by today's rules. The note counts them instead, so they are not silently dropped. There are 2 on this machine.
+  - A single entry of a countable kind (`unknown_*_type`) in a capped session is measured as well. It becomes a counted group when the history holds more occurrences, and is left as it is when it holds exactly one.
+  - Every session with legacy gaps is checked for the cap, not only those with groups. A capped session with only metadata gaps used to skip the history altogether.
+  - "Readable" is stricter: every parseable legacy source of the session must name the cursor's file and epoch. Otherwise nothing is counted or listed there, and the note says the history could not be read.
+  - The note keeps the cap, per capped session: what was counted again in the history, how many long lines are now gaps, how many compaction records are not gaps, and that other kinds past the cap (unparsable lines, images, system notices, tool-call problems) are not counted again and may be missing. When the history could not be read, the note says the groups are "at least" and that skipped lines and other kinds may be missing. Group texts are unchanged: a count taken from the history is complete.
+  - A rerun with the receipt gone derives the same entries again, and `mergeGap` changes nothing, so no revision is written. A card whose capped-pass entries all stay as they are (for example 100 unparsable lines) gets exactly one revision for its long lines alone.
+- [x] Tests, written first and red on `b8459f3` (`/tmp/flowly-gapmig-r2-20261025/red-run.txt`: 9 failures; two of them, in the history test, come from the counter's new return shape and `planGapMigration`'s new parameter shape).
+  - New file `server/handoff-gap-migration-cap.test.ts`: the review's scenario with the assertions reversed (150 calls; the single answer becomes a group of 5; the 300 KB tool output is a gap; the note keeps the cap); long lines already listed, settled and archived, a compaction record and a person's paste; a rerun with the receipt deleted; a metadata-only capped session with 10 long lines (8 own gaps plus one group of 2); long lines alone; a history that cannot be read; legacy gaps naming an earlier epoch; text lengths at the largest offsets, hints and message ids.
+  - Updated `server/handoff-gap-migration-history.test.ts`: the counter returns long lines, also with no target, and a Claude uuid is read from the line's end.
+  - Removing any one fix makes at least one test fail: the long lines, the coverage check, the compaction rule, the 8-line bound, the single-entry grouping, the note, the epoch condition, or writing for long lines alone.
+  - The review's own repro (`/tmp/fl-mig-safety-r2-repro/cap-siblings.test.ts`, which pins the old behaviour) now fails as expected: the single answer is a group of 5. It is not committed.
+- [x] Rehearsal on copies (`/tmp/flowly-gapmig-r2-20261025`).
+  - Setup: `cp -R` of `~/.paseo/plugin-data/flowly/handoffs` (byte-identical to live), a copy of `board.json`, and a copy of `removed/`. The real service ran with no Paseo connection, and rollouts were read in place, read only. The daemon and the live directory were not touched, and nothing was installed or reloaded. The copies were deleted afterwards; the reports `run1-report.json`, `run2-report.json`, `run3-straight.json` and `summary.txt` were kept.
+  - Open gaps went from 2,949 to 112. That is 13 more than round 1, and each one is a long line now listed: black-box #2 ×4, C5b #2 ×3, C5b.2 #1 ×2, C5b.3 #3 ×2, next-workspace main card #1 ×2. They are 9 CommandExecution outputs, 1 McpToolCall and 3 tool outputs, and they match the review's `longcheck` list of 15 line for line; the other 2 are `compacted`.
+  - Closures, group counts and group texts are identical to round 1. All 20 capped sessions were readable, and no single entry stood for more.
+  - Per card: C5b 137 → 8, C5b.2 301 → 6, C5b.3 201 → 7 (index 204 → 10), black-box 128 → 13, next-workspace main card 101 → 7, the rest as in round 1. Table: §21.17.
+  - Every card got exactly one revision, and every index `open` equals its record's. No body is missing or unreferenced, the default view shows `omitted` 0, and a rerun writes no byte.
+  - A copy stopped after the fifth card and then restarted ended identical, card by card, to a straight run: gap ids, statuses, texts, counts, times, closing notes, overflow, revision, notes and index.
+  - The `removed/` backup still goes 139 → 44.
+  - After a simulated full acknowledgement every card has `ackMissing` 0 and reads "needs checking · 0", for the same reasons as in round 1.
+  - Cost: 102.3 s with real fsync, each card holding its queue 1.0–13.1 s once. The required full read went from 4.11 to 4.48 MB (4.46 MB in round 1).
+- [x] `npm run typecheck` passed. `npm test` passed 3 runs in a row under default workers on `fd970f5` with these docs (243 files / 2328 tests, 21.6–22.7 s each). No new test temporary directories: the 76 `flowly-*` directories in the temp folder predate these runs. The tests use temporary directories and synthesized rollouts only. No Paseo CLI or daemon was contacted.
+- [ ] Not done here:
+  - Other kinds past the cap are not recounted; the note says they may be missing. The review's `omitted-kinds` check found no kind dropped entirely on this machine.
+  - Listed long lines are one gap each. Today's capture would group tool output by type; these match the legacy long lines already listed in the same sessions.
+  - Long lines other than `compacted` are not sorted into a person's words and other content: all of them are listed.
+  - The other items of the round 1 entry still apply.
+  - Not installed or reloaded: the daemon still runs `f58f91c`.
+  - No onboarding change: this is a data migration with no new feature or moment worth a tip.
+
 ## Hybrid handoff P2: review of the gap migration (round 1) — 2026-10-25
 
 A review of `dbf00a1` gave three safety findings and five outcome findings; all eight were accepted and none rejected. Spec: SESSION-HANDOFF-SPEC §21.18 (decisions with reasons), §21.17 (rows, rehearsal, card faces, corrections), §5.1, §16 #48 and §17.3.
