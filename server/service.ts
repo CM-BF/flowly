@@ -31,6 +31,7 @@ import { memoryContext } from "./memory";
 import { backgroundWorkspaces } from "./background-workspace";
 import type { z } from "zod";
 import type { removeProject as removeProjectRpc, restoreProjectCheck as restoreProjectCheckRpc } from "../shared/rpc";
+import { logFailure } from "./error-report";
 
 const execute = promisify(execFile);
 type RemoveResult = z.infer<typeof removeProjectRpc.output>;
@@ -481,7 +482,7 @@ export class BoardService {
     const task = await this.createCard(input, paseo, agent);
     if (findingId)
       await this.insightFindings!.accept(input.projectId, findingId, task.id).catch((e) =>
-        console.error("Workflow insights suggestion not marked accepted:", e instanceof Error ? e.message : String(e)),
+        logFailure("Workflow insights suggestion not marked accepted:", e),
       );
     return task;
   }
@@ -682,7 +683,7 @@ export class BoardService {
         // Any refusal after provisioning names the workspace and keeps it on the request's receipt, so a
         // retry of the same request reports it, or reuses it through the same idempotency key.
         const message = `Card was not saved: ${reason} ${orphanNotice(id)}`;
-        if (input.mode !== "existing") await this.keepOrphan(agent, id).catch((e) => console.error("Kanban orphan workspace not recorded:", e instanceof Error ? e.message : String(e)));
+        if (input.mode !== "existing") await this.keepOrphan(agent, id).catch((e) => logFailure("Kanban orphan workspace not recorded:", e));
         throw error instanceof ToolError ? new ToolError(error.code, message, error.retryable) : new Error(message);
       }
     });

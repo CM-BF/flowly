@@ -24,6 +24,8 @@ export const radius = { sm: 4, md: 6, lg: 8, xl: 12, full: 999 } as const;
 export const font = { xs: 11, sm: 12, md: 13, base: 14, lg: 16, xl: 18 } as const;
 export const touch = Platform.OS !== "web";
 const control = touch ? 44 : 32;
+/** Height of the "← Board" bar of the Ideas, Memory and Insights pages: the same as the session preview header beside it (8 padding + a two-line title of 37 px or a control, whichever is taller, + 8 padding + 1 border), so both bottom borders line up. */
+export const pageBarHeight = 2 * space[2] + Math.max(control, 37) + 1;
 const smallControl = touch ? 32 : 28;
 
 /**
@@ -762,6 +764,10 @@ export function SectionHeader({
     </>
   );
   const row = { flexDirection: "row", alignItems: "center", gap: space[1.5] } as const;
+  const showSummary = !open && !!summary;
+  // With a summary after it the title keeps its own width (the summary is the part that gives way), so a narrow phone
+  // never wraps "Progress" onto two lines or draws the AI mark over the summary.
+  const titleBox = showSummary ? { flexGrow: 0, flexShrink: 0 } : { flex: 1, minWidth: 0 };
   return (
     <View
       style={{
@@ -772,7 +778,7 @@ export function SectionHeader({
       }}
     >
       {onToggle ? (
-        <View style={{ flex: 1, minWidth: 0, flexDirection: "row" }}>
+        <View style={{ ...titleBox, flexDirection: "row" }}>
           <Pressable
             accessibilityRole="button"
             accessibilityLabel={title}
@@ -784,16 +790,17 @@ export function SectionHeader({
           </Pressable>
         </View>
       ) : (
-        <View style={{ flex: 1, minWidth: 0, ...row }}>{heading}</View>
+        <View style={{ ...titleBox, ...row }}>{heading}</View>
       )}
-      {!open && !!summary && (
-        <View style={{ flexShrink: 1, maxWidth: "60%" }}>
+      {showSummary && (
+        <View style={{ flexGrow: 1, flexShrink: 1, minWidth: 0, maxWidth: "60%", alignItems: "flex-end" }}>
           <Label muted size={font.sm} lines={1} selectable={false}>
             {summary}
           </Label>
         </View>
       )}
-      {children}
+      {/* Actions keep their size too: only the summary gives way, so "Refresh" never shortens to "Ref…". */}
+      {!!children && <View style={{ flexShrink: 0, flexDirection: "row", alignItems: "center", gap: space[2] }}>{children}</View>}
     </View>
   );
 }

@@ -30,6 +30,8 @@ export const boardViewSettings = defineSettings({
     showArchived: z.boolean().default(false),
     /** Done/Cancelled cards that finished more than this many days ago fold under "Show older"; 0 shows all. */
     hideFinishedAfterDays: z.number().int().min(0).max(365).default(14),
+    /** The dot sweep on running cards, sessions and subagent rows (MOTION-SPEC, running state). */
+    runningSweep: z.boolean().default(true),
     /** Before CONNECTORS-SPEC: the Jira picker's connection; read as `lastConnections.jira`. */
     lastTicketConnection: z.string().max(200).default(""),
     /** Each family's picker connection, when there are several (CONNECTORS-SPEC §8.1). */
@@ -147,6 +149,22 @@ export function performanceLogOn(values: unknown) {
   return parsed.success ? parsed.data.log : false;
 }
 
+/**
+ * Developer switches (INSIGHTS-REDESIGN-SPEC §6). No settings page: set
+ * `{"version":1,"values":{"agentHabits":true}}` in `~/.paseo/plugin-settings/flowly/developer.json`
+ * on the host and reload the plugin. `agentHabits` shows Agent habits on the Insights page.
+ */
+export const developerSettings = defineSettings({
+  id: "developer",
+  scope: "host",
+  version: 1,
+  schema: z.object({ agentHabits: z.boolean().default(false) }),
+});
+export function agentHabitsOn(values: unknown) {
+  const parsed = developerSettings.schema.safeParse(values ?? {});
+  return parsed.success ? parsed.data.agentHabits : false;
+}
+
 /** Interface language: follow the device (default) or one fixed language. Host-scoped. */
 export const languageSettings = defineSettings({
   id: "language",
@@ -203,6 +221,8 @@ export const onboardingSettings = defineSettings({
     welcomeSeen: z.boolean().default(false),
     // Matches TIPS_SEEN_MAX (client/onboarding-logic.ts).
     tipsSeen: z.array(z.string().max(40)).max(100).default([]),
+    /** The release whose What's new was last seen; "" before any (WHATS-NEW-SPEC §3). */
+    whatsNewSeen: z.string().max(20).default(""),
   }),
 });
 export type OnboardingSettings = z.infer<typeof onboardingSettings.schema>;
@@ -229,6 +249,21 @@ export type FeatureSettings = z.infer<typeof featureSettings.schema>;
 export function featureSettingsValues(values: unknown): FeatureSettings {
   const parsed = featureSettings.schema.safeParse(values ?? {});
   return parsed.success ? parsed.data : featureSettings.schema.parse({});
+}
+
+/** Anonymous daily usage data (TELEMETRY-SPEC §5). Off by default in this fork (AGENTS.md, fork decision 2026-10-26): nothing is sent until the user turns it on. Host-scoped. */
+export const telemetrySettings = defineSettings({
+  id: "telemetry",
+  scope: "host",
+  version: 1,
+  schema: z.object({
+    enabled: z.boolean().default(false),
+  }),
+});
+export type TelemetrySettings = z.infer<typeof telemetrySettings.schema>;
+export function telemetrySettingsValues(values: unknown): TelemetrySettings {
+  const parsed = telemetrySettings.schema.safeParse(values ?? {});
+  return parsed.success ? parsed.data : telemetrySettings.schema.parse({});
 }
 
 /** Global default model for new sessions (MODEL-DEFAULTS-SPEC). Empty strings mean "none": new sessions follow the latest session. */

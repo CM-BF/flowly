@@ -1,11 +1,11 @@
 import { beforeEach, expect, test, vi } from "vitest";
 import type { ReactElement, ReactNode } from "react";
-import { emptyBoard, type Task } from "../shared/model";
+import { emptyBoard, type Board, type Task } from "../shared/model";
 import { classificationHash } from "../shared/review-levels";
 import { setLocale } from "../shared/i18n";
 
 // Execute the actual exported form and its callbacks with persistent hook state. Host controls are opaque elements:
-// this exercises a board-query rerender without a daemon or a native renderer, not host layout or painting.
+// this exercises an overview rerender without a daemon or a native renderer, not host layout or painting.
 const host = vi.hoisted(() => ({ states: [] as unknown[], cursor: 0, board: undefined as unknown, update: vi.fn() }));
 vi.mock("react", async (original) => ({
   ...await original<typeof import("react")>(),
@@ -28,7 +28,10 @@ vi.mock("react", async (original) => ({
 vi.mock("react-native", () => ({ View: "View" }));
 vi.mock("@tanstack/react-query", () => ({ useQuery: () => ({}) }));
 vi.mock("@getpaseo/plugin/client", () => ({ useRpc: () => host.update, usePaseo: () => ({}), useSettings: () => ({}) }));
-vi.mock("./queries", () => ({ useBoardQuery: () => ({ data: host.board }), useResourcesQuery: () => ({ data: { workspaces: [] } }) }));
+vi.mock("./queries", () => ({ useResourcesQuery: () => ({ data: { workspaces: [] } }) }));
+vi.mock("./card-detail-query", () => ({ useCardDetailQuery: () => ({ data: undefined }), useProjectIndexQuery: () => ({ data: undefined }) }));
+vi.mock("./motion", () => ({ useSettled: () => true }));
+vi.mock("./perf", () => ({ perfLap: () => {} }));
 vi.mock("./ui", () => ({ useTheme: () => ({ colors: {} }), Theme: { Provider: "Theme" }, Field: "Field", Choices: "Choices", Label: "Label", View: "View", Button: "Button", IconButton: "IconButton", Notice: "Notice", Row: "Row", Actions: "Actions", Toggle: "Toggle", font: {}, radius: {}, space: {}, relativeTime: () => "", basename: () => "", message: String }));
 vi.mock("./modal", () => ({ Modal: Object.assign("Modal", { Content: "ModalContent", Footer: "ModalFooter" }) }));
 vi.mock("./lane-editor", () => ({ LaneEditor: "LaneEditor" }));
@@ -61,7 +64,12 @@ function setup(status: "pending" | "ready" | "failed" | "none") {
   board.projects.push({ id: "p", title: "P", primaryPath: "/p", repos: ["/p"], description: "", paseoProjectId: "native", revision: 1, createdAt: at, updatedAt: at, archivedAt: null });
   if (status !== "none") task.reviewClassification = { inputHash: classificationHash(board, task), status, at, fallback: { level: "standard", reason: { kind: "default" } }, ...(status === "ready" ? { verdict: { level: "light", reason: "The card changes a local label.", model: "cheap/model" } } : {}) };
   host.board = board;
-  const render = () => { host.cursor = 0; return elements(TaskForm({ project: board.projects[0], task, onClose: () => {}, onSaved: () => {} })); };
+  // The form reads the overview's tasks and links through its props; a background update re-renders it with new ones.
+  const render = () => {
+    host.cursor = 0;
+    const current = host.board as Board;
+    return elements(TaskForm({ hostId: "host", boardTasks: current.tasks, boardLinks: current.links, project: board.projects[0], task, onClose: () => {}, onSaved: () => {} }));
+  };
   const control = (tree: Element[], type: string, title?: string) => tree.find((e) => e.type as unknown === type && (!title || e.props.title === title))!;
   const texts = (tree: Element[]) => tree.filter((e) => e.type as unknown === "Label").map((e) => e.props.children).filter((value) => typeof value === "string");
   return { board, task, render, control, texts };

@@ -6,9 +6,13 @@ import { automationExecution, resolveReviewLevel, type ReviewLevel } from "../sh
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { View } from "react-native";
+import { useSettled } from "./motion";
+import { perfLap } from "./perf";
 import { Modal } from "./modal";
 import { usePaseo, useRpc, useSettings } from "@getpaseo/plugin/client";
-import { useBoardQuery, useResourcesQuery } from "./queries";
+import { useResourcesQuery } from "./queries";
+import { useCardDetailQuery, useProjectIndexQuery } from "./card-detail-query";
+import type { LevelBoard } from "../shared/review-levels";
 import * as rpc from "../shared/rpc";
 import {
   priorities,
@@ -19,6 +23,7 @@ import {
   type Project,
   type Task,
   type Status,
+  type Link,
 } from "../shared/model";
 import { Theme, useTheme, Button, IconButton, Field, Choices, Notice, Label, Row, Actions, Toggle, message, basename, font, radius, space, relativeTime } from "./ui";
 import { priorityLabels } from "./status";
@@ -35,7 +40,7 @@ import { ImageAttachments, useImageAttachments } from "./image-attach";
 import { newMessageId, rememberSentImages } from "./sent-images";
 import { DirectoryChooser } from "./directory-picker";
 import { t, tn } from "../shared/i18n";
-import { projectTagStats, tagValues } from "../shared/tags";
+import { tagValues } from "../shared/tags";
 import { TagEditor } from "./tag-input";
 import { useStableCallback } from "./stable";
 import { ExternalChip, ExternalPicker, connectionsByFamily, familyNames, pickKey, useConnections } from "./connectors";
@@ -252,7 +257,6 @@ export function ProjectForm({
           {project && (
             <ModelDefaultGroup execution cwd={primaryPath}
               title={t("Default model")}
-              description={t("New sessions in this project start with this model instead of the global default.")}
               value={agentModel}
               disabled={pending}
               noneLabel={globalModel ? t("Global default ({model})", { model: `${globalModel.provider} · ${globalModel.model}` }) : t("Global default (Automatic)")}
@@ -275,9 +279,7 @@ export function ProjectForm({
           {project && <AutomationSettingsGroup value={automation} onChange={setAutomation} cwd={primaryPath} />}
           {project && (
             <Toggle
-              title={t("Auto-update status in this project")}
-              detail={t("A Kanban session resuming after review moves the card to Development, after a blocker back to its previous stage. Applies only while Auto-update status is on in Flowly settings.")}
-              value={autoStatus}
+              title={t("Auto-update status in this project")}              value={autoStatus}
               onChange={setAutoStatus}
             />
           )}
@@ -291,8 +293,7 @@ export function ProjectForm({
           )}
           {project && (
             <Toggle
-              title={t("Workflow insights")}
-              detail={t("Include this project when workflow insights run. Turn the feature itself on in Settings → AI features.")}
+              title={t("Skills")}
               value={workflowInsights}
               onChange={setWorkflowInsights}
             />
@@ -307,9 +308,7 @@ export function ProjectForm({
           )}
           {project && onShowArchived && (
             <Toggle
-              title={t("Show archived")}
-              detail={t("Archived projects and tasks")}
-              value={archivedShown}
+              title={t("Show archived")}              value={archivedShown}
               onChange={setArchivedShown}
             />
           )}
@@ -433,6 +432,9 @@ export type TaskSeed = {
 };
 
 export function TaskForm({
+  hostId,
+  boardTasks,
+  boardLinks,
   project,
   task: initialTask,
   seed,
@@ -441,6 +443,11 @@ export function TaskForm({
   onSaved,
   agentDefaults,
 }: {
+  hostId: string;
+  /** Every card the board knows (its overview), for workspaces already bound in other projects. */
+  boardTasks: readonly Task[];
+  /** The overview's links: Auto review levels follow deep-review/foundation tags up the card's ancestors (AUTOMATION-SPEC §5.2.2). */
+  boardLinks: readonly Link[];
   project: Project;
   task?: Task;
   seed?: TaskSeed;
@@ -454,8 +461,14 @@ export function TaskForm({
   const [task] = useState(initialTask);
   const create = useRpc(rpc.createTask),
     update = useRpc(rpc.updateTask);
-  const resources = useResourcesQuery();
-  const board = useBoardQuery();
+  const settled = useSettled("task-form");
+  const ready = settled;
+  useEffect(() => perfLap("task-form.open", "task-form.open.mount"), []);
+  useEffect(() => {
+    if (ready) perfLap("task-form.open", "task-form.open.settled", true);
+  }, [ready]);
+  // This project's cards, tags and external items; never the whole board (LOADING-R2-SPEC §2B).
+  const index = useProjectIndexQuery(hostId, project.id, ready);
   const [brief, setBrief] = useState([seed?.title, seed?.description].filter(Boolean).join("\n\n"));
   const [advanced, setAdvanced] = useState(false);
   const [title, setTitle] = useState(task?.title || seed?.title || ""),
@@ -476,7 +489,8 @@ export function TaskForm({
     [pending, setPending] = useState(false),
     [error, setError] = useState("");
   // From… (EXTERNAL-TRACKER-SPEC §5, CONNECTORS-SPEC §8.2): items added as inputs with the new card.
-  const connections = useConnections();
+  const resources = useResourcesQuery({ enabled: ready && !task && mode === "existing" });
+  const connections = useConnections(ready && !task);
   const byFamily = useMemo(() => connectionsByFamily(connections.data?.connections || []), [connections.data]);
   const [externals, setExternals] = useState<{ item: ExternalSummary; provider: ConnectorProvider }[]>([]),
     [picking, setPicking] = useState<ConnectorFamily | null>(null);
@@ -495,11 +509,11 @@ export function TaskForm({
   // Items other cards of this project already reference (shown, still choosable).
   const externalUse = useMemo(() => {
     const used = new Map<string, string>();
-    const titles = new Map((board.data?.tasks || []).filter((x) => x.projectId === project.id && !x.archivedAt).map((x) => [x.id, x.title]));
-    for (const a of board.data?.artifacts || [])
-      if (a.external && titles.has(a.taskId)) used.set(pickKey(familyOf(a.external.provider), a.external.key), titles.get(a.taskId)!);
+    const titles = new Map((index.data?.cards || []).filter((x) => !x.archivedAt).map((x) => [x.id, x.title]));
+    for (const x of index.data?.externals || [])
+      if (titles.has(x.taskId)) used.set(pickKey(familyOf(x.provider), x.key), titles.get(x.taskId)!);
     return used;
-  }, [board.data?.tasks, board.data?.artifacts, project.id]);
+  }, [index.data]);
   const [operationId] = useState(
     () => `card-${Date.now()}-${Math.random().toString(36).slice(2)}`,
   );
@@ -512,7 +526,7 @@ export function TaskForm({
     ...(agentDefaults.featureValues ? { featureValues: agentDefaults.featureValues } : {}),
   } : null);
   const automationDefault = selected && automation ? automationExecution(selected, project.agentModel, automation.fullAccess) : null;
-  const choice = useAgentChoice({ enabled: startChosen, cwd: project.primaryPath,
+  const choice = useAgentChoice({ enabled: ready && startChosen, cwd: project.primaryPath,
     defaults: automationDefault ? startingAgent(agentDefaults, automationDefault) : agentDefaults });
   const queue = useRpc(rpc.queueAutomation);
   // The project's lanes. New tasks start in an active lane (finished ones only
@@ -531,22 +545,25 @@ export function TaskForm({
   const eligible = (resources.data?.workspaces || []).filter((w) =>
     w.repoPaths.includes(project.primaryPath),
   );
-  const suggestions = useMemo(
-    () => projectTagStats(board.data?.tasks || [], project.id).map((s) => s.tag),
-    [board.data?.tasks, project.id],
-  );
+  const suggestions = useMemo(() => (index.data?.tags || []).map((s) => s.tag), [index.data]);
   const agentTags = useMemo(
     () => new Set((task?.tags || []).filter((x) => x.by === "agent").map((x) => x.tag)),
     [task],
   );
-  // Editing metadata stays local; derived classification follows the latest board even while this form is open.
+  // Editing metadata stays local; derived classification follows the latest overview even while this form is open.
+  // The card's workpad (its acceptance criteria are classification input) comes from its own detail, never the whole board.
+  const editedDetail = useCardDetailQuery(hostId, task?.id ?? "", task?.workspaceId ?? "", ready && !!task);
+  const levelBoard = useMemo<LevelBoard | null>(
+    () => (task ? { tasks: boardTasks as Task[], links: boardLinks as Link[], workpads: editedDetail.data?.workpad ? [editedDetail.data.workpad] : [] } : null),
+    [task, boardTasks, boardLinks, editedDetail.data],
+  );
   const autoLevelCard = useMemo(() => task && {
     ...task, reviewLevel: undefined, title, description, tags,
-    reviewClassification: board.data?.tasks.find((current) => current.id === task.id)?.reviewClassification,
-  }, [task, board.data, title, description, tags]);
+    reviewClassification: boardTasks.find((current) => current.id === task.id)?.reviewClassification,
+  }, [task, boardTasks, title, description, tags]);
   const autoLevel = useMemo(
-    () => (autoLevelCard && board.data ? resolveReviewLevel(board.data, autoLevelCard) : null),
-    [autoLevelCard, board.data],
+    () => (autoLevelCard && levelBoard ? resolveReviewLevel(levelBoard, autoLevelCard) : null),
+    [autoLevelCard, levelBoard],
   );
   const addTags = useStableCallback((values: string[]) => setTags((current) => [...current, ...values.filter((v) => !current.includes(v))]));
   const removeTag = useStableCallback((tag: string) => setTags((current) => current.filter((x) => x !== tag)));
@@ -623,6 +640,7 @@ export function TaskForm({
     }
   }
   const canSave =
+    ready &&
     !pending &&
     !!(task ? title : brief).trim() &&
     !(!task && mode === "existing" && !workspaceId) &&
@@ -646,6 +664,7 @@ export function TaskForm({
           {!!seed?.followUpTitle && (
             <Label muted size={font.sm} lines={1}>{t("Follow-up of {title}", { title: seed.followUpTitle })}</Label>
           )}
+          {ready ? <>
           {!task && byFamily.size > 0 && (
             <View style={{ gap: space[2] }}>
               {externals.map((x) => (
@@ -730,7 +749,7 @@ export function TaskForm({
                 onChange={setReviewLevel}
               />
               {reviewLevel === "auto" && autoLevel && (
-                <Label muted size={font.sm}>{autoLevelStatus(board.data!, autoLevelCard!, autoLevel)}</Label>
+                <Label muted size={font.sm}>{autoLevelStatus(levelBoard!, autoLevelCard!, autoLevel)}</Label>
               )}
             </View>
           )}
@@ -787,9 +806,7 @@ export function TaskForm({
                         }}
                       >
                         {eligible.map((w) => {
-                          const bound = !!board.data?.tasks.some(
-                            (t) => t.workspaceId === w.id,
-                          );
+                          const bound = boardTasks.some((t) => t.workspaceId === w.id) || !!index.data?.cards.some((t) => t.workspaceId === w.id);
                           return (
                             <Row
                               key={w.id}
@@ -838,9 +855,7 @@ export function TaskForm({
           {!task && (
             <View style={{ gap: 12 }}>
               <Toggle
-                title={t("Start an agent now")}
-                detail={t("Create the task, then start its first session with Kanban tools. Turn off to add the task only and start later.")}
-                value={startChosen}
+                title={t("Start an agent now")}                value={startChosen}
                 onChange={setStartAgent}
               />
               {startChosen && (
@@ -854,6 +869,7 @@ export function TaskForm({
           </Disclosure>
           {startChosen && choice.permissionUnavailable && <Notice>{t("Selected permission mode is unavailable. Choose another mode.")}</Notice>}
           {startChosen && (choice.features.error || choice.models.error || choice.modes.error) && <Notice>{message(choice.features.error || choice.models.error || choice.modes.error)}</Notice>}
+          </> : <Label muted>{t("Loading…")}</Label>}
           {resources.error && <Notice>{message(resources.error)}</Notice>}
           {error && <Notice>{error}</Notice>}
           <Actions>

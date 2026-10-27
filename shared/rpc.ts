@@ -1,10 +1,19 @@
 import { automationLaunchSchema } from "./automation-launch";
 import { agentModelSchema } from "./agent-defaults";
 import { handoffContextSchema, handoffContinueSchema, handoffInputConfirmSchema, handoffInputDispositionSchema, handoffInputRecordSchema, handoffNoteInputSchema, handoffReadInputSchema } from "./handoff-api";
+import { cardDetailSchema, projectCardIndexSchema, projectIdeasSchema } from "./card-detail";
 import { attentionDismissInput, attentionDismissalSchema, attentionRestoreInput } from "./attention-dismiss";
 import { defineRpc } from "@getpaseo/plugin";
+import { overviewResponseSchema } from "./overview";
+import { storageStatusSchema } from "./storage";
 import { sessionInsightViewSchema } from "./session-insights";
 import { z } from "zod";
+/** Lightweight sidebar: no board/events/agents cross the phone connection. */
+export const readAttentionCount = defineRpc({
+  name: "attention.count",
+  input: z.strictObject({}),
+  output: z.strictObject({ count: z.number().int().nonnegative().nullable() }),
+});
 import {
   ideaAdoption,
   ideaEdit,
@@ -48,7 +57,6 @@ import {
 import { summaryEntrySchema, summaryOverviewSchema } from "./summary";
 import { taskUsageSchema } from "./usage";
 import { TURN_MAX_ENTRIES, tailPageSchema, timelineCursorSchema } from "./session-tail";
-import { tokenInsightsSchema } from "./insights";
 import { digestViewSchema } from "./digest";
 import { memoryEntrySchema, memoryInputFields, memoryKeywordsSchema, memoryTagsSchema, memoryViewSchema } from "./memory";
 import { perfReportSchema } from "./perf";
@@ -56,9 +64,18 @@ import { localeCodes } from "./i18n";
 import { workflowOverviewSchema, workflowViewSchema } from "./workflow-insights";
 import { insightsWithHabitsSchema } from "./agent-habits";
 import { automationJobSchema } from "./automation-schema";
+import { cardTokensSchema, insightsViewSchema } from "./workflow-stats";
+import { dayDetailSchema } from "./day-detail";
 
 /** `{ etag }` in; the value is omitted when it still matches (PERFORMANCE-SPEC §3). */
 const etagInput = z.strictObject({ etag: z.string().max(200).optional() });
+/** Compact overview is a separate DTO/cache; it never satisfies a fresh full-board read. */
+export const readOverviewChanged = defineRpc({ name: "board.overview-changed", input: etagInput, output: overviewResponseSchema });
+
+/** Independent compact detail/project scopes, never interchangeable with Board. */
+export const readCardDetailChanged = defineRpc({ name: "cards.detail-changed", input: etagInput.extend({ taskId: z.string().min(1).max(200), workspaceId: z.string().min(1).max(200) }), output: z.strictObject({ etag: z.string(), value: cardDetailSchema.optional() }) });
+export const readProjectCardIndexChanged = defineRpc({ name: "projects.card-index-changed", input: etagInput.extend({ projectId: z.string().min(1).max(200) }), output: z.strictObject({ etag: z.string(), value: projectCardIndexSchema.optional() }) });
+export const readProjectIdeasChanged = defineRpc({ name: "projects.ideas-changed", input: readProjectCardIndexChanged.input, output: z.strictObject({ etag: z.string(), value: projectIdeasSchema.optional() }) });
 
 export const readSessionReceipts = defineRpc({
   name: "sessions.read-state",
@@ -121,6 +138,18 @@ export const readBoardChanged = defineRpc({
   input: etagInput.extend({ since: z.strictObject({ count: z.number().int().nonnegative(), lastId: z.string().max(200) }).optional() }),
   /** `patch`: apply to the board behind the request's etag. `delta`: `value.events` holds only the events after `since`. */
   output: z.object({ etag: z.string(), value: boardSchema.optional(), delta: z.boolean().optional(), patch: boardPatchSchema.optional() }),
+});
+/** Read-only native-chip projection: no descriptions/history/workpads; separate etag namespace from the full board. */
+export const readChipBoardChanged = defineRpc({
+  name: "sessions.chip-board-changed",
+  input: readBoardChanged.input,
+  output: readBoardChanged.output,
+});
+/** Fresh single-card view for native navigation; never store under the complete board key. */
+export const readCardBoard = defineRpc({
+  name: "sessions.card-board",
+  input: z.strictObject({ taskId: z.string().min(1).max(200), workspaceId: z.string().min(1).max(200) }),
+  output: boardSchema,
 });
 export const createProject = defineRpc({
   name: "projects.create",
@@ -281,7 +310,8 @@ export const deleteLink = defineRpc({
 export const listConnections = defineRpc({
   name: "connectors.connections",
   input: z.object({}),
-  output: z.object({ connections: z.array(connectionSchema) }),
+  /** linkedCards: per connection id, the cards whose inputs read through it (the removal warning, CONNECTORS-SPEC). */
+  output: z.object({ connections: z.array(connectionSchema), linkedCards: z.record(z.string(), z.number().int().nonnegative()) }),
 });
 export const saveConnection = defineRpc({
   name: "connectors.connection-save",
@@ -684,13 +714,19 @@ const insightsDay = {
 };
 export const projectInsights = defineRpc({
   name: "insights.project",
-  input: z.strictObject({ ...insightsDay, day: z.string().max(10).optional(), etag: z.string().max(200).optional() }),
-  output: z.object({ etag: z.string(), value: insightsWithHabitsSchema.optional() }),
+  input: z.strictObject({ ...insightsDay, etag: z.string().max(200).optional() }),
+  output: z.object({ etag: z.string(), value: insightsViewSchema.optional() }),
 });
 export const projectDigest = defineRpc({
   name: "insights.digest",
   input: z.strictObject({ ...insightsDay, day: z.string().regex(/^\d{4}-\d{2}-\d{2}$/) }),
   output: digestViewSchema,
+});
+/** One day for the day summary card (INSIGHTS-REDESIGN-SPEC §2.2, §7); `tokens` also reads local provider logs. */
+export const projectDay = defineRpc({
+  name: "insights.day",
+  input: z.strictObject({ ...insightsDay, day: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), tokens: z.boolean().optional() }),
+  output: dayDetailSchema,
 });
 export const refreshDigest = defineRpc({
   name: "insights.digest-refresh",
@@ -699,8 +735,8 @@ export const refreshDigest = defineRpc({
 });
 export const projectTokens = defineRpc({
   name: "insights.tokens",
-  input: z.strictObject({ ...insightsDay, day: z.string().max(10).optional(), etag: z.string().max(200).optional() }),
-  output: z.object({ etag: z.string(), value: tokenInsightsSchema.optional() }),
+  input: z.strictObject({ ...insightsDay, etag: z.string().max(200).optional() }),
+  output: z.object({ etag: z.string(), value: cardTokensSchema.optional() }),
 });
 
 // ---- Workflow insights (WORKFLOW-INSIGHTS-SPEC §6) ----
@@ -723,6 +759,12 @@ export const setWorkflowFinding = defineRpc({
     expectedRevision: z.number().int().min(0),
   }),
   output: z.object({ revision: z.number() }),
+});
+/** Writes an open skill draft into the project (INSIGHTS-REDESIGN-SPEC §4.1). */
+export const installSkill = defineRpc({
+  name: "workflow-insights.install-skill",
+  input: z.strictObject({ projectId: z.string().min(1).max(200), findingId: z.string().min(1).max(100), expectedRevision: z.number().int().min(0) }),
+  output: z.object({ revision: z.number(), path: z.string(), linked: z.boolean(), notice: z.string().optional() }),
 });
 export const workflowInsightsOverview = defineRpc({
   name: "workflow-insights.overview",
@@ -799,3 +841,16 @@ export const stopAutomation = defineRpc({
   input: z.strictObject({ taskId: z.string().min(1) }),
   output: automationJobSchema.nullable(),
 });
+/** Settings > Storage (SQLITE-STORAGE-SPEC §9): works while the board itself cannot be read. */
+export const readStorageStatus = defineRpc({ name: "storage.status", input: z.strictObject({}), output: storageStatusSchema });
+export const backupStorage = defineRpc({ name: "storage.backup", input: z.strictObject({}), output: z.strictObject({ name: z.string() }) });
+export const restoreStorage = defineRpc({
+  name: "storage.restore",
+  input: z.strictObject({ name: z.string().min(1).max(200) }),
+  output: z.strictObject({ aside: z.string().nullable() }),
+});
+export const exportStorage = defineRpc({ name: "storage.export-json", input: z.strictObject({}), output: z.strictObject({ retired: z.string().nullable() }) });
+export const useSqliteStorage = defineRpc({ name: "storage.use-sqlite", input: z.strictObject({}), output: z.strictObject({}) });
+
+/** Whether telemetry is forced off on the daemon's host by DO_NOT_TRACK / FLOWLY_TELEMETRY=0 / NODE_ENV=test (TELEMETRY-SPEC §5, §6). */
+export const telemetryStatus = defineRpc({ name: "telemetry.status", input: z.strictObject({}), output: z.object({ forcedOff: z.boolean() }) });

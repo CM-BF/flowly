@@ -93,6 +93,7 @@ function levelContext(board: LevelBoard, task: Task) {
   const { level, reason } = resolveReviewLevel(board, task);
   return { level, set: !!task.reviewLevel, why: reasonText(reason) };
 }
+import { logFailure } from "./error-report";
 
 /** A project-memory refusal as the tool error agents read (PROJECT-MEMORY-SPEC §4.1). */
 function memoryToolError(e: unknown): unknown {
@@ -750,12 +751,12 @@ export class AgentService {
       });
     if (markArtifacts && (value.artifacts.length || value.comments.length))
       await this.artifactReads.mark(identity.agentId, readAt).catch((e) =>
-        console.error("Kanban artifact reads not saved:", e instanceof Error ? e.message : String(e)),
+        logFailure("Kanban artifact reads not saved:", e),
       );
     const seenExternals = Object.fromEntries([...externals].filter(([, v]) => v.fingerprint).map(([id, v]) => [id, v.fingerprint]));
     if (markArtifacts && Object.keys(seenExternals).length)
       await this.externalReads.mark(identity.agentId, seenExternals).catch((e) =>
-        console.error("Kanban external reads not saved:", e instanceof Error ? e.message : String(e)),
+        logFailure("Kanban external reads not saved:", e),
       );
     return value;
   }
@@ -1473,4 +1474,4 @@ export function pruneIdeas(board: Board, taskId: string) {
 }
 
 /** "GitLab", for agent-facing messages. */
-const serviceName = (provider: Parameters<typeof familyOf>[0]) => ({ jira: "Jira", confluence: "Confluence", github: "GitHub", gitlab: "GitLab" })[familyOf(provider)];
+const serviceName = (provider: Parameters<typeof familyOf>[0]) => ({ jira: "Jira", confluence: "Confluence", github: "GitHub", gitlab: "GitLab", azure: "Azure DevOps" })[familyOf(provider)];

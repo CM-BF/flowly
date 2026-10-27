@@ -10,7 +10,8 @@ const want = (n) => !only || only.has(n);
 const browser = await launch();
 
 const open = (opts) => openPage(browser, opts);
-const shot = (s, name, clip) => shotTo(s, out + name + '.png', clip);
+// Park the mouse on the plugin's empty title bar first, so no hover tooltip (e.g. a host sidebar workspace) is in the shot.
+const shot = async (s, name, clip) => { await s.page.mouse.move(s.w / 2, 8); await s.page.waitForTimeout(400); await shotTo(s, out + name + '.png', clip); };
 const button = (p, re) => p.getByRole('button', { name: re }).first();
 
 if (want('board')) {
@@ -34,9 +35,8 @@ if (want('ideas')) {
   await s.page.getByText('Good idea', { exact: true }).first().click(); await s.page.waitForTimeout(1200); await shot(s, '04b-good-idea-two-paths');
   await s.context.close();
 }
-if (want('next-moves')) { // needs `node docs/promo/next-moves.mjs setup`; its session ends its turn with three suggested moves
-  const s = await open({ w: 1700, h: 1000 });
-  await s.page.getByText('Tinylink', { exact: true }).first().click(); await s.page.waitForTimeout(1500);
+if (want('next-moves')) { // needs `node docs/promo/next-moves.mjs setup` (temp project 'Tinylink NM', not the permanent Tinylink); its session ends its turn with three suggested moves
+  const s = await open({ w: 1700, h: 1000, project: 'Tinylink NM' });
   await button(s.page, /^Open task Add rate limiting/).click(); await s.page.getByText('Haiku · Add rate limiting').first().waitFor({ timeout: 15000 });
   for (let i = 0; i < 60 && (await s.page.getByText('Running', { exact: false }).first().isVisible().catch(() => false)); i++) await s.page.waitForTimeout(3000);
   await s.page.getByText('Haiku · Add rate limiting').first().click(); await s.page.waitForTimeout(3500);
@@ -47,6 +47,8 @@ if (want('insights')) {
   for (const scheme of ['light', 'dark']) {
     const s = await open({ w: 1700, h: 1500, scheme });
     await button(s.page, /Project insights/).click(); await s.page.waitForTimeout(3500);
+    // Select the latest day with activity, so the day summary card has something to show.
+    await s.page.getByRole('button', { name: /, [1-9][\d,]* turns?$/ }).last().click().catch(() => {}); await s.page.waitForTimeout(3500);
     await shot(s, scheme === 'light' ? '05-insights' : '05-insights-dark');
     await s.context.close();
   }

@@ -9,12 +9,14 @@ import {
   itemLabel,
   itemUrl,
   jqlKeys,
+  linkedCardCounts,
   keyFromUrl,
   normalizeBaseUrl,
   numberCandidates,
   pageFromUrl,
   parseKey,
   quotedText,
+  recognizeUrl,
   remoteRepo,
   tinyLinkId,
 } from "./connectors";
@@ -182,4 +184,43 @@ describe("picker queries (EXTERNAL-TRACKER-SPEC §5.2)", () => {
     expect(jqlKeys(["A-1) OR (1=1", "x"])).toBeNull();
     expect(jqlKeys([])).toBeNull();
   });
+});
+
+describe("Azure DevOps keys and links", () => {
+  const az = { id: "az", provider: "azure-devops" as const, baseUrl: "https://dev.azure.com/acme" };
+  test("work item links with or without a project, board pages, Server collections and legacy hosts", () => {
+    expect(recognizeUrl("https://dev.azure.com/acme/Search%20App/_workitems/edit/4821", az)).toEqual({ itemType: "issue", key: "AB#4821" });
+    expect(recognizeUrl("https://dev.azure.com/acme/_workitems/edit/4821/", az)).toEqual({ itemType: "issue", key: "AB#4821" });
+    expect(recognizeUrl("https://dev.azure.com/acme/App/_boards/board/t/Team/Stories?workitem=17", az)).toEqual({ itemType: "issue", key: "AB#17" });
+    expect(recognizeUrl("https://dev.azure.com/other/App/_workitems/edit/4821", az)).toBeNull();
+    expect(recognizeUrl("https://dev.azure.com/acme/App/_git/repo/pullrequest/5", az)).toBeNull();
+    const server = { provider: "azure-devops" as const, baseUrl: "https://tfs.example.com/tfs/Main" };
+    expect(recognizeUrl("https://tfs.example.com/tfs/Main/App/_workitems/edit/9", server)).toEqual({ itemType: "issue", key: "AB#9" });
+    const legacy = { provider: "azure-devops" as const, baseUrl: "https://acme.visualstudio.com" };
+    expect(recognizeUrl("https://acme.visualstudio.com/App/_workitems/edit/9", legacy)).toEqual({ itemType: "issue", key: "AB#9" });
+  });
+  test("AB# keys, picker queries, urls and labels", () => {
+    expect(parseKey("ab#12", "azure-devops")).toEqual({ itemType: "issue", key: "AB#12" });
+    expect(parseKey("12", "azure-devops")).toBeNull();
+    expect(parseKey("AB#12", "gitlab")).toBeNull();
+    expect(classifyQuery("#12", az)).toEqual({ kind: "key", itemType: "issue", key: "AB#12" });
+    expect(classifyQuery("12", az)).toEqual({ kind: "key", itemType: "issue", key: "AB#12" });
+    expect(classifyQuery("crash on start", az)).toEqual({ kind: "text", text: "crash on start" });
+    expect(itemUrl(az, "issue", "AB#12")).toBe("https://dev.azure.com/acme/_workitems/edit/12");
+    expect(faceKey({ key: "AB#12", itemType: "issue" })).toBe("AB#12");
+    expect(itemLabel("azure-devops", "issue")).toBe("Azure DevOps work item");
+    expect(externalTarget("AB#12", [az])).toMatchObject({ connectionId: "az", key: "AB#12" });
+  });
+});
+
+test("linkedCardCounts counts each card once per connection, by connection id or a URL the connection recognizes", () => {
+  const conn = (id: string, provider: "github" | "jira-dc", baseUrl: string) => ({ id, provider, name: id, baseUrl, account: "", verifiedAt: "", authFailed: false });
+  const gh = conn("gh", "github", "https://github.com"), jira = conn("jira", "jira-dc", "https://jira.example.com");
+  const ext = { connectionId: "gh", provider: "github" } as const;
+  expect(linkedCardCounts([gh, jira], [
+    { taskId: "a", target: "https://github.com/o/r/pull/1", external: ext },
+    { taskId: "a", target: "https://github.com/o/r/pull/2", external: ext },
+    { taskId: "b", target: "https://github.com/o/r/issues/3", external: { connectionId: "removed", provider: "github" } },
+    { taskId: "c", target: "https://github.com/o/r/pull/4" },
+  ])).toEqual({ gh: 2, jira: 0 });
 });

@@ -16,6 +16,7 @@ import {
   contentY,
   dropSlot,
   edgeScroll,
+  laneRevealOffset,
   placementUpdate,
   type ColumnBounds,
   type DropSlot,
@@ -168,10 +169,11 @@ export function DesktopColumns({
   levelsShown?: readonly Status[];
   onToggleLevels?(status: Status): void;
   /**
-   * Scrolls this lane into view each time `n` changes to a non-zero value, also on mount (the overview bar's
-   * In review / Blocked chips pressed while a page replaced the board).
+   * Scrolls this lane into view each time `n` changes: to the left edge (the overview bar's In review / Blocked chips),
+   * or with `center` centred, only when not fully visible (the open card's lane beside the drawer). A request older
+   * than a second (`at`) is not replayed when the board mounts again, e.g. on leaving Insights.
    */
-  reveal?: { status: Status; n: number };
+  reveal?: { status: Status; n: number; at: number; center?: boolean };
   /** The scroll for request `n` ran: the parent clears it, so a later mount does not scroll to it again. */
   onRevealed?(n: number): void;
   renderCard(task: Task, drag: CardDrag, dragging: boolean): ReactNode;
@@ -292,16 +294,26 @@ export function DesktopColumns({
     cancel();
   }, [cancelKey, disabled]);
   useEffect(() => {
-    if (!reveal?.n) return;
-    // After the lane has expanded and been measured.
+    if (!reveal?.n || Date.now() - reveal.at > 1000) return;
+    // After the lane has expanded and the drawer has narrowed the board. Both are measured now: web onLayout
+    // misses a lane shifted by a sibling, and the viewport may not have reported its new width yet.
     const timer = setTimeout(() => {
-      const lane = columns.current.find((c) => c.status === reveal.status);
-      if (lane) {
-        const maxX = Math.max(0, contentWidth.current - viewport.current.width);
-        const x = Math.min(maxX, Math.max(0, lane.x - space[3]));
-        offset.current = x;
-        scrollRef.current?.scrollTo({ x, animated: true });
-      }
+      const frame = frames.current[reveal.status];
+      viewportRef.current?.measureInWindow((vx, vy, width, height) => {
+        viewport.current = { x: vx, y: vy, width, height };
+        frame?.measureInWindow((laneX, _laneY, laneWidth) => {
+          const x = laneRevealOffset(
+            { x: laneX - vx + offset.current, width: laneWidth },
+            offset.current,
+            width,
+            contentWidth.current,
+            { center: reveal.center, inset: space[3] },
+          );
+          if (x === null) return;
+          offset.current = x;
+          scrollRef.current?.scrollTo({ x, animated: true });
+        });
+      });
       onRevealed?.(reveal.n);
     }, 120);
     return () => clearTimeout(timer);

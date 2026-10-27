@@ -47,7 +47,12 @@ if (action === 'validate') {
     run('npm', ['publish', tarball, '--ignore-scripts', '--access', 'public', '--provenance', '--tag', meta.distTag], { stdio: 'inherit' });
     // A write followed by a timeout must be retried by rerunning this job, where
     // the integrity check above resolves the existing immutable version.
-    const live = await registryVersion(meta.name, meta.version);
+    // The registry can answer 404 for a minute or two after a successful publish (v1.7.0 took ~2 min); wait for it.
+    let live = await registryVersion(meta.name, meta.version);
+    for (let tries = 0; !live && tries < 36; tries++) {
+      await new Promise((resolve) => setTimeout(resolve, 10_000));
+      live = await registryVersion(meta.name, meta.version);
+    }
     assertIntegrity(meta.integrity, live?.dist?.integrity);
   }
   if (process.env.GITHUB_OUTPUT) appendFileSync(process.env.GITHUB_OUTPUT, `version=${meta.version}\nprerelease=${meta.prerelease}\nfilename=${meta.filename}\n`);

@@ -5,7 +5,8 @@ import type { PaseoAgent, PaseoApi, PaseoAgentUpdate } from "@getpaseo/client";
 import * as rpc from "../shared/rpc";
 import { isSummarizer } from "../shared/summary";
 import { listAgents } from "./resources";
-import { readBoardDelta, type Board } from "./board-read";
+import type { BoardOverview } from "../shared/overview";
+import { overviewKey, readOverviewDelta, type OverviewRead } from "./overview-query";
 
 /**
  * Shared query definitions (PERFORMANCE-SPEC §3). Every reader of a key uses the
@@ -64,16 +65,19 @@ export const resourcesKey = ["flowly", "resources"] as const;
 export const summariesKey = ["flowly", "summaries"] as const;
 export const activityKey = ["flowly", "activity"] as const;
 
-export { applyBoardPatch, readBoardDelta, type BoardPatch } from "./board-read";
+export function overviewQueryOptions(client: QueryClient, hostId: string, read: OverviewRead) {
+  const key = overviewKey(hostId);
+  return {
+    queryKey: key,
+    queryFn: () => readChanged(client, key, etag => readOverviewDelta(read, client.getQueryData<BoardOverview>(key), etag)),
+    staleTime: 0,
+  };
+}
 
-export function useBoardQuery(options: { refetchInterval?: number; retry?: number; enabled?: boolean } = {}) {
-  const read = useRpc(rpc.readBoardChanged);
+export function useOverviewQuery(hostId: string, options: { enabled: boolean; refetchInterval?: number }) {
+  const read = useRpc(rpc.readOverviewChanged);
   const client = useQueryClient();
-  return useQuery({
-    queryKey: boardKey,
-    queryFn: () => readChanged(client, boardKey, (etag, why) => readBoardDelta(read, client.getQueryData<Board>(boardKey), etag, why)),
-    ...options,
-  });
+  return useQuery({ ...overviewQueryOptions(client, hostId, read), ...options });
 }
 
 export function useResourcesQuery(options: { refetchInterval?: number; enabled?: boolean } = {}) {
@@ -207,6 +211,7 @@ function openAgentStream(paseo: PaseoApi, client: QueryClient, onReady: () => vo
  */
 export function useLiveAgents<T = PaseoAgent[]>(
   options: {
+    enabled?: boolean;
     stream?: boolean;
     refetchInterval?: number;
     retry?: number;
@@ -224,6 +229,7 @@ export function useLiveAgents<T = PaseoAgent[]>(
   const query = useQuery<PaseoAgent[], Error, T>({
     queryKey: activityKey,
     queryFn: () => listAgents(paseo),
+    enabled: options.enabled,
     ...(options.select ? { select: options.select } : {}),
     refetchInterval: () =>
       options.poll === false
@@ -234,7 +240,7 @@ export function useLiveAgents<T = PaseoAgent[]>(
     ...(options.retry !== undefined ? { retry: options.retry } : {}),
   });
   useEffect(() => {
-    if (options.stream === false) return;
+    if (options.stream === false || options.enabled === false) return;
     let stream = streams.get(paseo);
     if (!stream) {
       stream = openAgentStream(paseo, client, () => void client.invalidateQueries({ queryKey: activityKey }));
@@ -247,7 +253,7 @@ export function useLiveAgents<T = PaseoAgent[]>(
       stream!.stop();
       if (streams.get(paseo) === stream) streams.delete(paseo);
     };
-  }, [paseo, client, options.stream]);
+  }, [paseo, client, options.stream, options.enabled]);
   return query;
 }
 
@@ -261,19 +267,19 @@ export const localZone = () => {
 };
 
 /**
- * Project Insights for one day. Read only while the page is open; re-read when
- * the board changes (`revision`) and once a minute so waiting times stay current.
+ * Project Insights (INSIGHTS-REDESIGN-SPEC §7). Read only while the page is open; re-read
+ * when the board changes (`revision`) and every few minutes (activity changes slowly).
  */
-export function useInsightsQuery(projectId: string, day: string | null, revision: number, enabled: boolean) {
+export function useInsightsQuery(projectId: string, revision: number, enabled: boolean) {
   const read = useRpc(rpc.projectInsights);
   const client = useQueryClient();
   const tz = localZone();
-  const key = ["flowly", "insights", projectId, day || "today"] as const;
+  const key = ["flowly", "insights", projectId] as const;
   const query = useQuery({
     queryKey: key,
-    queryFn: () => readChanged(client, key, (etag) => read({ projectId, tz, ...(day ? { day } : {}), ...(etag ? { etag } : {}) })),
+    queryFn: () => readChanged(client, key, (etag) => read({ projectId, tz, ...(etag ? { etag } : {}) })),
     enabled,
-    refetchInterval: enabled ? 60_000 : false,
+    refetchInterval: enabled ? 300_000 : false,
     placeholderData: (previous) => previous,
   });
   const refetch = query.refetch;
@@ -295,17 +301,33 @@ export function useDigestQuery(projectId: string, day: string | null, enabled: b
   });
 }
 
-/** Tokens by day from local provider logs (PROJECT-INSIGHTS-SPEC §11); separate so the page never waits on log parsing. */
-export function useTokensQuery(projectId: string, day: string | null, enabled: boolean) {
+/**
+ * One day for the day summary card (INSIGHTS-REDESIGN-SPEC §2.2). `version` is the day's turn and
+ * move count from the heatmap, so the day refreshes when the page's activity does and never polls
+ * on its own; `tokens` also reads local provider logs, as a second query the card does not wait on.
+ */
+export function useDayQuery(projectId: string, day: string, version: string, tokens: boolean, enabled: boolean) {
+  const read = useRpc(rpc.projectDay);
+  const tz = localZone();
+  return useQuery({
+    queryKey: ["flowly", "insights-day", projectId, day, version, tokens],
+    queryFn: () => read({ projectId, tz, day, ...(tokens ? { tokens } : {}) }),
+    enabled,
+    staleTime: Infinity,
+  });
+}
+
+/** Tokens per finished card from local provider logs (INSIGHTS-REDESIGN-SPEC §2.5); separate so the page never waits on log parsing. */
+export function useTokensQuery(projectId: string, enabled: boolean) {
   const read = useRpc(rpc.projectTokens);
   const client = useQueryClient();
   const tz = localZone();
-  const key = ["flowly", "insights-tokens", projectId, day || "today"] as const;
+  const key = ["flowly", "insights-tokens", projectId] as const;
   return useQuery({
     queryKey: key,
-    queryFn: () => readChanged(client, key, (etag) => read({ projectId, tz, ...(day ? { day } : {}), ...(etag ? { etag } : {}) })),
+    queryFn: () => readChanged(client, key, (etag) => read({ projectId, tz, ...(etag ? { etag } : {}) })),
     enabled,
-    refetchInterval: enabled ? 60_000 : false,
+    refetchInterval: enabled ? 300_000 : false,
     placeholderData: (previous) => previous,
   });
 }
