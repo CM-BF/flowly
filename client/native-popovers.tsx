@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Pressable, ScrollView, View } from "react-native";
+import { Pressable, ScrollView, View, useWindowDimensions } from "react-native";
 import { Icon, useToast } from "@getpaseo/plugin/client/react-native";
 import type { PluginButtonContentProps } from "@getpaseo/plugin/client";
 import type { Idea } from "../shared/model";
@@ -25,24 +25,38 @@ function Frame({ props, title, children }: { props: PluginButtonContentProps; ti
   return (
     <Theme.Provider value={props.theme}>
       <SharedMotionProvider>
-        <Body title={title}>{children}</Body>
+        <Body title={title} sheet={props.layout.compact}>
+          {children}
+        </Body>
       </SharedMotionProvider>
     </Theme.Provider>
   );
 }
-function Body({ title, children }: { title: string; children: React.ReactNode }) {
+// The host's popover surface scrolls on its own (PluginPopoverSurface: at most 440 tall and 16 short of the window;
+// its menu page pads 4 and the plugin content 12, above and below). Kept just inside that, the outer layer never
+// overflows, so only the list under the header scrolls and the mouse wheel has a single target. The phone sheet
+// scrolls as a whole.
+const hostPopoverMax = 440;
+const hostPopoverPadding = 32;
+function Body({ title, sheet, children }: { title: string; sheet: boolean; children: React.ReactNode }) {
   const { colors } = useTheme();
+  const windowHeight = useWindowDimensions().height;
+  const content = <View style={{ paddingHorizontal: space[3], paddingBottom: space[3], gap: space[2] }}>{children}</View>;
   return (
-    <View style={{ width: "100%", maxWidth: 420, maxHeight: 520, backgroundColor: colors.surface0 }}>
+    <View style={{ width: "100%", maxWidth: 420, maxHeight: sheet ? undefined : Math.min(hostPopoverMax, windowHeight - 16) - hostPopoverPadding, backgroundColor: colors.surface0 }}>
       <View style={{ flexDirection: "row", alignItems: "center", gap: space[1.5], paddingHorizontal: space[3], paddingTop: space[3], paddingBottom: space[2] }}>
         <AiMark />
         <Label medium size={font.md} selectable={false}>
           {title}
         </Label>
       </View>
-      <ScrollView {...verticalScroll} keyboardShouldPersistTaps="handled" contentContainerStyle={{ paddingHorizontal: space[3], paddingBottom: space[3], gap: space[2] }}>
-        {children}
-      </ScrollView>
+      {sheet ? (
+        content
+      ) : (
+        <ScrollView {...verticalScroll} style={{ flexGrow: 0, flexShrink: 1 }} keyboardShouldPersistTaps="handled">
+          {content}
+        </ScrollView>
+      )}
     </View>
   );
 }
@@ -199,7 +213,7 @@ function IdeaItem({ idea, agentId, canContinue, expanded, onToggle, close }: { i
         </>
       }
     >
-      <Button small quiet disabled={busy || !client} label={t("Dismiss {title}", { title: idea.title })} onPress={() => client && act(() => dismissIdea(client, { ideaId: idea.id }), t("Idea dismissed"))}>
+      <Button small quiet disabled={busy || !client} label={t("Dismiss {title}", { title: idea.title })} onPress={() => client && act(() => dismissIdea(client, { ideaId: idea.id, projectId: idea.projectId }), t("Idea dismissed"))}>
         {t("Dismiss")}
       </Button>
       <Button
@@ -209,7 +223,7 @@ function IdeaItem({ idea, agentId, canContinue, expanded, onToggle, close }: { i
         disabled={busy || !client}
         onPress={() => {
           if (!client) return;
-          newCardFromIdea(client, { ideaId: idea.id });
+          newCardFromIdea(client, { ideaId: idea.id, projectId: idea.projectId });
           close();
         }}
       >
@@ -217,7 +231,7 @@ function IdeaItem({ idea, agentId, canContinue, expanded, onToggle, close }: { i
       </Button>
       {canContinue &&
         (confirm ? (
-          <Button small primary icon="CornerDownRight" disabled={busy || !client} onPress={() => client && act(() => continueIdea(client, { ideaId: idea.id, agentId }), t("Idea sent"))}>
+          <Button small primary icon="CornerDownRight" disabled={busy || !client} onPress={() => client && act(() => continueIdea(client, { ideaId: idea.id, projectId: idea.projectId, agentId }), t("Idea sent"))}>
             {t("Send")}
           </Button>
         ) : (

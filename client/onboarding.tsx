@@ -5,17 +5,17 @@ import { useSettings } from "@getpaseo/plugin/client";
 import type { PluginTheme } from "@getpaseo/plugin";
 import { nativeSessionSettings, nativeSessionSettingsValues } from "../shared/settings";
 import { FlowlyMark } from "./brand-icons";
-import { MotionReveal, motionDuration, useMotionValue } from "./motion";
+import { Enter, MotionReveal, motionDuration, useMotionValue } from "./motion";
 import { firstRunOutside, outsidePatch, outsideShown, stepPage, tourKey, welcomePageCount, type OutsideChoice } from "./onboarding-logic";
-import { AiLanguageRow, InsightsFeatureGroup, InterfaceLanguageRow, MemoryFeatureGroup, SummaryModelGroup, aiCostText, summaryModelOf } from "./settings-pages";
+import { AiLanguageRow, InsightsFeatureGroup, InterfaceLanguageRow, MemoryFeatureGroup, SummaryModelGroup, UsageDataGroup, aiCostText, summaryModelOf } from "./settings-pages";
 import { summarySettings, summarySettingsValues } from "../shared/summary";
 import { SettingSwitch, SettingsGroup } from "./settings-ui";
 import { useStored } from "./stored-settings";
 export { useOnboarding } from "./onboarding-state";
 import { Button, IconButton, Label, Theme, font, noFocusRing, radius, space, tint, touch, useTheme } from "./ui";
 import { useShortcutBlock } from "./shortcuts";
-import { AttentionDemo, DemoControls, DemoFrame, LoopDemo, MemoryDemo, Sample, SideTitle } from "./tour-demos";
-import { t } from "../shared/i18n";
+import { AttentionDemo, DemoControls, DemoFrame, LoopDemo, MemoryDemo, SideTitle } from "./tour-demos";
+import { formatLocale, t, tn } from "../shared/i18n";
 
 /** The three Kanban objects and the Paseo object each one is (page 1 and the empty-board strip). */
 const objects = [
@@ -174,7 +174,7 @@ function MemoryPage() {
   return (
     <View style={{ gap: space[5] }}>
       <PageTitle title={t("Project memory")} detail={t("Later cards start knowing what earlier ones learned.")} />
-      <MemoryFeatureGroup bare brief />
+      <MemoryFeatureGroup bare />
       <MemoryDemo />
       <Columns>
         {[
@@ -187,32 +187,172 @@ function MemoryPage() {
   );
 }
 
-/** Insights' own metric rows (client/insights.tsx StatRow), with sample numbers. */
+/** Weekday names for the sample's labels, Monday first, in the interface locale (2026-10-19 is a Monday). */
+const sampleWeekday = (offset: number) => new Date(Date.UTC(2026, 9, 19 + offset, 12)).toLocaleDateString(formatLocale(), { weekday: "short", timeZone: "UTC" });
+
+const SAMPLE_CELL = 11;
+const SAMPLE_GAP = 3;
+/** Accent opacity per level, as on the Insights page; level 0 is the neutral surface. */
+const SAMPLE_OPACITY = [0, 0.28, 0.5, 0.75, 1];
+/** A fixed pattern of quiet and busy days, repeated over as many weeks as fit. */
+const SAMPLE_PATTERN = "0012300124310023441001342200133410024432013420031244200";
+/** Sample cards of a day, busiest first; a day shows as many as its level. */
+const sampleCards = () => [
+  { title: t("Add rate limiting"), done: true, share: 1 },
+  { title: t("Fix flaky CI"), done: false, share: 0.55 },
+  { title: t("Migrate users table"), done: false, share: 0.3 },
+  { title: t("Update README"), done: true, share: 0.15 },
+];
+
+/**
+ * The Insights page in miniature (client/insights.tsx), with sample data: the heatmap across the frame's width,
+ * ending today, and the selected day's summary card. Tap a day, or page with the arrows, as on the page.
+ */
 function InsightsSample() {
   const { colors } = useTheme();
-  const rows = [
-    { label: t("Interventions"), value: "2", note: t("{messages} messages · {permissions} permissions · {moves} moves", { messages: 1, permissions: 1, moves: 0 }) },
-    { label: t("Review rounds"), value: "1", note: t("{n} in one pass", { n: 4 }) },
-    { label: t("Questions from the agent"), value: "0.5" },
-  ];
+  const [width, setWidth] = useState(0);
+  // Week columns that fit beside the weekday labels; the last column ends today (a Sunday in the sample).
+  const weeks = width > 0 ? Math.max(8, Math.floor((width + SAMPLE_GAP) / (SAMPLE_CELL + SAMPLE_GAP))) : 0;
+  const days = weeks * 7;
+  const level = (index: number) => Number(SAMPLE_PATTERN[(days - 1 - index) % SAMPLE_PATTERN.length]);
+  const lastActive = () => {
+    for (let i = days - 1; i >= 0; i--) if (level(i) > 0) return i;
+    return days - 1;
+  };
+  const [picked, setPicked] = useState<number | null>(null);
+  const selected = picked !== null && picked < days ? picked : lastActive();
+  // The day before the change: an earlier day slides in from the left, a later one from the right.
+  const shown = useRef(selected);
+  const from = selected < shown.current ? -16 : 16;
+  useEffect(() => {
+    shown.current = selected;
+  }, [selected]);
+  const step = (direction: 1 | -1) => {
+    for (let i = selected + direction; i >= 0 && i < days; i += direction) if (level(i) > 0) return i;
+    return null;
+  };
+  const prev = step(-1);
+  const next = step(1);
+  const back = days - 1 - selected;
+  const date = new Date(Date.now() - back * 86_400_000).toLocaleDateString(formatLocale(), { weekday: "short", month: "short", day: "numeric" });
+  const busy = level(selected);
+  const cards = sampleCards().slice(0, busy);
+  const turns = busy * 4 + (selected % 3);
+  const done = cards.filter((c) => c.done).length;
+  const numbers = busy
+    ? [tn(turns, "{n} turn", "{n} turns"), tn(cards.length, "{n} card", "{n} cards"), done ? tn(done, "{n} done", "{n} done") : "", t("agent {time}", { time: `${busy * 19}m` }), t("{n} tokens", { n: `${(busy * 0.55).toFixed(1)}M` })]
+        .filter(Boolean)
+        .join(" · ")
+    : t("No activity");
   return (
-    <View style={{ borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface0, overflow: "hidden" }}>
-      {rows.map((row, index) => (
-        <View key={row.label} style={{ flexDirection: "row", alignItems: "center", gap: space[3], paddingHorizontal: space[3], minHeight: 36, borderTopWidth: index ? 1 : 0, borderColor: colors.border }}>
-          <View style={{ flex: 1, minWidth: 0 }}>
-            <Label size={font.md} lines={1} selectable={false}>{row.label}</Label>
-          </View>
-          {!!row.note && (
-            <View style={{ flexShrink: 1 }}>
-              <Label muted size={font.sm} lines={1} selectable={false}>{row.note}</Label>
+    <View style={{ gap: space[3] }}>
+      <View style={{ flexDirection: "row", gap: space[2] }}>
+        <View style={{ gap: SAMPLE_GAP }}>
+          {[0, 1, 2, 3, 4, 5, 6].map((d) => (
+            <View key={d} style={{ height: SAMPLE_CELL }}>
+              {/* Taller than a cell: its own line box centered on the cell, as on the page, or the text is cut off. */}
+              {d % 2 === 0 && d < 6 && (
+                <View style={{ height: 16, marginTop: (SAMPLE_CELL - 16) / 2, flexShrink: 0 }}>
+                  <Label muted size={font.xs} lines={1} selectable={false}>
+                    {sampleWeekday(d)}
+                  </Label>
+                </View>
+              )}
             </View>
-          )}
-          <View style={{ minWidth: 48, alignItems: "flex-end" }}>
-            <Label medium size={font.md} selectable={false}>{row.value}</Label>
+          ))}
+        </View>
+        <View style={{ flex: 1, minWidth: 0, flexDirection: "row", gap: SAMPLE_GAP }} onLayout={(e) => setWidth(e.nativeEvent.layout.width)}>
+          {Array.from({ length: weeks }, (_, w) => (
+            <View key={w} style={{ gap: SAMPLE_GAP }}>
+              {Array.from({ length: 7 }, (_, d) => (
+                <SampleCell key={d} index={w * 7 + d} level={level(w * 7 + d)} days={days} selected={selected === w * 7 + d} onSelect={setPicked} />
+              ))}
+            </View>
+          ))}
+        </View>
+      </View>
+      <View style={{ borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface0, overflow: "hidden" }}>
+        <View style={{ padding: space[3], paddingBottom: cards.length ? space[2] : space[3], gap: space[1.5] }}>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: space[1], marginVertical: -space[1], marginLeft: -space[1.5] }}>
+            <IconButton icon="ChevronLeft" label={t("Previous day")} disabled={prev === null} onPress={() => prev !== null && setPicked(prev)} />
+            <Label bold size={font.md} selectable={false}>
+              {back === 0 ? t("Today") : date}
+            </Label>
+            <IconButton icon="ChevronRight" label={t("Next day")} disabled={next === null} onPress={() => next !== null && setPicked(next)} />
           </View>
         </View>
-      ))}
+        <Enter key={selected} axis="x" distance={from}>
+          <View style={{ paddingHorizontal: space[3], paddingBottom: space[2] }}>
+            <Label muted size={font.sm} lines={1} selectable={false}>
+              {numbers}
+            </Label>
+          </View>
+          {cards.map((card, i) => (
+            <View key={card.title} style={{ flexDirection: "row", alignItems: "flex-start", gap: space[2], paddingHorizontal: space[3], paddingVertical: space[2], borderTopWidth: 1, borderColor: colors.border }}>
+              <View style={{ height: 18, justifyContent: "center" }}>
+                <Icon name={card.done ? "CircleCheck" : "Circle"} size={14} color={card.done ? colors.accent : colors.foregroundMuted} />
+              </View>
+              <View style={{ flex: 1, minWidth: 0, gap: space[1] }}>
+                <View style={{ flexDirection: "row", alignItems: "center", gap: space[2] }}>
+                  <View style={{ flex: 1, minWidth: 0 }}>
+                    <Label size={font.md} lines={1} selectable={false}>
+                      {card.title}
+                    </Label>
+                  </View>
+                  <Label muted size={font.sm} lines={1} selectable={false}>
+                    {[tn(Math.max(1, Math.round(turns * card.share / 2)), "{n} turn", "{n} turns"), `${Math.max(1, Math.round(busy * 19 * card.share))}m`].join(" · ")}
+                  </Label>
+                </View>
+                <View style={{ height: 3, borderRadius: 2, backgroundColor: colors.surface2, overflow: "hidden" }}>
+                  <View style={{ width: `${Math.round(card.share * 100)}%`, height: 3, borderRadius: 2, backgroundColor: colors.accent, opacity: SAMPLE_OPACITY[Math.max(1, 4 - i)] }} />
+                </View>
+              </View>
+            </View>
+          ))}
+        </Enter>
+      </View>
+      <View style={{ borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface0, flexDirection: "row", alignItems: "flex-start", gap: space[2], paddingHorizontal: space[3], paddingVertical: space[2] }}>
+        <View style={{ height: 22, justifyContent: "center" }}>
+          <Icon name="ChevronRight" size={14} color={colors.foregroundMuted} />
+        </View>
+        <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
+          <Label mono medium size={font.md} lines={1} selectable={false}>
+            ship-pr
+          </Label>
+          <Label muted size={font.sm} lines={1} selectable={false}>
+            {t("Ship a change through a pull request")}
+          </Label>
+        </View>
+        <View style={{ alignItems: "flex-end", gap: 2 }}>
+          <View style={{ paddingHorizontal: space[2], height: 20, justifyContent: "center", borderRadius: radius.full, backgroundColor: colors.surface2 }}>
+            <Label size={font.xs} lines={1} selectable={false}>
+              {t("New")}
+            </Label>
+          </View>
+          <Label muted size={font.xs} selectable={false}>
+            {tn(4, "{n} card", "{n} cards")}
+          </Label>
+        </View>
+      </View>
     </View>
+  );
+}
+
+/** One day of the sample heatmap; days after today leave a blank. */
+function SampleCell({ index, level, days, selected, onSelect }: { index: number; level: number; days: number; selected: boolean; onSelect(index: number): void }) {
+  const { colors } = useTheme();
+  const date = new Date(Date.now() - (days - 1 - index) * 86_400_000).toLocaleDateString(formatLocale(), { month: "short", day: "numeric" });
+  const turns = level * 4 + (index % 3);
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityState={{ selected }}
+      accessibilityLabel={tn(level ? turns : 0, "{date}, {n} turn", "{date}, {n} turns", { date })}
+      onPress={() => onSelect(index)}
+      style={{ ...noFocusRing, width: SAMPLE_CELL, height: SAMPLE_CELL, borderRadius: 2, overflow: "hidden", backgroundColor: colors.surface2, borderWidth: selected ? 1.5 : 0, borderColor: colors.foreground }}
+    >
+      {level > 0 && <View style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, backgroundColor: colors.accent, opacity: SAMPLE_OPACITY[level] }} />}
+    </Pressable>
   );
 }
 
@@ -220,24 +360,22 @@ function InsightsSample() {
 function InsightsPage() {
   return (
     <View style={{ gap: space[5] }}>
-      <PageTitle title={t("Insights")} detail={t("See where your attention and time go.")} />
-      <InsightsFeatureGroup bare workflow brief />
+      <PageTitle title={t("Insights")} detail={t("See which days were busy, and turn what agents keep redoing into skills.")} />
+      <InsightsFeatureGroup bare workflow />
       <View style={{ gap: space[2] }}>
-        <DemoControls hint={t("Sample numbers from a project's Insights page.")} />
+        <DemoControls hint={t("Try it: tap a day to see its summary.")} />
         <DemoFrame>
           <View style={{ flex: 1, minWidth: 0, padding: space[3], gap: space[3] }}>
-            <SideTitle>{t("Attention per card")}</SideTitle>
-            <Sample>
-              <InsightsSample />
-            </Sample>
+            <SideTitle>{t("Activity")}</SideTitle>
+            <InsightsSample />
           </View>
         </DemoFrame>
       </View>
       <Columns>
         {[
-          <Legend key="i" title={t("Interventions")} text={t("Messages, permissions and next steps you had to send.")} />,
-          <Legend key="r" title={t("Review rounds")} text={t("How often a card came back from In review.")} />,
-          <Legend key="q" title={t("Questions from the agent")} text={t("What agents had to ask you, per card.")} />,
+          <Legend key="a" title={t("Activity")} text={t("A year of agent turns per day; tap a day for its summary.")} />,
+          <Legend key="s" title={t("Skills")} text={t("Drafted from your cards; added to the project only when you say so.")} />,
+          <Legend key="w" title={t("Workflow")} text={t("Review rounds and tokens per card, last 7 days.")} />,
         ]}
       </Columns>
     </View>
@@ -263,7 +401,7 @@ function MoreFeatures() {
   const more = [
     { icon: "ListChecks", title: t("Workpad"), text: t("Agents set the card's type and tags and write a workpad before they start: acceptance criteria, checks marked passed, failed or not run on a named commit, and what confused them. Delivering without them needs a note.") },
     { icon: "Package", title: t("Inputs and outputs"), text: t("Each card lists the files and links it worked from and delivered, added by agents or by you.") },
-    { icon: "Ticket", title: t("Tickets, docs and PRs as inputs"), text: t("Start a card from a Jira ticket, Confluence page, or GitHub/GitLab issue or pull request, or add one with the Artifacts +. Agents read it every turn; Flowly never changes it.") },
+    { icon: "Ticket", title: t("Tickets, docs and PRs as inputs"), text: t("Start a card from a Jira ticket, Confluence page, GitHub/GitLab issue or pull request, or Azure DevOps work item, or add one with the Artifacts +. Agents read it every turn; Flowly never changes it.") },
     { icon: "Tags", title: t("Tags"), text: t("Tag cards by module or direction. Agents tag their own cards too; filter and search by #tag.") },
     { icon: "FolderGit2", title: t("Saved with your project"), text: t("Each project's board is also kept in its folder (.flowly, ignored by git). Add the folder again to restore it.") },
     { icon: "Pencil", title: t("Describe once, start working"), text: t("Describe your task once. New cards start an agent by default; it organizes the title, description and tags. Set speed and permissions in Edit project.") },
@@ -271,6 +409,7 @@ function MoreFeatures() {
     { icon: "BookOpen", title: t("Handoff"), text: t("The card keeps the current state, next steps, original instructions, review findings and information gaps. A fresh agent reads and acknowledges it; you can check it without opening old chats.") },
     { icon: "ListTree", title: t("Sub-cards"), text: t("Agents split work into sub-cards with their own workspaces; a supervised parent waits and accepts them. Card tree shows each item's steps in order, and Levels hides deeper sub-cards on the board.") },
     { icon: "Bot", title: t("Agent automation"), text: t("Optional per project: Run with agent queues a card, and Flowly starts it when its blockers are Done, reminds or retries the agent when it stalls, and can have a reviewer agent check the delivery: a panel of reviewers for foundation cards, and every reviewer notes risks beyond the acceptance criteria. Done stays yours.") },
+    { icon: "Database", title: t("Backups"), text: t("Settings → Storage shows where the board is kept and its daily backups, and can restore one or export the board to JSON.") },
   ];
   return (
     <View style={{ gap: space[3] }}>
@@ -317,6 +456,7 @@ function StartPage({ canCreate }: { canCreate: boolean }) {
         ))}
       </Panel>
       <MoreFeatures />
+      <UsageDataGroup bare />
       <Hint icon="Settings" text={t("Change any of this later in Settings, the gear at the bottom left. You can reopen this tour there or from the Command Center.")} />
     </View>
   );

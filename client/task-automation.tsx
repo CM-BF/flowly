@@ -24,7 +24,8 @@ import {
 import { automationReason, automationSignal, deepPanelNone, levelLines, panelFields, reviewRoundText, risksHeading, type AutomationActions, type AutomationSignal } from "./automation-view";
 import { Disclosure } from "./disclosure";
 import type { AgentModel } from "../shared/agent-defaults";
-import { boardKey, useBoardQuery } from "./queries";
+import { invalidateCardViews, useTaskDetail } from "./card-detail-query";
+import { useOverviewQuery } from "./queries";
 import { PulseDot } from "./motion";
 import { ModelDefaultGroup } from "./model-default";
 import { Button, Choices, Label, Toggle, font, message, space, toneColor, useTheme, type Tone } from "./ui";
@@ -38,7 +39,7 @@ export function SignalMark({ signal }: { signal: AutomationSignal }) {
   return signal.icon ? <Icon name={signal.icon} size={13} color={color} /> : <PulseDot color={color} size={7} active={signal.tone === "active"} />;
 }
 
-/** Queue / stop with a toast; the board refreshes after either. */
+/** Queue / stop with a toast; the card views (overview, card detail) refresh after either. */
 export function useAutomationActions(): AutomationActions {
   const toast = useToast();
   const queryClient = useQueryClient();
@@ -50,7 +51,7 @@ export function useAutomationActions(): AutomationActions {
     try {
       await action();
       toast.show(done, { variant: "success" });
-      await queryClient.invalidateQueries({ queryKey: boardKey });
+      await invalidateCardViews(queryClient);
     } catch (e) {
       toast.show(message(e), { variant: "error" });
     } finally {
@@ -70,15 +71,20 @@ export function useAutomationActions(): AutomationActions {
  */
 export function TaskAutomation({ task, project, active, unavailable = false }: { task: Task; project: Project; active: boolean; unavailable?: boolean }) {
   const { colors } = useTheme();
-  const board = useBoardQuery();
+  // The card's job rides on its detail (polled while the drawer is open); blockers and the review level's ancestors
+  // come from the overview (on phones, read once while the board pauses under an open card). Never the whole board.
+  const { hostId, detail } = useTaskDetail();
+  const overview = useOverviewQuery(hostId, { enabled: active });
   const actions = useAutomationActions();
-  const job = board.data?.automation.find((j) => j.taskId === task.id);
+  const job = detail?.automation.find((j) => j.taskId === task.id) ?? overview.data?.automation.find((j) => j.taskId === task.id);
+  // Classification input includes the card's acceptance criteria, so its own workpad keeps the fingerprint the daemon's.
+  const levelBoard = overview.data ? { tasks: overview.data.tasks, links: overview.data.links, workpads: detail?.workpad ? [detail.workpad] : [] } : null;
   const settings = automationOf(project);
   if (!settings && !job) return null;
   const signal = automationSignal(job, task);
   const live = isLive(job);
   const locked = !active || unavailable || !!task.archivedAt || !!project.archivedAt;
-  const ready = board.data && job?.state === "queued" ? readiness(board.data, task.id) : null;
+  const ready = overview.data && job?.state === "queued" ? readiness(overview.data, task.id) : null;
   const held = ready && !ready.ready && ready.reason === "blockers" ? [...ready.waiting, ...ready.cancelled] : [];
   const finished = isFinished(task);
   const reason = automationReason(job);
@@ -87,7 +93,7 @@ export function TaskAutomation({ task, project, active, unavailable = false }: {
     signal?.text ?? (job?.state === "stopped" || job?.state === "failed" ? t("Automation stopped") : job?.state === "delivered" ? (finished ? t("Finished") : task.status === "in_review" ? t("Delivered; your review") : t("Not running")) : t("Not running"));
   const plan = job?.review;
   // The level the card resolves to now, for the drawer's "Next review round" line; none once the card is finished.
-  const levels = job && board.data ? levelLines(job, finished ? null : resolveReviewLevel(board.data, task)) : [];
+  const levels = job && levelBoard ? levelLines(job, finished ? null : resolveReviewLevel(levelBoard, task)) : [];
   const counters = [
     // A round with a recorded plan says its level (AUTOMATION-SPEC §5.2.5); while it runs, the status line already does.
     job?.reviewRounds && settings?.reviewer

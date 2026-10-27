@@ -82,6 +82,7 @@ import { childrenOf, parentOf } from "../shared/links";
 import { resumeStage } from "./progress-rules";
 import type { BoardStore } from "./store";
 import { ToolError } from "./tool-error";
+import { logFailure } from "./error-report";
 
 type Role = AutomationJob["role"];
 export type RoutedComment = { taskId: string; sourceId: string; messageId: string; text: string; mode?: "steer" | "interrupt" | "queue"; fresh?: boolean };
@@ -177,7 +178,7 @@ export class AutomationService {
     this.ticking = (async () => {
       do {
         this.again = false;
-        await this.tick().catch((e) => console.error("Flowly automation pass failed:", e instanceof Error ? e.message : String(e)));
+        await this.tick().catch((e) => logFailure("Flowly automation pass failed:", e));
       } while (this.again && !this.stopped);
     })().finally(() => {
       this.ticking = null;
@@ -537,7 +538,7 @@ export class AutomationService {
     for (const job of (await this.store.read()).automation) {
       if (!job.pendingInputs?.length || job.rotation || job.pendingOp || job.unconfirmed || job.hold || (!isLive(job) && job.state !== "delivered") || ["queued", "starting", "stopped", "failed"].includes(job.state)) continue;
       for (const sourceId of job.pendingInputs) {
-        const comment = await this.deps.readComment(job.taskId, sourceId).catch(error => { console.error("Flowly saved comment cannot be read:", error instanceof Error ? error.message : String(error)); return undefined; });
+        const comment = await this.deps.readComment(job.taskId, sourceId).catch(error => { logFailure("Flowly saved comment cannot be read:", error); return undefined; });
         if (!comment) {
           const route = (await this.store.read()).commentRoutes?.find(r => r.taskId === job.taskId && r.sourceId === sourceId);
           if (route && ["sent", "queued", "saved", "fresh"].includes(route.phase)) await this.removePendingComment(job.taskId, sourceId);
@@ -545,7 +546,7 @@ export class AutomationService {
         }
         await this.routeComment({ taskId: job.taskId, sourceId, ...comment }).catch(async error => {
           await this.deps.commentFailed?.(job.taskId, sourceId, error);
-          console.error("Flowly saved comment still awaits dispatch:", error instanceof Error ? error.message : String(error));
+          logFailure("Flowly saved comment still awaits dispatch:", error);
         });
         break;
       }
@@ -1105,7 +1106,7 @@ export class AutomationService {
         return { value: null, changed: true };
       });
     } catch (error) {
-      console.error("Flowly handoff commit will retry:", error instanceof Error ? error.message : String(error));
+      logFailure("Flowly handoff commit will retry:", error);
     }
   }
 
@@ -1197,7 +1198,7 @@ export class AutomationService {
       if (advanced) await this.send(advanced);
       return true;
     } catch (error) {
-      console.error("Flowly handoff will retry:", error instanceof Error ? error.message : String(error));
+      logFailure("Flowly handoff will retry:", error);
       const detail = clip(`The handoff could not be recorded; the successor is withheld: ${error instanceof Error ? error.message : String(error)}`);
       await this.store.transaction(board => {
         const current = jobOf(board, seen.taskId);
@@ -1808,7 +1809,7 @@ export class AutomationService {
   /** Creating or messaging a session failed: retried like a failed turn, then given up. */
   private async sideEffectFailed(seen: AutomationJob, role: Role, error: unknown) {
     const message = clip(error instanceof Error ? error.message : String(error));
-    console.error("Flowly automation could not reach the session:", message);
+    logFailure("Flowly automation could not reach the session:", message);
     let switched = false;
     let abandoned: AutomationJob | undefined;
     let safeRollback = false;

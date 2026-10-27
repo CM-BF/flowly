@@ -8,14 +8,53 @@ import {
   useSyncExternalStore,
   type ReactNode,
 } from "react";
-import { AccessibilityInfo, Animated, Easing, Platform, type ViewProps } from "react-native";
+import { AccessibilityInfo, Animated, AppState, Dimensions, Easing, Platform, StyleSheet, View, type ViewProps } from "react-native";
 import { reduceMotionNow, subscribeReduceMotion } from "./reduce-motion";
+import { isCompactLayout } from "./geometry";
 
 export const motionDuration = { feedback: 120, forward: 220, reverse: 160 } as const;
 /** Entrances decelerate into place; exits accelerate away (no lingering, near-invisible tail). */
 const enterEasing = Easing.out(Easing.cubic);
 const exitEasing = Easing.in(Easing.quad);
 const ReduceMotion = createContext(true);
+/** Compact windows only: a height transition holds the decorative loops (HEIGHT lease). */
+export function useHeightMotionBusy() {
+  return useSyncExternalStore(subscribeHeightMotion, heightMotionBusy, () => false);
+}
+/** Whether system Reduce Motion is on (true until known). */
+export function useReduceMotion() {
+  return useContext(ReduceMotion);
+}
+
+// A height tween needs JS and a layout commit for every frame. Decorative
+// loops otherwise keep recording/drawing even the retained, covered board.
+// Compact windows give geometry priority; wide windows keep decorative motion continuous.
+// Overlapping/reversed tweens each own an idempotent lease.
+let heightMotions = 0;
+const heightMotionListeners = new Set<() => void>();
+let heightWindowSubscription: ReturnType<typeof Dimensions.addEventListener> | null = null;
+const heightMotionBusy = () => heightMotions > 0 && isCompactLayout(Dimensions.get("window").width);
+const notifyHeightMotion = () => heightMotionListeners.forEach((listener) => listener());
+const subscribeHeightMotion = (listener: () => void) => {
+  heightMotionListeners.add(listener);
+  heightWindowSubscription ??= Dimensions.addEventListener("change", notifyHeightMotion);
+  return () => {
+    heightMotionListeners.delete(listener);
+    if (!heightMotionListeners.size) {
+      heightWindowSubscription?.remove();
+      heightWindowSubscription = null;
+    }
+  };
+};
+function holdHeightMotion() {
+  if (++heightMotions === 1) notifyHeightMotion();
+  let held = true;
+  return () => {
+    if (!held) return;
+    held = false;
+    if (--heightMotions === 0) notifyHeightMotion();
+  };
+}
 
 export function MotionProvider({ children }: { children: ReactNode }) {
   const [reduced, setReduced] = useState(true);
@@ -114,6 +153,7 @@ export function useMotionPresence<T>(item: T | undefined | null, key: string, na
   useLayoutEffect(() => {
     const run = ++generation.current;
     let alive = true;
+    const changing = key !== heldKey.current || !key || !entered;
     if (key && key !== heldKey.current) {
       heldKey.current = key;
       progress.setValue(reduced ? 1 : 0);
@@ -132,10 +172,12 @@ export function useMotionPresence<T>(item: T | undefined | null, key: string, na
       return () => { alive = false; };
     }
     setEntered(false);
+    const release = !nativeDriver && changing && held.current ? holdHeightMotion() : () => {};
     const animation = key
       ? timing(progress, 1, motionDuration.forward, nativeDriver)
       : timing(progress, 0, motionDuration.reverse, nativeDriver, exitEasing);
     play(animation, progress, key ? 1 : 0, nativeDriver, (finished) => {
+      release();
       if (!finished) return;
       if (key) {
         if (alive && generation.current === run) setEntered(true);
@@ -144,6 +186,7 @@ export function useMotionPresence<T>(item: T | undefined | null, key: string, na
     return () => {
       alive = false;
       animation.stop();
+      release();
     };
   }, [key, reduced, progress, nativeDriver]);
   return { item: item || (retained ? held.current : undefined), active: !!item, progress, settled: !!item && entered };
@@ -223,12 +266,38 @@ const linear = (t: number) => t;
  * native driver (a looped `sequence` restarts through JS every cycle and
  * freezes whenever the JS thread is busy; PERFORMANCE-SPEC §3).
  */
-export function PulseDot({ color, size = 8, active = true }: { color: string; size?: number; active?: boolean }) {
+/**
+ * Web: react-native-web compiles `animationKeyframes` from `StyleSheet.create` into a CSS animation, so the browser
+ * runs the breathing off the JS thread (the `Animated` loop below ran on the JS driver, one 60 fps loop per dot).
+ * The keyframes are the same curve; one shared style serves every dot.
+ */
+const webPulse = Platform.OS === "web"
+  ? StyleSheet.create({
+    pulse: {
+      animationKeyframes: Object.fromEntries(pulseInput.map((t, i) => [`${t * 100}%`, { opacity: pulseOutput[i] }])),
+      animationDuration: "1600ms",
+      animationIterationCount: "infinite",
+      animationTimingFunction: "linear",
+    } as object,
+  }).pulse
+  : null;
+type PulseProps = { color: string; size?: number; active?: boolean };
+export function PulseDot(props: PulseProps) {
+  return webPulse ? <WebPulseDot {...props} /> : <NativePulseDot {...props} />;
+}
+function WebPulseDot({ color, size = 8, active = true }: PulseProps) {
   const reduced = useContext(ReduceMotion);
+  const heightBusy = useSyncExternalStore(subscribeHeightMotion, () => active && !reduced && heightMotionBusy(), () => false);
+  const style = { width: size, height: size, borderRadius: size / 2, backgroundColor: color };
+  return <View style={!active || reduced || heightBusy ? style : [style, webPulse]} />;
+}
+function NativePulseDot({ color, size = 8, active = true }: PulseProps) {
+  const reduced = useContext(ReduceMotion);
+  const heightBusy = useSyncExternalStore(subscribeHeightMotion, () => active && !reduced && heightMotionBusy(), () => false);
   const [value] = useState(() => new Animated.Value(0));
   const [opacity] = useState(() => value.interpolate({ inputRange: pulseInput, outputRange: pulseOutput }));
   useEffect(() => {
-    if (!active || reduced) {
+    if (!active || reduced || heightBusy) {
       value.setValue(0);
       return;
     }
@@ -238,7 +307,7 @@ export function PulseDot({ color, size = 8, active = true }: { color: string; si
       loop.stop();
       value.setValue(0);
     };
-  }, [active, reduced, value]);
+  }, [active, reduced, heightBusy, value]);
   return (
     <Animated.View
       style={{ width: size, height: size, borderRadius: size / 2, backgroundColor: color, opacity }}
@@ -246,8 +315,84 @@ export function PulseDot({ color, size = 8, active = true }: { color: string; si
   );
 }
 
-/** Mount-in rise for newly appearing items (callouts, queued rows, menus). */
-export function Enter({ children, distance = 6, style }: { children: ReactNode; distance?: number; style?: ViewProps["style"] }) {
+/**
+ * One slow 0 → 1 loop shared by every "running" marquee on screen: the phases stay in step, and a board of running
+ * cards costs one native animation, not one each. It starts with the first user and stops (value reset) with the last.
+ * One timing looped on the native driver, never a looped `sequence` (PERFORMANCE-SPEC §3).
+ */
+/** One lap of the running comet / one sweep of the row shimmer. */
+export const marqueePeriod = 2400;
+const marquee = {
+  users: 0,
+  value: new Animated.Value(0),
+  loop: null as Animated.CompositeAnimation | null,
+  unwatch: null as (() => void) | null,
+  unwatchApp: null as (() => void) | null,
+};
+/** Drop the loop first, so its own end callback does not read the stop as an interruption. */
+function haltMarquee() {
+  const loop = marquee.loop;
+  marquee.loop = null;
+  loop?.stop();
+}
+/** Keep the grid mounted; only the one shared clock yields to height motion. */
+function syncMarquee() {
+  if (marquee.loop && !heightMotionBusy()) return;
+  haltMarquee();
+  if (!marquee.users || heightMotionBusy()) return;
+  // A reversal releases the old lease before acquiring its replacement.
+  void Promise.resolve().then(() => {
+    if (!marquee.users || heightMotionBusy() || marquee.loop) return;
+    marquee.value.setValue(0);
+    const loop = Animated.loop(timing(marquee.value, 1, marqueePeriod, undefined, linear));
+    marquee.loop = loop;
+    // A loop that ends on its own (another write to the value, a dropped native animation) would leave every sweep
+    // dark until a reload, because `marquee.loop` still looked alive: start it again.
+    loop.start(() => {
+      if (marquee.loop !== loop) return;
+      marquee.loop = null;
+      setTimeout(syncMarquee, 250);
+    });
+  });
+}
+/**
+ * After the app was in the background (hidden window, locked screen, sleep) the browser or the native driver may have
+ * frozen the loop without ending it, so no callback fires. Coming back, start a fresh lap.
+ */
+function restartMarquee() {
+  if (!marquee.users) return;
+  haltMarquee();
+  syncMarquee();
+}
+export function useMarquee(active: boolean) {
+  const reduced = useContext(ReduceMotion);
+  const on = active && !reduced;
+  useEffect(() => {
+    if (!on) return;
+    if (marquee.users++ === 0) {
+      marquee.unwatch = subscribeHeightMotion(syncMarquee);
+      const app = AppState.addEventListener("change", (state) => {
+        if (state === "active") restartMarquee();
+      });
+      marquee.unwatchApp = () => app.remove();
+      syncMarquee();
+    }
+    return () => {
+      if (--marquee.users === 0) {
+        marquee.unwatch?.();
+        marquee.unwatch = null;
+        marquee.unwatchApp?.();
+        marquee.unwatchApp = null;
+        haltMarquee();
+        marquee.value.setValue(0);
+      }
+    };
+  }, [on]);
+  return on ? marquee.value : null;
+}
+
+/** Mount-in rise for newly appearing items (callouts, queued rows, menus); `axis="x"` slides in sideways (a negative distance comes from the left). */
+export function Enter({ children, distance = 6, axis = "y", style }: { children: ReactNode; distance?: number; axis?: "x" | "y"; style?: ViewProps["style"] }) {
   const reduced = useContext(ReduceMotion);
   const [progress] = useState(() => new Animated.Value(reduced ? 1 : 0));
   // After the entrance the view carries no animated props (see MotionReveal on stale native writes).
@@ -268,7 +413,7 @@ export function Enter({ children, distance = 6, style }: { children: ReactNode; 
         style,
         {
           opacity: progress,
-          transform: [{ translateY: lerp(progress, [distance, 0]) }],
+          transform: [axis === "x" ? { translateX: lerp(progress, [distance, 0]) } : { translateY: lerp(progress, [distance, 0]) }],
         },
       ]}
     >
@@ -279,8 +424,8 @@ export function Enter({ children, distance = 6, style }: { children: ReactNode; 
 
 /**
  * Animated height for clamp/expand. The first measured target is applied
- * immediately (no reveal on mount); later targets animate on the JS driver
- * (height is a layout property) and interrupt any running animation.
+ * immediately (no reveal on mount). Height needs the JS driver on all platforms;
+ * keep it local to the clipping box and interrupt an earlier target on reversal.
  */
 export function useMotionHeight(target: number | null) {
   const reduced = useContext(ReduceMotion);
@@ -295,11 +440,16 @@ export function useMotionHeight(target: number | null) {
       value.setValue(target);
       return;
     }
+    if (target === previous.current) return;
     const opening = target > (previous.current ?? 0);
     previous.current = target;
+    const release = holdHeightMotion();
     const animation = timing(value, target, opening ? motionDuration.forward : motionDuration.reverse, false, opening ? enterEasing : exitEasing);
-    animation.start();
-    return () => animation.stop();
+    animation.start(() => release());
+    return () => {
+      animation.stop();
+      release();
+    };
   }, [value, target, reduced]);
   return value;
 }

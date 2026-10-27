@@ -27,6 +27,7 @@ import { linkedContinuity, type ContinuityKind } from "./handoff-links";
 import { handoffRefusalFingerprint } from "./handoff-requirements";
 import { join } from "node:path";
 import { readdir, readFile, stat } from "node:fs/promises";
+import { logFailure } from "./error-report";
 
 const flowly = { by: { kind: "flowly" as const } };
 const digest = (value: unknown) => createHash("sha256").update(JSON.stringify(value)).digest("hex");
@@ -59,10 +60,10 @@ export class HandoffService {
     await new Promise<void>((wake) => { const timer = setTimeout(wake, options.delayMs ?? 90_000); timer.unref?.(); this.sweepWait = { timer, wake }; });
     this.sweepWait = undefined;
     if (this.stopped) return;
-    await this.migrateGaps({ pauseMs: options.pauseMs ?? 100 }).catch((error) => console.error("Flowly handoff gap migration failed:", error instanceof Error ? error.message : String(error)));
+    await this.migrateGaps({ pauseMs: options.pauseMs ?? 100 }).catch((error) => logFailure("Flowly handoff gap migration failed:", error));
     if (this.stopped) return;
     await this.syncAll(options.pauseMs ?? 100);
-    await this.records.sweep({ pauseMs: options.pauseMs ?? 100, stopped: () => this.stopped }).catch((error) => console.error("Flowly handoff body cleanup failed:", error instanceof Error ? error.message : String(error)));
+    await this.records.sweep({ pauseMs: options.pauseMs ?? 100, stopped: () => this.stopped }).catch((error) => logFailure("Flowly handoff body cleanup failed:", error));
   }
   /**
    * Plugin start syncs every index entry once (SESSION-HANDOFF-SPEC §12, §21.16): a record lost or unreadable while the
@@ -73,7 +74,7 @@ export class HandoffService {
     const ids = (await this.board.read()).handoffIndex.map((entry) => entry.taskId);
     for (const taskId of ids) {
       if (this.stopped) return;
-      await this.serial(taskId, () => this.syncIndex(taskId)).catch((error) => console.error("Flowly handoff index sync failed:", error instanceof Error ? error.message : String(error)));
+      await this.serial(taskId, () => this.syncIndex(taskId)).catch((error) => logFailure("Flowly handoff index sync failed:", error));
       await new Promise((resolve) => setTimeout(resolve, pauseMs));
     }
   }
@@ -101,7 +102,7 @@ export class HandoffService {
         });
       } catch (error) {
         if (this.stopped) return { cards: visited.length, migrated, recorded: false };
-        failed.push(taskId); console.error(`Flowly handoff gap migration skipped card ${taskId}:`, error instanceof Error ? error.message : String(error));
+        failed.push(taskId); logFailure("Flowly handoff gap migration skipped card:", error, taskId);
       }
       visited.push(taskId);
       if (options.pauseMs) await new Promise((resolve) => setTimeout(resolve, options.pauseMs));
@@ -135,7 +136,7 @@ export class HandoffService {
   private async indexLoss(taskId: string, error: unknown) {
     if (!(error instanceof ToolError) || error.code !== "HANDOFF_UNAVAILABLE" || this.stopped) return;
     const entry = (await this.board.read().catch(() => undefined))?.handoffIndex.find((item) => item.taskId === taskId);
-    if (entry && entry.behind !== "unverified") await this.syncIndex(taskId).catch((failure) => console.error("Flowly handoff index sync failed:", failure instanceof Error ? failure.message : String(failure)));
+    if (entry && entry.behind !== "unverified") await this.syncIndex(taskId).catch((failure) => logFailure("Flowly handoff index sync failed:", failure));
   }
   private api() {
     if (!this.paseo) throw new ToolError("PASEO_UNAVAILABLE", "Handoff observation is waiting for the local Paseo connection.", true);
@@ -213,7 +214,7 @@ export class HandoffService {
   private async refreshIndex(taskId: string, wait = true) {
     if (this.refreshing.has(taskId) || this.stopped) return;
     this.refreshing.add(taskId);
-    const job = this.serial(taskId, () => this.syncIndex(taskId)).catch((error) => console.error("Flowly handoff index refresh failed:", error instanceof Error ? error.message : String(error))).finally(() => this.refreshing.delete(taskId));
+    const job = this.serial(taskId, () => this.syncIndex(taskId)).catch((error) => logFailure("Flowly handoff index refresh failed:", error)).finally(() => this.refreshing.delete(taskId));
     if (!wait) return;
     let timer: ReturnType<typeof setTimeout> | undefined;
     await Promise.race([job, new Promise<void>((resolve) => { timer = setTimeout(resolve, 1500); timer.unref?.(); })]);
@@ -550,7 +551,7 @@ export class HandoffService {
         // entry was synced.
         await this.records.restoreCard(task.id, source);
         const migrated = await this.records.migrateLegacyGaps(task.id, countLegacyHistory).then(() => true, (error) => {
-          console.error(`Flowly handoff gap migration of restored card ${task.id} will be retried at the next start:`, error instanceof Error ? error.message : String(error));
+          logFailure("Flowly handoff gap migration of restored card will be retried at the next start:", error, task.id);
           return false;
         });
         await this.syncIndex(task.id);

@@ -606,6 +606,75 @@ Spec: [AUTOMATION-SPEC](AUTOMATION-SPEC.md). Builds on the user's earlier decisi
 - [ ] UNRUN: real provider failure and retry, permission waiting, daemon restart mid-turn, slot contention live, Android device.
 - [ ] Not built (spec §9): Hermes orchestrator cards, goal mode, scheduled starts, per-card assignee or model. Decomposition came later through agent-created sub-cards (above).
 - [x] Review round 2 (61 findings, 59 confirmed): review cycles and verdicts per delivery, retry/turn-end fixes, parent wake and blocker walk, frozen projects without In review, cooldown gating, sub-card restart bound and refused notes, bounded get_task handoffs, client reasons and Attention; specs, onboarding spec and READMEs updated; tsc and `npx vitest run` pass (1105 passed, 65 skipped). Live daemon/Web UI UNRUN; client-docs-3 (Full access vs project default permissions) left for the owner ([review](verification/automation-review.md#round-2)).
+## v1.7.0 release preparation (card "v1.7.0发布") — 2026-10-26
+
+- Version 1.7.0 (`make bump` now also sets `shared/version.ts`, which `server/telemetry.test.ts` keeps equal to package.json). Release notes: [release-notes/v1.7.0.md](release-notes/v1.7.0.md), covering v1.6.0..main (#57–#67 and the Insights redesign).
+- What's new 1.7.0: six items (Insights redesign, skill drafts, faster loading, phone settings and the running sweep switch, SQLite with backups, usage data); the old Insights one-liner is replaced in all catalogs. [WHATS-NEW-SPEC](WHATS-NEW-SPEC.md) §6.
+- What's new navigation (W5): ‹ Flowly x.y › beside the version pages left to older and right to newer releases, items slide in from that side; the footer keeps only Got it. §5.0.
+- Welcome tour: the Insights page sample now shows weekday labels, a selected day, the day summary card with per-card bars and a two-line skill row, matching the 1.7 Insights page.
+- README / README.zh-CN and the registry media (`assets/screenshots/`) reshot with `docs/promo/shots.mjs` (it now parks the mouse before each shot and selects the latest active day in Insights); Settings path for Moving cards and the storage paragraph corrected. `06-next-moves.png` not reshot (its fixture script still uses `board.read`); it still shows the composer hint row removed in 1.6.
+- Live check on the installed build: `docs/verification/release-v1.7.0-2026-10-26/`.
+
+## Loading R2: no whole-board reads — 2026-10-26
+
+- User decision 2026-10-26: every layout reads the overview plus card detail; no switch back to the whole board and no user option. The maintainer uses it first and fixes what shows up. [Spec](LOADING-R2-SPEC.md)
+- Client no longer calls `board.read-changed`: the wide board polls the overview, the drawer reads card detail, Ideas read the project's ideas, the task form reads the project card index (new `externals`), the connection editor reads `linkedCards` from `connectors.connections`, the Next moves and Ideas actions read only their card or project, idea links carry `projectId`. Server handler kept for older clients.
+- Parity on a copy of the maintainer's data (107 cards, 4552 events, 118 sessions in 5 attention states each, finished-card cutoffs from 6 h to 30 days): overview facts equal the old whole-board derivations (`docs/verification/loading-r2-2026-10-26/parity.test.ts`). It catches 3 of 4 injected server bugs; the 4th (`hadTurnEnd`) is invisible on this data because every session has a turn end.
+- Timing, wide 1700×1000, Flowly project, 3 runs each: first card 577/605/605 ms before, 503/968/463 ms after; first 10 s received 5.3–5.5 MB before, 2.3–2.9 MB after (the rest is Paseo's and Flowly's other reads). `timing-before.json`, `timing-after.json`.
+- Live check after installing 5d8cb95 (merged with main after Insights v3): no `board.read`/`board.read-changed` sent while opening the board, a card, a session preview and the New task form; the overview polls every 3 s; a wide session preview keeps polling its card (4 detail reads in 12 s). Screenshots in `ui/` (desktop board, card, session preview, New task; compact board). Phone timing (§4.3) not run.
+- `docs/promo/shot-lib.mjs` `hidePrivate` hid the whole compact board (the walk up from the project label reached the column holding the board); it now hides only siblings on the tab's own row.
+- Independent verification (Haiku 5.5): first round on 16a117d found the wide preview polling stop, the lost idea-link retry and swallowed read errors (fixed in 24e417c) and parity gaps (closed in 24e417c and 96b4620); re-verification on 24e417c confirmed the fixes. Report: `docs/verification/loading-r2-2026-10-26/README.md`.
+- Onboarding: no tour, tip or What's new change; nothing new to point at, the board only loads less.
+
+## Anonymous usage data (telemetry) — 2026-10-26
+
+- User decisions 2026-10-26: PostHog Cloud EU over its capture HTTP API (no SDK), one daily heartbeat, whitelisted fields, on by default and sent before the user has seen the notice, off stops everything, no preview or reset ID, `ui_locale` instead of GeoIP. [Spec](TELEMETRY-SPEC.md).
+- Implemented: `server/telemetry.ts` (heartbeat, `telemetry.json`, forced-off env), `telemetry` host setting and `telemetry.status` RPC, Settings → General *Usage data* and the tour's last page, What's new 1.7.0 item, README sections, catalogs in all 9 languages. `server/telemetry.test.ts` covers spec §9 items 1–8.
+- 2026-10-26 error reports (user decision: separate `$exception` event with a cleaned stack, daemon only; spec §11): `server/error-report.ts` cleans stacks (type, safe code, Flowly's own frames relative to the plugin folder, no message), `reportRpcErrors` wraps every `server.handle` (expected errors skipped), `logFailure` replaces the background `console.error` sites, `uncaughtExceptionMonitor` for errors through Flowly code; each kind once per UTC day, 20 a day. Setting detail and What's new 1.7.0 text mention errors (9 catalogs). `server/error-report.test.ts` covers §11.5.
+- 2026-10-26: `POSTHOG_KEY` filled in. The maintainer's PostHog project is in the US region (the EU endpoint rejected the token, `us.i.posthog.com/flags` accepted it), so per the user's decision the endpoint moved to `https://us.i.posthog.com/i/v0/e/`.
+
+## Board data in SQLite (minimal) — 2026-10-26
+
+- User decision 2026-10-26: finish the SQLite move first, loading later; keep rollback and no data loss, otherwise as simple as possible. Replaces the 10-25 full design (D1–D4); the old fixture kernel, specs and evidence are on the local branch `archive/sqlite-r1-v1`. [Spec](SQLITE-STORAGE-SPEC.md).
+- `BoardStore` keeps every business rule; only load/save moved behind a persistence seam (`server/board-file.ts` JSON, `server/sqlite-storage.ts` SQLite). One generic `items` table keyed by collection and element key, row-level diff written in one `BEGIN IMMEDIATE`; cached board, owner lock (`storage-owner.sqlite`).
+- First start: snapshot to `migrations/`, build `flowly.sqlite.tmp`, integrity check and value-for-value comparison with the existing reader, one rename, then `board.json` becomes a marker older versions refuse. Any failure before the rename stays on JSON and retries at the next start. Daily backups (7), restore with a revision offset, export back to v5 JSON (`storage-mode.json`), Settings → Storage with five RPCs. Attached JSON files, composer, flow logs and read paths unchanged.
+- Self-checks: typecheck PASS; `npm test` 129 files / 1056 tests PASS (1 skipped: the crash child); `server/sqlite-store.test.ts` 31, `server/sqlite-parity.test.ts` 1 (the same operations on JSON and SQLite give the same board after every step, project create/remove included), `server/sqlite-crash.test.ts` 3 (real SIGKILL before/after the rename and inside a write). Five deliberate bugs in the row diff and restore were each caught. The agent suites with the fixture on SQLite pass 119/125; the six others build a second JSON store on the same folder or corrupt board.json directly.
+- First independent verification (Haiku 5.5, on 2334d58): checks PASS; a real-runtime rehearsal on a copy of the maintainer's data (106 cards, 4515 events, 2730 receipts; 4.9 MB board.json → 7.0 MB database) passed 23/23: move + first read 376 ms, later reads 7 ms, an edit 22 ms. It found an export stopped between its two file writes blocking the next start (fixed: mode file first, a marker means the export did not happen), a failed rename after export leaving every read busy (fixed), same-second backups pruned in the wrong order, a restore that reported success while the database could not open, the migration rename outside its fallback, and 0644 backups/snapshots (all fixed, with tests). Re-verification on 62ec9e9: all PASS, rehearsal 23/23 again (move + first read 488 ms, reads 7 ms); its one Low (a restore that cannot open the backup now says the backup is in place) is fixed with a test. UNRUN: a kill inside the Helper runtime, and the Settings → Storage UI, which needs the plugin installed on real data (the switch).
+- Switched the maintainer's data after the merge (user's go-ahead): 365 ms for 107 cards / 4552 events, the backup taken at the move equals the original board.json field for field, reads and writes work, Settings → Storage checked on desktop (compact only partly capturable with shot-lib). See `docs/verification/sqlite-min-2026-10-26/switch.md`.
+- Onboarding: tour More features gets Backups; What's new 1.7.0 gets one item with Open settings → Storage. No tip: nothing to point at during normal use.
+- Independent milestone verification (claude/claude-haiku-5-5) and the real-data copy rehearsal: see `docs/verification/sqlite-min-2026-10-26/`.
+## Insights third version: activity and Skills (card "Insights重设计") — 2026-10-25
+
+Spec: [INSIGHTS-REDESIGN-SPEC](INSIGHTS-REDESIGN-SPEC.md) (third version, accepted 2026-10-25; plan in §11). The user found the second version "一般": attention per card, the time table and Agent habits were not useful to ordinary users and the daily record never produced a summary. They asked for a GitHub-style activity heatmap and for Insights to turn repeated work into reusable skills.
+
+- [x] `shared/activity.ts`: 53-week heatmap data from the flow log (turns, active cards, cards done), quartile levels; `insights.project` returns `{ today, activity, workflow, habits? }` without git or running-session reads.
+- [x] Digest: one generation per project with the last picked day waiting; `DIGEST_DAYS` 400; a past day is summarized when selected (fixes the empty daily record).
+- [x] `shared/workflow-stats.ts` slimmed to the last 7 days' rounds, one-pass share, models and tokens per card; second-version attention, time, weeks, baseline and anomalies removed.
+- [x] Agent habits behind the host setting `developer.agentHabits` (no settings page).
+- [x] Skills in the workflow-insights run: on by default, first scheduled run one interval after collecting starts, new quiet rule, material from cards, the owner's words (memory clues), memory and project skills, skill prompt and validation (max 3, names, lengths, redaction, updates only of Flowly's skills), per-kind replacement.
+- [x] `workflow-insights.install-skill`: `.agents/skills/<name>/SKILL.md` plus a relative `.claude/skills/<name>` link; foreign entries and failed links reported, never copied; no git.
+- [x] Client: heatmap, day panel, Skills (new / update with diff / in the project), Other suggestions and Workflow folded; settings renamed Skills; tour page 4; tip `first-skill-draft` (replaces the unreleased `insights-redesign`); What's new 1.7.0; nine catalogs.
+- [x] `npm run typecheck`, `npm test` in the isolated worktree (`feat/insights-v3`).
+- [ ] Live checks need this branch installed: Run now on Flowly, Add to project on Tinylink, screenshots, Luna 6 full-access (not run).
+- [ ] README screenshots `05-insights*.png` still show the first version.
+- 2026-10-26 after the live check (user notes): Other suggestions, Dismissed and Workflow lists start at the page's left edge and skill rows are two lines; the heatmap's weekday labels are no longer cut off and its columns fit the page; the Back bar of Insights, Ideas and Memory is as high as the task card's icon row (`pageBarHeight`); the page felt empty, so Workflow opens by default and a "Last 7 days" list sits under the day panel (spec §2.2, §10.8). Candidates not built, from the data the page already has: areas the last 7 days' finished cards belong to (tags), memory entries confirmed this week, the busiest cards of the week.
+- 2026-10-26 day summary card (user): the day panel and the Last 7 days list became one card that pages to the previous/next day with activity (or a heatmap pick): the day's numbers (turns, cards, done, agent time, tokens), its AI summary and its cards, the busiest first, each with a bar for its share of the busiest card's agent time (heatmap opacity scale). New `insights.day` RPC; pure `shared/day-detail.ts` (+4 tests): agent time is session run time clipped to the day, tokens are the day's 15-minute buckets of the cards' sessions, read in a second call so the card never waits on logs. Spec §2.2, §7, §10.9.
+
+
+## Insights redesign (card "Insights重设计") — 2026-10-22
+
+Spec: [INSIGHTS-REDESIGN-SPEC](INSIGHTS-REDESIGN-SPEC.md) (second version). The user rejected an output-statistics page ("it should not make people anxious or push them to grind") in favour of evaluating the workflow itself.
+
+- [x] Spec v2 reviewed and accepted; decisions in §13.
+- [x] Data: `agent.turn_ended.byUser` (`startedByUser`, injections filtered) and `agent.permission_requested.tool` (name only), in board events and the flow log.
+- [x] `shared/workflow-stats.ts`: per-card stats to the first Done (interventions, review rounds, three-way time split, model), window and 4-window baseline, models with "other", 8 Monday weeks with landed suggestions, R2/R3/R6 anomalies (R3 now 3 rounds), tokens per card over its active span. First version's `shared/work-stats.ts` and `client/charts.tsx` removed.
+- [x] RPC: `insights.project` and `insights.tokens` take `end`; `insights.digests` for the daily record.
+- [x] Client: single column, theme colors, no chart, no tabs; daily record collapsed.
+- [x] Onboarding: tour line and tip `insights-redesign` text; README (en, zh-CN); nine catalogs.
+- [x] `npm run typecheck`, `npm test`.
+- [ ] Luna 6 full-access UI verification (not run).
+- [ ] README screenshots `05-insights*.png` still show the old page.
+
 ## Configurable summary models — 2026-10-23
 
 - User-requested ordered model list in Settings → Models and the welcome tour: add, move up/down, remove, reset to Haiku→Luna; preserve legacy Auto/single-model choices. Additive v1 `summaryModels`, no write-on-read migration.
@@ -652,6 +721,17 @@ Spec first: [TURN-CHECKLIST-SPEC](TURN-CHECKLIST-SPEC.md). User authorized the m
 - [x] Typecheck, full suite (110 files / 933 tests after Fable fixes), reload and live old-session CLI read (six rules exactly match source, runtime skill matches generated file, board hash unchanged). Final R1 only changed offline audit, checked with 25 Node regressions. [Report](verification/turn-checklist-2026-10-22.md).
 - [x] Onboarding not changed: no new UI, setting or user action; these are agent instruction/API and offline audit changes.
 
+
+## What's new after an update (card "插件更新后弹出“新功能”提示") — 2026-10-22
+
+Spec: [WHATS-NEW-SPEC](WHATS-NEW-SPEC.md) (design confirmed by the user: reopen from Settings; 2026-10-24 the window opens on the newest release and pages back to 1.5.0).
+
+- [x] `onboarding.whatsNewSeen` host setting; `client/whats-new.ts` (entry + `whatsNewDecision` / `seenAfter`), `client/whats-new-window.tsx`, board wiring (blocks tips; buttons open Settings → AI features or the tour 450 ms after closing), Settings → General → What's new; first-run tour close also stores the release as seen.
+- [x] 6 new strings in all 9 catalogs.
+- [x] `npm run typecheck`, `npm test` (`client/whats-new.test.ts`: only once, no items, new user, waits, version order).
+- [x] Real UI after reload (2026-10-22): opened once by itself, reopen from Settings, Open settings → AI features.
+- [x] 2026-10-24 (W4): releases list newest first back to 1.5.0; the window opens on the newest and pages to older ones; 1.6.0 (7 items) and 1.5.0 (5 items) entries, 9 more strings in all catalogs; typecheck, `npm test` 1034 PASS, reload + headless paging and Take the tour PASS. Release notes draft: [v1.6.0](release-notes/v1.6.0.md).
+- [ ] Narrow/phone layout and the real first-run path: not run.
 
 ## Welcome tour redesign: explain and set the basics (card "重设计onboarding流程") — 2026-10-22
 
@@ -1478,3 +1558,12 @@ Phase 2 spec: [PHASE-02-SPEC.md](PHASE-02-SPEC.md). Three current-card tools; au
 - [x] Real Luna verification exposed a gate loop: checkpoint updates and passive observations changed the complete handoff revision, invalidating an otherwise explicit same-turn acknowledgement. The gate now fingerprints semantic requirements, preserving a new refusal for new original inputs, reviews, human notes and real gaps while ignoring checkpoint/seen/cursor/measurement-only changes. Current entries and newly archived overflow share the same semantic hash; legacy indexes conservatively retain their immutable body identity.
 - [x] The original two failing paths were reproduced before the fix. Focused regressions also preserve new-information refusal and verify a current-to-overflow move does not reset acknowledgement. No new UI or onboarding flow: the existing refusal explains its corrected retry behavior.
 - [ ] Independent verification and a repeat real Luna fixture remain with the orchestrator; this implementation does not install or reload.
+2026-10-24：统一紧凑布局性能路径，保留独立Overview/CardDetail、fresh授权、连续动画与450ms交接；按可用宽度760分界，移除性能门控的平台特化，清理旧CardBoardContext/Proxy。见[统一规范](RESPONSIVE-PERFORMANCE-SPEC.md)、[两阶段读模型](NATIVE-OVERVIEW-SPEC.md)和[瘦身规范](CARD-QUERY-SLIM-SPEC.md)。验证结果见[交付记录](verification/responsive-ship-2026-10-24/README.md)。
+
+## 2026-10-24 动画流畅度有限优化
+
+先写[MOBILE-SMOOTHNESS-SPEC](MOBILE-SMOOTHNESS-SPEC.md)，同三星冻结源码对照点阵静止、共享lease候选及反向baseline。只让新点阵时钟复用高度lease，保留网格；独立mounted又复现反转中一次额外启停，v2仅用microtask复查既有guard消除，无新timer/状态/框架。连续220/160ms、fresh、450ms及宽度统一保持。最终收起26.13/28.21ms（原39.28/39.62），展开仍59.07/25.15ms，区段40–48ms、Idea125ms起终态未证实均保留，非整体FPS收益。41窗37有效/4排除，旧140capture/37窗Luna独立审计PASS，最终161capture/41窗父复算PASS；新增4窗独立审计UNRUN。此前共享dirty树V2 typecheck、Luna mounted8/root focused22/full125文件1024项PASS，374源hash稳定。正常插件重载与三星ready、owned入口/runtime/工具/会话清理PASS，17MiB压缩证据保留，其他会话工作/共享缓存保留；用户后续授权发运仅限本修复及规范，隔离树另行验收。详见[本轮记录](MOBILE-SMOOTHNESS-SPEC.md#6-执行结果与边界)。
+
+## 2026-10-24 宽屏点阵连续性修正
+
+连续开卡反复重放是全局高度让路后phase0恢复的可见代价。按MOBILE-SMOOTHNESS-SPEC §7仅在宿主窗口<760让装饰时钟让路；宽屏保留同一loop/phase，lease和resize通知不重启。只改motion.tsx，无新增缓存、timer、框架或RPC；fresh归属、连续220/160ms与450ms交接保持。既有三星局部收起约39→26–28ms，展开不稳定，无桌面/FPS收益结论。已有typecheck、Luna mounted11/11、focused5文件37项通过，首次旧文档断言失败留存；本地Flowly重载running，真实UI/FPS未运行。用户要求停止后续测试直接合入，未再跑候选全量或设备矩阵；仅选择本修复和规范按PR流程发运。无需tour/tip/What's new。证据保留于verification/marquee-width-2026-10-24。

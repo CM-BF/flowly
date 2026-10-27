@@ -10,6 +10,7 @@ import { ToolError } from "./tool-error";
 import { handoffRequirementsHash } from "./handoff-requirements";
 import { bucketKey, gapBuckets, gapMigration, gapRules, legacyAgent, legacyGap, legacyGapText, legacyGroupSource, legacyPrefixes, legacySource, longLineStart, metadataGap, planGapMigration, type CappedSession, type GapBucket, type GapInspection, type GapMeasure, type GapMigrationPlan, type GapUnlisted, type LegacySource } from "./handoff-gap-migration";
 import { legacyCountKinds, type LegacyCountKind, type LegacyHistory } from "./handoff-gap-migration-history";
+import { logFailure } from "./error-report";
 
 export class HandoffError extends ToolError {
   constructor(code: "HANDOFF_UNAVAILABLE" | "HANDOFF_CONFLICT" | "HANDOFF_TOO_LARGE" | "ACK_MISMATCH" | "OPERATION_REUSED", message: string, readonly details?: unknown) { super(code, message, code === "HANDOFF_CONFLICT"); }
@@ -279,7 +280,7 @@ export class HandoffStore {
     const record = await this.current(taskId).catch(() => null);
     if (record) await this.collect(taskId, record, true).catch(this.collectFailed);
   }
-  private collectFailed = (error: unknown) => console.error("Flowly handoff body cleanup will retry:", error instanceof Error ? error.message : String(error));
+  private collectFailed = (error: unknown) => logFailure("Flowly handoff body cleanup will retry:", error);
   /**
    * Plugin start (§5.1): every card's first-touch collection, once per collection version, also of cards nothing opens,
    * polls or writes again (a done or stopped card would keep what older versions left). One card at a time in its queue,
@@ -294,7 +295,7 @@ export class HandoffStore {
       const taskId = /^([A-Za-z0-9][A-Za-z0-9_.-]{0,199})\.json$/.exec(name)?.[1];
       if (!taskId || name.endsWith(".restore.json")) continue;
       if (options.stopped?.()) return { cards, recorded: false };
-      await this.serial(taskId, () => this.recover(taskId)).catch((error) => console.error(`Flowly handoff body cleanup skipped card ${taskId}:`, error instanceof Error ? error.message : String(error)));
+      await this.serial(taskId, () => this.recover(taskId)).catch((error) => logFailure("Flowly handoff body cleanup skipped card:", error, taskId));
       cards++;
       if (options.pauseMs) await new Promise((resolve) => setTimeout(resolve, options.pauseMs));
     }

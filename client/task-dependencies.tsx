@@ -12,7 +12,8 @@ import { dependencySummary, dependencyView, type Neighbour } from "./card-tree-v
 import { Section, type SectionState } from "./disclosure";
 import { neighbourhoodLayout, type NeighbourSlot, type Span } from "./geometry";
 import { perfEnd, perfStart } from "./perf";
-import { boardKey, useBoardQuery } from "./queries";
+import { useOverviewQuery } from "./queries";
+import { invalidateCardViews, useTaskDetail } from "./card-detail-query";
 import { StatusIcon } from "./status";
 import { Button, IconButton, Label, font, message, noFocusRing, radius, space, tint, touch, useTheme } from "./ui";
 
@@ -52,7 +53,10 @@ export const TaskDependencies = memo(function TaskDependencies({
   onShowInTree?(id: string): void;
 }) {
   const { colors } = useTheme();
-  const board = useBoardQuery();
+  // The outline spans the project's card tree, so it reads the overview (tasks, links, automation), never the whole
+  // board; on phones, where the board pauses under an open card, opening the drawer reads it once (LOADING-R2-SPEC §2A).
+  const { hostId } = useTaskDetail();
+  const board = useOverviewQuery(hostId, { enabled: ready });
   const toast = useToast();
   const queryClient = useQueryClient();
   const deleteLink = useRpc(rpc.deleteLink);
@@ -78,7 +82,7 @@ export const TaskDependencies = memo(function TaskDependencies({
     setRemoving((current) => new Set(current).add(blocker));
     try {
       await deleteLink({ id: link.id });
-      await queryClient.invalidateQueries({ queryKey: boardKey });
+      await invalidateCardViews(queryClient);
     } catch (e) {
       toast.show(message(e), { variant: "error" });
     } finally {

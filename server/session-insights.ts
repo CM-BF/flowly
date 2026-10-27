@@ -26,6 +26,7 @@ import { within } from "./summaries";
 import { runSummaryModels } from "./summary-models";
 import type { NextMoveRows } from "./next-move-rows";
 import { generatedBranchName, resolveWorktreeBaseRef } from "./service";
+import { logFailure } from "./error-report";
 
 /** `session-insights.json`: serialized writes, backup, atomic replacement; invalid data is preserved, never reset. */
 export class SessionInsightStore {
@@ -130,7 +131,7 @@ export class SessionInsightService {
         s.suggestion.current = false;
         return { value: undefined, changed: true };
       })
-      .catch((e) => console.error("Flowly session insight not updated:", e instanceof Error ? e.message : String(e)));
+      .catch((e) => logFailure("Flowly session insight not updated:", e));
   }
 
   /** Resolves when this session's queue is drained (tests); the hook does not wait. */
@@ -162,7 +163,7 @@ export class SessionInsightService {
         const merged = queue.splice(0, queue.length);
         const last = merged[merged.length - 1];
         await this.run({ text: merged.map((b) => b.text).join("\n\n---\n\n"), endedAt: last.endedAt, agent: last.agent }, paseo).catch((e) =>
-          this.recordError(last.agent, e instanceof Error ? e.message : String(e)),
+          this.recordError(last.agent, e),
         );
       }
     } finally {
@@ -170,8 +171,9 @@ export class SessionInsightService {
     }
   }
 
-  private recordError(agent: OutsideAgent, message: string) {
-    console.error("Flowly session insight failed:", message);
+  private recordError(agent: OutsideAgent, error: unknown) {
+    logFailure("Flowly session insight failed:", error);
+    const message = error instanceof Error ? error.message : String(error);
     return this.store
       .update((state) => {
         const now = new Date().toISOString();
@@ -261,7 +263,7 @@ export class SessionInsightService {
       if (summary) await within(paseo.agents.ref(agent.id).timeline.append(sessionSummaryRow(summary)), this.rowTimeoutMs);
       if (suggestion) await this.rows.writeSession(agent.id, suggestion.id, suggestion.moves, paseo);
     } catch (e) {
-      console.error("Flowly session insight rows not added:", e instanceof Error ? e.message : String(e));
+      logFailure("Flowly session insight rows not added:", e);
     }
   }
 

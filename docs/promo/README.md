@@ -10,7 +10,7 @@
 | 2 | 人工介入提醒 | `screenshots/02-needs-you-drawer.png` | agent 遇到需要你拍板的事（如 410 还是 404），会提问并停下；卡片亮起 **Needs you**，顶部 Attention 汇总，Reply 一键直达该 session。 / The agent asks, stops, and the card lights up “Needs you”; Reply jumps straight to the session. |
 | 3 | 任务运行 summary | `screenshots/03-card-summary.png` | 每轮结束自动生成：一句话现状、目标、已完成要点、下一步，保留历史版本。Done 之后仍能回看当时做到哪。 / Auto-written after every turn: state, target, recap, next — with version history. |
 | 4 | 任务延伸 ideas | `screenshots/04-ideas-inbox.png`、`04b-good-idea-two-paths.png` | agent 干活时发现的后续工作（配置化、Redis 限流、顺带发现的 bug）进入 Ideas 收件箱。Good idea 两条路：在原 session 继续，或新建卡片 / 新 session。 / Follow-up work found along the way lands in an inbox; accept it into the same session or a new card. |
-| 5 | Project insights | `screenshots/05-insights.png`（深色：`…-dark.png`） | 一页看完今天：完成/新建/返工、agent 时长、commits、token 用量；「等你处理」列表、规则建议、AI 日报、7 日趋势。 / One page for the day: throughput, agent time, commits, tokens, waiting-on-you, suggestions, an AI daily summary and a 7-day trend. |
+| 5 | Project insights | `screenshots/05-insights.png`（深色：`…-dark.png`，模拟数据，`insights-mock.mjs` 生成） | 一年活跃度热力图、可逐日翻看的每日总结和每张卡的耗时、从卡片起草的 skill、最近 7 天按模型的评审轮次与 token。 / A year of activity, a day summary you can page through, skill drafts and the last 7 days' review rounds and tokens by model. |
 
 ## 演示项目
 
@@ -26,7 +26,8 @@
 ```
 node docs/promo/setup.mjs                         # 建 Tinylink 仓库、项目、卡片，并启动 3 个 Haiku session
 node docs/promo/start-session.mjs "Custom aliases" "<prompt>"   # 追加一个 session
-node docs/promo/shots.mjs 01 01d 02 03 04 05 05d  # 截图（headless Chromium，2× 分辨率，裁掉宿主侧栏）
+node docs/promo/shots.mjs board drawers ideas settings i18n  # 截图（headless Chromium，2× 分辨率，裁掉宿主侧栏）
+node docs/promo/insights-mock.mjs && node docs/promo/insights-mock.mjs docs/promo/screenshots/05-insights-dark.png dark  # Insights 用模拟数据（Tinylink 自己的数据太少）
 ```
 
 截图只裁取插件面板，不含宿主侧栏里的个人 workspace。

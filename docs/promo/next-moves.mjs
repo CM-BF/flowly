@@ -1,6 +1,7 @@
-// Fixture for the "suggested next steps" screenshot: one tiny repo, one project, one card and one Haiku
-// session that ends its turn with kanban_suggest_next_moves. Usage: node next-moves.mjs setup|remove
-// (screenshots: node shots.mjs next-moves). ids go to ids-next-moves.json.
+// Fixture for the "suggested next steps" screenshot: one tiny repo, one temporary project (NM_PROJECT, never the
+// permanent Tinylink), one card and one Haiku session that ends its turn with kanban_suggest_next_moves.
+// Usage: node next-moves.mjs setup|remove   (screenshots: node shots.mjs next-moves). ids go to ids-next-moves.json.
+// remove only touches projects whose directory is a tinylink-nm-* temp dir, so it is safe while Tinylink exists.
 import { randomUUID } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { mkdir, mkdtemp, writeFile, readFile, rm } from 'node:fs/promises';
@@ -9,6 +10,7 @@ import { join } from 'node:path';
 import { DaemonClient } from '@getpaseo/client/internal/daemon-client';
 import { createPaseoApi } from '@getpaseo/client';
 
+const NM_PROJECT = 'Tinylink NM'; // shots.mjs opens this project for the next-moves shot
 const idsFile = new URL('./ids-next-moves.json', import.meta.url);
 const client = new DaemonClient({ url: 'ws://127.0.0.1:6767/ws', clientId: `promo-${randomUUID()}`, clientType: 'cli', appVersion: '0.11.2', connectTimeoutMs: 10000, reconnect: { enabled: false } });
 const api = createPaseoApi(client);
@@ -17,9 +19,9 @@ const git = (args, cwd) => execFileSync('git', args, { cwd, encoding: 'utf8' }).
 try {
   await client.connect();
   if (process.argv[2] === 'remove') {
-    // Removes every board project whose directory is a tinylink-nm-* temp dir (this fixture's), plus the dirs.
-    const board = await rpc('board.read', {});
-    for (const pr of board.projects.filter((x) => /tinylink-nm-/.test(x.primaryPath ?? ''))) {
+    // Removes every project whose directory is a tinylink-nm-* temp dir (this fixture's), plus the dirs.
+    const overview = await rpc('board.overview-changed', {});
+    for (const pr of overview.value.projects.filter((x) => /tinylink-nm-/.test(x.primaryPath ?? ''))) {
       console.log(pr.id, pr.primaryPath, JSON.stringify(await rpc('projects.remove', { id: pr.id, revision: pr.revision, alsoPaseo: true })));
       await rm(pr.primaryPath, { recursive: true, force: true });
     }
@@ -31,7 +33,7 @@ try {
     await writeFile(join(d, 'test/limiter.test.js'), "import test from 'node:test';\nimport assert from 'node:assert/strict';\nimport { check } from '../src/limiter.js';\n\ntest('the sixth request in a minute is rejected with Retry-After', () => {\n  for (let i = 0; i < 5; i++) assert.equal(check('1.1.1.1', 5, 1000).allowed, true);\n  const r = check('1.1.1.1', 5, 1000);\n  assert.equal(r.allowed, false);\n  assert.equal(r.retryAfter, 60);\n});\n");
     git(['init', '-q', '-b', 'main'], d); git(['config', 'user.name', 'Alex Chen'], d); git(['config', 'user.email', 'alex@tinylink.example'], d);
     git(['add', '.'], d); git(['commit', '-q', '-m', 'Add per-IP rate limiter with tests'], d);
-    const project = await rpc('projects.create', { title: 'Tinylink', description: 'Demo project.', primaryPath: d });
+    const project = await rpc('projects.create', { title: NM_PROJECT, description: 'Temporary fixture for the next-moves screenshot.', primaryPath: d });
     const fx = { directory: d, project: project.id };
     await writeFile(idsFile, JSON.stringify(fx, null, 2));
     const card = await rpc('tasks.create', { projectId: project.id, operationId: `promo-${randomUUID()}`, title: 'Add rate limiting to POST /shorten', description: 'Limit each client IP to 5 shorten requests per minute; respond 429 with Retry-After.', status: 'todo', priority: 'high', type: 'feature', mode: 'directory' });
