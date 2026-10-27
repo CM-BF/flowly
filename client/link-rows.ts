@@ -15,14 +15,14 @@ export const groups: { id: Group; title: string }[] = [
   { id: "waited", title: msg("Was waiting on") },
 ];
 
-export const groupOf = (view: Pick<LinkView, "relation" | "other">): Group =>
+export const groupOf = (view: Pick<LinkView<Pick<Task, "status" | "archivedAt">>, "relation" | "other">): Group =>
   view.relation === "blocked_by" ? (isResolved(view.other) ? "waited" : "waiting") : view.relation;
 
 /**
  * `groupOf` for a card whose automation job is queued (and the card is live): a Cancelled or archived
  * blocker holds it (Held, CARD-TREE-SPEC §2.6), so it stays under "Waiting on"; a Done one has been waited on.
  */
-export const groupFor = (queued: boolean) => (view: Pick<LinkView, "relation" | "other">): Group =>
+export const groupFor = (queued: boolean) => (view: Pick<LinkView<Pick<Task, "status" | "archivedAt">>, "relation" | "other">): Group =>
   queued && view.relation === "blocked_by" && !!view.other && view.other.status !== "done" ? "waiting" : groupOf(view);
 
 /**
@@ -30,7 +30,7 @@ export const groupFor = (queued: boolean) => (view: Pick<LinkView, "relation" | 
  * not itself, title containing `query`. `linked` marks cards the server would
  * refuse as already linked for `relation`.
  */
-export function linkCandidates(tasks: readonly Task[], links: readonly Link[], task: Task, relation: Relation, query: string) {
+export function linkCandidates<T extends Pick<Task, "id" | "projectId" | "title" | "archivedAt">>(tasks: readonly T[], links: readonly Link[], task: Task, relation: Relation, query: string) {
   const needle = query.trim().toLowerCase();
   return tasks
     .filter((t) => t.projectId === task.projectId && t.id !== task.id && !t.archivedAt)

@@ -9,6 +9,7 @@ import { runSummaryModels, abortable } from "./summary-models";
 import { daemonRemoveAgent, type RemoveAgent } from "./summarizer-remove";
 import { keywordFallback } from "./review-levels";
 import { ClassifierHelpers } from "./classifier-helpers";
+import { logFailure } from "./error-report";
 
 export const classifierOutput = z.strictObject({ level: reviewLevelSchema, reason: z.string().trim().min(1).max(500) });
 const outputSchema = { type: "object", additionalProperties: false, properties: { level: { enum: ["light", "standard", "deep"] }, reason: { type: "string" } }, required: ["level", "reason"] };
@@ -46,7 +47,7 @@ export class ReviewClassifier {
   schedule() {
     if (this.stopped || !this.paseo) return;
     clearTimeout(this.timer);
-    this.timer = setTimeout(() => { this.timer = undefined; void this.scan().catch((e) => console.error("Flowly review classification:", String(e))); }, this.options.debounceMs ?? 750);
+    this.timer = setTimeout(() => { this.timer = undefined; void this.scan().catch((e) => logFailure("Flowly review classification:", e)); }, this.options.debounceMs ?? 750);
     this.timer.unref?.();
   }
   async scan() {
@@ -95,7 +96,7 @@ export class ReviewClassifier {
       if (!run || run.started || run.controller.signal.aborted) continue;
       run.started = true;
       this.active++;
-      run.work = this.run(id, run).catch((e) => console.error("Flowly review classification:", String(e))).finally(() => {
+      run.work = this.run(id, run).catch((e) => logFailure("Flowly review classification:", e)).finally(() => {
         this.workers.delete(run.work!); this.active--; if (this.runs.get(id) === run) this.runs.delete(id); run.done(); this.drain();
       });
       this.workers.add(run.work);

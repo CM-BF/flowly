@@ -4,6 +4,7 @@ import { randomUUID } from "node:crypto";
 import type { PaseoApi, PaseoWorkspaceAgentCreateOptions } from "@getpaseo/client";
 import { z } from "zod";
 import type { RemoveAgent, RemovableAgent } from "./summarizer-remove";
+import { logFailure } from "./error-report";
 
 export const CLASSIFIER_OWNER_LABEL = "flowly-review-classifier";
 const ownershipSchema = z.object({ version: z.literal(1), entries: z.array(z.object({ id: z.string(), workspaceId: z.string(), owner: z.string(), confirmed: z.boolean() })) });
@@ -61,8 +62,8 @@ export class ClassifierHelpers {
     const first = !this.paseo;
     this.paseo = paseo;
     if (!first) return;
-    void this.recover().catch((error) => console.error("Flowly classifier helper recovery:", String(error)));
-    this.timer = setInterval(() => void this.recover().catch((error) => console.error("Flowly classifier helper recovery:", String(error))), this.options.recoverMs ?? 30_000);
+    void this.recover().catch((error) => logFailure("Flowly classifier helper recovery:", error));
+    this.timer = setInterval(() => void this.recover().catch((error) => logFailure("Flowly classifier helper recovery:", error)), this.options.recoverMs ?? 30_000);
     this.timer.unref?.();
   }
   private track<T>(promise: Promise<T>): Promise<T> {

@@ -1,3 +1,4 @@
+import type { CardDetail } from "../shared/card-detail";
 import { z } from "zod";
 import type { PaseoAgent, PaseoApi } from "@getpaseo/client";
 import type { ComponentType } from "react";
@@ -8,7 +9,7 @@ import type {
   PluginScreenParams,
 } from "@getpaseo/plugin/client";
 import type { RpcOutput } from "@getpaseo/plugin";
-import { archivedSessionRefs, nativeChips, readBoard, readBoardChanged, sessionInsights } from "../shared/rpc";
+import { archivedSessionRefs, nativeChips, readChipBoardChanged, sessionInsights } from "../shared/rpc";
 import type { SessionInsightView } from "../shared/session-insights";
 import { parentOf } from "../shared/subagents";
 import { isSummarizer } from "../shared/summary";
@@ -62,7 +63,8 @@ export function parseSessionLink(
     );
   return result.data;
 }
-const ideaLinkSchema = z.object({ ideaId: id, requestId: id });
+/** projectId: the idea's project, so the board reads only its ideas; links from before it name none. */
+const ideaLinkSchema = z.object({ ideaId: id, projectId: id.optional(), requestId: id });
 export type IdeaLink = z.infer<typeof ideaLinkSchema>;
 /** "Start a new task" from the native Ideas chip: open Flowly's new-card form for this idea (NATIVE-SESSION-SPEC §7.3). */
 export function parseIdeaLink(params?: PluginScreenParams): IdeaLink | null {
@@ -90,35 +92,18 @@ async function step<T>(label: string, run: () => Promise<T> | T): Promise<T> {
   }
 }
 
-export async function resolveSessionLink(
-  paseo: PaseoApi,
-  read: () => Promise<LinkBoard>,
-  link: CardSessionLink,
-) {
-  const [board, snapshot] = await Promise.all([
+/** Native navigation authorizes a fresh detail scope and the exact native session. */
+export async function resolveCardDetailLink(paseo: PaseoApi, read: () => Promise<CardDetail>, link: CardSessionLink) {
+  const [detail, snapshot] = await Promise.all([
     step(t("Kanban board read failed"), read),
     step(t("Session lookup failed"), () => paseo.agents.ref(link.sessionId).refresh()),
   ]);
-  const task = board?.tasks?.find(
-    (t) => t.id === link.taskId && t.workspaceId === link.workspaceId,
-  );
-  const project = task
-    ? board.projects?.find((p) => p.id === task.projectId)
-    : undefined;
+  if (detail.task.id !== link.taskId || detail.task.workspaceId !== link.workspaceId || detail.project.id !== detail.task.projectId)
+    throw new Error(t("This session's linked card is unavailable. Refresh the session chip or open Flowly."));
   const actor = snapshot?.agent;
-  if (!task || !project)
-    throw new Error(
-      t("This session's linked card is unavailable. Refresh the session chip or open Flowly."),
-    );
-  if (
-    !actor ||
-    actor.id !== link.sessionId ||
-    actor.workspaceId !== task.workspaceId
-  )
-    throw new Error(
-      t("This session is unavailable or its workspace changed. Refresh the session chip."),
-    );
-  return { board, task, project, actor, link };
+  if (!actor || actor.id !== link.sessionId || actor.workspaceId !== link.workspaceId)
+    throw new Error(t("This session is unavailable or its workspace changed. Refresh the session chip."));
+  return { detail, board: undefined, task: detail.task, project: detail.project, actor, link };
 }
 
 let requestSequence = 0;
@@ -444,8 +429,8 @@ export function registerSessionChips(
       // Only a list that began after the stream was up counts as complete.
       if (needLive && streamReady) relist = false;
       const [boardResult, liveResult] = await Promise.allSettled([
-        // The daemon may answer an etag with a patch of what changed, which readBoardDelta applies to the board held here.
-        readBoardDelta((input) => client.rpc(readBoardChanged, input), board ?? undefined, etag && board ? etag : undefined, "chips-first-read"),
+        // This private projection excludes histories/workpads; never share its etag or value with the board screen.
+        readBoardDelta((input) => client.rpc(readChipBoardChanged, input), board ?? undefined, etag && board ? etag : undefined, "chips-first-read"),
         needLive ? listAgents(client.paseo, undefined, false) : Promise.resolve(null),
       ]);
       if (disposed) return;

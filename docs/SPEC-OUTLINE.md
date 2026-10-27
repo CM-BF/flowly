@@ -6,6 +6,14 @@
 2026-10-23 卡片评论（用户决定，已实现，单元测试通过，实测未运行）：像 Multica 的 issue 评论，人在卡片抽屉 Progress 下方的 **Comments** 区直接评论，不必先找 session。daemon 用 `tasks.comment` 记为人写的 `commented` 事件（原文；不改 task revision；`operationId` 幂等；卡片或项目归档时 `ARCHIVED`），客户端随后把原文经 session 输入框的同一发送路径（`sendCardInstruction`、When running 偏好）发给收件 session：默认自动化执行者，否则最近活跃、不是评审者的主 session，To: 可改选；没有可用 session 时只记录，不恢复已归档的 session。发送失败保留评论，可重发（只发送，不重复记录）。`flowly_get_task.comments` 给 agent 最近 20 条，带 `unread`（这个 session 上次读卡后写的）：未读的给全文，已读的超过 4000 字符才截断并注明；skill 与评审提示要求照办未读的、核对所有的。与原 spec 不同：单条上限 10000 字符（事件 note 的上限）；评论不计入卡片 100 条事件上限，单独保留最近 50 条。新增一次性提示 `card-comments` 和欢迎页一行。[spec](CARD-COMMENTS-SPEC.md)。
 2026-10-22 卡片与子卡片（用户决定，已实现）：像 Multica 的 sub-issue，agent 用 `flowly_create_card` 建卡与子卡片（各自 workspace，立即开始或搁置，blockedBy 排序），用 `flowly_update_card` 启动、验收（In review → Done）或取消自己的子卡片；自动化下父卡派出后等待（不占名额），子卡片都停下时被唤醒并拿到它们的泳道、状态和分支。人可用 New sub-card。顶层卡片 Done 仍由人决定。AGENTS.md 增加 fork 所有权说明：上游规则由用户决定是否沿用。[spec](SUB-CARDS-SPEC.md)。
 2026-10-22 智能体自动化（已实现，待验收；用户要求把 Hermes Kanban 的 agent 自动化集成进 Flowly fork）：按项目开启、默认关闭。Run with agent 排队；dispatcher 按 blocker 全部 Done、项目名额与优先级在卡片自己的 workspace 启动 Flowly 管理的 session；回合结束按 Hermes worker 协议监督：交付交给可选的评审 agent（`flowly_submit_review`，批准留在 In review，要求修改则回到 Development 并把意见发给实现者），提问/blocker 等人，静默结束有限次提醒，失败回合退避重试，用尽后卡片移到 Blocked。顶层 Done 仍由人决定；子卡创建/验收由下述 SUB-CARDS-SPEC 补充。自动化不主动打断、不归档 session（idle-only 发送限制见 AUTOMATION-SPEC §10）。AGENTS.md 增加对应例外。[spec](AUTOMATION-SPEC.md)。
+2026-10-26 匿名使用数据（已实现，待随 1.7.0 发布）：daemon 每天最多向 PostHog Cloud US 发一条 `flowly_heartbeat`（不用 SDK），字段按白名单：版本、平台、界面实际语言（`ui_locale`，替代 GeoIP）、功能开关、窗口内计数、模型计数表；数量分桶，不发任何内容、路径或 ID。默认开启，Settings → General 与导览最后一页可关闭；`DO_NOT_TRACK` / `FLOWLY_TELEMETRY=0` 强制关闭；告知前也发送，关闭后不再发送。[spec](TELEMETRY-SPEC.md)。
+
+2026-10-26 加载优化 R2（已实现，PR #67）：所有布局都读总览加单卡详情，客户端不再读完整看板；表单、连接编辑器、Next moves 和 Ideas 的动作只读自己的卡或项目；不留切回开关。[LOADING-R2-SPEC](LOADING-R2-SPEC.md)。
+
+2026-10-26 看板数据迁入 SQLite（最小方案）：board.json 首次启动自动迁入 `flowly.sqlite`（源快照、逐值核对、单次 rename、退休标记），失败继续用 JSON；BoardStore 业务逻辑不变，按行增量单事务写入；每日备份 7 份、从备份恢复（revision 偏移）、导出回 v5 JSON 后可装回旧版；Settings → Storage。附属文件与读取行为不变，加载优化另做。取代 10-25 的完整设计与 D1–D4。[spec](SQLITE-STORAGE-SPEC.md)。
+
+2026-10-25 Insights 第三版（已实现，待验收）：页面改为 GitHub 式的一年活跃度热力图（每天的 agent 轮次，主题绿色深浅，不显示总数和连续天数），点某一天看当天的轮次、完成的卡和 AI 总结（过去的日子选中时生成，每个项目同时一份，保留 400 天）。Skills 成为主要能力：和 Workflow insights 合成一次运行（默认开启，首次定时运行等满一个周期），从卡片总结、workpad、项目记忆的线索、确认的记忆、命令记录和已有 skill 中提炼完整的 SKILL.md 草稿，点“加入项目”写入 `.agents/skills/<name>/` 并在 `.claude/skills/` 建软链接，不提交；Flowly 加入的 skill 可收到更新（diff）。其它建议与最近 7 天工作流数字默认收起；介入次数、时间去向、按周表格去掉；Agent habits 移到开发者设置。先于 SQLite R1 合入，R1 需补上 §7.1 的字段与写方法。[spec](INSIGHTS-REDESIGN-SPEC.md)。
+2026-10-22 Insights 重设计第二版（已被第三版取代，未合入）：Insights 不再统计产量，改为评估工作流本身，按周看、只和自己的过去比：每张完成卡需要的介入（消息、权限请求、移卡）、审阅来回轮数与一次通过率、时间去向（agent 在做 / 等待审阅或回复 / 空闲）、每卡 token 与 agent 时长、按模型对比、8 周趋势表（标注 Workflow insights 建议落地的周）。风险规则只保留 R2/R3/R6。新记录 `turn_ended.byUser` 与 `permission_requested.tool`。单列、主题色、不用图表。第一版（产量统计与柱图）已撤回。[spec](INSIGHTS-REDESIGN-SPEC.md)。
 2026-10-23 后台 workspace：memory review、Insights digest、workflow insights 改在每个项目专用的「Flowly background」workspace 里运行，用前恢复已归档的那个复用、没有才新建，用完归档；修复 single-root 下按目录匹配“项目根 workspace”会选中某张卡的 workspace、review tab 留在卡片里的问题。[spec](BACKGROUND-WORKSPACE-SPEC.md)。
 
 2026-10-23 Summary 模型列表：用户可添加多个模型、上移/下移设置回退优先级、移除或恢复默认 Haiku→Luna；兼容旧 Auto/单模型设置，同步所有使用 summary 设置的入口。[spec](SUMMARY-MODELS-SPEC.md)。
@@ -39,6 +47,7 @@
 2026-10-16 新用户 onboarding（设计待评审，未实现）：首次打开时的四页欢迎引导（project / 卡片 / session 与 Paseo 的对应关系、基本流程、特色功能、开始使用），空状态增强，可重看入口，以及可选的一次性情境提示；仅新增 host 级 `onboarding` 设置，不改看板数据、RPC 或 agent 工具。[设计 spec](ONBOARDING-SPEC.md)。
 
 2026-10-22 欢迎导览重设计：5 页，导览内完成语言、进展模型、外部 session 的进展/下一步/想法（首次导览关闭时写入，默认开）、项目记忆与 Insights 总开关（新 host 设置 `features`）；关闭后提示设置入口。[设计 spec](ONBOARDING-SETUP-SPEC.md)。
+2026-10-22 更新后的 What's new：老用户每个有条目的版本弹一次（默认最新版本，可往回翻到 1.5.0，设置里可再次打开），新用户随首次导览记为已看。[设计 spec](WHATS-NEW-SPEC.md)。
 2026-10-16 改名：展示名由 Ultra Kanban 改为 **Flowly**（不设中文名；定位为 agent 原生工作流，看板是界面）。插件 ID 同日改为 `flowly`（数据目录与设置由 `migrateLegacyPluginData` 复制迁移）；工具与 skill 命名由 2026-10-19 的 [Flowly 命名修订](FLOWLY-NAMING-SPEC.md)继续统一；历史验证证据中的旧名保持原样。
 
 2026-10-16 默认模型：设置新增 Models 页（新会话默认模型、摘要模型），项目设置可单独指定默认模型并优先于全局；都未设置时沿用最近一个会话。设置界面同时重做为卡片式分组。[增量 spec](MODEL-DEFAULTS-SPEC.md)和[验证](verification/model-defaults.md)。
@@ -283,3 +292,6 @@ releases from validated version tags. [Spec](CI-CD-SPEC.md),
 
 - [单一任务输入与执行默认值](TASK-INTAKE-SPEC.md)：默认 agent、原文保留、agent 整理元数据、速度与权限。
 - [卡片树](CARD-TREE-SPEC.md)：Card tree 大纲页、看板 Levels 与汇总、抽屉 Dependencies 区块、Held 信号（2026-10-24，已实现，未做 UI 验证）。
+2026-10-24：统一紧凑布局性能路径，保留独立Overview/CardDetail、fresh授权、连续动画与450ms交接；按可用宽度760分界，移除性能门控的平台特化，清理旧CardBoardContext/Proxy。见[统一规范](RESPONSIVE-PERFORMANCE-SPEC.md)、[两阶段读模型](NATIVE-OVERVIEW-SPEC.md)和[瘦身规范](CARD-QUERY-SLIM-SPEC.md)。验证结果见[交付记录](verification/responsive-ship-2026-10-24/README.md)。
+
+- [Motion smoothness](MOBILE-SMOOTHNESS-SPEC.md): fixed Samsung baseline/static-dot/candidate/reverse windows; shared sweep clock yields to existing height lease, no visual geometry/fresh/modal rewrite. Scoped frame observations and remaining long frames are reported separately.

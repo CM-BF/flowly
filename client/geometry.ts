@@ -45,19 +45,32 @@ export function edgeScroll(
   );
 }
 
+/**
+ * The board's scroll offset that brings a lane (`x`, `width` in content coordinates) into view: its left edge `inset`
+ * from the viewport's, or with `center` the lane centred, and then only when it is not already fully visible (null:
+ * leave the board where it is). Clamped to the scrollable range.
+ */
+export function laneRevealOffset(
+  lane: { x: number; width: number },
+  offset: number,
+  viewportWidth: number,
+  contentWidth: number,
+  { center = false, inset = 0 }: { center?: boolean; inset?: number } = {},
+): number | null {
+  if (center && lane.x >= offset && lane.x + lane.width <= offset + viewportWidth) return null;
+  const target = center ? lane.x + lane.width / 2 - viewportWidth / 2 : lane.x - inset;
+  const next = Math.min(Math.max(0, contentWidth - viewportWidth), Math.max(0, target));
+  return next === offset ? null : next;
+}
+
 export function drawerWidth(preferred: number, surfaceWidth: number): number {
   const max = Math.min(720, Math.max(340, surfaceWidth - 312));
   return Math.max(340, Math.min(max, preferred));
 }
 
-export function isCompactLayout(
-  hostCompact: boolean,
-  platform: string,
-  width: number,
-): boolean {
-  // Native surfaces start unmeasured; stay compact until a tablet-sized width is known.
-  if (width <= 0) return hostCompact || platform !== "web";
-  return hostCompact || width < 760;
+export function isCompactLayout(width: number): boolean {
+  // Use the same layout everywhere; unmeasured surfaces start compact.
+  return width < 760;
 }
 
 export type CardBounds = { id: string; y: number; height: number };

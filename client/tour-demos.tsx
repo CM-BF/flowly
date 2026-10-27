@@ -445,7 +445,8 @@ function LoopCase({ auto, onAuto, onStartOver }: { auto: boolean; onAuto(on: boo
   return (
     <View style={{ gap: space[2] }}>
       <DemoControls hint={hint} auto={auto} onAuto={onAuto} canRestart={turn > 0 || working || !!draft} onStartOver={onStartOver} />
-      <DemoFrame height={360}>
+      {/* Tall enough that the idea below the expanded Progress card is in view. */}
+      <DemoFrame height={480}>
         <View style={{ flex: narrow ? undefined : 1, minWidth: 0, padding: space[3], gap: space[3] }}>
           <SideTitle>{t("Session")}</SideTitle>
           <View style={{ flex: 1, minHeight: 0, gap: space[3] }}>

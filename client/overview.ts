@@ -39,15 +39,16 @@ export function boardOverview(
 export type BoardOverview = ReturnType<typeof boardOverview>;
 
 /**
- * A request to scroll the desktop board to a lane (the overview bar's In review / Blocked chips). `n` is 0 when none
- * is pending; each press gets a new `n`, so a board already on screen scrolls again.
+ * A request to scroll the desktop board to a lane (the overview bar's In review / Blocked chips, or the open card's
+ * lane, centred beside the drawer: DRAWER-SPEC). `n` is 0 when none is pending; each press gets a new `n`, so a board
+ * already on screen scrolls again. `at` is when it was asked: the board ignores a request older than a second.
  */
-export type LaneReveal = { status: Task["status"]; n: number };
-export const noReveal: LaneReveal = { status: "todo", n: 0 };
-export const requestReveal = (current: LaneReveal, status: Task["status"]): LaneReveal => ({ status, n: current.n + 1 });
+export type LaneReveal = { status: Task["status"]; n: number; at: number; center?: boolean };
+export const noReveal: LaneReveal = { status: "todo", n: 0, at: 0 };
+export const requestReveal = (current: LaneReveal, status: Task["status"]): LaneReveal => ({ status, n: current.n + 1, at: Date.now() });
 /**
  * The board served request `served`: nothing is pending any more, so a board mounted later (back from Ideas, Insights
  * or Memory, or a compact window widened) starts where it is. A newer press stays pending.
  */
 export const revealDone = (current: LaneReveal, served: number): LaneReveal =>
-  current.n && current.n === served ? { status: current.status, n: 0 } : current;
+  current.n && current.n === served ? { ...current, n: 0 } : current;

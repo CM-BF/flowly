@@ -38,7 +38,7 @@ Open **Flowly** from Paseo's sidebar. The daemon needs the `paseo` CLI on its pa
 
 Start a session from a card and the card follows the work: **Design → Development → Test → In review**. The agent sets its stage through scoped Kanban tools; the daemon also moves cards when a session starts or resumes a turn. A finished turn never marks a card Done. Done and Cancelled stay your decision. Cards show running, finished, unread and needs-attention session counts, and the latest agent output. Cards that finished more than 14 days ago (configurable in *Settings → Workflow*) fold under **Show older** at the bottom of Done and Cancelled, so the board stays about current work.
 
-Turn it off globally (*Settings → Moving cards*) or per project.
+Turn it off globally (*Settings → Workflow → Moving cards*) or per project.
 
 ### 2. Needs-you reminders
 
@@ -75,7 +75,7 @@ What should outlive a card goes to **project memory**: decisions you made (inclu
 
 Each card has an **Artifacts** list: the documents, links and deliverables it worked from (inputs) and produced (outputs). Agents register them through the board tools as they work; you add, edit or remove your own from the card. Only references are stored; files stay where they are and open in a read-only preview. Every entry shows whether you or an agent added it, and agents can't remove the ones you added.
 
-**Tickets, docs and pull requests** can be inputs too: Jira tickets, Confluence pages, and GitHub or GitLab issues, pull requests and merge requests. Connect a service in Settings → Connections (self-hosted or cloud, with a personal access or API token), then start a card with **From Jira / From GitLab / …** or add an item from the one **+** in a card's Artifacts. The picker lists your recent items (assigned to you, awaiting your review, or pages you edited) and searches by key, link, number or title words; GitHub and GitLab search the project's own repositories first, found from its git remotes. Agents read the item with `flowly_read_external` (description or page content, comments, and for pull/merge requests the branches, head commit and changed file names) and see when it changes. Flowly only reads: it never comments, approves, merges or changes anything, and an item's status never moves a card. Tokens stay on the daemon machine.
+**Tickets, docs and pull requests** can be inputs too: Jira tickets, Confluence pages, GitHub or GitLab issues, pull requests and merge requests, and Azure DevOps work items. Connect a service in Settings → Connections (self-hosted or cloud, with a personal access or API token), then start a card with **From Jira / From GitLab / …** or add an item from the one **+** in a card's Artifacts. The picker lists your recent items (assigned to you, awaiting your review, or pages you edited) and searches by key, link, number or title words; GitHub and GitLab search the project's own repositories first, found from its git remotes. Agents read the item with `flowly_read_external` (description or page content, comments, and for pull/merge requests the branches, head commit and changed file names) and see when it changes. Flowly only reads: it never comments, approves, merges or changes anything, and an item's status never moves a card. Tokens stay on the daemon machine.
 
 Once an agent understands the work it fills in the card's metadata itself. It sets the **task type** (feature, bugfix, research, refactor, docs, chore) when the card has none, never overriding one you chose. It also adds **tags** for the modules and directions the card touches (`drawer`, `performance`, `a11y`), separate from the fixed task type. Agents reuse the project's existing tags rather than inventing synonyms; you add or remove tags in the card or the form. Filter the board by tag, or search `#tag` (`#module/` matches a prefix). Agents can't remove tags you added.
 
@@ -99,9 +99,9 @@ On managed cards, comments default to **Card agent (automatic)**: the daemon sen
 
 ### 7. Project insights
 
-One page for the day: cards done, new and reworked, turns, agent time, commits and tokens (with cache hit rate), the list of what is **waiting on you**, rule-based suggestions, an AI-written daily summary, per-card token use and a 7-day trend.
+Insights shows a year of the project's activity, GitHub style: one square per day, darker for more agent turns, with no totals or streaks. Tap a day, or page through days with the arrows, to see its AI summary (written the first time you open a past day), its turns, agent time and tokens, and its cards, each with a bar for how much of the day it took. Below it, **Skills** turns what agents keep redoing into project skills (see below); other suggestions (scripts, repo tools, AGENTS.md rules) are folded underneath, followed by the last 7 days' review rounds, one-pass share and tokens per card by model.
 
-![Project insights: tiles, waiting on you, suggestions, summary and token use](docs/promo/screenshots/05-insights.png)
+![Project insights: a year of activity, the selected day's summary and Skills](docs/promo/screenshots/05-insights.png)
 
 <details>
 <summary>Dark theme</summary>
@@ -110,9 +110,8 @@ One page for the day: cards done, new and reworked, turns, agent time, commits a
 
 </details>
 
-**Agent habits** (always on, no tokens): a small block on the Insights page shows, for the last seven days, how often agents' deliveries come with suggested next steps and ideas, by day and by model, how many suggestions you took, and flags a model or session that made none over ten or more deliveries, so a rule that stops being followed shows up within a day.
 
-**Workflow insights** (optional, off by default): Flowly keeps a redacted log of the shell commands agents run on your cards, and on the schedule you pick (daily when tokens are plentiful, up to every two weeks when they are not) a model you choose reads the last week of it. It suggests what is worth keeping: `paseo.json` scripts and worktree setup, small repo tools for work agents keep redoing with inline code, AGENTS.md rules and skills. Each run replaces the previous run's suggestions, so the list always shows the latest analysis; each suggestion becomes a card with one click; quiet weeks are skipped without calling the model. Agents see the project's `paseo.json` scripts in their task context and run them instead of retyping commands.
+**Skills** (on by default, turn it off in the welcome tour or Settings → AI features): every week a model you choose reads the project's cards (summaries, acceptance criteria, your own corrections kept by project memory), confirmed memory and the redacted shell commands agents ran, and drafts complete skills, a procedure agents did differently each time (shipping through a pull request and waiting for review) or what several cards of one kind taught (plugin performance). **Add to project** writes `.agents/skills/<name>/SKILL.md` (read by Codex) and links it from `.claude/skills/<name>` (read by Claude Code); nothing is committed for you. Later runs propose updates to the skills Flowly added, shown as a diff. The same run still suggests `paseo.json` scripts, worktree setup, repo tools and AGENTS.md rules; each becomes a card with one click. Each run replaces the drafts nobody acted on; quiet weeks are skipped without calling the model, and the first scheduled run waits one full period. Agents see the project's `paseo.json` scripts in their task context.
 
 ## Languages
 
@@ -148,7 +147,11 @@ Summary models are an ordered fallback list in Settings → Models: add models a
 
 ### Data and safety
 
-Board data is stored on the daemon machine in `~/.paseo/plugin-data/flowly/` (`PASEO_HOME` selects the daemon home). Writes are serialized and atomic, stale edits are rejected, and invalid files are preserved rather than reset. Removing or permanently deleting a project or card writes a backup to `removed/` first. Archiving plugin records never deletes Paseo resources or directories. The tool service listens on loopback with private per-session credentials.
+Board data is stored on the daemon machine in `~/.paseo/plugin-data/flowly/` (`PASEO_HOME` selects the daemon home): in a local SQLite database, `flowly.sqlite`, where Paseo supports it, otherwise in `board.json`. *Settings → Storage* shows where it is, keeps a daily backup (the last 7), restores one, and exports the board to JSON. Writes are serialized and atomic, stale edits are rejected, and invalid files are preserved rather than reset. Removing or permanently deleting a project or card writes a backup to `removed/` first. Archiving plugin records never deletes Paseo resources or directories. The tool service listens on loopback with private per-session credentials.
+
+### Telemetry
+
+Once a day the daemon sends anonymous usage data to PostHog (US): the Flowly version, OS and Node version, the interface language, which features are switched on, rough project and card counts, and how many cards, agent turns, deliveries, next moves, ideas and memories there were since the last one, with the models used. When Flowly's daemon hits an error it also sends the error's type and code and where in Flowly's own code it happened (file and line), at most once a day per kind. It never sends error messages, titles, descriptions, chat messages, your paths (only file paths inside Flowly), repository names or IDs of your projects, cards or sessions, and no IP-based location. Turn it off in Settings → General → *Send anonymous usage data*, or set `DO_NOT_TRACK=1` (or `FLOWLY_TELEMETRY=0`) for the Paseo daemon. Exactly what is sent: [`server/telemetry.ts`](server/telemetry.ts) and [docs/TELEMETRY-SPEC.md](docs/TELEMETRY-SPEC.md).
 
 ## Development
 

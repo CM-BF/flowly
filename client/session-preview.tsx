@@ -1,3 +1,4 @@
+import { perfStart, perfEnd, usePerfRender } from "./perf";
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { PaseoAgent } from "@getpaseo/client";
 import {
@@ -43,7 +44,7 @@ import {
   noFocusRing } from "./ui";
 import { sessionTone } from "./status";
 import { preferredSend, resolveSend, sendBehaviorText, type SendBehavior } from "./send-queue";
-import { useComposer } from "./composer";
+import { queuedRowKey, useComposer } from "./composer";
 import { useLiveAgents } from "./queries";
 import { imageInputSupported, listenForImages, pickImageFiles, readImages, type Attachment } from "./web-images";
 import { AttachmentThumb } from "./image-attach";
@@ -71,6 +72,7 @@ import { SessionTranscript, type TranscriptHandle, type TranscriptNotice } from 
 import { useSessionReads } from "./session-reads";
 import { sessionAttention } from "../shared/session-attention";
 import { Enter, MotionReveal, PulseDot, motionDuration, useMotionValue, useReducedMotion, useSettled, lerp } from "./motion";
+import { RunningDots } from "./running-motion";
 import { useKeyboardInset } from "./keyboard";
 import { composerKeys, createDraftBuffer, createDraftReporter, restoredDraft } from "./session-input";
 import { t, tn } from "../shared/i18n";
@@ -155,6 +157,8 @@ function SessionPreviewView({
   /** Move the card to Done (an action next move); the drawer owns revision and wrap-up. */
   onMoveToDone?(): void;
 }) {
+  usePerfRender("switch.preview.commit");
+  const switchStart = perfStart();
   const theme = useTheme(),
     { colors } = theme,
     paseo = usePaseo(),
@@ -461,10 +465,14 @@ function SessionPreviewView({
       draftBuffer.clear(instruction);
       onDraftChange(sessionId, "", instruction);
       setAttachments(attachmentsRef.current.filter((a) => !attached.includes(a)));
+      // The message shows in the transcript at once, not after the checks, the send and the next read (SESSION-UX-SPEC).
+      transcript.current?.echo(messageId, instruction);
+      if (mounted.current) transcript.current?.jumpToLatest();
       try {
         await sendCardInstruction(paseo, task, sessionId, contextRead, instruction, action.activeTurnBehavior, images, messageId, { record: recordHandoff, send: sendHandoff, confirm: confirmHandoff });
         if (instructionAttempt.current?.id === messageId) instructionAttempt.current = null;
       } catch (e) {
+        transcript.current?.unecho(messageId);
         flushReport();
         const typed = draftBuffer.read();
         onDraftChange(sessionId, restoredDraft(instruction, typed));
@@ -552,9 +560,12 @@ function SessionPreviewView({
           )}
           {queued.length > 0 && (
             <View style={{ gap: 4 }}>
-              {queued.map((m) => (
+              {queued.map((m) => {
+                // Shown before the daemon confirmed it: everything stays in place and looks the same, presses wait.
+                const pending = m.id.startsWith("pending-");
+                return (
                 <QueuedRow
-                  key={m.id}
+                  key={queuedRowKey(m.id)}
                   menu={menuHandlers(openMenu, t("Queued message"), () => [
                     ...(running && !m.id.startsWith("pending-")
                       ? [{ id: "steer", label: t("Send now (steer)"), icon: "CornerDownRight", onPress: () =>
@@ -591,12 +602,13 @@ function SessionPreviewView({
                     </View>
                   )}
                   <Label muted size={font.xs} selectable={false}>{t("Queued")}</Label>
-                  {running && !m.id.startsWith("pending-") && (
+                  {running && (
                     <Button
                       quiet
                       icon="CornerDownRight"
                       label={t("Send now and steer the running turn")}
                       onPress={() =>
+                        !pending &&
                         void composer
                           .sendNow(task.id, sessionId, m.id)
                           .then(() => toast.show(t("Sent to the running turn"), { variant: "success" }))
@@ -610,19 +622,18 @@ function SessionPreviewView({
                       icon="Undo2"
                       size={26}
                       label={t("Take back to the message box")}
-                      disabled={m.id.startsWith("pending-")}
-                      onPress={() => withdraw(m)}
+                      onPress={() => !pending && withdraw(m)}
                     />
                   )}
                   <IconButton
                     icon="X"
                     size={26}
                     label={t("Remove queued message")}
-                    disabled={m.id.startsWith("pending-")}
-                    onPress={() => void composer.remove(sessionId, m.id).catch((e) => setError(message(e)))}
+                    onPress={() => !pending && void composer.remove(sessionId, m.id).catch((e) => setError(message(e)))}
                   />
                 </QueuedRow>
-              ))}
+                );
+              })}
             </View>
           )}
           <View
@@ -831,6 +842,7 @@ function SessionPreviewView({
       notices.push({ key: "attention", tone: "info", text: t("This host did not provide a readable attention timestamp. Open in Paseo to acknowledge this session.") });
   } else if (error) notices.push({ key: "error", text: error });
 
+  perfEnd("switch.preview.own", switchStart);
   return (
     <View
       ref={keyboard.ref}
@@ -853,6 +865,8 @@ function SessionPreviewView({
           minWidth: 0,
         }}
       >
+        {/* A running session's header carries the same dot sweep as its row in the card (MOTION-SPEC, running state). */}
+        {state?.active && !active?.archivedAt && <RunningDots color={tone} seed={sessionId} />}
         <IconButton icon="ArrowLeft" label={t("Back to task")} onPress={onBack} />
         <View style={{ flex: 1, minWidth: 0, paddingHorizontal: space[1] }}>
           <Label medium size={font.base} lines={1}>

@@ -38,7 +38,7 @@ paseo plugin add jasprw/flowly
 
 从卡片启动 session 后，卡片会跟着工作走：**Design → Development → Test → In review**。agent 通过受限的 Kanban 工具设置自己所处的阶段；session 开始或恢复一轮时，daemon 也会移动卡片。回合结束**不会**把卡片设为 Done，Done 和 Cancelled 永远由你决定。卡片上显示运行中、已结束回合、未读、需关注的 session 数量，以及最近一条 agent 输出。
 
-可在 *Settings → Moving cards* 全局关闭，也可以按项目关闭。
+可在 *Settings → Workflow → Moving cards* 全局关闭，也可以按项目关闭。
 
 ### 2. 人工介入提醒
 
@@ -73,7 +73,7 @@ agent 工作时发现的后续事项（顺带发现的 bug、现有方案的局�
 
 每张卡有一个 **Artifacts** 列表：它依据的文档、链接（输入）和产出的交付物（输出）。agent 工作时通过看板工具登记，你也可以在卡片上添加、编辑或删除自己的条目。只保存引用，文件留在原处，以只读预览打开。每条都标明是你还是 agent 添加的，agent 不能删除你添加的条目。
 
-**工单、文档和 PR** 也可以作为输入：Jira 工单、Confluence 页面，以及 GitHub、GitLab 的 issue、pull request 和 merge request。在 Settings → Connections 连接服务（自建或云服务，使用个人访问令牌或 API token），然后用 **From Jira / From GitLab / …** 新建卡片，或用卡片 Artifacts 里唯一的 **+** 添加条目。选择器列出你最近的条目（指派给你的、等你审查的、你编辑过的页面），可按编号、链接、数字或标题关键词搜索；GitHub 和 GitLab 会先搜索项目自己的仓库（从 git remote 识别）。agent 用 `flowly_read_external` 读取条目（描述或页面内容、评论，PR/MR 还有分支、head commit 和改动文件名），并能发现条目的变化。Flowly 只读：不评论、不 approve、不合并、不修改任何内容，条目状态也不会移动卡片。令牌只保存在 daemon 所在机器上。
+**工单、文档和 PR** 也可以作为输入：Jira 工单、Confluence 页面，GitHub、GitLab 的 issue、pull request 和 merge request，以及 Azure DevOps 工作项。在 Settings → Connections 连接服务（自建或云服务，使用个人访问令牌或 API token），然后用 **From Jira / From GitLab / …** 新建卡片，或用卡片 Artifacts 里唯一的 **+** 添加条目。选择器列出你最近的条目（指派给你的、等你审查的、你编辑过的页面），可按编号、链接、数字或标题关键词搜索；GitHub 和 GitLab 会先搜索项目自己的仓库（从 git remote 识别）。agent 用 `flowly_read_external` 读取条目（描述或页面内容、评论，PR/MR 还有分支、head commit 和改动文件名），并能发现条目的变化。Flowly 只读：不评论、不 approve、不合并、不修改任何内容，条目状态也不会移动卡片。令牌只保存在 daemon 所在机器上。
 
 agent 理解任务后会自己补全卡片元数据：卡片没有**任务类型**时设置类型（feature、bugfix、research、refactor、docs、chore），不会覆盖你已选的类型；同时添加描述所涉模块和方向的**标签**（`drawer`、`performance`、`a11y`），与固定的任务类型分开。agent 会复用项目已有标签而不是另造同义词；你可在卡片或表单里添加、删除标签。可按标签筛选看板，或搜索 `#tag`（`#module/` 匹配前缀）。agent 不能删除你添加的标签。
 
@@ -95,9 +95,9 @@ agent 理解任务后会自己补全卡片元数据：卡片没有**任务类型
 
 ### 7. Project insights
 
-一页看完当天：完成 / 新建 / 返工的卡片数、回合数、agent 时长、commits、token（含缓存命中率）；**等你处理**的列表、基于规则的建议、AI 生成的日报、每张卡的 token 用量和 7 日趋势。
+Insights 用 GitHub 式的热力图显示项目一年的活跃度：每天一格，agent 轮次越多颜色越深，不显示总数和连续天数。点某一天或用箭头左右翻页，可以看那天的 AI 总结（过去的日子第一次打开时生成）、轮次、agent 用时和 token，以及那天的卡片，每张卡下面一条横条表示它占了当天多少。下面是 **Skills**，把 agent 反复在做的事沉淀成项目 skill（见下文）；其它建议（脚本、仓库工具、AGENTS.md 规则）默认收起，再下面是最近 7 天的来回轮数、一次通过率、每卡 token（按模型）。
 
-![Project insights：指标、等你处理、建议、日报与 token 用量](docs/promo/screenshots/05-insights.png)
+![Project insights：一年活跃度、选中那一天的总结和 Skills](docs/promo/screenshots/05-insights.png)
 
 <details>
 <summary>深色主题</summary>
@@ -106,9 +106,8 @@ agent 理解任务后会自己补全卡片元数据：卡片没有**任务类型
 
 </details>
 
-**Agent 使用习惯**（始终开启，不花 token）：Insights 页的一个小区块，按天和按模型显示最近 7 天 agent 交付时带下一步建议和 ideas 的比例、你采纳了多少条建议；某个模型或 session 在 10 次以上交付里一次都没有时会标出，规则失效当天就能看到。
 
-**Workflow insights**（可选，默认关闭）：Flowly 会记录 agent 在卡片上执行的 shell 命令（已脱敏），并按你设定的周期（token 充裕可以每天，不充裕可以拉长到每两周），用你选的模型分析最近一周的记录，建议值得沉淀的东西：`paseo.json` 脚本和 worktree setup、agent 反复用内联代码完成的工作可以做成的仓库小工具、AGENTS.md 规则和 skill。每次运行的结果会替换上一次的建议，列表只反映最近一次分析；每条建议一键生成卡片；没有新活动的周期直接跳过，不调用模型。agent 的任务上下文会列出项目 `paseo.json` 中的脚本，让它直接运行，不再手敲命令。
+**Skills**（默认开启，可在欢迎导览或 设置 → AI 功能 里关闭）：每周由你选的模型阅读项目的卡片（总结、验收条目、项目记忆记下的你的纠正）、确认过的记忆和 agent 执行过的 shell 命令（已脱敏），写出完整的 skill 草稿：agent 每次做法都不一样的流程（例如走 PR 合入、等评审），或同一类卡积累下来的经验（例如插件性能优化）。点 **加入项目** 会写入 `.agents/skills/<name>/SKILL.md`（Codex 读取），并在 `.claude/skills/<name>` 建软链接（Claude Code 读取），不会替你提交。之后的运行会对 Flowly 加入的 skill 提出更新，以 diff 显示。同一次运行仍会建议 `paseo.json` 脚本、worktree setup、仓库工具和 AGENTS.md 规则，每条一键生成卡片。每次运行替换没人处理的草稿；没有新活动的周期直接跳过，不调用模型；第一次定时运行要等满一个周期。agent 的任务上下文会列出项目 `paseo.json` 中的脚本。
 
 ## 界面语言
 
@@ -144,7 +143,11 @@ agent 理解任务后会自己补全卡片元数据：卡片没有**任务类型
 
 ### 数据与安全
 
-看板数据存放在 daemon 所在机器的 `~/.paseo/plugin-data/flowly/`（`PASEO_HOME` 可指定 daemon 主目录）。写入串行化并原子替换，过期编辑会被拒绝，无效文件会被保留而不是重置。移除或永久删除 project / 卡片前会先备份到 `removed/`。归档插件记录不会删除 Paseo 资源或磁盘目录。工具服务只监听本机回环地址，每个 session 使用独立的私有凭据。
+看板数据存放在 daemon 所在机器的 `~/.paseo/plugin-data/flowly/`（`PASEO_HOME` 可指定 daemon 主目录）：Paseo 支持时存在本地 SQLite 数据库 `flowly.sqlite` 里，否则存在 `board.json`。*Settings → Storage* 显示存放位置，每天备份一次（保留最近 7 份），可恢复备份或把看板导出为 JSON。写入串行化并原子替换，过期编辑会被拒绝，无效文件会被保留而不是重置。移除或永久删除 project / 卡片前会先备份到 `removed/`。归档插件记录不会删除 Paseo 资源或磁盘目录。工具服务只监听本机回环地址，每个 session 使用独立的私有凭据。
+
+### 遥测
+
+daemon 每天向 PostHog（US 区）发送一次匿名使用数据：Flowly 版本、操作系统和 Node 版本、界面语言、开启了哪些功能、大致的项目数和卡片数，以及自上次以来新建的卡片、agent 回合、交付、下一步建议、ideas 和 memory 的次数和用到的模型。Flowly 的 daemon 出错时，还会发送错误的类型、错误码，以及出错位置在 Flowly 自身代码的哪个文件哪一行，同一种错误每天最多一次。不会发送错误消息、标题、描述、消息、你的路径（只发 Flowly 自身代码里的文件路径）、仓库名，也不会发送项目、卡片或 session 的 ID，不做基于 IP 的定位。可以在 设置 → General → *Send anonymous usage data* 关闭，或给 Paseo daemon 设置 `DO_NOT_TRACK=1`（或 `FLOWLY_TELEMETRY=0`）。具体发送哪些字段见 [`server/telemetry.ts`](server/telemetry.ts) 和 [docs/TELEMETRY-SPEC.md](docs/TELEMETRY-SPEC.md)。
 
 ## 开发
 

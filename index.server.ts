@@ -1,13 +1,16 @@
 import { ReviewClassifier } from "./server/review-classifier";
+import { readCardDetail, readProjectCardIndex, readProjectIdeas } from "./server/card-detail";
 import type { PluginServerContext } from "@getpaseo/plugin/server";
 import type { PaseoApi } from "@getpaseo/client";
 import { BoardStore, columnOrder } from "./server/store";
-import { BoardService, dataDirectory, migrateLegacyPluginData } from "./server/service";
+import { BoardService, dataDirectory, migrateLegacyPluginData, paseoHome } from "./server/service";
+import { readPaseoVersion } from "./server/paseo-version";
 import { NativeDirectoryPicker, detectNativePicker, listDirectories } from "./server/directories";
 import * as rpc from "./shared/rpc";
-import { performanceLogOn, performanceSettings, boardViewSettings, ideasSettings, languageSettings, languageSettingsValues, aiLanguageSettings, aiLanguageSettingsValues, deviceLanguageSettings, deviceLanguageValue, modelSettings, modelSettingsValues, onboardingSettings, ideasSettingsValues, statusSettings, statusSettingsValues, wrapupSettings, wrapupSettingsValues, nativeSessionSettings, nativeSessionSettingsValues, featureSettings, featureSettingsValues } from "./shared/settings";
+import { agentHabitsOn, developerSettings, performanceLogOn, performanceSettings, boardViewSettings, ideasSettings, languageSettings, languageSettingsValues, aiLanguageSettings, aiLanguageSettingsValues, deviceLanguageSettings, deviceLanguageValue, modelSettings, modelSettingsValues, onboardingSettings, ideasSettingsValues, statusSettings, statusSettingsValues, wrapupSettings, wrapupSettingsValues, nativeSessionSettings, nativeSessionSettingsValues, featureSettings, featureSettingsValues, telemetrySettings, telemetrySettingsValues } from "./shared/settings";
 import { ToolServer } from "./server/tool-server";
 import { SessionReadStore, SessionReadService, daemonNativeAttention } from "./server/session-reads";
+import { readAttentionCount } from "./server/attention-count";
 import { WrapupService } from "./server/wrapup";
 import { WorkspaceRestoreService } from "./server/workspace-restore";
 import { SessionImageService } from "./server/session-images";
@@ -15,6 +18,9 @@ import { SessionTailService } from "./server/session-tail";
 import { ArchivedSessionsService } from "./server/archived-sessions";
 import { ifChanged } from "./server/etag";
 import { BoardDeltas } from "./server/board-delta";
+import { chipBoard } from "./server/chip-board";
+import { cardBoard } from "./server/card-board";
+import { boardOverview, OverviewDeltas } from "./server/board-overview";
 import { perfLine } from "./shared/perf";
 import { catalogs } from "./shared/i18n-all";
 import { deviceLocale, type LocaleCode } from "./shared/i18n";
@@ -32,6 +38,7 @@ import { ArtifactService } from "./server/artifacts";
 import { WorkpadService } from "./server/workpad";
 import { ConnectorService, migrateTicketDirectory, refKey } from "./server/connectors/service";
 import { projectRepos } from "./server/connectors/repos";
+import { linkedCardCounts } from "./shared/connectors";
 import { join } from "node:path";
 import { SessionSettingsService } from "./server/session-settings";
 import { applyTurnEnded, applyTurnStarted, recordLifecycle } from "./server/progress-rules";
@@ -48,13 +55,17 @@ import { CommandLog } from "./server/command-log";
 import { WorkflowInsightsService, WorkflowStore } from "./server/workflow-insights";
 import { workflowInsightsSettings, workflowSettingsValues } from "./shared/workflow-insights";
 import { sessionModel } from "./server/agent-model";
-import { turnPick, userTexts } from "./shared/agent-habits";
-import { MemoryService, setMemoryEverywhere } from "./server/memory";
+import { startedByUser, turnPick, userTexts } from "./shared/agent-habits";
+import { MemoryService, setMemoryEverywhere, memoryOn } from "./server/memory";
 import { AutomationService } from "./server/automation";
 import { reviewerJob } from "./shared/automation";
 import { agentModelFromValues } from "./shared/agent-defaults";
+import { POSTHOG_KEY, TelemetryService } from "./server/telemetry";
+import { FLOWLY_VERSION } from "./shared/version";
+import { logFailure, reportError, reportRpcErrors, setErrorSink } from "./server/error-report";
 
-export default function contribute(server: PluginServerContext) {
+export default function contribute(host: PluginServerContext) {
+  const server = reportRpcErrors(host);
   server.registerSettings(boardViewSettings);
   const languagePrefs = server.registerSettings(languageSettings);
   const aiLanguagePrefs = server.registerSettings(aiLanguageSettings);
@@ -68,6 +79,8 @@ export default function contribute(server: PluginServerContext) {
   const nativePrefs = server.registerSettings(nativeSessionSettings);
   const workflowPrefs = server.registerSettings(workflowInsightsSettings);
   const perfPrefs = server.registerSettings(performanceSettings);
+  const telemetryPrefs = server.registerSettings(telemetrySettings);
+  const developerPrefs = server.registerSettings(developerSettings);
   // Project memory and Insights as a whole (ONBOARDING-SETUP-SPEC §6); unreadable settings keep the defaults (on).
   const featurePrefs = server.registerSettings(featureSettings);
   const featureValues = async () => {
@@ -84,7 +97,7 @@ export default function contribute(server: PluginServerContext) {
     return statusSettingsValues(state?.status === "ready" ? state.values : {}).autoStatus;
   };
   if (!process.env.FLOWLY_DATA_DIR && !process.env.ULTRA_KANBAN_DATA_DIR) migrateLegacyPluginData();
-  const store = new BoardStore(dataDirectory());
+  const store = new BoardStore(dataDirectory(), { backend: "sqlite" });
   const handoffs = new HandoffService(store);
   const sessionHistory = new SessionHistory(store.directory);
   store.handoffBackup = async (taskIds, destination) => {
@@ -133,15 +146,21 @@ export default function contribute(server: PluginServerContext) {
     return { ...summary, digestEnabled: summary.digestEnabled && features.insights };
   };
   const insights = new InsightsService(store, flow, new GitStats(), summaries.store, new DigestStore(store.directory), insightsSummarySettings, aiLanguage);
-  void insights.reconcile().catch((e) => console.error("Kanban flow log backfill failed:", e instanceof Error ? e.message : String(e)));
+  void insights.reconcile().catch((e) => logFailure("Kanban flow log backfill failed:", e));
   server.handle(rpc.projectInsights, async ({ etag, ...input }, { paseo }) => ifChanged(await insights.project(input, paseo), etag));
   server.handle(rpc.projectDigest, (input, { paseo }) => insights.digest(input, paseo));
+  server.handle(rpc.projectDay, (input, { paseo }) => insights.day(input, paseo));
   server.handle(rpc.projectTokens, async ({ etag, ...input }, { paseo }) => ifChanged(await insights.tokens(input, paseo), etag));
   server.handle(rpc.refreshDigest, (input, { paseo }) => insights.refresh(input, paseo));
   server.handle(rpc.readSummaries, () => summaries.overview());
   server.handle(rpc.readSummariesChanged, async (input) => ifChanged(await summaries.overview(), input.etag));
   const usage = new UsageService(store);
   insights.usage = usage;
+  // Agent habits only for Flowly developers (INSIGHTS-REDESIGN-SPEC §6).
+  insights.agentHabits = async () => {
+    const state = await developerPrefs.read().catch(() => null);
+    return state?.status === "ready" && agentHabitsOn(state.values);
+  };
   server.handle(rpc.taskUsage, (input, { paseo }) => usage.task(input.taskId, paseo));
   server.handle(rpc.summaryHistory, (input) => summaries.store.history(input.taskId));
   // Workflow insights (WORKFLOW-INSIGHTS-SPEC): command log, scheduled analysis, suggestions.
@@ -170,6 +189,7 @@ export default function contribute(server: PluginServerContext) {
   });
   server.handle(rpc.runWorkflowInsights, (input, { paseo }) => workflow.run(input.projectId, paseo, true));
   server.handle(rpc.setWorkflowFinding, (input) => workflow.setStatus(input));
+  server.handle(rpc.installSkill, (input) => workflow.installSkill(input));
   server.handle(rpc.workflowInsightsOverview, () => workflow.overview());
   server.handle(rpc.purgeWorkflowCommands, async () => ({ deletedProjects: await workflow.purge() }));
   const service = new BoardService(store);
@@ -180,7 +200,7 @@ export default function contribute(server: PluginServerContext) {
   try {
     migrateTicketDirectory(store.directory);
   } catch (e) {
-    console.error("Flowly connector data not moved:", e instanceof Error ? e.message : String(e));
+    logFailure("Flowly connector data not moved:", e);
   }
   const connectors = new ConnectorService(join(store.directory, "connectors"));
   connectors.projectRepos = async (projectId, connection) => {
@@ -193,7 +213,7 @@ export default function contribute(server: PluginServerContext) {
   store.onCommit = () => folders.schedule();
   // Existing projects get their folder copy on the first start after the upgrade (and failed ones on every start).
   void folders.migrate(store.directory).catch((e) =>
-    console.error("Flowly project folder migration failed:", e instanceof Error ? e.message : String(e)),
+    logFailure("Flowly project folder migration failed:", e),
   );
   server.handle(rpc.restoreProjectCheck, (input) => service.restoreCheck(input.path));
   server.handle(rpc.restoreProject, async (input, { paseo }) => {
@@ -201,7 +221,7 @@ export default function contribute(server: PluginServerContext) {
     flow.remember(restored.project.id, snapshot.tasks.map((t) => t.id));
     commands.remember(restored.project.id, snapshot.tasks.map((t) => t.id));
     await summaries.store.restoreEntries(snapshot.summaries).catch((e) =>
-      console.error("Kanban summaries not restored:", e instanceof Error ? e.message : String(e)),
+      logFailure("Kanban summaries not restored:", e),
     );
     void insights.reconcile().catch(() => undefined);
     folders.forget(restored.project.id);
@@ -220,11 +240,12 @@ export default function contribute(server: PluginServerContext) {
   // cleared in Paseo too; retried once if the daemon is not reachable yet.
   const syncReads = (retry: boolean) =>
     readService.syncNative().catch((e) => {
-      console.error("Flowly read-state sync failed:", e instanceof Error ? e.message : String(e));
+      logFailure("Flowly read-state sync failed:", e);
       if (retry) setTimeout(() => void syncReads(false), 30_000).unref?.();
     });
   void syncReads(true);
   server.handle(rpc.readSessionReceipts, () => sessionReads.read());
+  server.handle(rpc.readAttentionCount, (_, { paseo }) => readAttentionCount(store, sessionReads, paseo));
   server.handle(rpc.markSessionRead, (input, { paseo }) =>
     readService.mark(input, paseo),
   );
@@ -258,7 +279,7 @@ export default function contribute(server: PluginServerContext) {
   let handoffPaseo: PaseoApi;
   const commentRouter = new CommentRouter(store, handoffs, composer, () => handoffPaseo);
   const rotationOverrides = fixtureRotationOverrides(join(process.env.PASEO_HOME || join(homedir(), ".paseo"), "plugin-settings", "flowly", "rotation.json"))
-    .catch(error => { console.error(error instanceof Error ? error.message : "Invalid fixture rotation overrides"); return () => ({}); });
+    .catch(error => { logFailure("Invalid fixture rotation overrides:", error); return () => ({}); });
   const handoffObserver = new HandoffObserver({
     records: handoffs.records, board: store, paseo: () => handoffPaseo,
     serial: handoffs.serial.bind(handoffs), syncIndex: handoffs.syncIndex.bind(handoffs),
@@ -326,6 +347,12 @@ export default function contribute(server: PluginServerContext) {
   tools.agents.connectors = connectors;
   // Project memory (PROJECT-MEMORY-SPEC): confirmed knowledge shared across a project's cards.
   const memory = new MemoryService(store, summaries.store, summaries.settings, aiLanguage, (taskId) => summaries.settled(taskId));
+  // Skill material: card summaries and project memory (INSIGHTS-REDESIGN-SPEC §3.2).
+  workflow.skillSources = {
+    summaries: async () => (await summaries.store.read()).entries,
+    memory: async () => memory.store.read(),
+    memoryOn: (project) => memoryOn(project),
+  };
   tools.agents.memory = memory;
   server.handle(rpc.readMemory, async ({ projectId, etag }) => ifChanged(await memory.view(projectId), etag));
   server.handle(rpc.memoryCounts, async ({ etag }) => ifChanged(await memory.counts(), etag));
@@ -351,10 +378,7 @@ export default function contribute(server: PluginServerContext) {
   void tools
     .start()
     .catch((e) =>
-      console.error(
-        "Kanban tools unavailable:",
-        e instanceof Error ? e.message : String(e),
-      ),
+      logFailure("Kanban tools unavailable:", e),
     );
   server.handle(rpc.readBoard, (_, { paseo }) => {
     attach(paseo);
@@ -376,6 +400,31 @@ export default function contribute(server: PluginServerContext) {
   server.handle(rpc.readBoardChanged, async (input, { paseo }) => {
     attach(paseo);
     return boardDeltas.read(await store.view(), input);
+  });
+  const chipDeltas = new BoardDeltas();
+  const overviewDeltas = new OverviewDeltas();
+  server.handle(rpc.readOverviewChanged, async (input, { paseo }) => {
+    tools.attach(paseo);
+    return overviewDeltas.read(boardOverview(await store.view()), input);
+  });
+  server.handle(rpc.readStorageStatus, () => store.storageStatus());
+  server.handle(rpc.backupStorage, async () => ({ name: await store.backupStorage() }));
+  server.handle(rpc.restoreStorage, (input) => store.restoreStorage(input.name));
+  server.handle(rpc.exportStorage, () => store.exportStorage());
+  server.handle(rpc.useSqliteStorage, async () => {
+    await store.useSqliteStorage();
+    return {};
+  });
+  server.handle(rpc.readCardDetailChanged, async (input, { paseo }) => { tools.attach(paseo); return readCardDetail(await store.view(), input); });
+  server.handle(rpc.readProjectCardIndexChanged, async (input, { paseo }) => { tools.attach(paseo); return readProjectCardIndex(await store.view(), input); });
+  server.handle(rpc.readProjectIdeasChanged, async (input, { paseo }) => { tools.attach(paseo); return readProjectIdeas(await store.view(), input); });
+  server.handle(rpc.readCardBoard, async (input, { paseo }) => {
+    tools.attach(paseo);
+    return cardBoard(await store.view(), input);
+  });
+  server.handle(rpc.readChipBoardChanged, async (input, { paseo }) => {
+    tools.attach(paseo);
+    return chipDeltas.read(chipBoard(await store.view()), input);
   });
   server.handle(rpc.managedSessions, () => tools.managedSessions());
   server.handle(rpc.nativeChips, async () => {
@@ -436,11 +485,11 @@ export default function contribute(server: PluginServerContext) {
   const afterStatus = (previous: string | undefined, task: { id: string; status: string }, paseo: PaseoApi) => {
     // A person moving the card can end its automation (AUTOMATION-SPEC §4.3).
     void automation.cardMoved(task.id, previous, task.status).catch((e) =>
-      console.error("Flowly automation not updated after a move:", e instanceof Error ? e.message : String(e)),
+      logFailure("Flowly automation not updated after a move:", e),
     );
     if (finished(previous) && !finished(task.status)) {
       void restores.restoreAfterReopen(task.id).catch((e) =>
-        console.error("Kanban workspace restore failed:", e instanceof Error ? e.message : String(e)),
+        logFailure("Kanban workspace restore failed:", e),
       );
       return;
     }
@@ -452,7 +501,7 @@ export default function contribute(server: PluginServerContext) {
       if (!wrapupSettingsValues(prefs?.status === "ready" ? prefs.values : {}).autoWrapup) return;
       await wrapups.autoArchive(task.id, paseo);
     })().catch((e) =>
-      console.error("Kanban auto wrap-up failed:", e instanceof Error ? e.message : String(e)),
+      logFailure("Kanban auto wrap-up failed:", e),
     );
   };
   // A parent card's agent accepting or cancelling a sub-card has the same effects as a person's move (SUB-CARDS-SPEC §4).
@@ -502,16 +551,16 @@ export default function contribute(server: PluginServerContext) {
     const taskIds = new Set((await store.read()).tasks.filter((t) => t.projectId === input.id).map((t) => t.id));
     const removed = await handoffs.removeWithBackup([...taskIds], () => service.removeProject(input, paseo));
     await summaries.store.removeTasks(input.id, taskIds).catch((e) =>
-      console.error("Kanban summaries not removed:", e instanceof Error ? e.message : String(e)),
+      logFailure("Kanban summaries not removed:", e),
     );
     await memory.removeProject(input.id, taskIds).catch((e) =>
-      console.error("Flowly project memory not removed:", e instanceof Error ? e.message : String(e)),
+      logFailure("Flowly project memory not removed:", e),
     );
     await tools.pruneContexts().catch((e) =>
-      console.error("Kanban session bindings not cleaned:", e instanceof Error ? e.message : String(e)),
+      logFailure("Kanban session bindings not cleaned:", e),
     );
     await Promise.all([flow.removeProject(input.id), insights.digests.removeProject(input.id), workflow.removeProject(input.id)]).catch((e) =>
-      console.error("Kanban insights data not removed:", e instanceof Error ? e.message : String(e)),
+      logFailure("Kanban insights data not removed:", e),
     );
     return removed;
   });
@@ -525,7 +574,10 @@ export default function contribute(server: PluginServerContext) {
   server.handle(rpc.deleteLink, (input) => deleteLink(store, input));
   const artifacts = new ArtifactService(store, connectors);
   const workpads = new WorkpadService(store);
-  server.handle(rpc.listConnections, async () => ({ connections: await connectors.list() }));
+  server.handle(rpc.listConnections, async () => {
+    const [connections, board] = await Promise.all([connectors.list(), store.read()]);
+    return { connections, linkedCards: linkedCardCounts(connections, board.artifacts) };
+  });
   server.handle(rpc.saveConnection, (input) => connectors.save(input));
   server.handle(rpc.testConnection, (input) => connectors.test(input));
   server.handle(rpc.deleteConnection, (input) => connectors.remove(input.id));
@@ -569,20 +621,20 @@ export default function contribute(server: PluginServerContext) {
     attach(paseo); void automation.kick();
     if (projectId)
       await flow.removeTask(projectId, deleted.id).catch((e) =>
-        console.error("Kanban flow log not cleaned:", e instanceof Error ? e.message : String(e)),
+        logFailure("Kanban flow log not cleaned:", e),
       );
     if (projectId)
       await workflow.removeTask(projectId, deleted.id).catch((e) =>
-        console.error("Workflow insights data not cleaned:", e instanceof Error ? e.message : String(e)),
+        logFailure("Workflow insights data not cleaned:", e),
       );
     await summaries.store.removeTasks(`task-${deleted.id}`, new Set([deleted.id])).catch((e) =>
-      console.error("Kanban summaries not removed:", e instanceof Error ? e.message : String(e)),
+      logFailure("Kanban summaries not removed:", e),
     );
     await memory.removeTask(deleted.id).catch((e) =>
-      console.error("Flowly project memory not cleaned:", e instanceof Error ? e.message : String(e)),
+      logFailure("Flowly project memory not cleaned:", e),
     );
     await tools.pruneContexts().catch((e) =>
-      console.error("Kanban session bindings not cleaned:", e instanceof Error ? e.message : String(e)),
+      logFailure("Kanban session bindings not cleaned:", e),
     );
     return archived ? { ...deleted, archived: { sessions: archived.archivedSessions, workspace: archived.archivedWorkspace } } : deleted;
   });
@@ -648,7 +700,7 @@ export default function contribute(server: PluginServerContext) {
       if (auto && handoffRole !== "retired" && handoffRole !== "finalizing" && !reviewerJob(board, identity.agentId)) applyTurnStarted(store, board, identity, event.agent.title);
     });
     void automation.turnStarted(identity.agentId, identity.taskId).catch((e) =>
-      console.error("Flowly automation turn start not handled:", e instanceof Error ? e.message : String(e)),
+      logFailure("Flowly automation turn start not handled:", e),
     );
   });
   server.on("agent.turn_ended", async (event, { paseo }) => {
@@ -660,7 +712,7 @@ export default function contribute(server: PluginServerContext) {
       // A session Flowly does not manage (NATIVE-SESSION-SPEC §12): insights after a completed turn, when switched on.
       if (event.outcome.kind === "completed")
         void sessionInsights.enqueue(event.agent, event.timeline, paseo, endedAt).catch((e) =>
-          console.error("Flowly session insight failed:", e instanceof Error ? e.message : String(e)),
+          logFailure("Flowly session insight failed:", e),
         );
       return;
     }
@@ -675,21 +727,21 @@ export default function contribute(server: PluginServerContext) {
     const model = await sessionModel(paseo, event.agent);
     const texts = userTexts(event.timeline);
     await store.mutate((board) => {
-      recordLifecycle(store, board, identity, "agent.turn_ended", event.outcome, { model, pick: turnPick(board.events, identity.agentId, texts) });
+      recordLifecycle(store, board, identity, "agent.turn_ended", event.outcome, { model, pick: turnPick(board.events, identity.agentId, texts), byUser: startedByUser(event.timeline) });
       if (auto && handoffRole !== "retired" && handoffRole !== "finalizing") applyTurnEnded(store, board, identity, event.outcome);
     });
     // After the status rules: automation reads where the card ended up (AUTOMATION-SPEC §4.2).
     void automation.turnEnded(identity.agentId).catch((e) =>
-      console.error("Flowly automation turn end not handled:", e instanceof Error ? e.message : String(e)),
+      logFailure("Flowly automation turn end not handled:", e),
     );
     // The user's own words of this turn, kept for the finished-card review (PROJECT-MEMORY-SPEC §4.0); never blocks the hook.
     void store
       .read()
       .then((board) => memory.recordTurn(identity, event.timeline, board))
-      .catch((e) => console.error("Flowly memory clue not recorded:", e instanceof Error ? e.message : String(e)));
+      .catch((e) => logFailure("Flowly memory clue not recorded:", e));
     // The session's plan and the workspace HEAD for the workpad (WORKPAD-SPEC §2.2, §5.2); never blocks the hook.
     if (handoffRole !== "retired" && handoffRole !== "finalizing") void workpads.recordTurn(identity, event.timeline, paseo).catch((e) =>
-      console.error("Kanban workpad plan not recorded:", e instanceof Error ? e.message : String(e)),
+      logFailure("Kanban workpad plan not recorded:", e),
     );
     // Progress summary (TASK-SUMMARY-SPEC): runs after the hook returns, never blocks it.
     if (event.outcome.kind === "completed" && (await summaries.settings()).summaryEnabled)
@@ -702,7 +754,7 @@ export default function contribute(server: PluginServerContext) {
   // Shell calls of any card-workspace session (WORKFLOW-INSIGHTS-SPEC §3.1); after the hook, never blocking it.
   server.on("agent.turn_ended", (event, { paseo }) => {
     void workflow.recordTurn(event.agent, event.timeline, paseo).catch((e) =>
-      console.error("Workflow insights commands not recorded:", e instanceof Error ? e.message : String(e)),
+      logFailure("Workflow insights commands not recorded:", e),
     );
   });
   server.on("agent.permission_requested", async (event, { paseo }) => {
@@ -710,7 +762,8 @@ export default function contribute(server: PluginServerContext) {
     const identity = await managedTask(event.agent);
     if (!identity) return;
     await store.mutate((board) =>
-      recordLifecycle(store, board, identity, "agent.permission_requested"),
+      // INSIGHTS-REDESIGN-SPEC §7.2: only the tool's name, never its input.
+      recordLifecycle(store, board, identity, "agent.permission_requested", undefined, { tool: event.request.name || event.request.kind }),
     );
     void automation.permission(identity.agentId, true).catch(() => undefined);
   });
@@ -724,6 +777,67 @@ export default function contribute(server: PluginServerContext) {
     attach(paseo);
     void automation.kick();
   });
+  // Anonymous daily heartbeat (TELEMETRY-SPEC); off by the setting, DO_NOT_TRACK or FLOWLY_TELEMETRY=0.
+  const ready = <T,>(state: { status: string; values?: unknown } | null, parse: (values: unknown) => T) => parse(state?.status === "ready" ? state.values : {});
+  const telemetry = new TelemetryService({
+    directory: store.directory,
+    env: process.env,
+    apiKey: POSTHOG_KEY,
+    paseoVersion: () => readPaseoVersion(paseoHome()),
+    enabled: async () => ready(await telemetryPrefs.read().catch(() => null), telemetrySettingsValues).enabled,
+    snapshot: async () => {
+      const [language, device, ai, ideasState, nativeState, wrapState, features, workflowState, summary, autoStatus, board] = await Promise.all([
+        languagePrefs.read().catch(() => null),
+        devicePrefs.read().catch(() => null),
+        aiLanguagePrefs.read().catch(() => null),
+        ideasPrefs.read().catch(() => null),
+        nativePrefs.read().catch(() => null),
+        wrapupPrefs.read().catch(() => null),
+        featureValues(),
+        workflowValues(),
+        summaries.settings(),
+        autoStatusOn(),
+        store.view(),
+      ]);
+      const ideasValues = ready(ideasState, ideasSettingsValues);
+      const wrap = ready(wrapState, wrapupSettingsValues);
+      const projects = board.projects.filter((p) => !p.archivedAt);
+      const live = new Set(projects.map((p) => p.id));
+      return {
+        flowlyVersion: FLOWLY_VERSION,
+        language: ready(language, languageSettingsValues).language,
+        deviceLocale: ready(device, deviceLanguageValue),
+        aiLanguage: ready(ai, aiLanguageSettingsValues).aiLanguage,
+        features: {
+          memory: features.memory,
+          insights: features.insights,
+          ideas: ideasValues.ideas,
+          artifacts: ideasValues.artifacts,
+          outsideSessions: ready(nativeState, nativeSessionSettingsValues).outside,
+          autoStatus,
+          autoWrapup: wrap.autoWrapup,
+          archiveOnDelete: wrap.archiveOnDelete,
+          workflowInsights: workflowState.enabled,
+          summary: summary.summaryEnabled,
+        },
+        projects: projects.length,
+        cardsOpen: board.tasks.filter((t) => live.has(t.projectId) && !t.archivedAt && t.status !== "done" && t.status !== "cancelled").length,
+      };
+    },
+    activity: async () => {
+      const board = await store.view();
+      const [events, state] = await Promise.all([
+        Promise.all(board.projects.map((p) => flow.read(p.id).catch(() => []))).then((lists) => lists.flat()),
+        memory.store.read().catch(() => null),
+      ]);
+      return { events, memoryConfirmedAt: (state?.entries ?? []).flatMap((e) => (e.confirmedAt ? [e.confirmedAt] : [])) };
+    },
+  });
+  telemetry.start();
+  setErrorSink((source, error, handled) => void telemetry.reportError(source, error, handled));
+  const onUncaught = (error: Error) => reportError("uncaught", error, false);
+  process.on("uncaughtExceptionMonitor", onUncaught);
+  server.handle(rpc.telemetryStatus, () => ({ forcedOff: telemetry.forcedOff() }));
   console.log("Flowly store ready:", store.directory);
   server.before("agent.session_open", async ({ request }, { paseo }) => {
     attach(paseo);
@@ -745,10 +859,7 @@ export default function contribute(server: PluginServerContext) {
           },
         };
     } catch (e) {
-      console.error(
-        "Kanban session CLI unavailable:",
-        e instanceof Error ? e.message : String(e),
-      );
+      logFailure("Kanban session CLI unavailable:", e);
     }
   });
   return () => {
@@ -758,10 +869,17 @@ export default function contribute(server: PluginServerContext) {
     const stoppedHistory = sessionHistory.stop();
     automation.stop();
     workflow.stop();
+    telemetry.stop();
+    setErrorSink(null);
+    process.off("uncaughtExceptionMonitor", onUncaught);
     stopWorkflowPrefs();
     stopFeaturePrefs();
     folders.stop();
     tools.stop();
-    return Promise.all([stoppedClassifier, stoppedHandoff, stoppedHistory]).then(() => undefined);
+    // The store closes after the services that may still write while stopping (its queue finishes pending writes first).
+    return Promise.all([stoppedClassifier, stoppedHandoff, stoppedHistory])
+      .then(() => store.close())
+      .catch((e) => logFailure("Flowly storage: close failed:", e))
+      .then(() => undefined);
   };
 }
