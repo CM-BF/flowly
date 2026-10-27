@@ -83,6 +83,11 @@ export const automationSettingsSchema = z.strictObject({
   panelSize: z.number().int().min(2).max(automationLimits.panel).optional(),
   /** Review levels (§5.2): the light and deep levels' models, panel size and round caps; absent values use their defaults. */
   levels: levelSettingsSchema.optional(),
+  /**
+   * Acceptance-test review (§5.4): an author session writes tests from the card alone (part hidden from the implementer);
+   * reviewers run them, changes need a failing check, and rework that does not improve them is reverted. Stored only while on.
+   */
+  acceptance: z.strictObject({ author: agentModelSchema.optional() }).optional(),
   /** Sessions start in the provider's no-approval mode (claude bypassPermissions, codex full-access). */
   fullAccess: z.boolean().default(true),
   /**
@@ -141,6 +146,8 @@ export const automationCodes = [
   "review_incomplete",
   "sub_cards",
   "cooldown",
+  /** Rework did not improve the acceptance tests; the workspace was restored to the previous round's delivery (§5.4.3). */
+  "acceptance_reverted",
 ] as const;
 export type AutomationCode = (typeof automationCodes)[number];
 
@@ -284,6 +291,8 @@ export const automationJobSchema = z.object({
     failures: z.number().int().nonnegative(), cooldowns: z.number().int().nonnegative().optional(),
     verdict: z.enum(["approved", "changes", "incomplete"]).optional(), reviewedEvent: z.string().optional(),
   }).optional(),
+  /** Acceptance-test counts the reviewer reported per round of the current review cycle (§5.4.3). */
+  acceptanceRuns: z.array(z.object({ round: z.number().int().positive(), passed: z.number().int().nonnegative(), failed: z.number().int().nonnegative() })).max(10).optional(),
   /** Someone moved the card after this job failed (not automation's own move to Blocked): it no longer asks for attention (AUTOMATION-SPEC §6). */
   takenBack: z.boolean().optional(),
   queuedAt: z.string(),
@@ -292,6 +301,7 @@ export const automationJobSchema = z.object({
 });
 export type AutomationJob = z.infer<typeof automationJobSchema>;
 
+const acceptanceCount = z.strictObject({ passed: z.number().int().nonnegative().max(100000), failed: z.number().int().nonnegative().max(100000) });
 /** flowly_submit_review: the reviewer's verdict (AUTOMATION-SPEC §5). */
 export const reviewInputSchema = z.strictObject({
   verdict: z.enum(["approve", "changes"]),
@@ -300,6 +310,8 @@ export const reviewInputSchema = z.strictObject({
   /** Risks the acceptance criteria do not cover, one plain sentence each (§5.2.4); recorded with the verdict, never blocking. */
   risks: z.array(z.string().trim().min(1).max(automationLimits.risk)).max(automationLimits.risks).default([]),
   handoff: z.strictObject({ gaps: z.array(z.string().trim().min(1).max(300)).max(5) }).optional(),
+  /** Acceptance-test results the reviewer ran this round (§5.4.2): the visible suite and the reviewer-only holdout. */
+  acceptance: z.strictObject({ visible: acceptanceCount, holdout: acceptanceCount }).optional(),
 });
 export type ReviewInput = z.input<typeof reviewInputSchema>;
 export const reviewResultSchema = z.object({

@@ -39,6 +39,7 @@ const reasons: Record<AutomationCode, string> = localizedLabels({
   review_incomplete: msg("The reviewer gave no verdict"),
   cooldown: msg("Provider limit reached; retrying later"),
   sub_cards: msg("It handed its work to sub-cards and waits for them"),
+  acceptance_reverted: msg("Rework did not improve the acceptance tests; the previous delivery was restored"),
 });
 
 /**

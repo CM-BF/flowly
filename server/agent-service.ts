@@ -78,6 +78,7 @@ import { ideaLimits, isWorkStatus, legacyStatus, type Board, type Idea, type Rec
 import { isLegacyScope } from "../shared/scope";
 import { MemoryError, type MemoryService } from "./memory";
 import type { AutomationService } from "./automation";
+import type { AcceptanceService } from "./acceptance";
 import type { ReviewInput } from "../shared/automation-schema";
 import { automationAllowed, automationOf, automationSessionRole, isLive, jobOf, reviewerOfCard, reviewsFor } from "../shared/automation";
 import { parentOf } from "../shared/links";
@@ -165,6 +166,8 @@ export class AgentService {
   memory?: MemoryService;
   /** Agent automation (AUTOMATION-SPEC); set by the plugin entry. */
   automation?: AutomationService;
+  /** Acceptance-test review (AUTOMATION-SPEC §5.4): what get_task shows of the card's acceptance tests. */
+  acceptance?: Pick<AcceptanceService, "context">;
   /** Card continuity and durable source provenance; attached by the plugin entry. */
   handoffs?: HandoffService;
   sessionHistory?: SessionHistory;
@@ -690,7 +693,12 @@ export class AgentService {
         const { handoffs, branches } = withHandoffs ? await linkExtras(board, r.task.id, r.paseo, this.git, this.handoffs?.linkSummary.bind(this.handoffs)) : { handoffs: new Map<string, LinkHandoff>(), branches: new Map<string, string>() };
         const emittedHandoffs = new Set<string>();
         setup = setupContext(setupMissing(r.task, workpadOf(board.workpads, r.task.id), workpadEnabled(r.project)), r.task.status);
+        // The reviewer also sees the holdout suite and the requirement table; implementers never do (§5.4.2).
+        const acceptance = automationOf(r.project)?.acceptance && this.acceptance
+          ? await this.acceptance.context(r.task.id, reviewerOfCard(board, r.task.id, identity.agentId)).catch(() => null)
+          : null;
         return {
+          ...(acceptance ? { acceptance } : {}),
           reviewLevel: levelContext(board, r.task),
           // Comments come in `comments` only, with their own unread flag and bound (CARD-COMMENTS-SPEC §3).
           activity: board.events.filter((e) => e.taskId === r.task.id && !isComment(e)).slice(-20),

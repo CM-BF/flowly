@@ -567,16 +567,23 @@ export const deepCriteria =
 /** The unattended project's rule (§5.3.4): nobody answers, so automated sessions decide and deliver. */
 export const unattendedNote =
   "This project runs unattended: nobody answers questions. Never ask or report a blocker (flowly_report_progress kind=question or blocker, status=blocked, or your own question tool): decide yourself, write down your assumptions and deliver. If part of the work cannot be done safely, deliver the rest and say in the note what you did not do and why.";
+/** The implementer's part of acceptance-test review (§5.4.2); paths come from flowly_get_task.acceptance. */
+export const acceptanceImplementerNote =
+  "This project uses independent acceptance tests (§5.4): a separate session writes them from the card alone, without seeing your work. flowly_get_task's acceptance field gives their state, path and command (bash <suite>/run.sh <workspace>). Run them before you deliver and say in the delivery note what passed and failed. You may read and run them, but never edit, copy or game them; if a test contradicts the card, the card wins: explain it in the delivery note. The reviewer also runs tests you do not see, so meet the card itself, not only these tests. Keep scratch files and extra tests the card did not ask for out of the delivered paths.";
+/** The reviewer's part of acceptance-test review (§5.4.2): tests are new information, the verdict needs evidence. */
+export const acceptanceReviewerNote =
+  "Acceptance tests (§5.4): flowly_get_task's acceptance field gives the visible suite, the reviewer-only holdout suite and requirements.md. When its state is ready, run both from a clean shell (bash <suite>/run.sh <workspace>, bash <holdout>/run.sh <workspace>), quote each command and the last lines of its output, and send the counts in flowly_submit_review acceptance { visible: { passed, failed }, holdout: { passed, failed } } (from each suite's final ACCEPTANCE line). Passing tests are necessary, not sufficient: in your summary give a table 'requirement → evidence' covering every explicit requirement and prohibition of the card and requirements.md, each with the check or command output that shows it; mark requirements without reliable evidence 'unverified' and list them in risks. verdict=changes only for a failing acceptance check (name it and quote its failure) or a violated explicit requirement or prohibition of the card you can show with evidence; never request changes on opinion or on edge cases the card does not ask for. verdict=approve only when both suites pass (a check that contradicts the card's text may fail: quote the card) and no requirement or prohibition is violated. If the state is writing or failed, review as above without the acceptance field.";
 const lifecycle =
   `Follow the Flowly skill: read flowly_get_task, fix setup.missing, set the stage that matches the work, keep the workpad current. Meet every explicit requirement and prohibition in the card's description and comments; never add forbidden content, hard-code expected outputs, or edit tests or inputs to make checks pass. End by delivering with flowly_update_status status=in_review and a note on what changed, how you verified it and what you did not run; in a workspace without Git history, list every file you created, changed or deleted, since the reviewer has no diff. Make the delivery work where it will be used, not only in this session: for another unprivileged user, with its own directories read-only, without your caches, build products or environment variables; do not write into its own directories at import or run time or build it on first use unless the card asks for that. If flowly_get_task's workspace.kind is worktree, commit your changes on that worktree's branch before delivering: parents and dependent cards merge branches, so uncommitted work never reaches them. Any other workspace (directory) is the project root's own checkout with no branch of its own: leave your changes uncommitted there unless the card or the repository's rules ask for a commit. If the delivery returns WORKPAD_OPEN or SETUP_INCOMPLETE, fix what you can, then retry in this same turn with acknowledgeOpen=true and a note explaining each remaining item; do not end the turn on the refusal. A progress result (kind=result) does not end an automated turn. Doubt is not a reason to stop: if the task looks impossible, contradictory or wrong, test that conclusion first, then complete it on the most reasonable reading, deliver every required output, and state your doubts and the assumptions you chose in the delivery note. Ask with flowly_report_progress kind=question or set status=blocked with the reason only when only a person can unblock you (credentials, access, a decision only they can make) or going on would cause irreversible harm, then end your turn: nobody is watching this session live, so do not wait. If the card is too big for one session or has parts that can run in parallel, split it into sub-cards with flowly_create_card and end your turn; you are woken when they settle. In a directory workspace automated sub-cards share the project root and run one at a time, so split there only when a part needs its own session, not for speed. Give review_level=deep only to ${deepCriteria}`;
 
-export function startPrompt(input: { review: boolean; again: boolean; unattended?: boolean }) {
+export function startPrompt(input: { review: boolean; again: boolean; unattended?: boolean; acceptance?: boolean }) {
   return [
     input.again
       ? `${tag} Flowly's agent automation queued this card again. Continue from the current state of the workspace and the card; do not redo work that is already done.`
       : `${tag} Flowly's agent automation started this session to work on this card unattended, from start to finish.`,
     lifecycle,
     input.review ? "After you deliver, a reviewer agent checks the work and may send you requested changes." : "",
+    input.acceptance ? acceptanceImplementerNote : "",
     input.unattended ? unattendedNote : "",
   ]
     .filter(Boolean)
@@ -692,7 +699,7 @@ function earlierRisksText(earlier: EarlierRisks) {
  * (§5.2): a Light round is serial on its own cap, a Deep round is a panel with fixed angles from the first round.
  * `earlier`: the risks earlier rounds reported, which a reviewer session new to this card has never seen.
  */
-export function reviewPrompt(round: number, max: number, reviewers = 1, level: ReviewLevel = "standard", { why, earlier, unattended = false }: { why?: string; earlier?: EarlierRisks; unattended?: boolean } = {}) {
+export function reviewPrompt(round: number, max: number, reviewers = 1, level: ReviewLevel = "standard", { why, earlier, unattended = false, acceptance = false }: { why?: string; earlier?: EarlierRisks; unattended?: boolean; acceptance?: boolean } = {}) {
   const panel = reviewers > 1;
   const deep = level === "deep" && panel;
   const kind = level === "standard" ? "review" : `${level} review`;
@@ -714,6 +721,7 @@ export function reviewPrompt(round: number, max: number, reviewers = 1, level: R
         ].join("\n")
       : lenses[Math.min(round, lenses.length) - 1],
     audit,
+    acceptance ? acceptanceReviewerNote : "",
     convergence(round),
     risksRequest,
     `Then call flowly_submit_review exactly once: verdict=changes with concrete findings the implementer can act on (file, problem, expected fix), including the confirmed serious problems above even if the acceptance criteria omit them; verdict=approve only when the card's requirements and prohibitions and the acceptance criteria are met, the relevant checks pass, and no such confirmed findings remain unresolved. Do not edit files, commit, push or change the card status. ${reviewerDecides(unattended)}`,
@@ -759,4 +767,18 @@ export function childrenPrompt(lines: readonly SubCardLine[]) {
     ...lines.map(describe),
     "Inspect the delivery evidence below and each workspace's files and branch. Accept a delivered sub-card with flowly_update_card action=accept only after checking it and bringing its changes where later cards and this card need them. Weigh its reviewer's risks first: they did not block its approval, but one that matters to this card or the cards after it needs rework (action=start with a concrete note) or a person's decision. Start only newly parked sub-cards you deliberately deferred; never restart failed, stopped or human-parked jobs. Those need a person's Run again. For changes to a delivered sub-card use action=start with a concrete note; after two such restarts of one sub-card a person must act (NEEDS_PERSON), so ask one. Ask a person about failed jobs or unavailable blockers. Directory workspaces share the project root: do not assume an isolated branch. When this card's goal is met, deliver it with flowly_update_status status=in_review. If you dispatch sub-cards, end your turn without reporting a question or blocker unless you actually need a person; Flowly wakes only the supervised parent when they settle.",
   ].join("\n");
+}
+
+/** A round's acceptance-test result: both suites added up (§5.4.3). */
+export type AcceptanceCount = { passed: number; failed: number };
+/**
+ * Whether a verdict's acceptance result keeps the rework or reverts it (§5.4.3): against the previous round of the same
+ * cycle, more failures or fewer passes is a regression; a change request whose failures did not go down is no
+ * improvement. Without a previous round, or without counts, the verdict stands.
+ */
+export function acceptanceDecision(previous: AcceptanceCount | undefined, now: AcceptanceCount | undefined, verdict: "approve" | "changes"): "keep" | "revert" {
+  if (!previous || !now) return "keep";
+  if (now.failed > previous.failed || now.passed < previous.passed) return "revert";
+  if (verdict === "changes" && previous.failed > 0 && now.failed >= previous.failed) return "revert";
+  return "keep";
 }
