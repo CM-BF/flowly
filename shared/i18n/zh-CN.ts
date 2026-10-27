@@ -1374,6 +1374,8 @@ const catalog: Catalog = {
   "Review rounds": "评审轮次",
   "Full access": "完全访问",
   "Agents run without asking for permissions (Claude bypass, Codex full access), whatever Permissions the implementer, the reviewer or the project default model chose. Off: those Permissions apply, agents may stop to ask, and the card shows it.": "智能体运行时不请求授权（Claude 的 bypass、Codex 的 full access），无论执行者、评审者或项目默认模型选了什么权限。关闭后按这些权限设置运行，智能体可能停下来请求授权，卡片上会显示。",
+  "Unattended": "无人值守",
+  "Nobody answers questions in this project (benchmarks, overnight runs). Agents decide open questions themselves, write down their assumptions and deliver; a question or blocker from an automated session is refused.": "这个项目里没有人回答问题（基准测试、夜间运行）。智能体自己决定悬而未决的问题，写下所作的假设并交付；自动化会话的提问或阻塞报告会被拒绝。",
   "Agents can split a card into sub-cards, each with its own workspace. The parent card shows Sub-cards 2/3, waits while they run and is woken to accept them and finish. New sub-card is in every card's menu.": "智能体可以把一张卡片拆成子卡片，每张子卡片有自己的 workspace。父卡片显示“子卡片 2/3”，在子卡片运行时等待，结束后被唤醒来验收它们并收尾。每张卡片的菜单里都有“新建子卡片”。",
   "New sub-card": "新建子卡片",
   "Sub-cards {done}/{total}": "子卡片 {done}/{total}",

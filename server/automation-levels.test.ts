@@ -45,7 +45,7 @@ const notes = async (x: Fixture, action = "automation_review_started") => (await
 function expectReviewAuthority(prompt: string) {
   expect(prompt).toContain("confirmed serious correctness, data safety, security or unbounded-growth problems");
   expect(prompt).toContain("even when the acceptance criteria omit them");
-  expect(prompt).toContain("verdict=approve only when the acceptance criteria are met, the relevant checks pass, and no such confirmed findings remain unresolved");
+  expect(prompt).toContain("verdict=approve only when the card's requirements and prohibitions and the acceptance criteria are met, the relevant checks pass, and no such confirmed findings remain unresolved");
   expect(prompt).toContain("Keep unconfirmed risks and out-of-scope improvements in risks");
   expect(prompt).toContain("Do not expand review into unrelated code");
 }

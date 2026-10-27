@@ -285,6 +285,12 @@ export function AutomationSettingsGroup({
       return next ? { ...rest, [key]: next } : rest;
     });
   };
+  // Stored only while on (AUTOMATION-SPEC §5.3.4): builds without it refuse a board whose project settings carry the key.
+  const unattended = (on: boolean) =>
+    onChange((previous) => {
+      const { unattended: _drop, ...rest } = previous ?? { ...defaults, enabled: false };
+      return on ? { ...rest, unattended: true } : rest;
+    });
   return (
     <View style={{ gap: space[3] }}>
       <Toggle
@@ -347,6 +353,12 @@ export function AutomationSettingsGroup({
             detail={t("Agents run without asking for permissions (Claude bypass, Codex full access), whatever Permissions the implementer, the reviewer or the project default model chose. Off: those Permissions apply, agents may stop to ask, and the card shows it.")}
             value={current.fullAccess}
             onChange={(fullAccess) => set({ fullAccess })}
+          />
+          <Toggle
+            title={t("Unattended")}
+            detail={t("Nobody answers questions in this project (benchmarks, overnight runs). Agents decide open questions themselves, write down their assumptions and deliver; a question or blocker from an automated session is refused.")}
+            value={!!current.unattended}
+            onChange={unattended}
           />
         </>
       )}
