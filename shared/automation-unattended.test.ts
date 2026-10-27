@@ -19,7 +19,9 @@ test("every review round audits the card's own requirements and prohibitions, th
     expect(text, name).toContain("the workpad's acceptance criteria were written by the implementer and may leave some out");
     expect(text, name).toContain("tests, test data, fixtures and generated files included, for forbidden content (binary or encoded payloads");
     expect(text, name).toContain("Compare with the state before the card: nothing that worked may break");
-    expect(text, name).toContain("A violated requirement or prohibition, a gamed check or a regression is a finding requiring changes, never a risk");
+    expect(text, name).toContain("A violated requirement or prohibition, a gamed check, a regression or a delivery that only works in this session is a finding requiring changes, never a risk");
+    expect(text, name).toContain("as another unprivileged user, with its own source and install directories read-only, and without this session's caches, build products or environment variables");
+    expect(text, name).toContain("Code that writes into its own directories at import or run time, builds itself on first use, or needs files only this session created is a finding unless the card asks for it");
     expect(text, name).toContain("Without Git history there is no diff: find the changed files yourself");
     expect(text, name).toContain("verdict=approve only when the card's requirements and prohibitions and the acceptance criteria are met");
   }
@@ -86,6 +88,7 @@ test("the implementer delivers on the most reasonable reading and asks only for 
   expect(start).toContain("only when only a person can unblock you (credentials, access, a decision only they can make) or going on would cause irreversible harm");
   expect(start).toContain("never add forbidden content, hard-code expected outputs, or edit tests or inputs to make checks pass");
   expect(start).toContain("in a workspace without Git history, list every file you created, changed or deleted");
+  expect(start).toContain("Make the delivery work where it will be used, not only in this session: for another unprivileged user, with its own directories read-only");
   expect(start).not.toContain("do not guess");
 
   const nudge = nudgePrompt(1, 2);

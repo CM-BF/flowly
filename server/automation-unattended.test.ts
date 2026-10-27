@@ -205,4 +205,5 @@ test("the narrowed Deep criteria and the directory sub-card rule read the same i
   expect(createCard).toContain("automated sub-cards there run one at a time and splitting does not make the work parallel");
   expect(skillText).toContain("Doubt is not a reason to stop");
   expect(skillText).toContain("Whether the delivery meets the card is yours to decide");
+  expect(skillText).toContain("check that it works where it will run (another user, read-only install directories, none of this session's caches or environment)");
 });
