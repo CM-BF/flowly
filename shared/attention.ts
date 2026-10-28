@@ -45,7 +45,7 @@ function automationNeedsYou(project: Project, task: Task, job: AutomationJob, ow
   if (!automationOf(project) || task.status === "done" || task.status === "cancelled") return false;
   if (job.state === "needs_human") return true;
   if (job.state === "failed") return !failureTakenBack(job, own);
-  return task.status === "in_review" && job.state === "delivered" && (job.verdict === "incomplete" || job.code === "review_rounds");
+  return task.status === "in_review" && job.state === "delivered" && (job.verdict === "incomplete" || job.code === "review_rounds" || job.code === "acceptance_reverted");
 }
 
 /** Cards across all active projects whose sessions need a human. Running alone does not count. */

@@ -83,6 +83,8 @@ import { resumeStage } from "./progress-rules";
 import type { BoardStore } from "./store";
 import { ToolError } from "./tool-error";
 import { logFailure } from "./error-report";
+import type { AcceptanceService } from "./acceptance";
+import { acceptanceDecision } from "../shared/automation";
 
 type Role = AutomationJob["role"];
 export type RoutedComment = { taskId: string; sourceId: string; messageId: string; text: string; mode?: "steer" | "interrupt" | "queue"; fresh?: boolean };
@@ -114,6 +116,8 @@ export type AutomationDeps = {
   sendComment?: (input: Omit<RoutedComment, "fresh"> & { agentId: string }) => Promise<{ kind: "sent" | "queued" }>;
   commentResult?: (taskId: string, sourceId: string, result: CommentRouteResult) => Promise<void>;
   commentFailed?: (taskId: string, sourceId: string, error: unknown) => Promise<void>;
+  /** Acceptance-test review (AUTOMATION-SPEC §5.4): authors, snapshots and reverts. */
+  acceptance?: Pick<AcceptanceService, "tick" | "snapshot" | "restore" | "workspaceDirectory" | "guard" | "paths" | "state">;
 };
 
 /** Short tail for event notes and the job's detail. */
@@ -202,6 +206,8 @@ export class AutomationService {
     const plan = dispatchPlan(board, this.clock(), fallback);
     for (const job of plan.retry) await this.resume(job);
     for (const job of plan.start) await this.begin(job, fallback);
+    // Authors start after their job is claimed, outside the board lock (§5.4.1).
+    if (this.deps.acceptance) await this.deps.acceptance.tick(await this.store.read(), this.paseo).catch((e) => logFailure("Flowly acceptance pass failed:", e));
     await this.watchHistory();
   }
 
@@ -814,6 +820,7 @@ export class AutomationService {
           const newReviewCycle = !!job.reopened;
           if (newReviewCycle) {
             job.reviewRounds = 0;
+            delete job.acceptanceRuns;
             if (this.deps.handoff) job.cycle = (job.cycle ?? job.generation) + 1;
           }
           delete job.reopened;
@@ -1272,7 +1279,9 @@ export class AutomationService {
   async submitReview(identity: ToolIdentity, raw: ReviewInput, beforeCommit?: (board: Board, sourceId: string) => Promise<void>) {
     const input = reviewInputSchema.parse(raw);
     type Answer = { accepted: boolean; verdict: "approve" | "changes"; replayed?: boolean; message: string; handoffSourceId?: string };
-    const result = await this.store.transaction<{ answer: Answer; changes?: { job: AutomationJob; prompt: string } }>(async (board) => {
+    // Acceptance-test review (§5.4.3): a change request keeps this delivery, so a rework that does not improve can go back to it.
+    const workspace = await this.acceptanceSnapshot(identity, input.verdict, !!input.acceptance);
+    const result = await this.store.transaction<{ answer: Answer; changes?: { job: AutomationJob; prompt: string }; revert?: { job: AutomationJob; round: number } }>(async (board) => {
       const job = jobOf(board, identity.taskId);
       if (!job || job.reviewerId !== identity.agentId)
         throw new ToolError("NOT_REVIEWER", "Only the reviewer session that Flowly's agent automation started for this card can submit a review.");
@@ -1321,6 +1330,34 @@ export class AutomationService {
         if (input.risks.length)
           this.store.event(board, { taskId: job.taskId, actor: "agent", agentId: identity.agentId, action: "automation_review_risks", note: clip(`Risks beyond the acceptance criteria (${input.risks.length}):\n${input.risks.map((r) => `- ${r}`).join("\n")}`, 10000) });
       };
+      // The reviewer's acceptance counts against the previous round of this cycle (§5.4.3).
+      const counted = input.acceptance && automationOf(project)?.acceptance
+        ? { passed: input.acceptance.visible.passed + input.acceptance.holdout.passed, failed: input.acceptance.visible.failed + input.acceptance.holdout.failed }
+        : undefined;
+      const previousRun = job.acceptanceRuns?.filter((r) => r.round < job.reviewRounds).at(-1);
+      if (counted) job.acceptanceRuns = [...(job.acceptanceRuns ?? []).filter((r) => r.round !== job.reviewRounds), { round: job.reviewRounds, ...counted }].slice(-10);
+      if (counted && previousRun && workspace && acceptanceDecision(previousRun, counted, input.verdict) === "revert") {
+        job.verdict = "changes";
+        job.reviewedEvent = job.deliveryEvent;
+        job.detail = clip(input.summary);
+        job.updatedAt = now;
+        job.nudges = 0;
+        job.failures = 0;
+        job.role = "implementer";
+        job.state = "delivered";
+        job.code = "acceptance_reverted";
+        delete job.pendingOp; delete job.pendingRole; delete job.instruction; delete job.reopened;
+        this.store.event(board, { taskId: task.id, actor: "agent", agentId: identity.agentId, action: "automation_changes_requested", note: clip(text, 10000) });
+        risks();
+        this.store.event(board, { taskId: task.id, actor: "system", action: "automation_acceptance_reverted", note: `Rework did not improve the acceptance tests (${previousRun.failed} → ${counted.failed} failing, ${previousRun.passed} → ${counted.passed} passing); restoring the workspace to review round ${previousRun.round}'s delivery. The card waits for you.` });
+        return {
+          value: {
+            answer: { accepted: true, verdict: input.verdict, message: `Recorded. The rework did not improve the acceptance tests over round ${previousRun.round}, so Flowly restores that delivery and the card waits for a person; end your turn.`, ...(beforeCommit ? { handoffSourceId } : {}) },
+            revert: { job: { ...job }, round: previousRun.round },
+          },
+          changed: true,
+        };
+      }
       job.verdict = verdict;
       job.reviewedEvent = job.deliveryEvent;
       job.detail = clip(input.summary);
@@ -1346,7 +1383,10 @@ export class AutomationService {
       job.turnAt = now;
       const settings = automationOf(project)!;
       const plan = planOf(job, settings);
-      job.changes = changesPrompt(job.reviewRounds, plan.max, input.summary, input.findings, plan.size, plan.level, input.risks);
+      // The implementer never learns where the reviewer-only tests are (§5.4.2).
+      const hidden = settings.acceptance && this.deps.acceptance ? this.deps.acceptance.paths(task.id).holdout : null;
+      const redact = (text: string) => (hidden ? text.split(hidden).join("[reviewer-only tests]") : text);
+      job.changes = changesPrompt(job.reviewRounds, plan.max, redact(input.summary), input.findings.map(redact), plan.size, plan.level, input.risks.map(redact));
       this.instruct(job, "implementer", job.changes, undefined, "changes");
       this.store.event(board, { taskId: task.id, actor: "agent", agentId: identity.agentId, action: "automation_changes_requested", note: clip(text, 10000) });
       risks();
@@ -1368,8 +1408,41 @@ export class AutomationService {
       };
     });
     if (result.changes) void this.deliver(result.changes.job);
+    if (result.revert && workspace) await this.acceptanceRestore(result.revert.job, workspace, result.revert.round);
     void this.kick();
     return result.answer;
+  }
+
+  /** Before a verdict: the reviewer's card is an acceptance card; a change request snapshots the delivery under review (§5.4.3). */
+  private async acceptanceSnapshot(identity: ToolIdentity, verdict: "approve" | "changes", counted: boolean) {
+    const acceptance = this.deps.acceptance;
+    if (!acceptance || !this.paseo) return null;
+    const board = await this.store.read();
+    const job = jobOf(board, identity.taskId), task = board.tasks.find((t) => t.id === identity.taskId);
+    if (!job || !task || job.reviewerId !== identity.agentId || !automationOf(board.projects.find((p) => p.id === job.projectId))?.acceptance) return null;
+    // Counts are what reverts compare (§5.4.3): with the tests ready, a verdict without them is refused before anything is recorded.
+    if (!counted && (await acceptance.state(task.id).catch(() => null))?.status === "ready")
+      throw new ToolError("ACCEPTANCE_REQUIRED", "This card's acceptance tests are ready: run both suites and send their counts in acceptance { visible: { passed, failed }, holdout: { passed, failed } } (from each suite's final ACCEPTANCE line), then submit again. Nothing was recorded.");
+    // A session that changed the tests gets the author's version back before anything counts (§5.4.2).
+    if (await acceptance.guard(task.id).catch(() => false))
+      await this.store.transaction((b) => {
+        this.store.event(b, { taskId: task.id, actor: "system", action: "automation_acceptance_reverted", note: "A session changed the acceptance tests; Flowly put the author's version back. Counts reported against the changed tests do not show the card's real state." });
+        return { value: null, changed: true };
+      });
+    const directory = await acceptance.workspaceDirectory(task, this.paseo).catch(() => null);
+    if (!directory) return null;
+    if (verdict === "changes")
+      await acceptance.snapshot(task.id, directory, job.cycle ?? job.generation, job.reviewRounds).catch((e) => logFailure("Flowly acceptance snapshot failed:", e, task.id));
+    return directory;
+  }
+
+  /** Puts the workspace back to the round's delivery; a failure is recorded on the card and leaves the workspace as it is. */
+  private async acceptanceRestore(job: AutomationJob, directory: string, round: number) {
+    const error = await this.deps.acceptance!.restore(job.taskId, directory, job.cycle ?? job.generation, round).then(() => null, (e: unknown) => (e instanceof Error ? e.message : String(e)));
+    await this.store.transaction((board) => {
+      this.store.event(board, { taskId: job.taskId, actor: "system", action: "automation_acceptance_reverted", note: error ? `The workspace could not be restored to review round ${round}'s delivery: ${clip(error, 300)}` : `The workspace is back at review round ${round}'s delivery.` });
+      return { value: null, changed: true };
+    });
   }
 
   // ---- Dispatcher -------------------------------------------------------
@@ -2155,12 +2228,13 @@ function roundPrompt(job: AutomationJob, settings: AutomationSettings) {
     ...(plan.level === "standard" ? {} : { why: reasonText(plan.reason) }),
     ...(job.risks?.length ? { earlier: { round: job.risksFrom?.round, risks: job.risks } } : {}),
     unattended: !!settings.unattended,
+    acceptance: !!settings.acceptance,
   });
 }
 
 /** The implementer's opening instruction under the project's settings: a reviewer to expect, nobody to ask (§5.3.4). */
 const opening = (settings: AutomationSettings | null | undefined, again: boolean) =>
-  startPrompt({ review: !!settings?.reviewer, again, unattended: !!settings?.unattended });
+  startPrompt({ review: !!settings?.reviewer, again, unattended: !!settings?.unattended, acceptance: !!settings?.acceptance });
 
 /** A reviewer session's title: the level of the round it was created for, else its model slot. */
 function reviewTitle(job: AutomationJob) {

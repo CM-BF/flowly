@@ -286,6 +286,12 @@ export function AutomationSettingsGroup({
     });
   };
   // Stored only while on (AUTOMATION-SPEC §5.3.4): builds without it refuse a board whose project settings carry the key.
+  // Acceptance-test review (AUTOMATION-SPEC §5.4): stored only while on; the author model only while one is chosen.
+  const acceptance = (next: { author?: AgentModel } | null) =>
+    onChange((previous) => {
+      const { acceptance: _drop, ...rest } = previous ?? { ...defaults, enabled: false };
+      return next ? { ...rest, acceptance: next } : rest;
+    });
   const unattended = (on: boolean) =>
     onChange((previous) => {
       const { unattended: _drop, ...rest } = previous ?? { ...defaults, enabled: false };
@@ -348,6 +354,23 @@ export function AutomationSettingsGroup({
           )}
           {!!current.reviewer && <PanelSettings current={current} set={set} model={model} cwd={cwd} />}
           {!!current.reviewer && <LevelSettingsGroup current={current} set={set} cwd={cwd} />}
+          {!!current.reviewer && (
+            <Toggle
+              title={t("Acceptance tests")}
+              detail={t("When work starts, a separate session writes tests from the card alone; part of them is hidden from the implementer. Reviewers run them and request changes only for a failing check or a violated requirement; rework that does not improve the tests is undone.")}
+              value={!!current.acceptance}
+              onChange={(on) => acceptance(on ? {} : null)}
+            />
+          )}
+          {!!current.reviewer && !!current.acceptance && (
+            <ModelDefaultGroup execution cwd={cwd}
+              title={t("Acceptance author")}
+              description={t("The model that writes the acceptance tests. None: the reviewer's model.")}
+              value={current.acceptance.author ?? null}
+              noneLabel={t("Same as reviewer")}
+              onChange={(next) => acceptance(next ? { author: next } : {})}
+            />
+          )}
           <Toggle
             title={t("Full access")}
             detail={t("Agents run without asking for permissions (Claude bypass, Codex full access), whatever Permissions the implementer, the reviewer or the project default model chose. Off: those Permissions apply, agents may stop to ask, and the card shows it.")}

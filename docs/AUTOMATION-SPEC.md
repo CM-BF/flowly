@@ -33,6 +33,7 @@ Hermes Kanban 的 agent 自动化有四块：**dispatcher**（依赖、并发、
 | `levels` | 无 | 评审级别（§5.2）：`light`（`reviewer`、`maxReviewRounds`）与 `deep`（`panelReviewer`、`panelSize`、`maxReviewRounds`）各自的模型、人数与轮数；只在人改过之后写入。 |
 | `fullAccess` | true | 开着时，所有自动化 session（执行者和评审者）都用 provider 的免审批模式（claude `bypassPermissions`、codex `full-access`），**覆盖**角色自己设的 Permissions 和同 provider 项目默认模型的 Permissions（用户决定，2026-10-23）；没有已知免审批模式的 provider 保留选定的权限。关着时按 [TASK-INTAKE-SPEC](TASK-INTAKE-SPEC.md)：角色的 Permissions → 同 provider 项目默认模型的 Permissions（包括显式的 “Provider default”）→ provider 默认。自动化开启时 New task 表单默认显示同样的结果；有人在表单里为某张卡改了权限，那张卡按其选择启动。速度等其它执行设置仍按角色 → 项目默认继承。 |
 | `unattended` | 无（关闭） | 无人值守（§5.3.4）：没人回答这个项目里自动化 session 的问题。自动化 session 的提问与 blocker 被拒绝（`UNATTENDED`），agent 自己决定、写明假设并交付。只在人打开后写入，关掉即删除。 |
+| `acceptance` | 无（关闭） | 验收测试评审（§5.4）：开工时由独立的作者 session 只看卡片写验收测试（一部分对实现者隐藏）；评审者跑测试，打回必须基于失败的检查或被违反的明确要求；返工后没有变好就恢复到上一轮交付的快照。`author` 为作者模型，缺省用评审者的模型。只在人打开后写入。 |
 | `nudgeLimit` | 2 | 静默结束后的提醒次数（stop nudge）。界面不暴露。 |
 | `failureLimit` | 2 | 连续失败回合上限（`failure_limit`）。界面不暴露。 |
 
@@ -413,6 +414,62 @@ AutomationJob {
   - 分类器 helper 在同一 provider/model 时带上项目模型的 `featureValues`（只留支持的项）；不同时或 `listFeatures` 失败时不带；任何情况下都不带 `thinking`。
 - 设置：schema 接受 `unattended: true`；表单打开开关时写入，关掉时删除键；9 个语言目录都有新文案（i18n 完整性测试）。
 - 真实 daemon 与 Web UI：验证设置开关的显示和保存，刷新后仍在。这里不跑真实的 agent 评审，效果由基准测试 agent 重跑 Flowly 组来对比。
+
+### 5.4 验收测试评审（按项目开启）
+
+状态：2026-10-27 设计并实现，分支 `feat/acceptance-review`。用户决定：“都可以试试，目标是让 Flowly 做出真正的提升”。
+
+**来由**：基准测试 v2（Terminal-Bench 4.0，42 道题，每题一次，gpt-6.1-sol）里，修复版 Flowly 整题通过 45%，原生单 Codex 50%。两者在统计上分不开，但 Flowly 的成本是原生的 3.4 倍，时间是 2 倍。机制上的问题有三个：
+- 评审批准 38 次，其中 20 次隐藏测试并没有通过，批准准确率只有 47%。
+- 第一轮被要求修改的卡，返工平均没有带来收益。
+- 有 3 道题原生做对了，Flowly 反而做错了（倒退）。
+
+文献的结论一致：同一个模型、没有外部信号地再读一遍代码，等于随机扰动，期望上不提高正确率；有效的做法要带进新信息，比如真的去执行、或者由一个不看实现的人独立写测试。基准测试里另做了一组强弱组合（强模型只看题目写测试，便宜模型实现）：测试放行 30 次，隐藏测试只过了 6 次（20%）；打回 9 次，判断都对。所以只看题目写的测试漏检多，但打回准：它是打回返工的可靠依据，不能单独作为批准依据。
+
+**设置**：`AutomationSettings.acceptance?: { author?: AgentModel }`。有这个键就是开启，缺省关闭；`author` 缺省用评审者的模型（没有就用执行者的）。只在人打开时写入，关掉就删除这个键。界面在编辑项目 → Agent automation：Reviewer 下有开关 **Acceptance tests** 和 Acceptance author 模型。
+
+#### 5.4.1 验收作者
+
+- job 开工时（`begin` 创建或复用实现者 session 之后），Flowly 把卡片的工作区复制到 `<数据目录>/acceptance/<taskId>/env/`（macOS 用 APFS 克隆），然后在卡片所在的 Paseo project 里为这个副本建一个 directory workspace（`paseo.workspaces.create({ source: { kind: "directory", path: env, projectId } })`），在里面开一个独立的作者 session；作者结束后连同这个 workspace 一起 archive。不用裸 `cwd` 建 session：那样 Paseo 会把副本登记成一个名为 `env` 的新 project，而插件接口没有删除 project 的方法。session 带 `flowly-acceptance=author` 标签，提示词里只有卡片的标题、描述和人的评论（作为数据给它），并告诉它往哪里写。作者看不到实现，也拿不到真实工作区的路径；它写测试时的副作用（SQLite 的 -wal 文件、git 更新索引等）只落在副本里。
+- 它要写三样东西：
+  1. `suite/run.sh`：实现者可以看、可以跑的测试。
+  2. `holdout/run.sh`：只给评审者跑的测试。覆盖同样的要求，但换输入、换角度，让“照着可见测试做”通过不了。
+  3. `requirements.md`：卡片的每条明确要求和禁令，各自对应哪些检查；不能检查的要写明原因。卡片给了精确的期望输出就断言它；没有参照答案时只检查性质（格式、不变量、一致性），并标注为 property only。
+- `run.sh` 的约定：调用方式是 `bash run.sh <工作区目录>`，全部通过才以 0 退出，最后一行输出 `ACCEPTANCE passed=<n> failed=<m>`。测试不写工作区（临时目录用 mktemp，不留缓存），不联网（卡片要求的除外），也不引入工作区里没有的依赖。
+- 状态存在 `acceptance/<taskId>/state.json`：`writing`（作者在写）、`ready`（两个 run.sh 和 requirements.md 都在）、`failed`（作者出错或超过 60 分钟）。每个 job generation 只开一次作者；插件重启后按记录下的 agentId 接着判断。作者写完后，Flowly 归档它的 session，并删除 env 副本。
+
+#### 5.4.2 实现者与评审者看到什么
+
+- `flowly_get_task` 的上下文多一个 `acceptance` 字段：状态、可见测试的路径和运行命令 `run`。卡片当前的评审者还能看到 holdout 的路径和运行命令 `holdoutRun`、requirements.md 的路径；实现者看不到。命令是填好工作区目录、加好引号的完整命令，让 agent 原样复制：验证时实现者手抄这串很长的数据路径，漏了一个字符，就以为测试不存在。
+- 开工说明加一段：状态是 writing 时测试还没写好（通常几分钟），先干活，交付前再调一次 `flowly_get_task`；只有做完时仍是 writing 或者是 failed，才不跑测试交付，并在交付说明里写明（验证时实现者一分钟就做完，测试还在写，它就没跑测试直接交付了）。可以读、可以跑可见测试，但不能修改、复制或钻它的空子；测试与卡片矛盾时以卡片为准，并在交付说明里写明；评审者还会跑实现者看不到的测试，所以要满足卡片本身，而不是只满足这些测试；卡片没要求的临时文件和额外测试不要留在交付路径里。
+- 评审说明加一段（所有级别）：在干净的 shell 里跑两套测试，引用命令和输出的最后几行；结论里附“每条要求 → 证据”对照表，没有可靠证据的标成 unverified 并写进 risks；在 `flowly_submit_review` 里填 `acceptance: { visible: { passed, failed }, holdout: { passed, failed } }`。
+  - verdict=changes 只能基于一个失败的检查（写出名字、引用失败输出），或者一条能拿出证据的、明确写在卡片里的要求或禁令被违反；不能凭看法打回。
+  - verdict=approve 要求两套测试都通过（个别检查与卡片原文矛盾时，引用卡片原文说明），并且没有违反任何要求。测试通过只是必要条件。
+  - 测试已经写好（`ready`）时，结论必须带 `acceptance`：不带就以 `ACCEPTANCE_REQUIRED` 拒绝，什么都不记录。第二次真实验证里，评审者把数字只写进了说明文字，job 上没有记录，返工回退也就无从比较。
+  - 测试还没写好（`writing`）或作者失败时，按 §5.3 的方式评审，不填 `acceptance`。
+- **测试归 Flowly，任何 session 都不改**（2026-10-27 真实验证后补充）：
+  - 验证时，隐藏测试里有一项自相矛盾（期望空串，又要求至少一个字符）。评审者发现了，却打回让实现者“修正这个测试”，修改要求里还写着隐藏测试的路径。实现者于是去改了隐藏测试，代码没动，第 2 轮就“通过”了。
+  - 现在的规则：
+    - 测试本身错了（与卡片或自身矛盾）是测试的错，不是实现者的错。评审者不为它打回，也不让任何人改测试；按卡片原文判断那条要求，标成 unverified，并在 risks 里记下这项坏检查。
+    - 评审者的结论里不得出现 holdout 的路径、文件名或内容。Flowly 发给实现者的修改要求里，凡是出现 holdout 路径的地方都替换成 `[reviewer-only tests]`。
+    - 作者写完后，Flowly 把两套测试的原版存进 `pristine/`，并把测试目录设为只读。每次评审结论到达时比对一次，被改过就恢复原版，并记一条事件：被改过的测试上报的数字不能反映卡片的真实状态。
+
+#### 5.4.3 返工不倒退
+
+- 每一轮评审开始时（实现者交付之后），Flowly 给工作区拍一个快照，存到 `acceptance/<taskId>/snapshots/round-<n>/`（工作区整份复制，包含 .git）。job 上记 `acceptanceRuns`，即每一轮评审者报告的通过和失败个数。
+- 第 n 轮（n ≥ 2，同一个评审周期里有前一轮的数字）的结论到达时，用两套测试的合计比较前后两轮：
+  - 失败数增加，或者通过数减少，就是**倒退**。
+  - 前一轮还有失败、这一轮失败数没有减少，就是**没有变好**。这一条只对 verdict=changes 起作用；approve 的前提本来就是全部通过。
+  - 倒退，或者 changes 且没有变好：Flowly 不再把修改要求发给实现者，而是把工作区恢复到第 n−1 轮交付时的快照，job 变为 `delivered`、`code=acceptance_reverted`。活动里写明：“Rework did not improve the acceptance tests (a → b failing); restored the workspace to review round n−1's delivery.”。卡片停在 In review 等人（Attention 也算它），这一周期结束。
+- 恢复的做法：先清空工作区目录的内容，再从快照复制回去。只在路径和拍快照时完全一致、而且不是根目录或用户主目录时才做；失败就记一条错误事件，工作区保持原样。
+
+#### 5.4.4 兼容与不做
+
+- `acceptance` 设置、job 的 `acceptanceRuns` 和新的代码 `acceptance_reverted`，旧版本都不认识：项目设置是严格对象，`code` 是枚举。所以回退到旧版本前，先关掉这个开关，并等相关 job 结束。
+- 不做：
+  - 由 Flowly 自己在 daemon 里跑测试。测试由评审者在它的 session 里跑，所以数字来自评审者的报告，Flowly 不复核。
+  - 强制让实现者看不到 holdout。我们不告诉实现者路径，也不放进它的上下文，但完全访问模式的 session 理论上能在磁盘上找到它。
+  - 强弱组合（便宜模型实现、强模型写测试）：基准测试里它明显更差。
 
 ## 6. 界面
 
