@@ -108,6 +108,11 @@ test("the author writes in a copy of the workspace from the card alone, and the 
   expect(implementer).not.toHaveProperty("holdout");
   expect(implementer).not.toHaveProperty("requirements");
   expect(reviewer).toMatchObject({ holdout: p.holdout, requirements: p.requirements });
+  // Whole commands to copy, the workspace filled in; the holdout command only for the reviewer.
+  const named = await service.context("t1", true, "/work/it's here");
+  expect(named?.run).toBe(`bash ${join(p.suite, "run.sh")} '/work/it'\\''s here'`);
+  expect(named?.holdoutRun).toBe(`bash ${join(p.holdout, "run.sh")} '/work/it'\\''s here'`);
+  expect(await service.context("t1", false, "/work")).not.toHaveProperty("holdoutRun");
 });
 
 test("an author that leaves a suite out fails, and the card is reviewed without acceptance tests", async () => {

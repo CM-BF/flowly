@@ -29,6 +29,8 @@ const stateSchema = z.object({
   snapshots: z.array(z.object({ round: z.number().int().positive(), cycle: z.number().int(), path: z.string(), workspace: z.string() })).default([]),
 });
 export type AcceptanceState = z.infer<typeof stateSchema>;
+const shellQuote = (value: string) => (/^[\w./@%+=:,-]+$/.test(value) ? value : `'${value.replace(/'/g, `'\\''`)}'`);
+
 export type AcceptanceContext = {
   state: "writing" | "ready" | "failed";
   /** The visible suite and how to run it; everyone on the card may read and run it, nobody edits it. */
@@ -36,6 +38,7 @@ export type AcceptanceContext = {
   run: string;
   /** Reviewer only: tests the implementer never sees, and the requirement → check table. */
   holdout?: string;
+  holdoutRun?: string;
   requirements?: string;
   detail?: string;
 };
@@ -116,13 +119,15 @@ export class AcceptanceService {
   }
 
   /** What flowly_get_task shows (§5.4.2): the reviewer also sees the holdout suite and the requirement table. */
-  async context(taskId: string, reviewer: boolean): Promise<AcceptanceContext | null> {
+  async context(taskId: string, reviewer: boolean, workspaceDirectory?: string): Promise<AcceptanceContext | null> {
     const state = await this.state(taskId);
     if (!state) return null;
     const p = this.paths(taskId);
+    // Whole commands to copy: an agent retyping a long data path once dropped a character and took the suite for missing.
+    const run = (dir: string) => `bash ${shellQuote(join(dir, "run.sh"))} ${workspaceDirectory ? shellQuote(workspaceDirectory) : "<workspace-dir>"}`;
     return {
-      state: state.status, suite: p.suite, run: `bash ${join(p.suite, "run.sh")} <workspace-dir>`,
-      ...(reviewer ? { holdout: p.holdout, requirements: p.requirements } : {}),
+      state: state.status, suite: p.suite, run: run(p.suite),
+      ...(reviewer ? { holdout: p.holdout, holdoutRun: run(p.holdout), requirements: p.requirements } : {}),
       ...(state.detail ? { detail: state.detail } : {}),
     };
   }

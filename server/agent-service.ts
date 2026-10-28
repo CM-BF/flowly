@@ -695,7 +695,7 @@ export class AgentService {
         setup = setupContext(setupMissing(r.task, workpadOf(board.workpads, r.task.id), workpadEnabled(r.project)), r.task.status);
         // The reviewer also sees the holdout suite and the requirement table; implementers never do (§5.4.2).
         const acceptance = automationOf(r.project)?.acceptance && this.acceptance
-          ? await this.acceptance.context(r.task.id, reviewerOfCard(board, r.task.id, identity.agentId)).catch(() => null)
+          ? await this.acceptance.context(r.task.id, reviewerOfCard(board, r.task.id, identity.agentId), r.workspace.workspaceDirectory).catch(() => null)
           : null;
         return {
           ...(acceptance ? { acceptance } : {}),
