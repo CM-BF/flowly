@@ -29,7 +29,7 @@ const stateSchema = z.object({
   snapshots: z.array(z.object({ round: z.number().int().positive(), cycle: z.number().int(), path: z.string(), workspace: z.string() })).default([]),
 });
 export type AcceptanceState = z.infer<typeof stateSchema>;
-const shellQuote = (value: string) => (/^[\w./@%+=:,-]+$/.test(value) ? value : `'${value.replace(/'/g, `'\\''`)}'`);
+export const shellQuote = (value: string) => (/^[\w./@%+=:,-]+$/.test(value) ? value : `'${value.replace(/'/g, `'\\''`)}'`);
 
 export type AcceptanceContext = {
   state: "writing" | "ready" | "failed";
@@ -45,12 +45,12 @@ export type AcceptanceContext = {
 
 const exec = promisify(execFile);
 /** Cheap copies: APFS clones on macOS, a plain recursive copy elsewhere. Symlinks stay symlinks. */
-async function copyTree(from: string, to: string) {
+export async function copyTree(from: string, to: string) {
   if (process.platform === "darwin") await exec("cp", ["-cR", from.endsWith(sep) ? from : from + sep + ".", to]);
   else await cp(from, to, { recursive: true, verbatimSymlinks: true, force: true });
 }
-const exists = (path: string) => stat(path).then(() => true, () => false);
-async function walk(dir: string): Promise<string[]> {
+export const exists = (path: string) => stat(path).then(() => true, () => false);
+export async function walk(dir: string): Promise<string[]> {
   const out: string[] = [];
   for (const entry of await readdir(dir, { withFileTypes: true }).catch(() => [])) {
     const path = join(dir, entry.name);
@@ -71,7 +71,7 @@ const setMode = async (dir: string, write: boolean) => {
   }
 };
 const readOnly = (dir: string) => setMode(dir, false);
-const writable = (dir: string) => setMode(dir, true);
+export const writable = (dir: string) => setMode(dir, true);
 
 /** The author's instruction: the card is data; it writes tests from it alone, never touching anything but its own folders. */
 /**
@@ -108,12 +108,33 @@ export function authorPrompt(task: Pick<Task, "title" | "description">, comments
 
 type Handle = {
   id: string;
-  waitForFinish(timeoutMs: number): Promise<{ status: string; error?: string | null; final?: { pendingPermissions?: readonly { id: string; name?: string }[] } | null }>;
+  waitForFinish(timeoutMs: number): Promise<{ status: string; error?: string | null; lastMessage?: string | null; final?: { pendingPermissions?: readonly { id: string; name?: string }[] } | null }>;
   respondToPermission?(options: { requestId: string; response: { behavior: "deny"; message: string } }): Promise<void>;
   archive(): Promise<unknown>;
 };
-/** How many permission requests an author may hit before it counts as failed (a session that keeps asking is stuck). */
+/** How many permission requests a Flowly-owned session may hit before it counts as failed (one that keeps asking is stuck). */
 const PERMISSION_LIMIT = 20;
+export type SessionHandle = Handle;
+/**
+ * Waits for an unattended Flowly-owned session's turn (acceptance author, tournament planner, candidates and judge).
+ * Nobody answers its permission requests: each is refused with `refusal` and the turn goes on.
+ */
+export async function finishTurn(handle: Handle, timeoutMs: number, refusal: string, taskId: string) {
+  const deadline = Date.now() + timeoutMs;
+  let refused = 0;
+  let result: Awaited<ReturnType<Handle["waitForFinish"]>>;
+  for (;;) {
+    result = await handle.waitForFinish(Math.max(1, deadline - Date.now())).catch((e) => ({ status: "error", error: String(e) }));
+    const pending = result.status === "permission" ? result.final?.pendingPermissions ?? [] : [];
+    if (!pending.length || !handle.respondToPermission || refused + pending.length > PERMISSION_LIMIT) break;
+    for (const request of pending) {
+      refused++;
+      await handle.respondToPermission({ requestId: request.id, response: { behavior: "deny", message: refusal } })
+        .catch((e) => logFailure("Flowly could not refuse a permission request:", e, taskId));
+    }
+  }
+  return { result, refused };
+}
 export const authorPermissionRefusal = (scratch: string) =>
   `Nobody answers permission requests for the acceptance author, so this one is refused. Do it another way without the request: keep scratch work in ${scratch} (not /tmp), never delete outside your copy, the suites and that folder, and go on writing the tests.`;
 export type AcceptanceOptions = { authorTimeoutMs?: number; now?: () => number; copy?: (from: string, to: string) => Promise<void> };
@@ -228,20 +249,7 @@ export class AcceptanceService {
     try {
       // A permission request pauses the author's turn (Claude asks even in bypass mode for some commands, e.g. rm -rf
       // outside its directory); ending there failed the tests. Nobody answers it, so it is refused and the turn goes on.
-      const deadline = Date.now() + (this.options.authorTimeoutMs ?? 60 * 60_000);
-      const scratch = this.paths(taskId).scratch;
-      let refused = 0;
-      let result: Awaited<ReturnType<Handle["waitForFinish"]>>;
-      for (;;) {
-        result = await handle.waitForFinish(Math.max(1, deadline - Date.now())).catch((e) => ({ status: "error", error: String(e) }));
-        const pending = result.status === "permission" ? result.final?.pendingPermissions ?? [] : [];
-        if (!pending.length || !handle.respondToPermission || refused + pending.length > PERMISSION_LIMIT) break;
-        for (const request of pending) {
-          refused++;
-          await handle.respondToPermission({ requestId: request.id, response: { behavior: "deny", message: authorPermissionRefusal(scratch) } })
-            .catch((e) => logFailure("Flowly could not refuse the acceptance author's permission request:", e, taskId));
-        }
-      }
+      const { result, refused } = await finishTurn(handle, this.options.authorTimeoutMs ?? 60 * 60_000, authorPermissionRefusal(this.paths(taskId).scratch), taskId);
       const ended = result.status === "permission" ? `The author kept asking for permissions (${refused} refused).` : `The author ended with status ${result.status}.`;
       await this.finish(taskId, result.status === "idle" && !result.error ? undefined : result.error || ended);
       const workspaceId = (await this.state(taskId))?.authorWorkspaceId;

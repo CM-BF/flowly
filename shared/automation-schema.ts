@@ -88,6 +88,12 @@ export const automationSettingsSchema = z.strictObject({
    * reviewers run them, changes need a failing check, and rework that does not improve them is reverted. Stored only while on.
    */
   acceptance: z.strictObject({ author: agentModelSchema.optional() }).optional(),
+  /**
+   * Tournament mode (§5.5): a planner writes `size` distinct plans, as many candidates implement them in isolated copies,
+   * failing acceptance checks eliminate, and a judge compares the rest where they disagree; only the winner reaches the
+   * workspace. Planner and judge default to the reviewer's model. Stored only while on.
+   */
+  tournament: z.strictObject({ size: z.number().int().min(2).max(3), planner: agentModelSchema.optional(), judge: agentModelSchema.optional() }).optional(),
   /** Sessions start in the provider's no-approval mode (claude bypassPermissions, codex full-access). */
   fullAccess: z.boolean().default(true),
   /**
@@ -319,6 +325,34 @@ export const reviewInputSchema = z.strictObject({
   }).optional(),
 });
 export type ReviewInput = z.input<typeof reviewInputSchema>;
+
+const disputedChecks = z.array(z.strictObject({ check: z.string().trim().min(1).max(300), reason: z.string().trim().min(1).max(1000) })).max(50);
+/** flowly_submit_judgement: the tournament judge's comparison (AUTOMATION-SPEC §5.5). */
+export const judgementInputSchema = z.strictObject({
+  candidates: z.array(z.strictObject({
+    id: z.string().trim().min(1).max(20),
+    /** Acceptance counts measured with this candidate active in the real workspace. */
+    visible: acceptanceCount.optional(),
+    holdout: acceptanceCount.optional(),
+    /** Failing checks judged wrong, each with the card text it contradicts; they do not count against the candidate. */
+    disputed: disputedChecks.optional(),
+    /** What the judge actually ran on this candidate. */
+    probes: z.array(z.strictObject({ command: z.string().trim().min(1).max(2000), exit: z.number().int().nullable(), output: z.string().max(2000) })).max(50).default([]),
+  })).min(1).max(3),
+  /** Every input on which candidates behave differently, and who is right there. */
+  disagreements: z.array(z.strictObject({
+    input: z.string().trim().min(1).max(4000),
+    outputs: z.record(z.string(), z.string().max(2000)),
+    ruling: z.string().trim().min(1).max(20),
+    /** The card text that decides it, quoted, or a reproducible command and its output. */
+    reason: z.string().trim().min(1).max(3000),
+  })).max(50).default([]),
+  winner: z.string().trim().min(1).max(20),
+  summary: z.string().trim().min(1).max(automationLimits.summary),
+  /** Both suites run on the winner, active in the real workspace, as the last thing before submitting. */
+  final: z.strictObject({ visible: acceptanceCount, holdout: acceptanceCount }).optional(),
+});
+export type JudgementInput = z.input<typeof judgementInputSchema>;
 export const reviewResultSchema = z.object({
   accepted: z.boolean(),
   verdict: z.enum(["approve", "changes"]),

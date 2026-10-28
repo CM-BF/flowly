@@ -292,6 +292,12 @@ export function AutomationSettingsGroup({
       const { acceptance: _drop, ...rest } = previous ?? { ...defaults, enabled: false };
       return next ? { ...rest, acceptance: next } : rest;
     });
+  // Tournament mode (AUTOMATION-SPEC §5.5): stored only while on.
+  const tournament = (size: number | null) =>
+    onChange((previous) => {
+      const { tournament: _drop, ...rest } = previous ?? { ...defaults, enabled: false };
+      return size ? { ...rest, tournament: { ...(previous?.tournament ?? {}), size } } : rest;
+    });
   const unattended = (on: boolean) =>
     onChange((previous) => {
       const { unattended: _drop, ...rest } = previous ?? { ...defaults, enabled: false };
@@ -370,6 +376,19 @@ export function AutomationSettingsGroup({
               noneLabel={t("Same as reviewer")}
               onChange={(next) => acceptance(next ? { author: next } : {})}
             />
+          )}
+          {!!current.reviewer && (
+            <>
+              <Choices
+                title={t("Tournament")}
+                value={current.tournament ? String(current.tournament.size) : "off"}
+                options={[{ value: "off", label: t("Off") }, ...["2", "3"].map((n) => ({ value: n, label: t("{n} candidates", { n }) }))]}
+                onChange={(v) => tournament(v === "off" ? null : Number(v))}
+              />
+              <Label muted size={font.sm}>
+                {t("Several implementers each build the card from a different plan, in separate copies. Candidates with failing acceptance tests drop out; a judge compares the rest where they differ, and only the winner reaches the workspace. No review rounds. Costs about one extra implementation per candidate.")}
+              </Label>
+            </>
           )}
           <Toggle
             title={t("Full access")}

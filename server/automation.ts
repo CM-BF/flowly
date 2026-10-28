@@ -84,6 +84,7 @@ import type { BoardStore } from "./store";
 import { ToolError } from "./tool-error";
 import { logFailure } from "./error-report";
 import type { AcceptanceService } from "./acceptance";
+import type { TournamentService } from "./tournament";
 import { acceptanceDecision } from "../shared/automation";
 
 type Role = AutomationJob["role"];
@@ -118,6 +119,8 @@ export type AutomationDeps = {
   commentFailed?: (taskId: string, sourceId: string, error: unknown) => Promise<void>;
   /** Acceptance-test review (AUTOMATION-SPEC §5.4): authors, snapshots and reverts. */
   acceptance?: Pick<AcceptanceService, "tick" | "snapshot" | "restore" | "workspaceDirectory" | "guard" | "paths" | "state">;
+  /** Tournament mode (AUTOMATION-SPEC §5.5): K candidates and a judge instead of one implementer and review rounds. */
+  tournament?: Pick<TournamentService, "tick" | "holds">;
 };
 
 /** Short tail for event notes and the job's detail. */
@@ -209,6 +212,7 @@ export class AutomationService {
     for (const job of plan.start) await this.begin(job, fallback);
     // Authors start after their job is claimed, outside the board lock (§5.4.1).
     if (this.deps.acceptance) await this.deps.acceptance.tick(await this.store.read(), this.paseo).catch((e) => logFailure("Flowly acceptance pass failed:", e));
+    if (this.deps.tournament) await this.deps.tournament.tick(await this.store.read(), this.paseo, this.tournamentHooks, () => this.store.read()).catch((e) => logFailure("Flowly tournament pass failed:", e));
     await this.watchHistory();
   }
 
@@ -1419,6 +1423,77 @@ export class AutomationService {
     return result.answer;
   }
 
+  /** What the tournament asks of the dispatcher (§5.5): settle the job, fall back to one implementer, start the judge. */
+  private readonly tournamentHooks = {
+    decided: (taskId: string, generation: number, note: string) => this.tournamentDecided(taskId, generation, note),
+    fallback: (taskId: string, generation: number, note: string) => this.store.transaction((board) => {
+      const job = jobOf(board, taskId);
+      if (!job || job.generation !== generation || !isLive(job)) return { value: null, changed: false };
+      this.store.event(board, { taskId, actor: "system", action: "automation_tournament_skipped", note: clip(note, 1000) });
+      return { value: null, changed: true };
+    }).then(() => this.kick()),
+    createJudge: (taskId: string, generation: number, prompt: string, model: AgentModel, prepared: (agentId: string) => void) => this.createJudge(taskId, generation, prompt, model, prepared),
+  };
+
+  /** The winner is in the workspace: the job is delivered without review rounds and the card waits In review (§5.5). */
+  private async tournamentDecided(taskId: string, generation: number, note: string) {
+    await this.store.transaction((board) => {
+      const job = jobOf(board, taskId), task = board.tasks.find((t) => t.id === taskId);
+      if (!job || !task || job.generation !== generation || !isLive(job)) return { value: null, changed: false };
+      const now = this.now();
+      job.state = "delivered";
+      job.verdict = "approved";
+      job.nudges = 0;
+      job.failures = 0;
+      job.updatedAt = now;
+      delete job.instruction; delete job.pendingOp; delete job.pendingRole; delete job.code;
+      this.store.event(board, { taskId, actor: "system", action: "automation_tournament_decided", agentId: job.reviewerId, note });
+      if (task.status !== "in_review") {
+        const from = task.status;
+        task.status = "in_review";
+        task.revision++;
+        task.updatedAt = now;
+        this.store.event(board, { taskId, actor: "system", action: "status_changed", rule: "AUTO", from, to: "in_review", note: "The tournament delivered its winner" });
+      }
+      return { value: null, changed: true };
+    });
+    void this.kick();
+  }
+
+  /** The tournament's judge: a prepared session in the card's own workspace, recorded as the job's reviewer so it is not taken for a takeover. */
+  private async createJudge(taskId: string, generation: number, prompt: string, model: AgentModel, prepared: (agentId: string) => void) {
+    const paseo = this.api();
+    const board = await this.store.read();
+    const job = jobOf(board, taskId), task = board.tasks.find((t) => t.id === taskId);
+    if (!job || !task || job.generation !== generation || !isLive(job)) return null;
+    const preparation = await this.deps.prepare(taskId, randomUUID(), paseo, { reviewer: true });
+    const recorded = await this.store.transaction((b) => {
+      const j = jobOf(b, taskId);
+      if (!j || j.generation !== generation || !isLive(j)) return { value: false, changed: false };
+      if (j.reviewerId && j.reviewerId !== preparation.agentId) this.retireReviewer(j);
+      j.reviewerId = preparation.agentId;
+      return { value: true, changed: true };
+    });
+    if (!recorded) return null;
+    prepared(preparation.agentId);
+    await paseo.workspaces.ref(task.workspaceId).agents.create({
+      config: {
+        provider: `${model.provider}/${model.model}`,
+        systemPrompt: preparation.instructions,
+        mcpServers: { flowly: preparation.mcp },
+        ...(model.modeId ? { modeId: model.modeId } : {}),
+        ...(model.thinking ? { thinkingOptionId: model.thinking } : {}),
+      },
+      agentId: preparation.agentId,
+      idempotencyKey: `ultra-kanban-session:${preparation.agentId}`,
+      env: { FLOWLY_CONTEXT_FILE: preparation.contextFile, FLOWLY_CLI: preparation.cliPath, FLOWLY_SKILL: preparation.skillPath },
+      title: `Judge: ${task.title}`.slice(0, 120),
+      labels: { "flowly-task": task.id, "flowly-automation": "reviewer", "flowly-tournament": "judge", "paseo-rate-fallback": "off" },
+      prompt,
+    });
+    return preparation.agentId;
+  }
+
   /**
    * A review waits for this generation's acceptance tests while their author is still writing (§5.4.2): a review that
    * started before them approved without any. The pass retries the held instruction; the round is not used up.
@@ -1656,6 +1731,8 @@ export class AutomationService {
       const project = task && board.projects.find((p) => p.id === task.projectId);
       if (!current || !task || !project || !["starting", "working", "reviewing"].includes(current.state) || this.unconfirmedFor(current, role)) return;
       if (role === "reviewer" && await this.acceptancePending(current, project)) return;
+      // A tournament card's implementer waits: the candidates and the judge do its work (§5.5).
+      if (role === "implementer" && this.deps.tournament && automationOf(project)?.tournament && await this.deps.tournament.holds(current.taskId, current.generation)) return;
       const { text, fresh } = current.instruction!;
       const id = role === "reviewer" ? current.reviewerId : current.implementerId;
       const peerId = role === "reviewer" ? current.implementerId : current.reviewerId;

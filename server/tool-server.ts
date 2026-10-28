@@ -44,7 +44,7 @@ import {
 import { handoffGetInputSchema } from "../shared/handoff-api";
 import { sessionHistoryQuerySchema, sessionHistoryPageSchema } from "../shared/session-history";
 import { handoffUpdateSchema, handoffWriteResultSchema } from "../shared/handoff";
-import { reviewInputSchema, reviewResultSchema } from "../shared/automation-schema";
+import { judgementInputSchema, reviewInputSchema, reviewResultSchema } from "../shared/automation-schema";
 import { reviewerOfCard } from "../shared/automation";
 import { createCardInputSchema, createCardResultSchema, updateCardInputSchema, updateCardResultSchema } from "../shared/tools";
 import { AgentService } from "./agent-service";
@@ -412,6 +412,28 @@ export class ToolServer {
           },
           (input) => call(() => this.agents.review(identity, input)),
         );
+        // Tournament judges only (AUTOMATION-SPEC §5.5): other sessions never see these two tools.
+        const tournament = this.agents.tournament;
+        if (tournament?.isJudge(identity.agentId)) {
+          mcp.registerTool(
+            "flowly_tournament_activate",
+            {
+              description: "Tournament judge only. Puts one candidate's whole tree into this card's real workspace (replacing what is there), so you can run it where and as the delivery will be used. Run its flowly-apply.sh afterwards if it has one, and stop processes the previous candidate started. Activate the winner last before flowly_submit_judgement.",
+              inputSchema: z.strictObject({ candidate: z.string().trim().min(1).max(20) }),
+              annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
+            },
+            (input) => call(() => tournament.activate(identity.taskId, identity.agentId, input.candidate)),
+          );
+          mcp.registerTool(
+            "flowly_submit_judgement",
+            {
+              description: "Tournament judge only, once, at the end. Send every candidate's acceptance counts (visible, holdout) measured with it active, the failing checks you judge wrong in disputed (each with the card text it contradicts), the probes you ran, every disagreement with its ruling and reason (card text quoted, or a reproducible command and output), the winner, a summary and final (the winner's counts from your last run, with the winner active). Refused, with nothing recorded, when the winner has more undisputed failing checks than another candidate (TOURNAMENT_ELIMINATED), counts are missing (ACCEPTANCE_REQUIRED) or the winner is not the active candidate (WINNER_NOT_ACTIVE).",
+              inputSchema: judgementInputSchema,
+              annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+            },
+            (input) => call(() => tournament.submit(identity.taskId, identity.agentId, input)),
+          );
+        }
         mcp.registerTool(
           "flowly_create_card",
           {
