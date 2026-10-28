@@ -1347,6 +1347,8 @@ const activityText: Record<string, string> = localizedLabels({
   automation_acceptance_reverted: msg("Restored the previous delivery: the rework did not improve the acceptance tests"),
   automation_acceptance_waiting: msg("Waiting for the acceptance tests before the review"),
   automation_acceptance_failed: msg("The acceptance tests could not be written; reviewed without them"),
+  automation_tournament_decided: msg("The tournament delivered its winner"),
+  automation_tournament_skipped: msg("No tournament: one implementer works on the card"),
   automation_review_risks: msg("Noted risks beyond the acceptance criteria"),
   review_level_set: msg("Set the review level"),
   automation_waiting: msg("Waits for its sub-cards"),

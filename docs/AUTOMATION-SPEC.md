@@ -476,6 +476,45 @@ AutomationJob {
   - 强制让实现者看不到 holdout。我们不告诉实现者路径，也不放进它的上下文，但完全访问模式的 session 理论上能在磁盘上找到它。
   - 强弱组合（便宜模型实现、强模型写测试）：基准测试里它明显更差。
 
+### 5.5 锦标赛模式（按项目开启）
+
+设置：`automation.tournament: { size: 2 | 3, planner?, judge? }`，只在开启时存储。planner 和 judge 默认用 reviewer 的模型，候选用 implementer 的模型。建议同时开 acceptance（§5.4）：淘汰靠验收测试。
+
+来由：4 组验收测试对照（§5.4）说明，只凭卡片写出的测试证明不了答案对，但“报红 = 错”大多准；而比较两个具体候选在同一个输入上谁对，比凭空判断一个答案对不对容易得多。同一模型独立跑两次，“至少一次对”比单次多约 10 个点（42 题里 25 对 21）。锦标赛把“单实现 + 审查返工”换成“多份不同的尝试 + 比较挑选”。
+
+#### 5.5.1 流程
+
+1. job 开工时（implementer 的开工指令被压住，见 5.5.3），Flowly 把工作区复制到 `<数据目录>/tournament/<taskId>/pristine/`，再复制一份给 planner。
+2. **planner**（卡片项目下的 directory workspace，不登记新 project）只读卡片和这份副本，写 `plans.md`：先写关键观察和卡片的模糊点，再写正好 K 节 `## Plan k`，各自写明对每个模糊点的理解、做法、自检方式，以及一行 `Differs from the others:`。方案要在关键假设或做法上不同，不只是写法不同。交付物主要在工作区之外（配置系统服务、改 /etc、装系统组件）时，只写一行 `TOURNAMENT: skip <原因>`：这张卡退回普通流程（5.5.3）。planner 失败时，候选各自选做法。
+3. **候选**：每个候选在 `tournament/<taskId>/c<k>/`（pristine 的副本）里，按自己的方案独立做到底，互相看不见，也不用 Flowly 的卡片工具，没有中途评审。提示要求：交付时整棵目录树会被放到真实工作区，所以只能用相对路径或真实路径，不能写死副本路径；依赖尽量装在副本里；工作区外需要的改动写进副本根目录的幂等脚本 `flowly-apply.sh`。可见验收测试写好后可以跑（命令里的工作区是自己的副本），holdout 只给 judge。候选结束时记录交付说明（最后一条消息）和文件清单（每个文件的路径、大小、SHA-256）。
+4. 所有候选结束、且本 generation 的验收测试不再是 writing 时，**judge** 开始。judge 是卡片自己工作区里的 prepared session，记为 job 的 reviewer（这样它的回合不会被当成接管，也不会触发自动状态）。只有它能看到两个工具：
+   - `flowly_tournament_activate(candidate)`：把该候选的整棵目录树放进真实工作区（先清空）。judge 随后运行它的 `flowly-apply.sh`，停掉上一个候选起的进程，在真实路径上按实际使用方式运行（干净 shell、能换用户就换）：两套验收测试，以及自己构造的、能让候选表现不同的探测输入（边界值、空和大输入、分块、换顺序、换用户、干净环境）。
+   - `flowly_submit_judgement`：每个候选的 visible/holdout 通过与失败数、判定为测试写错的失败检查 `disputed`（附卡片原文）、实际跑过的探测（命令、退出码、输出摘要）；每处分歧的输入、各候选输出、裁决和理由（引用卡片原文，或可复现的命令和输出）；胜者、总结，以及 `final`（最后激活胜者后跑出的两套计数）。
+5. Flowly 校验后记录结论，job 变为 `delivered`（verdict approved，不再有评审轮次），卡片移到 In review，活动里记 `automation_tournament_decided`（胜者、各候选计数、分歧数、总结）。
+
+#### 5.5.2 规则
+
+- 淘汰只看“报红”：未被 dispute 的失败检查数 = visible.failed + holdout.failed − disputed 条数。胜者的这个数必须是所有交付候选里最少的，否则 `TOURNAMENT_ELIMINATED`。全绿不代表对：在最少失败的候选之间，按分歧上的裁决挑选；处处一致时选更简单、改动更小的。
+- 验收测试已就绪时，每个交付的候选都要有两套计数，并且要有 `final`，否则 `ACCEPTANCE_REQUIRED`。
+- 胜者必须是当前激活的候选（judge 最后激活胜者并在它上面跑完测试），否则 `WINNER_NOT_ACTIVE`。Flowly 不再重新复制，工作区里留下的正是 final 计数所测的那棵树。
+- 以上拒绝都不记录任何东西。
+- judge 的回合结束却没有提交时，Flowly 提醒一次；再没有，就激活第一个交付的候选并交付，活动里写明“未经比较”。
+- 候选、planner、judge 的权限请求都没人回答，Flowly 以 deny 回复并让回合继续（与 §5.4.1 的作者相同）。
+
+#### 5.5.3 退回普通流程
+
+开了锦标赛的项目，implementer 的开工指令会被压住，直到本 generation 的锦标赛结果出来。planner 判定跳过、所有候选都失败、没有 planner 或 judge 模型、或者锦标赛无法开始时，锦标赛记为 skipped/failed，活动里记 `automation_tournament_skipped` 和原因，被压住的指令随后照常发出：由一个 implementer 按普通流程（含评审轮次）处理这张卡。
+
+#### 5.5.4 证据
+
+`tournament/<taskId>/` 在卡片结束后保留：`tournament.json`（phase、方案、每个候选的 session、状态、交付说明、文件清单，judge 的完整结论、激活记录、胜者、final）、`plans.md`、`pristine/` 和每个候选的完整目录树。基准测试据此对每个候选单独重放隐藏测试，计算挑选准确率。同一张卡重新排队（新 generation）时，整个目录会被替换。
+
+#### 5.5.5 不做（P1）
+
+- 不返工：胜者直接交付。
+- 不能隔离工作区以外的副作用：候选各自在系统上装的东西会互相串扰；planner 判定交付物主要在工作区外时整张卡不开锦标赛。
+- `diversity: models`（候选用不同模型家族）、按难度或分歧自适应地决定 K、只在可并行时拆子卡：等 P1 验证有效后再做。
+
 ## 6. 界面
 
 1. **卡片信号行**：Queued for agent / Starting agent… / Agent working / Agent reviewing（脉冲点）/ Agent retrying / Agent waiting for you / Agent needs permission / Agent review passed / Review needs you / Automation stopped（失败时）。`stopped` 与不带评审的 `delivered` 不显示（泳道已说明）。
