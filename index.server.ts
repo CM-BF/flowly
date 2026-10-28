@@ -59,6 +59,7 @@ import { startedByUser, turnPick, userTexts } from "./shared/agent-habits";
 import { MemoryService, setMemoryEverywhere, memoryOn } from "./server/memory";
 import { AutomationService } from "./server/automation";
 import { AcceptanceService } from "./server/acceptance";
+import { TournamentService } from "./server/tournament";
 import { reviewerJob } from "./shared/automation";
 import { agentModelFromValues } from "./shared/agent-defaults";
 import { POSTHOG_KEY, TelemetryService } from "./server/telemetry";
@@ -296,6 +297,7 @@ export default function contribute(host: PluginServerContext) {
   const folderCommit = store.onCommit;
   store.onCommit = () => { folderCommit?.(); classifier.schedule(); };
   const acceptance = new AcceptanceService(store.directory);
+  const tournament = new TournamentService(store.directory, acceptance);
   const automation = new AutomationService(store, {
     handoff: handoffObserver.bridge,
     rotationLimits: async (taskId, projectId) => (await rotationOverrides)(taskId, projectId),
@@ -312,6 +314,7 @@ export default function contribute(host: PluginServerContext) {
     },
     classifyReview: (taskId, paseo) => classifier.forReview(taskId, paseo),
     acceptance,
+    tournament,
     prepare: async (taskId, operationId, paseo, options) => {
       handoffs.attach(paseo);
       const prepared = await tools.prepareSession(taskId, operationId, paseo, options);
@@ -326,6 +329,7 @@ export default function contribute(host: PluginServerContext) {
   });
   tools.agents.automation = automation;
   tools.agents.acceptance = acceptance;
+  tools.agents.tournament = tournament;
   handoffs.automation = automation;
   commentRouter.routeManaged = input => automation.routeComment(input);
   service.automation = automation;

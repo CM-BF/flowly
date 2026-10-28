@@ -79,6 +79,7 @@ import { isLegacyScope } from "../shared/scope";
 import { MemoryError, type MemoryService } from "./memory";
 import type { AutomationService } from "./automation";
 import type { AcceptanceService } from "./acceptance";
+import type { TournamentService } from "./tournament";
 import type { ReviewInput } from "../shared/automation-schema";
 import { automationAllowed, automationOf, automationSessionRole, isLive, jobOf, reviewerOfCard, reviewsFor } from "../shared/automation";
 import { parentOf } from "../shared/links";
@@ -168,6 +169,8 @@ export class AgentService {
   automation?: AutomationService;
   /** Acceptance-test review (AUTOMATION-SPEC §5.4): what get_task shows of the card's acceptance tests. */
   acceptance?: Pick<AcceptanceService, "context">;
+  /** Tournament mode (AUTOMATION-SPEC §5.5): the judge's tools. */
+  tournament?: Pick<TournamentService, "isJudge" | "activate" | "submit">;
   /** Card continuity and durable source provenance; attached by the plugin entry. */
   handoffs?: HandoffService;
   sessionHistory?: SessionHistory;
