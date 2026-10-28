@@ -21,6 +21,8 @@ const stateSchema = z.object({
   generation: z.number().int(),
   status: z.enum(["writing", "ready", "failed"]),
   authorId: z.string().optional(),
+  /** The author's own workspace, archived with the author; it lives in the card's Paseo project so no "env" project is left behind. */
+  authorWorkspaceId: z.string().optional(),
   startedAt: z.string(),
   finishedAt: z.string().optional(),
   detail: z.string().max(500).optional(),
@@ -138,7 +140,7 @@ export class AcceptanceService {
       if (this.starting.has(key)) continue;
       const state = await this.state(job.taskId).catch(() => null);
       if (state?.generation === job.generation) {
-        if (state.status === "writing" && state.authorId && !this.watching.has(job.taskId)) void this.watch(job.taskId, paseo.agents.ref(state.authorId) as unknown as Handle);
+        if (state.status === "writing" && state.authorId && !this.watching.has(job.taskId)) void this.watch(job.taskId, paseo.agents.ref(state.authorId) as unknown as Handle, paseo);
         continue;
       }
       this.starting.add(key);
@@ -178,18 +180,25 @@ export class AcceptanceService {
       labels: { "flowly-task": task.id, "flowly-acceptance": "author", "paseo-rate-fallback": "off" },
       prompt: authorPrompt(task, comments, p),
     };
-    const handle = (await paseo.agents.create({ ...options, cwd: p.env })) as unknown as Handle;
-    const state = (await this.state(task.id))!;
-    await this.save({ ...state, authorId: handle.id });
-    void this.watch(task.id, handle);
+    // A bare cwd would register the copy as a new Paseo project; a workspace in the card's project archives cleanly instead.
+    const author = await paseo.workspaces.create({
+      title: options.title,
+      idempotencyKey: `flowly-acceptance:${task.id}:${generation}`,
+      source: { kind: "directory", path: p.env, ...(project.paseoProjectId ? { projectId: project.paseoProjectId } : {}) },
+    });
+    await this.save({ ...(await this.state(task.id))!, authorWorkspaceId: author.id });
+    const handle = (await author.agents.create(options)) as unknown as Handle;
+    await this.save({ ...(await this.state(task.id))!, authorId: handle.id });
+    void this.watch(task.id, handle, paseo);
   }
 
-  private async watch(taskId: string, handle: Handle) {
+  private async watch(taskId: string, handle: Handle, paseo: PaseoApi) {
     this.watching.add(taskId);
     try {
       const result = await handle.waitForFinish(this.options.authorTimeoutMs ?? 60 * 60_000).catch((e) => ({ status: "error", error: String(e) }));
       await this.finish(taskId, result.status === "idle" && !result.error ? undefined : result.error || `The author ended with status ${result.status}.`);
-      await handle.archive().catch((e) => logFailure("Flowly could not archive the acceptance author:", e, taskId));
+      const workspaceId = (await this.state(taskId))?.authorWorkspaceId;
+      await (workspaceId ? paseo.workspaces.archive(workspaceId) : handle.archive()).catch((e) => logFailure("Flowly could not archive the acceptance author:", e, taskId));
     } finally { this.watching.delete(taskId); }
   }
 

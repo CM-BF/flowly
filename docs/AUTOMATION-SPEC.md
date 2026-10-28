@@ -430,7 +430,7 @@ AutomationJob {
 
 #### 5.4.1 验收作者
 
-- job 开工时（`begin` 创建或复用实现者 session 之后），Flowly 把卡片的工作区复制到 `<数据目录>/acceptance/<taskId>/env/`（macOS 用 APFS 克隆），然后用 `paseo.agents.create({ cwd: env })` 在这个副本里开一个独立的作者 session。session 带 `flowly-acceptance=author` 标签，提示词里只有卡片的标题、描述和人的评论（作为数据给它），并告诉它往哪里写。作者看不到实现，也拿不到真实工作区的路径；它写测试时的副作用（SQLite 的 -wal 文件、git 更新索引等）只落在副本里。
+- job 开工时（`begin` 创建或复用实现者 session 之后），Flowly 把卡片的工作区复制到 `<数据目录>/acceptance/<taskId>/env/`（macOS 用 APFS 克隆），然后在卡片所在的 Paseo project 里为这个副本建一个 directory workspace（`paseo.workspaces.create({ source: { kind: "directory", path: env, projectId } })`），在里面开一个独立的作者 session；作者结束后连同这个 workspace 一起 archive。不用裸 `cwd` 建 session：那样 Paseo 会把副本登记成一个名为 `env` 的新 project，而插件接口没有删除 project 的方法。session 带 `flowly-acceptance=author` 标签，提示词里只有卡片的标题、描述和人的评论（作为数据给它），并告诉它往哪里写。作者看不到实现，也拿不到真实工作区的路径；它写测试时的副作用（SQLite 的 -wal 文件、git 更新索引等）只落在副本里。
 - 它要写三样东西：
   1. `suite/run.sh`：实现者可以看、可以跑的测试。
   2. `holdout/run.sh`：只给评审者跑的测试。覆盖同样的要求，但换输入、换角度，让“照着可见测试做”通过不了。

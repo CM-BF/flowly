@@ -61,11 +61,18 @@ test("the author writes in a copy of the workspace from the card alone, and the 
   const data = await temp(), workspace = await temp();
   await writeFile(join(workspace, "app.py"), "print('start')\n");
   let finish!: (r: { status: string }) => void;
-  const created: Record<string, unknown>[] = [];
+  const created: Record<string, unknown>[] = [], spaces: Record<string, unknown>[] = [];
   const archived = vi.fn(async () => {});
   const paseo = {
-    workspaces: { ref: () => ({ refresh: async () => ({ workspaceDirectory: workspace }) }) },
-    agents: { create: async (options: Record<string, unknown>) => { created.push(options); return { id: "author-1", waitForFinish: () => new Promise((r) => { finish = r; }), archive: archived }; }, ref: () => ({}) },
+    workspaces: {
+      ref: () => ({ refresh: async () => ({ workspaceDirectory: workspace }) }),
+      create: async (options: Record<string, unknown>) => {
+        spaces.push(options);
+        return { id: "author-ws", agents: { create: async (options: Record<string, unknown>) => { created.push(options); return { id: "author-1", waitForFinish: () => new Promise((r) => { finish = r; }), archive: vi.fn() }; } } };
+      },
+      archive: archived,
+    },
+    agents: { ref: () => ({}) },
   } as unknown as PaseoApi;
   const service = new AcceptanceService(data, { copy: async (from, to) => { await mkdir(to, { recursive: true }); for (const f of await readdir(from)) await writeFile(join(to, f), await readFile(join(from, f))); } });
   const b = board();
@@ -74,7 +81,9 @@ test("the author writes in a copy of the workspace from the card alone, and the 
   await vi.waitFor(() => expect(created).toHaveLength(1));
   const p = service.paths("t1");
   const options = created[0]!;
-  expect(options.cwd).toBe(p.env);
+  // The copy is a workspace of the card's own Paseo project, not a project of its own.
+  expect(spaces[0]).toMatchObject({ source: { kind: "directory", path: p.env, projectId: "native" } });
+  expect(options).not.toHaveProperty("cwd");
   expect(await readFile(join(p.env, "app.py"), "utf8")).toBe("print('start')\n");
   expect(options.labels).toMatchObject({ "flowly-task": "t1", "flowly-acceptance": "author" });
   expect(options.config).toMatchObject({ provider: "codex/gpt-6-luna", modeId: "full-access" });
@@ -94,7 +103,7 @@ test("the author writes in a copy of the workspace from the card alone, and the 
   finish({ status: "idle" });
   await vi.waitFor(async () => expect((await service.state("t1"))?.status).toBe("ready"));
   expect(await exists(p.env)).toBe(false);
-  await vi.waitFor(() => expect(archived).toHaveBeenCalled());
+  await vi.waitFor(() => expect(archived).toHaveBeenCalledWith("author-ws"));
   const implementer = await service.context("t1", false), reviewer = await service.context("t1", true);
   expect(implementer).not.toHaveProperty("holdout");
   expect(implementer).not.toHaveProperty("requirements");
