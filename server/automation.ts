@@ -1432,7 +1432,7 @@ export class AutomationService {
       this.store.event(board, { taskId, actor: "system", action: "automation_tournament_skipped", note: clip(note, 1000) });
       return { value: null, changed: true };
     }).then(() => this.kick()),
-    createJudge: (taskId: string, generation: number, prompt: string, model: AgentModel) => this.createJudge(taskId, generation, prompt, model),
+    createJudge: (taskId: string, generation: number, prompt: string, model: AgentModel, prepared: (agentId: string) => void) => this.createJudge(taskId, generation, prompt, model, prepared),
   };
 
   /** The winner is in the workspace: the job is delivered without review rounds and the card waits In review (§5.5). */
@@ -1461,7 +1461,7 @@ export class AutomationService {
   }
 
   /** The tournament's judge: a prepared session in the card's own workspace, recorded as the job's reviewer so it is not taken for a takeover. */
-  private async createJudge(taskId: string, generation: number, prompt: string, model: AgentModel) {
+  private async createJudge(taskId: string, generation: number, prompt: string, model: AgentModel, prepared: (agentId: string) => void) {
     const paseo = this.api();
     const board = await this.store.read();
     const job = jobOf(board, taskId), task = board.tasks.find((t) => t.id === taskId);
@@ -1475,6 +1475,7 @@ export class AutomationService {
       return { value: true, changed: true };
     });
     if (!recorded) return null;
+    prepared(preparation.agentId);
     await paseo.workspaces.ref(task.workspaceId).agents.create({
       config: {
         provider: `${model.provider}/${model.model}`,

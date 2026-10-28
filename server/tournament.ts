@@ -64,7 +64,7 @@ export type TournamentHooks = {
   /** No tournament for this generation: the job goes on with an ordinary implementer. */
   fallback(taskId: string, generation: number, note: string): Promise<void>;
   /** A judge session in the card's own workspace, recorded as the job's reviewer; returns its id. */
-  createJudge(taskId: string, generation: number, prompt: string, model: AgentModel): Promise<string | null>;
+  createJudge(taskId: string, generation: number, prompt: string, model: AgentModel, prepared: (agentId: string) => void): Promise<string | null>;
 };
 export type TournamentOptions = { timeoutMs?: number; copy?: (from: string, to: string) => Promise<void> };
 
@@ -365,9 +365,9 @@ export class TournamentService {
         ...(context ? { run: context.run, holdoutRun: context.holdoutRun, requirements: context.requirements } : {}),
       });
       await this.update(task.id, (s) => ({ ...s, phase: "judging" }));
-      const judgeId = await this.hooks!.createJudge(task.id, state.generation, prompt, model);
+      // Registered before the session starts: its first tool listing must already offer the judge's tools.
+      const judgeId = await this.hooks!.createJudge(task.id, state.generation, prompt, model, (id) => this.judges.add(id));
       if (!judgeId) return;
-      this.judges.add(judgeId);
       await this.update(task.id, (s) => ({ ...s, judgeId }));
       void this.watchJudge(task.id, this.paseo!.agents.ref(judgeId) as unknown as SessionHandle);
     } finally { this.advancing.delete(task.id); }

@@ -69,7 +69,7 @@ async function setup(acceptance: "ready" | "none" = "ready") {
   const hooks: TournamentHooks & { decided: ReturnType<typeof vi.fn>; fallback: ReturnType<typeof vi.fn> } = {
     decided: vi.fn(async () => {}),
     fallback: vi.fn(async () => {}),
-    createJudge: async (_taskId, _generation, prompt) => { judgePrompts.push(prompt); return "judge-1"; },
+    createJudge: async (_taskId, _generation, prompt, _model, prepared) => { prepared("judge-1"); judgePrompts.push(prompt); return "judge-1"; },
   };
   const tests = acceptance === "ready" ? {
     state: async () => ({ version: 1 as const, taskId: "t1", generation: 1, status: "ready" as const, startedAt: at, snapshots: [] }),
@@ -185,7 +185,9 @@ test("the dispatcher holds a tournament card's implementer and delivers the deci
   expect(x.created).toHaveLength(0);
   expect(await x.job("a")).toMatchObject({ role: "implementer", state: "starting" });
   // The judge is a prepared session in the card's workspace, recorded as the job's reviewer.
-  const judge = await hooks.createJudge("a", 1, "judge these", luna);
+  const registered: string[] = [];
+  const judge = await hooks.createJudge("a", 1, "judge these", luna, (id) => registered.push(id));
+  expect(registered).toEqual([judge]);
   expect(x.created).toHaveLength(1);
   expect(x.created[0]).toMatchObject({ agentId: judge, workspaceId: "w-a", prompt: "judge these", labels: { "flowly-tournament": "judge" } });
   expect(await x.job("a")).toMatchObject({ reviewerId: judge, state: "starting" });
