@@ -311,7 +311,12 @@ export const reviewInputSchema = z.strictObject({
   risks: z.array(z.string().trim().min(1).max(automationLimits.risk)).max(automationLimits.risks).default([]),
   handoff: z.strictObject({ gaps: z.array(z.string().trim().min(1).max(300)).max(5) }).optional(),
   /** Acceptance-test results the reviewer ran this round (§5.4.2): the visible suite and the reviewer-only holdout. */
-  acceptance: z.strictObject({ visible: acceptanceCount, holdout: acceptanceCount }).optional(),
+  acceptance: z.strictObject({
+    visible: acceptanceCount,
+    holdout: acceptanceCount,
+    /** Failing checks the reviewer judges wrong (§5.4.2): an approval with failures names each one and the card text it contradicts. */
+    disputed: z.array(z.strictObject({ check: z.string().trim().min(1).max(300), reason: z.string().trim().min(1).max(1000) })).max(50).optional(),
+  }).optional(),
 });
 export type ReviewInput = z.input<typeof reviewInputSchema>;
 export const reviewResultSchema = z.object({

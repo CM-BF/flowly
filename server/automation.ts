@@ -1279,6 +1279,10 @@ export class AutomationService {
 
   async submitReview(identity: ToolIdentity, raw: ReviewInput, beforeCommit?: (board: Board, sourceId: string) => Promise<void>) {
     const input = reviewInputSchema.parse(raw);
+    // An approval does not pass over failing acceptance checks (§5.4.2): each one is named as wrong, with the card text it contradicts.
+    const failing = input.acceptance ? input.acceptance.visible.failed + input.acceptance.holdout.failed : 0;
+    if (input.verdict === "approve" && failing > (input.acceptance?.disputed?.length ?? 0))
+      throw new ToolError("ACCEPTANCE_FAILING", `${failing} acceptance check${failing === 1 ? "" : "s"} failed. Approve only when each failing check is wrong: list every one in acceptance.disputed with the check's name and the card text it contradicts (quote it); otherwise send verdict=changes for the failures. Nothing was recorded.`);
     type Answer = { accepted: boolean; verdict: "approve" | "changes"; replayed?: boolean; message: string; handoffSourceId?: string };
     // Acceptance-test review (§5.4.3): a change request keeps this delivery, so a rework that does not improve can go back to it.
     const workspace = await this.acceptanceSnapshot(identity, input.verdict, !!input.acceptance);
@@ -1374,7 +1378,8 @@ export class AutomationService {
         delete job.instruction;
         delete job.pendingOp;
         delete job.pendingRole;
-        this.store.event(board, { taskId: task.id, actor: "agent", agentId: identity.agentId, action: "automation_review_approved", note: clip(text, 10000) });
+        const disputed = input.acceptance?.disputed?.length ? `\n\nFailing acceptance checks judged wrong (${input.acceptance.disputed.length}):\n${input.acceptance.disputed.map((d) => `- ${d.check}: ${d.reason}`).join("\n")}` : "";
+        this.store.event(board, { taskId: task.id, actor: "agent", agentId: identity.agentId, action: "automation_review_approved", note: clip(text + disputed, 10000) });
         risks();
         return { value: { answer: { accepted: true, verdict: input.verdict, message: "Approved. The card stays In review for the user to accept; end your turn.", ...(beforeCommit ? { handoffSourceId } : {}) } }, changed: true };
       }

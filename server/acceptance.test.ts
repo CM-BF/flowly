@@ -254,3 +254,24 @@ test("a failed author lets the review go on without tests, told once on the card
   await x.automation.submitReview({ agentId: x.created[1]!.agentId, taskId: "a", workspaceId: "w-a" }, { verdict: "approve", summary: "Fine" });
   expect(await x.job("a")).toMatchObject({ verdict: "approved" });
 });
+
+test("an approval names every failing acceptance check it judges wrong, or it is refused", async () => {
+  const { x, state } = await heldReview("writing");
+  state.status = "ready";
+  await x.automation.kick();
+  const as = { agentId: x.created[1]!.agentId, taskId: "a", workspaceId: "w-a" };
+  const counts = { visible: { passed: 20, failed: 1 }, holdout: { passed: 20, failed: 1 } };
+  await expect(x.automation.submitReview(as, { verdict: "approve", summary: "Only test defects remain", acceptance: counts })).rejects.toMatchObject({ code: "ACCEPTANCE_FAILING" });
+  await expect(x.automation.submitReview(as, { verdict: "approve", summary: "Only test defects remain", acceptance: { ...counts, disputed: [{ check: "test_api_name", reason: "calls nx.vf2pp_all_graph_isomorphisms; the card says compare with NetworkX 3.4.2, which has no such name" }] } })).rejects.toMatchObject({ code: "ACCEPTANCE_FAILING" });
+  expect(await x.job("a")).toMatchObject({ state: "reviewing" });
+  await x.automation.submitReview(as, { verdict: "approve", summary: "Only test defects remain", acceptance: { ...counts, disputed: [{ check: "test_api_name", reason: "calls a NetworkX name 3.4.2 does not have" }, { check: "reviewer-only test_api_name", reason: "the same call" }] } });
+  expect(await x.job("a")).toMatchObject({ verdict: "approved", acceptanceRuns: [{ round: 1, passed: 40, failed: 2 }] });
+  const note = (await x.store.read()).events.find((e) => e.action === "automation_review_approved")!.note!;
+  expect(note).toContain("Failing acceptance checks judged wrong (2):\n- test_api_name: calls a NetworkX name 3.4.2 does not have");
+});
+
+test("the author is asked for checks as strict as a grader that knows the answer", () => {
+  const prompt = authorPrompt({ title: "T", description: "D" }, [], { env: "/e", suite: "/s", holdout: "/h", requirements: "/r" });
+  for (const rule of ["obviously correct reference", "chunked, reordered or batched", "every constraint on the whole output", "every form the forbidden thing can take", "as another unprivileged user", "'property only' (format or plausibility) is the last resort"])
+    expect(prompt).toContain(rule);
+});

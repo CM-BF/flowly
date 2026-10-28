@@ -74,6 +74,21 @@ const readOnly = (dir: string) => setMode(dir, false);
 const writable = (dir: string) => setMode(dir, true);
 
 /** The author's instruction: the card is data; it writes tests from it alone, never touching anything but its own folders. */
+/**
+ * How strong the author's checks must be (§5.4.1). Benchmark: in 5 of 8 cards whose suites all passed the hidden grader
+ * still failed, on what format-and-plausibility checks let through: an exact answer, chunkings that must agree, a
+ * constraint on every row, another form of a forbidden secret, the delivery run by another user.
+ */
+export const acceptanceStrength = [
+  "Make the checks as strict as a grader who knows the right answer. For each requirement use the strongest check that applies:",
+  "- Exact outputs the card states: assert them exactly.",
+  "- Results the card defines but does not state (a computed answer, a transformation, an optimum, a parse): work out the expected result yourself and assert it exactly. Write a small, obviously correct reference in your test directory (brute force, or the card's definition read literally) and compare the delivery with it on the card's inputs and on many generated ones. An answer you derive by hand, derive twice by different routes and write the derivation next to the test.",
+  "- Invariants the card implies: equivalent inputs give equal results (split, chunked, reordered or batched input against all at once; one call against many), round trips, idempotence; check every constraint on the whole output (every row, every item), not a sample; the boundaries the card names (empty, one, exactly at a limit).",
+  "- Prohibitions: check every form the forbidden thing can take (other names, encodings, copies, generated or bundled files, every shipped artifact), not only the card's example.",
+  "- The delivery as it will be used: from a clean shell, with the workspace read-only, as another unprivileged user when you can (as root: setpriv, runuser or su to nobody), without the build's caches or environment; performance limits measured the way the card states them.",
+  "'property only' (format or plausibility) is the last resort: in requirements.md say why nothing stronger is possible. Split each kind of check between the two suites: the visible suite lets the implementer find its mistakes early, the holdout catches a delivery that only fits the visible checks. Work efficiently: the review waits for your tests.",
+].join("\n");
+
 export function authorPrompt(task: Pick<Task, "title" | "description">, comments: readonly string[], paths: { env: string; suite: string; holdout: string; requirements: string }) {
   return [
     "[Flowly acceptance] You write the independent acceptance tests for one card. Another agent implements the card without seeing your hidden tests; a reviewer runs all of them. You never see or change the implementation.",
@@ -85,7 +100,8 @@ export function authorPrompt(task: Pick<Task, "title" | "description">, comments
       `2. ${paths.holdout}/run.sh (and its files): more tests only the reviewer runs. Cover the same requirements in other ways (other inputs, cases the card implies) so that imitating the visible tests is not enough.`,
       `3. ${paths.requirements}: every explicit requirement and prohibition of the card, one per line, with the checks (file and test name) that cover it, "property only" where you can only check format or invariants because the card gives no exact expected result, and "not covered: <reason>" where you cannot check it.`,
     ].join("\n"),
-    "run.sh rules: it is called as `bash run.sh <workspace-dir>` (possibly as another user, with the workspace read-only). It exits 0 only if every check passes and prints, as its last line, exactly `ACCEPTANCE passed=<n> failed=<m>`. It never writes into <workspace-dir> (use mktemp; no caches: PYTHONDONTWRITEBYTECODE=1, pytest -p no:cacheprovider), uses no network unless the card requires it, and needs nothing the workspace does not already have. Where the card states exact outputs, assert them exactly; otherwise check properties and say so in requirements.md. Prefer a few strong checks per requirement over many weak ones. Try both scripts against your copy (most checks should fail there, since nothing is implemented yet; the scripts themselves must run).",
+    "run.sh rules: it is called as `bash run.sh <workspace-dir>` (possibly as another user, with the workspace read-only). It exits 0 only if every check passes and prints, as its last line, exactly `ACCEPTANCE passed=<n> failed=<m>`. It never writes into <workspace-dir> (use mktemp; no caches: PYTHONDONTWRITEBYTECODE=1, pytest -p no:cacheprovider), uses no network unless the card requires it, and needs nothing the workspace does not already have. Try both scripts against your copy (most checks should fail there, since nothing is implemented yet; the scripts themselves must run).",
+    acceptanceStrength,
     "When the three files are written, end your turn. Do not ask questions: nobody answers them.",
   ].join("\n\n");
 }
