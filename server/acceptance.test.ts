@@ -271,7 +271,42 @@ test("an approval names every failing acceptance check it judges wrong, or it is
 });
 
 test("the author is asked for checks as strict as a grader that knows the answer", () => {
-  const prompt = authorPrompt({ title: "T", description: "D" }, [], { env: "/e", suite: "/s", holdout: "/h", requirements: "/r" });
+  const prompt = authorPrompt({ title: "T", description: "D" }, [], { env: "/e", suite: "/s", holdout: "/h", requirements: "/r", scratch: "/x" });
   for (const rule of ["obviously correct reference", "chunked, reordered or batched", "every constraint on the whole output", "every form the forbidden thing can take", "as another unprivileged user", "'property only' (format or plausibility) is the last resort"])
     expect(prompt).toContain(rule);
+});
+
+test("a permission request does not end the author: it is refused with guidance and the author goes on", async () => {
+  const data = await temp(), workspace = await temp();
+  const waits: Array<{ status: string; final?: unknown }> = [{ status: "permission", final: { pendingPermissions: [{ id: "perm-1", name: "Bash" }] } }];
+  let done!: () => void;
+  const responses: unknown[] = [];
+  const service = new AcceptanceService(data, { copy: async (_from, to) => { await mkdir(to, { recursive: true }); } });
+  const p = service.paths("t1");
+  const handle = {
+    id: "author-1",
+    waitForFinish: async () => waits.shift() ?? new Promise<{ status: string }>((r) => { done = () => r({ status: "idle" }); }),
+    respondToPermission: async (o: unknown) => { responses.push(o); },
+    archive: vi.fn(),
+  };
+  const paseo = {
+    workspaces: { ref: () => ({ refresh: async () => ({ workspaceDirectory: workspace }) }), create: async () => ({ id: "ws", agents: { create: async () => handle } }), archive: vi.fn(async () => {}) },
+    agents: { ref: () => ({}) },
+  } as unknown as PaseoApi;
+  const b = board();
+  b.automation.push({ taskId: "t1", projectId: "p", role: "implementer", state: "working", generation: 1, nudges: 0, failures: 0, reviewRounds: 0, queuedAt: at, updatedAt: at });
+  await service.tick(b, paseo);
+  await vi.waitFor(() => expect(responses).toHaveLength(1));
+  expect(responses[0]).toMatchObject({ requestId: "perm-1", response: { behavior: "deny" } });
+  expect(JSON.stringify(responses[0])).toContain(p.scratch);
+  // Still writing: the refusal did not end it.
+  expect((await service.state("t1"))?.status).toBe("writing");
+  expect(await exists(p.scratch)).toBe(true);
+  await writeFile(join(p.suite, "run.sh"), "true\n");
+  await writeFile(join(p.holdout, "run.sh"), "true\n");
+  await writeFile(p.requirements, "- r\n");
+  await vi.waitFor(() => expect(done).toBeTypeOf("function"));
+  done();
+  await vi.waitFor(async () => expect((await service.state("t1"))?.status).toBe("ready"));
+  expect(await exists(p.scratch)).toBe(false);
 });
