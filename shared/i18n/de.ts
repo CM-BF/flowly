@@ -125,6 +125,8 @@ const catalog: Catalog = {
   "Usage data": "Nutzungsdaten",
   "Rework did not improve the acceptance tests; the previous delivery was restored": "Die Nacharbeit hat die Abnahmetests nicht verbessert; die vorige Lieferung wurde wiederhergestellt",
   "Restored the previous delivery: the rework did not improve the acceptance tests": "Vorige Lieferung wiederhergestellt: Die Nacharbeit hat die Abnahmetests nicht verbessert",
+  "Waiting for the acceptance tests before the review": "Warte vor der Prüfung auf die Abnahmetests",
+  "The acceptance tests could not be written; reviewed without them": "Die Abnahmetests konnten nicht geschrieben werden; ohne sie geprüft",
   "Acceptance tests": "Abnahmetests",
   "When work starts, a separate session writes tests from the card alone; part of them is hidden from the implementer. Reviewers run them and request changes only for a failing check or a violated requirement; rework that does not improve the tests is undone.": "Zu Arbeitsbeginn schreibt eine eigene Sitzung Tests allein anhand der Karte; ein Teil bleibt dem Umsetzer verborgen. Prüfer führen sie aus und verlangen Änderungen nur bei einer fehlgeschlagenen Prüfung oder einer verletzten Anforderung; Nacharbeit, die die Tests nicht verbessert, wird zurückgenommen.",
   "Acceptance author": "Autor der Abnahmetests",

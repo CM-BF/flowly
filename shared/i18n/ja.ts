@@ -125,6 +125,8 @@ const catalog: Catalog = {
   "Usage data": "使用状況データ",
   "Rework did not improve the acceptance tests; the previous delivery was restored": "手直しで受け入れテストが改善しなかったため、前回の納品に戻しました",
   "Restored the previous delivery: the rework did not improve the acceptance tests": "前回の納品に戻しました：手直しで受け入れテストが改善しませんでした",
+  "Waiting for the acceptance tests before the review": "レビューの前に受け入れテストを待っています",
+  "The acceptance tests could not be written; reviewed without them": "受け入れテストを書けなかったため、テストなしでレビューします",
   "Acceptance tests": "受け入れテスト",
   "When work starts, a separate session writes tests from the card alone; part of them is hidden from the implementer. Reviewers run them and request changes only for a failing check or a violated requirement; rework that does not improve the tests is undone.": "作業開始時に別のセッションがカードだけを見てテストを書き、その一部は実装担当には見せません。レビュー担当はそれを実行し、チェックの失敗か要件違反があるときだけ修正を求めます。テストが改善しない手直しは取り消されます。",
   "Acceptance author": "受け入れテストの作成者",

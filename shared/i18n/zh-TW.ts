@@ -125,6 +125,8 @@ const catalog: Catalog = {
   "Usage data": "使用資料",
   "Rework did not improve the acceptance tests; the previous delivery was restored": "返工沒有讓驗收測試變好，已還原上一次交付",
   "Restored the previous delivery: the rework did not improve the acceptance tests": "已還原上一次交付：返工沒有讓驗收測試變好",
+  "Waiting for the acceptance tests before the review": "等驗收測試寫好後再評審",
+  "The acceptance tests could not be written; reviewed without them": "驗收測試沒能寫出來，本次評審不帶測試",
   "Acceptance tests": "驗收測試",
   "When work starts, a separate session writes tests from the card alone; part of them is hidden from the implementer. Reviewers run them and request changes only for a failing check or a violated requirement; rework that does not improve the tests is undone.": "開工時由一個獨立對話只根據卡片撰寫測試，其中一部分對執行者隱藏。審查者執行這些測試，只在檢查失敗或要求被違反時才要求修改；沒有讓測試變好的返工會被撤銷。",
   "Acceptance author": "驗收測試作者",

@@ -137,6 +137,7 @@ export class AutomationService {
   private again = false;
   private stopped = false;
   private readonly sending = new Map<string, Promise<void>>();
+  private readonly acceptanceTold = new Set<string>();
   private readonly clock: () => number;
   private readonly launches: AutomationLaunches;
   constructor(
@@ -1413,6 +1414,33 @@ export class AutomationService {
     return result.answer;
   }
 
+  /**
+   * A review waits for this generation's acceptance tests while their author is still writing (§5.4.2): a review that
+   * started before them approved without any. The pass retries the held instruction; the round is not used up.
+   * A failed author lets the review go on without tests. Each wait and each failure is told once on the card.
+   */
+  private async acceptancePending(job: AutomationJob, project: Project) {
+    if (!this.deps.acceptance || !automationOf(project)?.acceptance) return false;
+    const state = await this.deps.acceptance.state(job.taskId).catch(() => null);
+    if (!state || state.generation !== job.generation) return false;
+    const key = `${job.taskId}:${job.generation}:${state.status === "writing" ? job.deliveryEvent ?? "" : "failed"}`;
+    const tell = state.status === "writing" || state.status === "failed" ? !this.acceptanceTold.has(key) : false;
+    if (tell) {
+      this.acceptanceTold.add(key);
+      await this.store.transaction((b) => {
+        // Already told for this delivery (writing) or this run (failed), e.g. before a plugin reload.
+        const action = state.status === "writing" ? "automation_acceptance_waiting" : "automation_acceptance_failed";
+        const since = state.status === "writing" ? b.events.find((e) => e.id === job.deliveryEvent)?.at ?? job.queuedAt : state.startedAt;
+        if (b.events.some((e) => e.taskId === job.taskId && e.action === action && e.at >= since)) return { value: null, changed: false };
+        this.store.event(b, state.status === "writing"
+          ? { taskId: job.taskId, actor: "system", action: "automation_acceptance_waiting", note: "The review starts when the acceptance tests are written; this round is not used up while they are." }
+          : { taskId: job.taskId, actor: "system", action: "automation_acceptance_failed", note: clip(`The acceptance tests could not be written, so this card is reviewed without them${state.detail ? `: ${state.detail}` : "."}`, 600) });
+        return { value: null, changed: true };
+      }).catch((e) => logFailure("Flowly could not record the acceptance wait:", e, job.taskId));
+    }
+    return state.status === "writing";
+  }
+
   /** Before a verdict: the reviewer's card is an acceptance card; a change request snapshots the delivery under review (§5.4.3). */
   private async acceptanceSnapshot(identity: ToolIdentity, verdict: "approve" | "changes", counted: boolean) {
     const acceptance = this.deps.acceptance;
@@ -1421,7 +1449,11 @@ export class AutomationService {
     const job = jobOf(board, identity.taskId), task = board.tasks.find((t) => t.id === identity.taskId);
     if (!job || !task || job.reviewerId !== identity.agentId || !automationOf(board.projects.find((p) => p.id === job.projectId))?.acceptance) return null;
     // Counts are what reverts compare (§5.4.3): with the tests ready, a verdict without them is refused before anything is recorded.
-    if (!counted && (await acceptance.state(task.id).catch(() => null))?.status === "ready")
+    const state = await acceptance.state(task.id).catch(() => null);
+    // A reviewer that got going before the tests were written (§5.4.2) waits for them like a held review.
+    if (state?.status === "writing" && state.generation === job.generation)
+      throw new ToolError("ACCEPTANCE_PENDING", "This card's acceptance tests are still being written. End your turn without a verdict; Flowly sends the review instruction again when they are ready. Nothing was recorded.");
+    if (!counted && state?.status === "ready")
       throw new ToolError("ACCEPTANCE_REQUIRED", "This card's acceptance tests are ready: run both suites and send their counts in acceptance { visible: { passed, failed }, holdout: { passed, failed } } (from each suite's final ACCEPTANCE line), then submit again. Nothing was recorded.");
     // A session that changed the tests gets the author's version back before anything counts (§5.4.2).
     if (await acceptance.guard(task.id).catch(() => false))
@@ -1618,6 +1650,7 @@ export class AutomationService {
       const task = board.tasks.find((t) => t.id === job.taskId);
       const project = task && board.projects.find((p) => p.id === task.projectId);
       if (!current || !task || !project || !["starting", "working", "reviewing"].includes(current.state) || this.unconfirmedFor(current, role)) return;
+      if (role === "reviewer" && await this.acceptancePending(current, project)) return;
       const { text, fresh } = current.instruction!;
       const id = role === "reviewer" ? current.reviewerId : current.implementerId;
       const peerId = role === "reviewer" ? current.implementerId : current.reviewerId;

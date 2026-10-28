@@ -125,6 +125,8 @@ const catalog: Catalog = {
   "Usage data": "사용 데이터",
   "Rework did not improve the acceptance tests; the previous delivery was restored": "재작업으로 인수 테스트가 개선되지 않아 이전 결과물로 되돌렸습니다",
   "Restored the previous delivery: the rework did not improve the acceptance tests": "이전 결과물로 되돌렸습니다: 재작업으로 인수 테스트가 개선되지 않았습니다",
+  "Waiting for the acceptance tests before the review": "리뷰 전에 인수 테스트를 기다리는 중",
+  "The acceptance tests could not be written; reviewed without them": "인수 테스트를 작성하지 못해 테스트 없이 리뷰합니다",
   "Acceptance tests": "인수 테스트",
   "When work starts, a separate session writes tests from the card alone; part of them is hidden from the implementer. Reviewers run them and request changes only for a failing check or a violated requirement; rework that does not improve the tests is undone.": "작업이 시작되면 별도 세션이 카드만 보고 테스트를 작성하며, 그중 일부는 구현 담당에게 숨겨집니다. 검토 담당은 이를 실행하고 검사 실패나 요구 사항 위반이 있을 때만 수정을 요청합니다. 테스트를 개선하지 못한 재작업은 취소됩니다.",
   "Acceptance author": "인수 테스트 작성자",
