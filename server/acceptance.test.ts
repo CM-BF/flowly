@@ -134,7 +134,7 @@ test("a snapshot restores the exact workspace it copied, and never a moved, root
 const luna = { provider: "codex", model: "gpt-6-luna" };
 async function reviewed(failedFirst: number, failedSecond: number) {
   const snapshot = vi.fn(async () => {}), restore = vi.fn(async () => {});
-  const acceptance = { tick: async () => {}, snapshot, restore, workspaceDirectory: async () => "/fixture/ws", guard: async () => false, paths: (id: string) => new AcceptanceService("/fixture/data").paths(id) };
+  const acceptance = { tick: async () => {}, snapshot, restore, workspaceDirectory: async () => "/fixture/ws", guard: async () => false, paths: (id: string) => new AcceptanceService("/fixture/data").paths(id), state: async () => ({ version: 1 as const, taskId: "a", generation: 1, status: "ready" as const, startedAt: at, snapshots: [] }) };
   const x = await automationFixture({ enabled: true, reviewer: luna, acceptance: {} }, undefined, { acceptance });
   await x.automation.queue("a");
   await x.automation.kick();
@@ -144,6 +144,9 @@ async function reviewed(failedFirst: number, failedSecond: number) {
   const rev = x.created[1]!.agentId;
   const as = { agentId: rev, taskId: "a", workspaceId: "w-a" };
   const count = (failed: number) => ({ visible: { passed: 4, failed }, holdout: { passed: 2, failed: 0 } });
+  // With the tests ready, a verdict without counts is refused and nothing is recorded.
+  await expect(x.automation.submitReview(as, { verdict: "approve", summary: "Looks fine" })).rejects.toMatchObject({ code: "ACCEPTANCE_REQUIRED" });
+  expect(await x.job("a")).toMatchObject({ state: "reviewing", reviewRounds: 1 });
   await x.automation.submitReview(as, { verdict: "changes", summary: "Two checks fail", findings: ["test_order fails in /fixture/data/acceptance/a/holdout/run.sh"], acceptance: count(failedFirst) });
   // The implementer never learns where the reviewer-only tests are.
   expect((await x.job("a")).changes).toContain("test_order fails in [reviewer-only tests]/run.sh");

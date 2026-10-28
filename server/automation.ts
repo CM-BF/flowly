@@ -117,7 +117,7 @@ export type AutomationDeps = {
   commentResult?: (taskId: string, sourceId: string, result: CommentRouteResult) => Promise<void>;
   commentFailed?: (taskId: string, sourceId: string, error: unknown) => Promise<void>;
   /** Acceptance-test review (AUTOMATION-SPEC §5.4): authors, snapshots and reverts. */
-  acceptance?: Pick<AcceptanceService, "tick" | "snapshot" | "restore" | "workspaceDirectory" | "guard" | "paths">;
+  acceptance?: Pick<AcceptanceService, "tick" | "snapshot" | "restore" | "workspaceDirectory" | "guard" | "paths" | "state">;
 };
 
 /** Short tail for event notes and the job's detail. */
@@ -1280,7 +1280,7 @@ export class AutomationService {
     const input = reviewInputSchema.parse(raw);
     type Answer = { accepted: boolean; verdict: "approve" | "changes"; replayed?: boolean; message: string; handoffSourceId?: string };
     // Acceptance-test review (§5.4.3): a change request keeps this delivery, so a rework that does not improve can go back to it.
-    const workspace = await this.acceptanceSnapshot(identity, input.verdict);
+    const workspace = await this.acceptanceSnapshot(identity, input.verdict, !!input.acceptance);
     const result = await this.store.transaction<{ answer: Answer; changes?: { job: AutomationJob; prompt: string }; revert?: { job: AutomationJob; round: number } }>(async (board) => {
       const job = jobOf(board, identity.taskId);
       if (!job || job.reviewerId !== identity.agentId)
@@ -1414,12 +1414,15 @@ export class AutomationService {
   }
 
   /** Before a verdict: the reviewer's card is an acceptance card; a change request snapshots the delivery under review (§5.4.3). */
-  private async acceptanceSnapshot(identity: ToolIdentity, verdict: "approve" | "changes") {
+  private async acceptanceSnapshot(identity: ToolIdentity, verdict: "approve" | "changes", counted: boolean) {
     const acceptance = this.deps.acceptance;
     if (!acceptance || !this.paseo) return null;
     const board = await this.store.read();
     const job = jobOf(board, identity.taskId), task = board.tasks.find((t) => t.id === identity.taskId);
     if (!job || !task || job.reviewerId !== identity.agentId || !automationOf(board.projects.find((p) => p.id === job.projectId))?.acceptance) return null;
+    // Counts are what reverts compare (§5.4.3): with the tests ready, a verdict without them is refused before anything is recorded.
+    if (!counted && (await acceptance.state(task.id).catch(() => null))?.status === "ready")
+      throw new ToolError("ACCEPTANCE_REQUIRED", "This card's acceptance tests are ready: run both suites and send their counts in acceptance { visible: { passed, failed }, holdout: { passed, failed } } (from each suite's final ACCEPTANCE line), then submit again. Nothing was recorded.");
     // A session that changed the tests gets the author's version back before anything counts (§5.4.2).
     if (await acceptance.guard(task.id).catch(() => false))
       await this.store.transaction((b) => {
