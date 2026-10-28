@@ -1,5 +1,6 @@
 import { execFile } from "node:child_process";
-import { cp, mkdir, readFile, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
+import { chmod, cp, mkdir, readFile, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
 import { homedir } from "node:os";
 import { join, resolve, sep } from "node:path";
 import { randomUUID } from "node:crypto";
@@ -44,6 +45,28 @@ async function copyTree(from: string, to: string) {
   else await cp(from, to, { recursive: true, verbatimSymlinks: true, force: true });
 }
 const exists = (path: string) => stat(path).then(() => true, () => false);
+async function walk(dir: string): Promise<string[]> {
+  const out: string[] = [];
+  for (const entry of await readdir(dir, { withFileTypes: true }).catch(() => [])) {
+    const path = join(dir, entry.name);
+    if (entry.isDirectory()) out.push(...(await walk(path)));
+    else out.push(path);
+  }
+  return out.sort();
+}
+async function treeHash(dir: string) {
+  const hash = createHash("sha256");
+  for (const file of await walk(dir)) hash.update(file.slice(dir.length)).update("\0").update(await readFile(file).catch(() => Buffer.alloc(0))).update("\0");
+  return hash.digest("hex");
+}
+const setMode = async (dir: string, write: boolean) => {
+  for (const file of [dir, ...(await walk(dir))]) {
+    const mode = (await stat(file).catch(() => null))?.mode;
+    if (mode !== undefined) await chmod(file, write ? mode | 0o200 : mode & ~0o222).catch(() => undefined);
+  }
+};
+const readOnly = (dir: string) => setMode(dir, false);
+const writable = (dir: string) => setMode(dir, true);
 
 /** The author's instruction: the card is data; it writes tests from it alone, never touching anything but its own folders. */
 export function authorPrompt(task: Pick<Task, "title" | "description">, comments: readonly string[], paths: { env: string; suite: string; holdout: string; requirements: string }) {
@@ -77,7 +100,7 @@ export class AcceptanceService {
   paths(taskId: string) {
     if (!/^[\w-]{1,200}$/.test(taskId)) throw new Error("Invalid card id.");
     const root = join(this.directory, "acceptance", taskId);
-    return { root, env: join(root, "env"), suite: join(root, "suite"), holdout: join(root, "holdout"), requirements: join(root, "requirements.md"), snapshots: join(root, "snapshots"), state: join(root, "state.json") };
+    return { root, env: join(root, "env"), suite: join(root, "suite"), holdout: join(root, "holdout"), requirements: join(root, "requirements.md"), snapshots: join(root, "snapshots"), pristine: join(root, "pristine"), state: join(root, "state.json") };
   }
   async state(taskId: string): Promise<AcceptanceState | null> {
     try { return stateSchema.parse(JSON.parse(await readFile(this.paths(taskId).state, "utf8"))); }
@@ -138,7 +161,7 @@ export class AcceptanceService {
     if (!workspace?.workspaceDirectory) throw new Error("The card's workspace is unavailable.");
     // A new generation starts over: old tests and the old copy go; snapshots are per review cycle and stay until reverted or replaced.
     const previous = await this.state(task.id).catch(() => null);
-    for (const dir of [p.env, p.suite, p.holdout]) await rm(dir, { recursive: true, force: true });
+    for (const dir of [p.env, p.suite, p.holdout, p.pristine]) { await writable(dir); await rm(dir, { recursive: true, force: true }); }
     await rm(p.requirements, { force: true });
     await mkdir(p.suite, { recursive: true, mode: 0o700 });
     await mkdir(p.holdout, { recursive: true, mode: 0o700 });
@@ -178,8 +201,32 @@ export class AcceptanceService {
     const present = await Promise.all([join(p.suite, "run.sh"), join(p.holdout, "run.sh"), p.requirements].map(exists));
     const missing = ["suite/run.sh", "holdout/run.sh", "requirements.md"].filter((_, i) => !present[i]);
     const ready = !error && !missing.length;
+    if (ready) {
+      // The author's version is kept aside and the suites are made read-only: sessions may run them, never change them.
+      await rm(p.pristine, { recursive: true, force: true });
+      for (const name of ["suite", "holdout"] as const) await cp(p[name], join(p.pristine, name), { recursive: true, verbatimSymlinks: true });
+      await readOnly(p.suite); await readOnly(p.holdout);
+    }
     await this.save({ ...state, status: ready ? "ready" : "failed", finishedAt: this.now(), ...(ready ? {} : { detail: (error ?? `The author did not write ${missing.join(", ")}.`).slice(0, 500) }) });
     await rm(p.env, { recursive: true, force: true });
+  }
+
+  /** Tests a session changed are put back to the author's version (§5.4.2); true when something was changed. */
+  async guard(taskId: string) {
+    const state = await this.state(taskId);
+    if (state?.status !== "ready") return false;
+    const p = this.paths(taskId);
+    let changed = false;
+    for (const name of ["suite", "holdout"] as const) {
+      const original = join(p.pristine, name);
+      if (!(await exists(original)) || (await treeHash(p[name])) === (await treeHash(original))) continue;
+      changed = true;
+      await writable(p[name]);
+      await rm(p[name], { recursive: true, force: true });
+      await cp(original, p[name], { recursive: true, verbatimSymlinks: true });
+      await readOnly(p[name]);
+    }
+    return changed;
   }
 
   /** The delivery under review, kept before its rework (§5.4.3): the whole workspace, .git included. */

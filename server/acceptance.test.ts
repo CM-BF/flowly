@@ -13,7 +13,9 @@ import { emptyBoard, type Board } from "../shared/model";
 const dirs: string[] = [];
 afterEach(async () => {
   await cleanupAutomationFixtures();
-  await Promise.all(dirs.splice(0).map((d) => rm(d, { recursive: true, force: true })));
+  // Ready suites are read-only by design; make them writable before removing the temp folders.
+  const { execFileSync } = await import("node:child_process");
+  await Promise.all(dirs.splice(0).map((d) => { execFileSync("chmod", ["-R", "u+w", d]); return rm(d, { recursive: true, force: true }); }));
 });
 const temp = async () => { const d = await mkdtemp(join(tmpdir(), "flowly-acceptance-")); dirs.push(d); return d; };
 const exists = (p: string) => stat(p).then(() => true, () => false);
@@ -36,6 +38,8 @@ test("prompts carry the acceptance rules only in acceptance projects; settings a
   for (const text of [reviewPrompt(1, 3, 1, "standard", { acceptance: true }), reviewPrompt(2, 3, 3, "deep", { acceptance: true })]) {
     expect(text).toContain(acceptanceReviewerNote);
     expect(text).toContain("verdict=changes only for a failing acceptance check");
+    expect(text).toContain("never ask anyone to change the tests");
+    expect(text).toContain("Never put the holdout suite's path, file names or contents in your summary or findings");
   }
   expect(reviewPrompt(1, 3)).not.toContain("Acceptance tests (§5.4)");
   expect(acceptanceImplementerNote).toContain("never edit, copy or game them");
@@ -130,7 +134,7 @@ test("a snapshot restores the exact workspace it copied, and never a moved, root
 const luna = { provider: "codex", model: "gpt-6-luna" };
 async function reviewed(failedFirst: number, failedSecond: number) {
   const snapshot = vi.fn(async () => {}), restore = vi.fn(async () => {});
-  const acceptance = { tick: async () => {}, snapshot, restore, workspaceDirectory: async () => "/fixture/ws" };
+  const acceptance = { tick: async () => {}, snapshot, restore, workspaceDirectory: async () => "/fixture/ws", guard: async () => false, paths: (id: string) => new AcceptanceService("/fixture/data").paths(id) };
   const x = await automationFixture({ enabled: true, reviewer: luna, acceptance: {} }, undefined, { acceptance });
   await x.automation.queue("a");
   await x.automation.kick();
@@ -140,7 +144,10 @@ async function reviewed(failedFirst: number, failedSecond: number) {
   const rev = x.created[1]!.agentId;
   const as = { agentId: rev, taskId: "a", workspaceId: "w-a" };
   const count = (failed: number) => ({ visible: { passed: 4, failed }, holdout: { passed: 2, failed: 0 } });
-  await x.automation.submitReview(as, { verdict: "changes", summary: "Two checks fail", findings: ["test_order fails"], acceptance: count(failedFirst) });
+  await x.automation.submitReview(as, { verdict: "changes", summary: "Two checks fail", findings: ["test_order fails in /fixture/data/acceptance/a/holdout/run.sh"], acceptance: count(failedFirst) });
+  // The implementer never learns where the reviewer-only tests are.
+  expect((await x.job("a")).changes).toContain("test_order fails in [reviewer-only tests]/run.sh");
+  expect((await x.job("a")).changes).not.toContain("/fixture/data/acceptance/a/holdout");
   expect(snapshot).toHaveBeenCalledWith("a", "/fixture/ws", 1, 1);
   await x.endTurn(rev, "a");
   await x.automation.kick();
@@ -165,4 +172,24 @@ test("a rework with fewer failures goes on to the next round as usual", async ()
   const { x, restore } = await reviewed(2, 1);
   expect(restore).not.toHaveBeenCalled();
   expect(await x.job("a")).toMatchObject({ state: "working", verdict: "changes" });
+});
+
+test("tests a session changed go back to the author's version, read-only", async () => {
+  const data = await temp();
+  const service = new AcceptanceService(data);
+  const p = service.paths("t4");
+  await mkdir(p.suite, { recursive: true }); await mkdir(p.holdout, { recursive: true });
+  await writeFile(p.state, JSON.stringify({ version: 1, taskId: "t4", generation: 1, status: "writing", startedAt: at, snapshots: [] }));
+  await writeFile(join(p.suite, "run.sh"), "echo ACCEPTANCE passed=1 failed=0\n");
+  await writeFile(join(p.holdout, "run.sh"), "strict check\n");
+  await writeFile(p.requirements, "- r: check\n");
+  await service.finish("t4");
+  expect(await service.guard("t4")).toBe(false);
+  await expect(writeFile(join(p.holdout, "run.sh"), "loosened\n")).rejects.toThrow();
+  const { chmod } = await import("node:fs/promises");
+  await chmod(p.holdout, 0o700); await chmod(join(p.holdout, "run.sh"), 0o600);
+  await writeFile(join(p.holdout, "run.sh"), "loosened\n");
+  expect(await service.guard("t4")).toBe(true);
+  expect(await readFile(join(p.holdout, "run.sh"), "utf8")).toBe("strict check\n");
+  await expect(writeFile(join(p.holdout, "run.sh"), "again\n")).rejects.toThrow();
 });

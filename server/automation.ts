@@ -117,7 +117,7 @@ export type AutomationDeps = {
   commentResult?: (taskId: string, sourceId: string, result: CommentRouteResult) => Promise<void>;
   commentFailed?: (taskId: string, sourceId: string, error: unknown) => Promise<void>;
   /** Acceptance-test review (AUTOMATION-SPEC §5.4): authors, snapshots and reverts. */
-  acceptance?: Pick<AcceptanceService, "tick" | "snapshot" | "restore" | "workspaceDirectory">;
+  acceptance?: Pick<AcceptanceService, "tick" | "snapshot" | "restore" | "workspaceDirectory" | "guard" | "paths">;
 };
 
 /** Short tail for event notes and the job's detail. */
@@ -1383,7 +1383,10 @@ export class AutomationService {
       job.turnAt = now;
       const settings = automationOf(project)!;
       const plan = planOf(job, settings);
-      job.changes = changesPrompt(job.reviewRounds, plan.max, input.summary, input.findings, plan.size, plan.level, input.risks);
+      // The implementer never learns where the reviewer-only tests are (§5.4.2).
+      const hidden = settings.acceptance && this.deps.acceptance ? this.deps.acceptance.paths(task.id).holdout : null;
+      const redact = (text: string) => (hidden ? text.split(hidden).join("[reviewer-only tests]") : text);
+      job.changes = changesPrompt(job.reviewRounds, plan.max, redact(input.summary), input.findings.map(redact), plan.size, plan.level, input.risks.map(redact));
       this.instruct(job, "implementer", job.changes, undefined, "changes");
       this.store.event(board, { taskId: task.id, actor: "agent", agentId: identity.agentId, action: "automation_changes_requested", note: clip(text, 10000) });
       risks();
@@ -1417,6 +1420,12 @@ export class AutomationService {
     const board = await this.store.read();
     const job = jobOf(board, identity.taskId), task = board.tasks.find((t) => t.id === identity.taskId);
     if (!job || !task || job.reviewerId !== identity.agentId || !automationOf(board.projects.find((p) => p.id === job.projectId))?.acceptance) return null;
+    // A session that changed the tests gets the author's version back before anything counts (§5.4.2).
+    if (await acceptance.guard(task.id).catch(() => false))
+      await this.store.transaction((b) => {
+        this.store.event(b, { taskId: task.id, actor: "system", action: "automation_acceptance_reverted", note: "A session changed the acceptance tests; Flowly put the author's version back. Counts reported against the changed tests do not show the card's real state." });
+        return { value: null, changed: true };
+      });
     const directory = await acceptance.workspaceDirectory(task, this.paseo).catch(() => null);
     if (!directory) return null;
     if (verdict === "changes")
