@@ -125,6 +125,8 @@ const catalog: Catalog = {
   "Usage data": "Данные об использовании",
   "Rework did not improve the acceptance tests; the previous delivery was restored": "Доработка не улучшила приёмочные тесты; восстановлена предыдущая сдача",
   "Restored the previous delivery: the rework did not improve the acceptance tests": "Восстановлена предыдущая сдача: доработка не улучшила приёмочные тесты",
+  "Waiting for the acceptance tests before the review": "Ожидание приёмочных тестов перед проверкой",
+  "The acceptance tests could not be written; reviewed without them": "Приёмочные тесты не удалось написать; проверка без них",
   "Acceptance tests": "Приёмочные тесты",
   "When work starts, a separate session writes tests from the card alone; part of them is hidden from the implementer. Reviewers run them and request changes only for a failing check or a violated requirement; rework that does not improve the tests is undone.": "Когда работа начинается, отдельный сеанс пишет тесты только по карточке; часть из них скрыта от исполнителя. Рецензенты запускают их и просят изменений только при упавшей проверке или нарушенном требовании; доработка, не улучшившая тесты, отменяется.",
   "Acceptance author": "Автор приёмочных тестов",

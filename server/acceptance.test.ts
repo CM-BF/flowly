@@ -210,3 +210,47 @@ test("tests a session changed go back to the author's version, read-only", async
   expect(await readFile(join(p.holdout, "run.sh"), "utf8")).toBe("strict check\n");
   await expect(writeFile(join(p.holdout, "run.sh"), "again\n")).rejects.toThrow();
 });
+
+async function heldReview(first: "writing" | "failed") {
+  const state = { version: 1 as const, taskId: "a", generation: 1, status: first as "writing" | "ready" | "failed", startedAt: at, snapshots: [], ...(first === "failed" ? { detail: "The author did not write holdout/run.sh." } : {}) };
+  const acceptance = { tick: async () => {}, snapshot: vi.fn(async () => {}), restore: vi.fn(async () => {}), workspaceDirectory: async () => "/fixture/ws", guard: async () => false, paths: (id: string) => new AcceptanceService("/fixture/data").paths(id), state: async () => ({ ...state }) };
+  const x = await automationFixture({ enabled: true, reviewer: luna, acceptance: {} }, undefined, { acceptance });
+  await x.automation.queue("a");
+  await x.automation.kick();
+  const impl = x.created[0]!.agentId;
+  await x.deliver(impl, "a");
+  await x.turn(impl, "a");
+  await x.automation.kick();
+  const events = async (action: string) => (await x.store.read()).events.filter((e) => e.taskId === "a" && e.action === action);
+  return { x, state, events };
+}
+
+test("the review waits for acceptance tests still being written, without using up the round", async () => {
+  const { x, state, events } = await heldReview("writing");
+  // The delivery opened round 1, but no reviewer started: it would have approved without any tests.
+  expect(await x.job("a")).toMatchObject({ role: "reviewer", state: "reviewing", reviewRounds: 1 });
+  expect(x.created).toHaveLength(1);
+  await x.automation.kick();
+  expect(x.created).toHaveLength(1);
+  expect(await events("automation_acceptance_waiting")).toHaveLength(1);
+  state.status = "ready";
+  await x.automation.kick();
+  expect(x.created).toHaveLength(2);
+  expect(x.created[1]!.labels).toMatchObject({ "flowly-automation": "reviewer" });
+  expect(await x.job("a")).toMatchObject({ state: "reviewing", reviewRounds: 1 });
+  // A verdict sent while the tests were still being written would have been refused.
+  state.status = "writing";
+  await expect(x.automation.submitReview({ agentId: x.created[1]!.agentId, taskId: "a", workspaceId: "w-a" }, { verdict: "approve", summary: "Fine" })).rejects.toMatchObject({ code: "ACCEPTANCE_PENDING" });
+});
+
+test("a failed author lets the review go on without tests, told once on the card", async () => {
+  const { x, events } = await heldReview("failed");
+  expect(x.created).toHaveLength(2);
+  await x.automation.kick();
+  const failed = await events("automation_acceptance_failed");
+  expect(failed).toHaveLength(1);
+  expect(failed[0]!.note).toContain("The author did not write holdout/run.sh.");
+  expect(await events("automation_acceptance_waiting")).toHaveLength(0);
+  await x.automation.submitReview({ agentId: x.created[1]!.agentId, taskId: "a", workspaceId: "w-a" }, { verdict: "approve", summary: "Fine" });
+  expect(await x.job("a")).toMatchObject({ verdict: "approved" });
+});
