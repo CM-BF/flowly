@@ -32,3 +32,17 @@ The project was removed from the board and Paseo through the UI. The card went w
 - A Claude planner, candidate or judge; a git worktree card; 3 candidates; candidates with a `flowly-apply.sh`.
 - Selection accuracy on real tasks: that is the benchmark's paired run.
 - The card showed "Handoff needs checking · 2 unresolved items" after delivery: no implementer acknowledged the handoff record, because the candidates do not use card tools. This is harmless for benchmarks and is a follow-up for real use.
+
+## Second run: independent candidates (`8fa510c`, default `plans`)
+
+After the benchmark's 10-task run (1 of 18 candidates passed; the planner had spread different readings of the card over the candidates), candidates became ordinary implementers by default. Fixture project `plugin-test-2026-10-28-tournament-b`, same models, card `top_words` without the tie-order hint.
+
+| Check | Result |
+| --- | --- |
+| No planner: both candidates started at once, each prompt beginning with the card's title and description (no "as data", no readings) | PASS |
+| Candidates delivered in 30 s; the judge started once the acceptance tests were ready, activated c1 → c2 → c1, ruled on 2 disagreements (tie order; non-ASCII letters per the card's "a-z") and disputed one wrong check per candidate | PASS |
+| Winner c1 delivered, card In review; whole run 3.5 min | PASS |
+| Edit project → Candidates (Independent / Different approaches): Independent selected by default; choosing Different approaches and saving stores `plans: "approaches"`, still selected after reload; desktop and compact | PASS |
+| Cleanup: card and project removed through the UI, data and repository deleted | PASS |
+
+Seen, not changed: during the whole tournament the card shows "Starting agent…" (the held implementer job), and its one-line summary comes from the judge's messages.
