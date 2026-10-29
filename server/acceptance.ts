@@ -73,6 +73,17 @@ const setMode = async (dir: string, write: boolean) => {
 const readOnly = (dir: string) => setMode(dir, false);
 export const writable = (dir: string) => setMode(dir, true);
 
+/** System folders a workspace never is: Flowly never empties them (restores, tournament activations). */
+const systemFolders = ["/", "/root", "/etc", "/usr", "/bin", "/sbin", "/lib", "/lib32", "/lib64", "/libx32", "/var", "/proc", "/sys", "/dev", "/boot", "/opt", "/run", "/srv", "/mnt", "/media", "/home", "/tmp", "/private", "/System", "/Library", "/Applications", "/Users", "/Volumes", "/cores"];
+/**
+ * Whether Flowly may empty `dir` and copy a tree into it. One-level workspaces such as /app or /workspace are fine
+ * (benchmark containers use them); the filesystem root, the home folder and system folders are not.
+ */
+export function replaceableFolder(dir: string) {
+  const target = resolve(dir);
+  return target !== sep && target !== resolve(homedir()) && !systemFolders.includes(target);
+}
+
 /** The author's instruction: the card is data; it writes tests from it alone, never touching anything but its own folders. */
 /**
  * How strong the author's checks must be (§5.4.1). Benchmark: in 5 of 8 cards whose suites all passed the hidden grader
@@ -191,7 +202,7 @@ export class AcceptanceService {
       if (this.starting.has(key)) continue;
       const state = await this.state(job.taskId).catch(() => null);
       if (state?.generation === job.generation) {
-        if (state.status === "writing" && state.authorId && !this.watching.has(job.taskId)) void this.watch(job.taskId, paseo.agents.ref(state.authorId) as unknown as Handle, paseo);
+        if (state.status === "writing" && state.authorId && !this.watching.has(job.taskId)) void this.watch(job.taskId, paseo.agents.ref(state.authorId) as unknown as Handle, paseo).catch((e) => logFailure("Flowly acceptance author not watched:", e, job.taskId));
         continue;
       }
       this.starting.add(key);
@@ -241,7 +252,7 @@ export class AcceptanceService {
     await this.save({ ...(await this.state(task.id))!, authorWorkspaceId: author.id });
     const handle = (await author.agents.create(options)) as unknown as Handle;
     await this.save({ ...(await this.state(task.id))!, authorId: handle.id });
-    void this.watch(task.id, handle, paseo);
+    void this.watch(task.id, handle, paseo).catch((e) => logFailure("Flowly acceptance author not watched:", e, task.id));
   }
 
   private async watch(taskId: string, handle: Handle, paseo: PaseoApi) {
@@ -312,7 +323,7 @@ export class AcceptanceService {
     const snap = (await this.state(taskId))?.snapshots.find((s) => s.cycle === cycle && s.round === round);
     if (!snap) throw new Error(`No snapshot of review round ${round}.`);
     const target = resolve(workspaceDirectory);
-    if (target !== snap.workspace || target === sep || target === resolve(homedir()) || target.split(sep).filter(Boolean).length < 2)
+    if (target !== snap.workspace || !replaceableFolder(target))
       throw new Error("Refusing to restore a workspace whose path changed or is a root or home folder.");
     for (const entry of await readdir(target)) await rm(join(target, entry), { recursive: true, force: true });
     await this.copy(snap.path, target);
