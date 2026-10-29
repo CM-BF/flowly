@@ -25,7 +25,7 @@ const luna = { provider: "codex", model: "gpt-6-luna" };
 function board(): Board {
   const b = emptyBoard();
   b.projects.push({ id: "p", paseoProjectId: "native", title: "P", description: "", primaryPath: "/repo", repos: ["/repo"], revision: 1, createdAt: at, updatedAt: at, archivedAt: null,
-    automation: { enabled: true, maxRunning: 1, maxReviewRounds: 3, fullAccess: true, nudgeLimit: 2, failureLimit: 2, implementer: luna, reviewer: { provider: "codex", model: "gpt-6.1-sol" }, acceptance: {}, tournament: { size: 2 } } });
+    automation: { enabled: true, maxRunning: 1, maxReviewRounds: 3, fullAccess: true, nudgeLimit: 2, failureLimit: 2, implementer: luna, reviewer: { provider: "codex", model: "gpt-6.1-sol" }, acceptance: {}, tournament: { size: 2, plans: "approaches" } } });
   b.tasks.push({ id: "t1", projectId: "p", workspaceId: "w1", sourcePath: "/repo", repoPaths: [], title: "Count words", description: "Write count.py. Ambiguous: are digits words?", status: "todo", priority: "normal", position: 0, revision: 1, operationId: "op", createdAt: at, updatedAt: at, archivedAt: null });
   b.automation.push({ taskId: "t1", projectId: "p", role: "implementer", state: "starting", generation: 1, nudges: 0, failures: 0, reviewRounds: 0, queuedAt: at, updatedAt: at });
   return b;
@@ -62,10 +62,11 @@ function fakeDaemon(workspace: string) {
   return { paseo, sessions, archived };
 }
 
-async function setup(acceptance: "ready" | "none" = "ready") {
+async function setup(acceptance: "ready" | "none" = "ready", plans: "approaches" | "none" = "approaches") {
   const data = await temp(), workspace = await temp();
   await writeFile(join(workspace, "data.txt"), "original\n");
   const b = board();
+  if (plans === "none") b.projects[0]!.automation!.tournament = { size: 2 };
   const daemon = fakeDaemon(workspace);
   const judgePrompts: string[] = [];
   const hooks: TournamentHooks & { decided: ReturnType<typeof vi.fn>; fallback: ReturnType<typeof vi.fn> } = {
@@ -94,15 +95,18 @@ test("planner, isolated candidates and a judge: failing checks eliminate, only t
   expect(x.sessions[0]!.prompt).toContain("## Plan 2");
   expect(x.sessions[0]!.prompt).toContain("TOURNAMENT: skip");
   expect(x.sessions[0]!.config).toMatchObject({ provider: "codex/gpt-6.1-sol", modeId: "full-access" });
-  await writeFile(x.p.plans, "Observations: digits are ambiguous.\n\n## Plan 1\nDigits are not words.\nDiffers from the others: digits\n\n## Plan 2\nDigits are words.\nDiffers from the others: digits\n");
+  expect(x.sessions[0]!.prompt).toContain("never spread different readings over the plans");
+  await writeFile(x.p.plans, "## Readings\nDigits are not words: the card says letters.\n\n## Plan 1\nA regex tokenizer.\nDiffers from the others: regex\n\n## Plan 2\nA character loop.\nDiffers from the others: loop\n");
   x.sessions[0]!.end({ status: "idle" });
 
   await vi.waitFor(() => expect(x.sessions).toHaveLength(3));
   const [c1, c2] = [x.sessions[1]!, x.sessions[2]!];
   expect(c1).toMatchObject({ role: "candidate-c1", cwd: x.p.candidate("c1") });
-  expect(c1.prompt).toContain("Digits are not words.");
-  expect(c2.prompt).toContain("Digits are words.");
-  expect(c1.prompt).toContain(`never write into ${x.workspace}`.replace("never", "Never"));
+  // Every candidate gets the same readings, and its own approach.
+  for (const c of [c1, c2]) expect(c.prompt).toContain("Digits are not words: the card says letters.");
+  expect(c1.prompt).toContain("A regex tokenizer.");
+  expect(c2.prompt).toContain("A character loop.");
+  expect(c1.prompt).toContain(`do not write into ${x.workspace}`);
   expect(c1.config).toMatchObject({ provider: "codex/gpt-6-luna" });
   expect(await readFile(join(x.p.candidate("c2"), "data.txt"), "utf8")).toBe("original\n");
   expect(x.archived).toContain("ws-1");
@@ -144,7 +148,8 @@ test("planner, isolated candidates and a judge: failing checks eliminate, only t
   // The evidence: every candidate's tree and manifest, the plans, the judgement.
   const state = JSON.parse(await readFile(x.p.state, "utf8"));
   expect(state).toMatchObject({ phase: "decided", winner: "c1", active: "c1", final: counts(0), judgement: { disagreements: [{ ruling: "c1" }] } });
-  expect(state.candidates[1]).toMatchObject({ id: "c2", status: "delivered", note: "c2: digits counted", plan: expect.stringContaining("Digits are words.") });
+  expect(state).toMatchObject({ readings: "Digits are not words: the card says letters." });
+  expect(state.candidates[1]).toMatchObject({ id: "c2", status: "delivered", note: "c2: digits counted", plan: expect.stringContaining("A character loop.") });
   expect(state.candidates[1].files).toContainEqual({ path: "count.py", size: 12, sha256: expect.stringMatching(/^[0-9a-f]{64}$/) });
   expect(state.activations.map((a: { candidate: string }) => a.candidate)).toEqual(["c2", "c1"]);
   expect(await readFile(join(x.p.candidate("c2"), "count.py"), "utf8")).toBe("print('c2')\n");
@@ -169,7 +174,7 @@ test("when no candidate delivers, the card falls back to one implementer", async
   x.sessions[0]!.end({ status: "error" });
   // A failed planner still gives the candidates their own approaches.
   await vi.waitFor(() => expect(x.sessions).toHaveLength(3));
-  expect(x.sessions[1]!.prompt).toContain("No plan was written for you");
+  expect(x.sessions[1]!.prompt).not.toContain("Suggested approach");
   x.sessions[1]!.end({ status: "error" });
   x.sessions[2]!.end({ status: "error" });
   await vi.waitFor(() => expect(x.hooks.fallback).toHaveBeenCalledWith("t1", 1, "No candidate delivered; one implementer works on the card as usual."));
@@ -251,4 +256,18 @@ test("a judge that never submits and a candidate that cannot be activated fail t
     await new Promise((r) => setTimeout(r, 20));
     expect(unhandled).not.toHaveBeenCalled();
   } finally { process.off("unhandledRejection", unhandled); }
+});
+
+test("by default there is no planner: each candidate gets the card as its task, like a single implementer", async () => {
+  const x = await setup("ready", "none");
+  await x.tick();
+  await vi.waitFor(() => expect(x.sessions).toHaveLength(2));
+  expect(x.sessions.map((c) => c.role)).toEqual(["candidate-c1", "candidate-c2"]);
+  for (const c of x.sessions) {
+    expect(c.prompt.startsWith("Count words\n\nWrite count.py. Ambiguous: are digits words?")).toBe(true);
+    expect(c.prompt).not.toContain("readings");
+    expect(c.prompt).not.toContain("as data");
+  }
+  expect(await exists(x.p.env)).toBe(false);
+  expect(JSON.parse(await readFile(x.p.state, "utf8")).phase).toBe("implementing");
 });

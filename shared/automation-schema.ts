@@ -93,7 +93,16 @@ export const automationSettingsSchema = z.strictObject({
    * failing acceptance checks eliminate, and a judge compares the rest where they disagree; only the winner reaches the
    * workspace. Planner and judge default to the reviewer's model. Stored only while on.
    */
-  tournament: z.strictObject({ size: z.number().int().min(2).max(3), planner: agentModelSchema.optional(), judge: agentModelSchema.optional() }).optional(),
+  tournament: z.strictObject({
+    size: z.number().int().min(2).max(3),
+    /**
+     * How candidates differ (§5.5.1). Absent ("none"): K ordinary implementers, each given the card exactly like a single
+     * implementer. "approaches": a planner fixes one reading of the card's open points for all and varies only the approach.
+     */
+    plans: z.enum(["none", "approaches"]).optional(),
+    planner: agentModelSchema.optional(),
+    judge: agentModelSchema.optional(),
+  }).optional(),
   /** Sessions start in the provider's no-approval mode (claude bypassPermissions, codex full-access). */
   fullAccess: z.boolean().default(true),
   /**
