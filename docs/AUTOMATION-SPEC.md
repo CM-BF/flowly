@@ -520,6 +520,46 @@ AutomationJob {
 - 默认模式没有 planner，也就没有“交付物主要在工作区外就跳过”的判断。
 - `diversity: models`（候选用不同模型家族）、按难度或分歧自适应地决定 K、只在可并行时拆子卡：等 P1 验证有效后再做。
 
+### 5.6 自适应模式（新开的 automation 默认）
+
+设置：`automation.mode: "adaptive" | "managed"`。项目第一次打开 automation 时默认 `adaptive`；在这个设置出现之前就保存过的 automation 没有 `mode`，按 `managed` 处理（评审轮次、§5.4 验收测试、§5.5 锦标赛照旧），由用户自己切换。可选设置：`adaptive: { threshold?, cap?, maxItems?, maxDepth? }` 和 `check: { command, timeoutSec?, rounds? }`。
+
+用户的两条要求（不能靠人在开卡时判断）：简单任务的效果和成本等于原生；单个上下文装不下的任务，Flowly 自己发现，并把剩余工作交给干净的上下文。来由：基准测试里，现在的 Flowly 在简单任务上峰值上下文约为原生的 2 倍、成本约 3.4 倍，主要因为实现者在同一个会话里被要求做大量额外工作；而“再跑一次原生”（Multica）是成本 ×1.03、通过率 +2.4 个点。事先判断难度不可靠（用时、token、花费预测失败的 AUROC 只有 0.43–0.48），上下文用量却是运行时直接可读的事实。Terminal-Bench 上原生从未压缩，峰值最大是窗口的 49%（23.1 万 / 47.5 万）。
+
+#### 5.6.1 薄启动
+
+- 一个实现者，一个全新会话。开场提示就是卡片本身（标题、描述、评论），外加两句：在当前目录（卡片工作区）里工作；没人回答问题和权限请求。
+- 不注入 Flowly 的系统指令、skill 或上下文文件；它的 Flowly MCP 只提供 `flowly_request_split` 一个工具。
+- 回合结束即交付：没有评审、没有验收测试、没有提醒（nudge）。job 变为 `delivered`（没有 verdict），卡片自动移到 In review，活动里记“Adaptive mode: delivered without review”。
+- 失败、被取消、触及额度的回合照常走重试和 fallback（§4）。
+
+#### 5.6.2 观察（不花模型调用）
+
+调度器每一遍（每个会话最多每 30 秒一次）读取正在运行的自适应会话的快照：`lastUsage.contextWindowUsedTokens / contextWindowMaxTokens`，以及时间线里 `type: "compaction"`、`trigger` 不是 manual 的条目数。每个会话的峰值和压缩次数记进记录。
+
+#### 5.6.3 升级
+
+- 两档：soft = min(threshold × 窗口, cap)，默认 threshold 0.6、cap 30 万；hard = soft 的 4/3，但不超过窗口的 80%（47.5 万的窗口：28.5 万 / 38 万；100 万的窗口：30 万 / 40 万）。
+- 普通 agent 用一个长回合把整个任务做完，自动压缩也发生在回合内部，所以不能等回合结束。越过 soft 时，Flowly 用 steer 发一条消息：“如果剩下的工作很少，就在本会话里做完；否则做完手头这一步，按格式写 progress.md，然后结束回合”。越过 hard 或出现第一次自动压缩时，同样的消息但不给选择。同一个会话每一档只发一次。不打断正在执行的工具调用。
+- `flowly_request_split`：会话自己判断范围太大（例如读完一份很长的规格）时调用，回答就是这份必须写的检查点说明。
+- progress.md 在 `<数据目录>/adaptive/<taskId>/progress.md`，不在工作区里（否则会成为交付物的一部分）。格式：`## Done`、`## Decisions`（接口、约定、数据格式、命名、排除过的方案）、`## How to test`，以及若干 `## Item k: <标题>`（Files:、Depends on:、Acceptance:、做什么）。条目最多 maxItems（默认 8），多出的合并进最后一条；没有条目就是做完了。
+- 回合结束后，有条目时：旧会话退役，下一条由同一张卡上的全新会话做。开场提示 = 卡片原文 + 已完成部分 + Decisions 全文（每次重新读文件，前面条目会话追加的决定也在内）+ 怎么测试 + 自己这一条；新的决定追加进 Decisions。所有条目做完后，再开一个全新会话做集成：卡片原文 + progress.md 全文，跑全量测试、修好问题、把整个任务做完。条目会话和集成会话也受同样的规则约束，可以再拆，深度最多 maxDepth（默认 2）。再拆时，新条目排在前面，上一层剩下的条目跟在后面。
+- 第一版不拆成子卡：git 项目里子卡各自是独立的 worktree，看不到父卡还没提交的半成品；directory 项目的子卡本来也只能按顺序做。并行（git 项目、文件互不相交）以后再做。
+
+#### 5.6.4 门卫
+
+项目配置了 `check.command` 时，每次交付后，Flowly 在卡片工作区里用 `bash -lc` 执行它（默认超时 600 秒）。失败就把退出码和输出尾部发回同一个会话返工，活动里记 `automation_check_failed`，最多 `rounds` 轮（默认 2）。没配置就什么都不做。
+
+#### 5.6.5 记录
+
+`<数据目录>/adaptive/<taskId>/adaptive.json`：
+- 每个会话的角色（implementer / item / integrator）、条目号、深度、开始和结束时间、峰值上下文、窗口、压缩次数，以及升级记录（档位、原因、时间、用量）；
+- 每次拆分（时间、由谁、深度、原因、条目标题）；
+- 每次门卫的结果；
+- 交付时间。
+
+卡片活动里记 `automation_adaptive_continued`（下一个全新会话做什么）和 `automation_delivered`。
+
 ## 6. 界面
 
 1. **卡片信号行**：Queued for agent / Starting agent… / Agent working / Agent reviewing（脉冲点）/ Agent retrying / Agent waiting for you / Agent needs permission / Agent review passed / Review needs you / Automation stopped（失败时）。`stopped` 与不带评审的 `delivered` 不显示（泳道已说明）。
