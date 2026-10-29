@@ -4,11 +4,12 @@ import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { PaseoApi } from "@getpaseo/client";
 import { z } from "zod";
-import { adaptiveDefaults, adaptiveLimits, checkpointPrompt, integratorPrompt, isAdaptive, itemPrompt, parseProgress, splitAnswer, type Card, type Progress } from "../shared/adaptive";
+import { adaptiveDefaults, adaptiveLimit, integratorPrompt, isAdaptive, itemPrompt, parseProgress, progressFormat, reminderPrompt, splitRecorded, type Card } from "../shared/adaptive";
 import { automationOf, isLive } from "../shared/automation";
 import type { AutomationSettings } from "../shared/automation-schema";
 import type { Board } from "../shared/model";
 import { logFailure } from "./error-report";
+import { ToolError } from "./tool-error";
 
 /**
  * Adaptive mode (AUTOMATION-SPEC §5.6): watches each implementer's context while its turn runs, asks it for a checkpoint
@@ -16,7 +17,8 @@ import { logFailure } from "./error-report";
  * fresh integrator. Everything it observes is kept in adaptive/<taskId>/adaptive.json for evaluation.
  */
 
-const escalationSchema = z.object({ level: z.enum(["soft", "hard"]), reason: z.enum(["usage", "compaction", "requested"]), at: z.string(), used: z.number().optional(), max: z.number().optional() });
+const reminderSchema = z.object({ reason: z.enum(["usage", "compaction"]), at: z.string(), used: z.number().optional(), max: z.number().optional() });
+const splitSchema = z.object({ at: z.string(), used: z.number().optional(), max: z.number().optional(), items: z.number().int() });
 const sessionSchema = z.object({
   agentId: z.string(),
   role: z.enum(["implementer", "item", "integrator"]),
@@ -27,7 +29,9 @@ const sessionSchema = z.object({
   peakUsed: z.number().default(0),
   max: z.number().optional(),
   compactions: z.number().int().default(0),
-  escalation: escalationSchema.optional(),
+  /** The one reminder Flowly steered in (§5.6.3), and the session's own flowly_split call, if any. */
+  reminded: reminderSchema.optional(),
+  split: splitSchema.optional(),
 });
 const itemSchema = z.object({ title: z.string(), body: z.string() });
 const recordSchema = z.object({
@@ -35,6 +39,9 @@ const recordSchema = z.object({
   taskId: z.string(),
   generation: z.number().int(),
   startedAt: z.string(),
+  /** The guards in force for this card: items per split, splits of splits. */
+  maxItems: z.number().int().default(adaptiveDefaults.maxItems),
+  maxDepth: z.number().int().default(adaptiveDefaults.maxDepth),
   sessions: z.array(sessionSchema).default([]),
   /** The fresh session the dispatcher starts next (its role is known before its id). */
   pending: z.object({ role: z.enum(["implementer", "item", "integrator"]), item: z.number().int().optional(), depth: z.number().int() }).optional(),
@@ -50,6 +57,8 @@ type Usage = { used?: number; max?: number; compactions: number };
 type Agent = { lastUsage?: { contextWindowUsedTokens?: number; contextWindowMaxTokens?: number } | null; status?: string; activeTurn?: unknown; archivedAt?: string | null };
 export type AdaptiveOptions = { exec?: (command: string, cwd: string, timeoutMs: number) => Promise<{ exit: number | null; output: string }>; now?: () => number };
 
+/** A flowly_split call Flowly cannot accept; nothing was recorded. */
+class SplitRefused extends ToolError { constructor(message: string) { super("SPLIT_REFUSED", `${message} Nothing was recorded.`); } }
 const clip = (text: string, max: number) => (text.length > max ? `${text.slice(0, max - 1)}…` : text);
 const busy = (agent: Agent) => agent.status === "running" || !!agent.activeTurn;
 
@@ -57,6 +66,7 @@ export class AdaptiveService {
   /** Adaptive implementers: their Flowly MCP server offers only flowly_request_split. */
   private sessions = new Set<string>();
   private watchedAt = new Map<string, number>();
+  private paseo?: PaseoApi;
   private tail: Promise<unknown> = Promise.resolve();
   constructor(readonly directory: string, private options: AdaptiveOptions = {}) {}
   private now() { return new Date(this.options.now?.() ?? Date.now()).toISOString(); }
@@ -85,13 +95,15 @@ export class AdaptiveService {
   }
 
   isSession(agentId: string) { return this.sessions.has(agentId); }
+  /** The dispatcher's Paseo connection, for reading a session's usage when it calls flowly_split. */
+  attach(paseo: PaseoApi) { this.paseo = paseo; }
 
   /** A job of an adaptive card starts: a new record, and its first session will be the implementer (depth 0). */
-  async begin(taskId: string, generation: number) {
+  async begin(taskId: string, generation: number, settings?: Pick<AutomationSettings, "adaptive">) {
     const existing = await this.record(taskId).catch(() => null);
     if (existing?.generation === generation) return;
     await mkdir(this.paths(taskId).root, { recursive: true, mode: 0o700 });
-    const record: AdaptiveRecord = { version: 1, taskId, generation, startedAt: this.now(), sessions: [], pending: { role: "implementer", depth: 0 }, splits: [], checks: [] };
+    const record: AdaptiveRecord = { version: 1, taskId, generation, startedAt: this.now(), maxItems: settings?.adaptive?.maxItems ?? adaptiveDefaults.maxItems, maxDepth: settings?.adaptive?.maxDepth ?? adaptiveDefaults.maxDepth, sessions: [], pending: { role: "implementer", depth: 0 }, splits: [], checks: [] };
     const file = this.paths(taskId).record, tmp = `${file}.${randomUUID()}.tmp`;
     await writeFile(tmp, JSON.stringify(record, null, 2), { mode: 0o600 });
     await rename(tmp, file);
@@ -123,10 +135,11 @@ export class AdaptiveService {
   }
 
   /**
-   * Every dispatcher pass (at most every 30 s per session): a running adaptive session whose context crosses the soft
-   * limit is told it may checkpoint; past the hard limit or after an automatic compaction it must (§5.6.3).
+   * Every dispatcher pass (at most every 30 s per session): a running adaptive session whose context crosses the limit,
+   * or first compacts, is told once that it may split (§5.6.3). Information only: whether to split is its decision.
    */
   async watch(board: Board, paseo: PaseoApi, steer: (agentId: string, text: string) => Promise<unknown>) {
+    this.paseo = paseo;
     for (const job of board.automation) {
       const project = board.projects.find((p) => p.id === job.projectId);
       const settings = automationOf(project);
@@ -141,24 +154,32 @@ export class AdaptiveService {
       const session = record?.sessions.find((s) => s.agentId === agentId);
       if (!record || record.generation !== job.generation || !session) continue;
       const usage = await this.observe(job.taskId, agentId, paseo, agent);
-      if (session.depth >= (settings!.adaptive?.maxDepth ?? adaptiveDefaults.maxDepth) || session.escalation?.level === "hard") continue;
-      const limits = usage.max ? adaptiveLimits(settings!, usage.max) : null;
-      const hard = usage.compactions > 0 || (!!limits && usage.used !== undefined && usage.used >= limits.hard);
-      const soft = !hard && !session.escalation && !!limits && usage.used !== undefined && usage.used >= limits.soft;
-      if (!hard && !soft) continue;
+      if (session.reminded || session.split || session.depth >= record.maxDepth) continue;
+      const over = !!usage.max && usage.used !== undefined && usage.used >= adaptiveLimit(settings!, usage.max);
+      if (!over && usage.compactions === 0) continue;
       const reason = usage.compactions > 0 ? "compaction" as const : "usage" as const;
-      const why = reason === "compaction" ? "This session's context was compacted, so it has started to lose details." : `This session's context is at ${usage.used} of ${usage.max} tokens.`;
-      await this.update(job.taskId, (r) => ({ ...r, sessions: r.sessions.map((s) => s.agentId === agentId ? { ...s, escalation: { level: hard ? "hard" : "soft", reason, at: this.now(), ...(usage.used !== undefined ? { used: usage.used } : {}), ...(usage.max ? { max: usage.max } : {}) } } : s) }));
-      await steer(agentId, checkpointPrompt(this.paths(job.taskId).progress, why, !hard)).catch((e) => logFailure("Flowly could not ask for a checkpoint:", e, job.taskId));
+      const share = usage.max && usage.used !== undefined ? Math.round((usage.used / usage.max) * 100) : null;
+      const why = reason === "compaction" ? "Your context was compacted, so earlier details may be lost." : `Your context is about ${share}% full (${usage.used} of ${usage.max} tokens).`;
+      await this.update(job.taskId, (r) => ({ ...r, sessions: r.sessions.map((s) => s.agentId === agentId ? { ...s, reminded: { reason, at: this.now(), ...(usage.used !== undefined ? { used: usage.used } : {}), ...(usage.max ? { max: usage.max } : {}) } } : s) }));
+      await steer(agentId, reminderPrompt(why)).catch((e) => logFailure("Flowly could not send the context reminder:", e, job.taskId));
     }
   }
 
-  /** flowly_request_split: the session asks for a split itself; its checkpoint is then required. */
-  async requestSplit(taskId: string, agentId: string) {
-    const record = await this.update(taskId, (r) => ({ ...r, sessions: r.sessions.map((s) => s.agentId === agentId ? { ...s, escalation: { level: "hard" as const, reason: "requested" as const, at: this.now() } } : s) }));
+  /**
+   * flowly_split: the session hands the rest of its work to fresh sessions with its own plan. Flowly keeps the plan as
+   * progress.md (item sessions add their decisions there); the split starts when the session's turn ends.
+   */
+  async split(taskId: string, agentId: string, plan: string) {
+    const record = await this.record(taskId);
     const session = record?.sessions.find((s) => s.agentId === agentId);
-    if (!session) throw new Error("This session is not an adaptive session of the card.");
-    return { message: splitAnswer(this.paths(taskId).progress) };
+    if (!record || !session) throw new SplitRefused("This session is not an adaptive session of the card.");
+    if (session.depth >= record.maxDepth) throw new SplitRefused(`This session already continues a split ${session.depth} level${session.depth === 1 ? "" : "s"} deep and cannot split again; finish your part.`);
+    const progress = parseProgress(plan, record.maxItems);
+    if (!progress.items.length) throw new SplitRefused(`The plan has no items. Write it in this format:\n\n${progressFormat}`);
+    await writeFile(this.paths(taskId).progress, plan, { mode: 0o600 });
+    const usage = this.paseo ? await this.observe(taskId, agentId, this.paseo).catch(() => null) : null;
+    await this.update(taskId, (r) => ({ ...r, sessions: r.sessions.map((s) => s.agentId === agentId ? { ...s, split: { at: this.now(), items: progress.items.length, ...(usage?.used !== undefined ? { used: usage.used } : {}), ...(usage?.max ? { max: usage.max } : {}) } } : s) }));
+    return { accepted: true, items: progress.items.map((i) => i.title), message: splitRecorded(progress.items.length) };
   }
 
   /**
@@ -166,22 +187,23 @@ export class AdaptiveService {
    * last one, a fresh integrator. Otherwise the card is delivered (or the next queued item starts).
    */
   async afterTurn(taskId: string, agentId: string, settings: AutomationSettings, card: Card, paseo: PaseoApi): Promise<AdaptiveNext> {
+    this.paseo = paseo;
     await this.observe(taskId, agentId, paseo).catch(() => undefined);
     const record = await this.record(taskId);
     const session = record?.sessions.find((s) => s.agentId === agentId);
     if (!record || !session) return { kind: "deliver", note: "" };
     await this.update(taskId, (r) => ({ ...r, sessions: r.sessions.map((s) => s.agentId === agentId ? { ...s, endedAt: this.now() } : s) }));
     const path = this.paths(taskId).progress;
-    const text = session.escalation ? await readFile(path, "utf8").catch(() => "") : "";
-    const progress: Progress = parseProgress(text, settings.adaptive?.maxItems ?? adaptiveDefaults.maxItems);
-    if (session.escalation && progress.items.length) {
+    const text = session.split ? await readFile(path, "utf8").catch(() => "") : "";
+    const progress = parseProgress(text, record.maxItems);
+    if (session.split && progress.items.length) {
       // The new items come first; what was left of an earlier split follows them.
       const rest = record.queue ? record.queue.items.slice(record.queue.next) : [];
       const depth = session.depth + 1;
       await this.update(taskId, (r) => ({
         ...r,
         queue: { items: [...progress.items, ...rest], next: 0, depth, progress: { done: progress.done, decisions: progress.decisions, howToTest: progress.howToTest } },
-        splits: [...r.splits, { at: this.now(), by: agentId, depth, reason: session.escalation!.reason, items: progress.items.map((i) => i.title) }],
+        splits: [...r.splits, { at: this.now(), by: agentId, depth, reason: session.reminded ? `after a ${session.reminded.reason} reminder` : "on its own", items: progress.items.map((i) => i.title) }],
       }));
     }
     return this.next(taskId, card);
@@ -198,11 +220,11 @@ export class AdaptiveService {
       const live = parseProgress(await readFile(path, "utf8").catch(() => ""), 1000);
       const progress = { ...queue.progress, decisions: live.decisions || queue.progress.decisions, items: queue.items };
       await this.update(taskId, (r) => ({ ...r, queue: { ...r.queue!, next: index + 1 }, pending: { role: "item", item: index + 1, depth: queue.depth } }));
-      return { kind: "fresh", prompt: itemPrompt(card, progress, index, path), reason: `Item ${index + 1} of ${queue.items.length}: ${queue.items[index]!.title}` };
+      return { kind: "fresh", prompt: itemPrompt(card, progress, index, path, queue.depth < record.maxDepth), reason: `Item ${index + 1} of ${queue.items.length}: ${queue.items[index]!.title}` };
     }
     if (queue) {
       await this.update(taskId, (r) => ({ ...r, queue: undefined, pending: { role: "integrator", depth: queue.depth } }));
-      return { kind: "fresh", prompt: integratorPrompt(card, await readFile(path, "utf8").catch(() => ""), path), reason: "Integration of the split items" };
+      return { kind: "fresh", prompt: integratorPrompt(card, await readFile(path, "utf8").catch(() => ""), path, queue.depth < record.maxDepth), reason: "Integration of the split items" };
     }
     return { kind: "deliver", note: "" };
   }

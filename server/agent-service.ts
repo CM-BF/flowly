@@ -171,7 +171,7 @@ export class AgentService {
   /** Acceptance-test review (AUTOMATION-SPEC §5.4): what get_task shows of the card's acceptance tests. */
   acceptance?: Pick<AcceptanceService, "context">;
   /** Adaptive mode (AUTOMATION-SPEC §5.6): its implementers' only tool. */
-  adaptive?: Pick<AdaptiveService, "isSession" | "requestSplit">;
+  adaptive?: Pick<AdaptiveService, "isSession" | "split">;
   /** Tournament mode (AUTOMATION-SPEC §5.5): the judge's tools. */
   tournament?: Pick<TournamentService, "isJudge" | "activate" | "submit">;
   /** Card continuity and durable source provenance; attached by the plugin entry. */

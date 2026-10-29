@@ -45,6 +45,7 @@ import { handoffGetInputSchema } from "../shared/handoff-api";
 import { sessionHistoryQuerySchema, sessionHistoryPageSchema } from "../shared/session-history";
 import { handoffUpdateSchema, handoffWriteResultSchema } from "../shared/handoff";
 import { judgementInputSchema, reviewInputSchema, reviewResultSchema } from "../shared/automation-schema";
+import { progressFormat } from "../shared/adaptive";
 import { reviewerOfCard } from "../shared/automation";
 import { createCardInputSchema, createCardResultSchema, updateCardInputSchema, updateCardResultSchema } from "../shared/tools";
 import { AgentService } from "./agent-service";
@@ -197,13 +198,13 @@ export class ToolServer {
         if (this.agents.adaptive?.isSession(identity.agentId)) {
           const adaptive = this.agents.adaptive;
           mcp.registerTool(
-            "flowly_request_split",
+            "flowly_split",
             {
-              description: "Call this when the task is clearly too large to finish well in this one session (for example after reading a long specification). Flowly answers with where and how to write a short progress record; then fresh sessions continue the remaining parts. Do not call it for ordinary tasks.",
-              inputSchema: z.strictObject({ reason: z.string().trim().max(1000).optional() }),
+              description: `Hand the remaining work of a task too large for one session to fresh sessions. Pass your plan in plan, in this format:\n\n${progressFormat}\n\nAfter your turn ends, each item gets its own fresh session (with the task, what is done and every decision), in order; then a fresh session integrates and runs the full tests. Finish the step you are on, then end your turn. Use it only when you need it; small tasks need no split.`,
+              inputSchema: z.strictObject({ plan: z.string().trim().min(1).max(40000) }),
               annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
             },
-            () => call(() => adaptive.requestSplit(identity.taskId, identity.agentId)),
+            (input) => call(() => adaptive.split(identity.taskId, identity.agentId, input.plan)),
           );
           return mcp;
         }

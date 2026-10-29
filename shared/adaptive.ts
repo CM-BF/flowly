@@ -9,16 +9,11 @@ export const adaptiveDefaults = { threshold: 0.6, cap: 300_000, maxItems: 8, max
 
 export const isAdaptive = (settings: Pick<AutomationSettings, "mode"> | null | undefined) => settings?.mode === "adaptive";
 
-/**
- * Two context sizes (§5.6.3). Past `soft` (a share of the window, never above the cap: a 1M window degrades long before
- * 60%) the session may finish if little is left, else it checkpoints; past `hard` (a third more, at most 80% of the
- * window) or at its first automatic compaction it must checkpoint.
- */
-export function adaptiveLimits(settings: Pick<AutomationSettings, "adaptive">, max: number) {
+/** The context size at which a session is reminded it may split (§5.6.3): a share of the window, never above the cap. */
+export function adaptiveLimit(settings: Pick<AutomationSettings, "adaptive">, max: number) {
   const threshold = settings.adaptive?.threshold ?? adaptiveDefaults.threshold;
   const cap = settings.adaptive?.cap ?? adaptiveDefaults.cap;
-  const soft = Math.min(Math.floor(threshold * max), cap);
-  return { soft, hard: Math.max(soft + 1, Math.min(Math.floor(0.8 * max), Math.floor((soft * 4) / 3))) };
+  return Math.min(Math.floor(threshold * max), cap);
 }
 
 export type Card = { title: string; description: string; comments: readonly string[] };
@@ -28,9 +23,15 @@ const cardText = (card: Card) =>
 
 const closing = "Nobody answers questions or permission requests: decide yourself and finish.";
 
-/** The first instruction: the card as the task, as a person would hand it to a native agent. Nothing else. */
-export function thinPrompt(card: Card) {
-  return [cardText(card), `---\nYou work in your current directory, this task's workspace. ${closing}`].join("\n\n");
+/**
+ * The one line about splitting (§5.6.1). Codex keeps MCP tools behind its tool search, so a tool nobody mentions is
+ * never found; the decision to use it stays with the agent.
+ */
+export const splitLine = "If this task is too large to finish well in one session, the tool flowly_split hands the remaining work to fresh sessions: you pass a short plan (what is done, the decisions made, and the remaining items), and after your turn each item gets its own fresh session, then a final one integrates. Use it only when you need it.";
+
+/** The first instruction: the card as the task, as a person would hand it to a native agent, and the split line. */
+export function thinPrompt(card: Card, canSplit = true) {
+  return [cardText(card), `---\nYou work in your current directory, this task's workspace. ${closing}${canSplit ? `\n\n${splitLine}` : ""}`].join("\n\n");
 }
 
 export const progressFormat = [
@@ -48,22 +49,14 @@ export const progressFormat = [
   "## Item 2: …",
 ].join("\n");
 
-/**
- * Steered into a running turn when its context crosses a limit or it compacts (§5.6.3). `optional`: past the soft limit
- * the session may simply finish when little is left.
- */
-export function checkpointPrompt(path: string, why: string, optional = false) {
-  return [
-    optional
-      ? `[Flowly] ${why} If little work is left, finish the task in this session as usual. Otherwise fresh sessions will continue it: finish the step you are on (do not start anything new), then write ${path} in exactly this format, and end your turn:`
-      : `[Flowly] ${why} Fresh sessions will continue this task. Finish the step you are on (do not start anything new), then write ${path} in exactly this format, and end your turn:`,
-    progressFormat,
-    "List only the work that remains as items, each small enough for one session and as independent of the others as you can make them. Write no item if everything is done.",
-  ].join("\n\n");
+/** Steered into a running turn once, when its context crosses the limit or first compacts (§5.6.3): information, not an order. */
+export function reminderPrompt(why: string) {
+  return `[Flowly] ${why} If much work is left, you can use flowly_split to hand it to fresh sessions; if you are nearly done, just finish.`;
 }
 
-/** flowly_request_split's answer: the same checkpoint, asked for by the session itself. */
-export const splitAnswer = (path: string) => checkpointPrompt(path, "You asked to split this task.");
+/** flowly_split's answer once the plan is recorded. */
+export const splitRecorded = (count: number) =>
+  `Recorded ${count} item${count === 1 ? "" : "s"}. Finish the step you are on and end your turn; fresh sessions do the items in order, then one integrates.`;
 
 export type ProgressItem = { title: string; body: string };
 export type Progress = { done: string; decisions: string; howToTest: string; items: ProgressItem[] };
@@ -90,7 +83,7 @@ export function parseProgress(text: string, maxItems: number = adaptiveDefaults.
 }
 
 /** One remaining item, for a fresh session: the card, the shared decisions in full, what is done and its own item. */
-export function itemPrompt(card: Card, progress: Progress, index: number, path: string) {
+export function itemPrompt(card: Card, progress: Progress, index: number, path: string, canSplit = false) {
   const item = progress.items[index]!;
   return [
     cardText(card),
@@ -101,17 +94,19 @@ export function itemPrompt(card: Card, progress: Progress, index: number, path: 
     progress.howToTest ? `How to test:\n${progress.howToTest}` : "",
     `Your item — ${item.title}:\n${item.body}`,
     `When you make a decision the other sessions must know (an interface, a name, a format), add it under "## Decisions" in ${path}. You work in your current directory, this task's workspace. ${closing}`,
+    canSplit ? splitLine.replace("this task", "your item") : "",
   ].filter(Boolean).join("\n\n");
 }
 
 /** The last fresh session: put the pieces together and finish the whole task. */
-export function integratorPrompt(card: Card, progressText: string, path: string) {
+export function integratorPrompt(card: Card, progressText: string, path: string, canSplit = false) {
   return [
     cardText(card),
     "---",
     `Earlier sessions did this task in parts; their shared record is ${path}:\n${progressText.slice(0, 30_000)}`,
     `Now finish the whole task: check that the parts fit together, run the full tests, fix what is broken and anything left undone. You work in your current directory, this task's workspace. ${closing}`,
-  ].join("\n\n");
+    canSplit ? splitLine : "",
+  ].filter(Boolean).join("\n\n");
 }
 
 /** The project's check failed after a delivery: the same session fixes it. */

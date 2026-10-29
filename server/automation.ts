@@ -1669,7 +1669,7 @@ export class AutomationService {
       if (isAdaptive(settings)) {
         // Adaptive (§5.6.1): the card itself is the task, like a native agent's; always a fresh session.
         const task = board.tasks.find((t) => t.id === job.taskId)!;
-        const thin = [thinPrompt({ title: task.title, description: task.description, comments: commentsOf(board.events, task.id).map((e) => e.note ?? "").filter(Boolean) }), job.feedback].filter(Boolean).join("\n\n");
+        const thin = [thinPrompt({ title: task.title, description: task.description, comments: commentsOf(board.events, task.id).map((e) => e.note ?? "").filter(Boolean) }, (settings.adaptive?.maxDepth ?? adaptiveDefaults.maxDepth) > 0), job.feedback].filter(Boolean).join("\n\n");
         if (job.implementerId) { job.retired = [...(job.retired ?? []), { agentId: job.implementerId, role: "implementer" as const, at: now, reason: "adaptive_fresh" }].slice(-50); delete job.implementerId; }
         job.pendingOp = randomUUID();
         job.pendingRole = "implementer";
@@ -1681,7 +1681,7 @@ export class AutomationService {
     });
     if (!claimed) return;
     if (this.deps.adaptive && isAdaptive(automationOf((await this.store.read()).projects.find((p) => p.id === claimed.projectId))))
-      await this.deps.adaptive.begin(claimed.taskId, claimed.generation);
+      await this.deps.adaptive.begin(claimed.taskId, claimed.generation, automationOf((await this.store.read()).projects.find((p) => p.id === claimed.projectId))!);
     const board = await this.store.read();
     const blockers = board.links.filter((l) => l.kind === "blocks" && l.to === claimed.taskId).map((l) => l.from);
     if (blockers.length) {
