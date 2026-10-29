@@ -193,6 +193,20 @@ export class ToolServer {
           name: "flowly",
           version: "0.2.0",
         });
+        // Adaptive implementers (AUTOMATION-SPEC §5.6.1) see one tool and nothing else of Flowly.
+        if (this.agents.adaptive?.isSession(identity.agentId)) {
+          const adaptive = this.agents.adaptive;
+          mcp.registerTool(
+            "flowly_request_split",
+            {
+              description: "Call this when the task is clearly too large to finish well in this one session (for example after reading a long specification). Flowly answers with where and how to write a short progress record; then fresh sessions continue the remaining parts. Do not call it for ordinary tasks.",
+              inputSchema: z.strictObject({ reason: z.string().trim().max(1000).optional() }),
+              annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+            },
+            () => call(() => adaptive.requestSplit(identity.taskId, identity.agentId)),
+          );
+          return mcp;
+        }
         mcp.registerTool(
           "flowly_get_task",
           {

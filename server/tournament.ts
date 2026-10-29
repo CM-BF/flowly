@@ -190,7 +190,7 @@ export class TournamentService {
       const project = board.projects.find((p) => p.id === job.projectId);
       const settings = automationOf(project);
       const task = board.tasks.find((t) => t.id === job.taskId);
-      if (!settings?.tournament || !task || !project) continue;
+      if (!settings?.tournament || settings.mode === "adaptive" || !task || !project) continue;
       const key = `${job.taskId}:${job.generation}`;
       if (this.starting.has(key)) continue;
       const state = await this.state(job.taskId).catch(() => null);
