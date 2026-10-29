@@ -9,7 +9,7 @@ import { judgementInputSchema, type JudgementInput } from "../shared/automation-
 import { commentsOf } from "../shared/comments";
 import type { AgentModel } from "../shared/agent-defaults";
 import type { Board, Project, Task } from "../shared/model";
-import { copyTree, exists, finishTurn, shellQuote, walk, writable, type AcceptanceService, type SessionHandle } from "./acceptance";
+import { copyTree, exists, finishTurn, replaceableFolder, shellQuote, walk, writable, type AcceptanceService, type SessionHandle } from "./acceptance";
 import { logFailure } from "./error-report";
 import { ToolError } from "./tool-error";
 
@@ -217,7 +217,20 @@ export class TournamentService {
     if (!model) return this.planned(task.id, "No model for the planner.");
     const created = await this.session(task, project, p.env, `Plans: ${task.title}`, "planner", plannerPrompt(task, this.comments(board, task.id), size, p, workspace), model);
     await this.update(task.id, (s) => ({ ...s, plannerId: created.handle.id, plannerWorkspaceId: created.workspaceId }));
-    void this.watchPlanner(task.id, created.handle);
+    this.guarded(this.watchPlanner(task.id, created.handle), task.id);
+  }
+
+  /**
+   * Session watchers run detached: an error there must never become an unhandled rejection (it would end the plugin
+   * process). The tournament fails instead and the card goes on with one implementer.
+   */
+  private guarded(work: Promise<unknown>, taskId: string) {
+    void work.catch(async (e) => {
+      logFailure("Flowly tournament step failed:", e, taskId);
+      const state = await this.state(taskId).catch(() => null);
+      if (state && !["decided", "skipped", "failed"].includes(state.phase))
+        await this.fail(taskId, state.generation, `The tournament stopped: ${e instanceof Error ? e.message : String(e)}`).catch((x) => logFailure("Flowly tournament could not fall back:", x, taskId));
+    });
   }
 
   private comments(board: Board, taskId: string) { return commentsOf(board.events, taskId).map((e) => e.note ?? "").filter(Boolean); }
@@ -246,15 +259,15 @@ export class TournamentService {
   private async resume(board: Board, task: Task, project: Project, state: TournamentState) {
     const paseo = this.paseo!;
     if (state.phase === "planning" && state.plannerId && !this.watching.has(`${task.id}:planner`))
-      void this.watchPlanner(task.id, paseo.agents.ref(state.plannerId) as unknown as SessionHandle);
+      this.guarded(this.watchPlanner(task.id, paseo.agents.ref(state.plannerId) as unknown as SessionHandle), task.id);
     if (state.phase === "implementing") {
       for (const c of state.candidates)
-        if (c.status === "working" && c.agentId && !this.watching.has(`${task.id}:${c.id}`)) void this.watchCandidate(task.id, c.id, paseo.agents.ref(c.agentId) as unknown as SessionHandle);
+        if (c.status === "working" && c.agentId && !this.watching.has(`${task.id}:${c.id}`)) this.guarded(this.watchCandidate(task.id, c.id, paseo.agents.ref(c.agentId) as unknown as SessionHandle), task.id);
       await this.judging(board, task, project);
     }
     if (state.phase === "judging" && state.judgeId) this.judges.add(state.judgeId);
     if (state.phase === "judging" && state.judgeId && !this.watching.has(`${task.id}:judge`))
-      void this.watchJudge(task.id, paseo.agents.ref(state.judgeId) as unknown as SessionHandle);
+      this.guarded(this.watchJudge(task.id, paseo.agents.ref(state.judgeId) as unknown as SessionHandle), task.id);
   }
 
   private async watchPlanner(taskId: string, handle: SessionHandle) {
@@ -306,7 +319,7 @@ export class TournamentService {
         await this.copy(this.paths(taskId).pristine, dir);
         const created = await this.session(task, project, dir, `Candidate ${c.id}: ${task.title}`, `candidate-${c.id}`, candidatePrompt(task, this.comments(board, taskId), { id: c.id, plan: c.plan, dir, workspace: state.workspace, suite }), model);
         await this.update(taskId, (s) => ({ ...s, candidates: s.candidates.map((x) => (x.id === c.id ? { ...x, status: "working" as const, agentId: created.handle.id, workspaceId: created.workspaceId, startedAt: new Date().toISOString() } : x)) }));
-        void this.watchCandidate(taskId, c.id, created.handle);
+        this.guarded(this.watchCandidate(taskId, c.id, created.handle), taskId);
       } catch (e) {
         logFailure("Flowly tournament candidate not started:", e, taskId);
         await this.update(taskId, (s) => ({ ...s, candidates: s.candidates.map((x) => (x.id === c.id ? { ...x, status: "failed" as const, note: `Not started: ${e instanceof Error ? e.message : String(e)}`, finishedAt: new Date().toISOString() } : x)) }));
@@ -369,7 +382,7 @@ export class TournamentService {
       const judgeId = await this.hooks!.createJudge(task.id, state.generation, prompt, model, (id) => this.judges.add(id));
       if (!judgeId) return;
       await this.update(task.id, (s) => ({ ...s, judgeId }));
-      void this.watchJudge(task.id, this.paseo!.agents.ref(judgeId) as unknown as SessionHandle);
+      this.guarded(this.watchJudge(task.id, this.paseo!.agents.ref(judgeId) as unknown as SessionHandle), task.id);
     } finally { this.advancing.delete(task.id); }
   }
 
@@ -389,7 +402,12 @@ export class TournamentService {
         }
         // No judgement after the reminder: the candidate with the fewest problems known so far wins, recorded as such.
         const winner = state.candidates.find((c) => c.status === "delivered")!;
-        await this.activate(taskId, null, winner.id);
+        try {
+          await this.activate(taskId, null, winner.id);
+        } catch (e) {
+          await this.fail(taskId, state.generation, `The judge did not submit a judgement and ${winner.id} could not be activated (${e instanceof Error ? e.message : String(e)}); one implementer works on the card as usual.`);
+          return;
+        }
         await this.decide(taskId, { winner: winner.id, detail: "The judge did not submit a judgement; the first delivered candidate was activated without a comparison." });
         return;
       }
@@ -404,8 +422,8 @@ export class TournamentService {
     const c = state.candidates.find((x) => x.id === candidate);
     if (!c || c.status !== "delivered") throw new ToolError("UNKNOWN_CANDIDATE", `Delivered candidates: ${state.candidates.filter((x) => x.status === "delivered").map((x) => x.id).join(", ")}.`);
     const target = resolve(state.workspace);
-    if (target === sep || target === resolve(homedir()) || target.split(sep).filter(Boolean).length < 2 || !(await stat(target).then((s) => s.isDirectory(), () => false)))
-      throw new ToolError("WORKSPACE_UNAVAILABLE", "Refusing to replace a missing, root or home folder.");
+    if (!replaceableFolder(target) || !(await stat(target).then((s) => s.isDirectory(), () => false)))
+      throw new ToolError("WORKSPACE_UNAVAILABLE", `Refusing to replace ${target}: it is missing, the filesystem root, the home folder or a system folder.`);
     for (const entry of await readdir(target)) await rm(join(target, entry), { recursive: true, force: true });
     await this.copy(this.paths(taskId).candidate(candidate), target);
     await this.update(taskId, (s) => ({ ...s, active: candidate, activations: [...s.activations, { candidate, at: new Date().toISOString(), by: agentId ?? "flowly" }].slice(-200) }));
@@ -414,6 +432,13 @@ export class TournamentService {
       workspace: target,
       message: `Candidate ${candidate} is now in ${target}. Run its flowly-apply.sh if it has one, stop processes the previous candidate started, then run the suites and your probes there.`,
     };
+  }
+
+  private async restorePristine(state: TournamentState) {
+    const target = resolve(state.workspace);
+    if (!replaceableFolder(target) || !(await stat(target).then((s) => s.isDirectory(), () => false))) throw new Error(`Refusing to replace ${target}.`);
+    for (const entry of await readdir(target)) await rm(join(target, entry), { recursive: true, force: true });
+    await this.copy(this.paths(state.taskId).pristine, target);
   }
 
   /** flowly_submit_judgement: Flowly holds the judge to the elimination rule and to measuring the winner last (§5.5). */
@@ -457,6 +482,9 @@ export class TournamentService {
 
   private async fail(taskId: string, generation: number, detail: string) {
     const state = await this.state(taskId).catch(() => null);
+    // A judge may have left a candidate (or half of one) in the workspace: the implementer starts from the original.
+    if (state && state.generation === generation && state.phase === "judging" && state.activations.length)
+      await this.restorePristine(state).catch((e) => logFailure("Flowly could not put the original workspace back:", e, taskId));
     if (state && state.generation === generation) await this.update(taskId, (s) => ({ ...s, phase: "failed", detail }));
     else await this.save({ version: 1, taskId, generation, size: 0, phase: "failed", workspace: "", startedAt: new Date().toISOString(), candidates: [], activations: [], detail });
     await this.hooks?.fallback(taskId, generation, detail);

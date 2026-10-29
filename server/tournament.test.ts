@@ -4,6 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { PaseoApi } from "@getpaseo/client";
 import { TournamentService, type TournamentHooks } from "./tournament";
+import { replaceableFolder } from "./acceptance";
+import { homedir } from "node:os";
 import { automationFixture, cleanupAutomationFixtures } from "./automation-fixture";
 import { automationSettingsSchema } from "../shared/automation-schema";
 import { emptyBoard, type Board } from "../shared/model";
@@ -211,4 +213,42 @@ test("settings accept a tournament of 2 or 3", () => {
   expect(automationSettingsSchema.parse({ enabled: true, tournament: { size: 2 } }).tournament).toEqual({ size: 2 });
   expect(() => automationSettingsSchema.parse({ enabled: true, tournament: { size: 4 } })).toThrow();
   expect(automationSettingsSchema.parse({ enabled: true })).not.toHaveProperty("tournament");
+});
+
+test("one-level workspaces such as /app can be replaced; the root, home and system folders never", () => {
+  for (const dir of ["/app", "/workspace", "/app/", "/srv/app", "/Users/me/project"]) expect(replaceableFolder(dir)).toBe(true);
+  for (const dir of ["/", "/etc", "/usr", "/root", "/var", "/tmp", "/home", "/Users", homedir()]) expect(replaceableFolder(dir)).toBe(false);
+});
+
+test("a judge that never submits and a candidate that cannot be activated fail the tournament without ending the plugin", async () => {
+  const x = await setup();
+  const ends: Array<(r: { status: string }) => void> = [];
+  const sent: string[] = [];
+  (x.paseo as unknown as { agents: unknown }).agents = { ref: () => ({
+    waitForFinish: () => new Promise((r) => ends.push(r)),
+    send: async (text: string) => { sent.push(text); },
+  }) };
+  const unhandled = vi.fn();
+  process.on("unhandledRejection", unhandled);
+  try {
+    await x.tick();
+    await vi.waitFor(() => expect(x.sessions).toHaveLength(1));
+    await writeFile(x.p.plans, "## Plan 1\nA\n\n## Plan 2\nB\n");
+    x.sessions[0]!.end({ status: "idle" });
+    await vi.waitFor(() => expect(x.sessions).toHaveLength(3));
+    x.sessions[1]!.end({ status: "idle", lastMessage: "c1" });
+    x.sessions[2]!.end({ status: "idle", lastMessage: "c2" });
+    await vi.waitFor(() => expect(ends).toHaveLength(1));
+    ends[0]!({ status: "idle" });
+    await vi.waitFor(() => expect(sent).toHaveLength(1));
+    // The workspace disappears: the automatic pick cannot activate anything.
+    await rm(x.workspace, { recursive: true, force: true });
+    await vi.waitFor(() => expect(ends).toHaveLength(2));
+    ends[1]!({ status: "idle" });
+    await vi.waitFor(() => expect(x.hooks.fallback).toHaveBeenCalledWith("t1", 1, expect.stringContaining("could not be activated")));
+    expect(await x.service.holds("t1", 1)).toBe(false);
+    expect(JSON.parse(await readFile(x.p.state, "utf8")).phase).toBe("failed");
+    await new Promise((r) => setTimeout(r, 20));
+    expect(unhandled).not.toHaveBeenCalled();
+  } finally { process.off("unhandledRejection", unhandled); }
 });

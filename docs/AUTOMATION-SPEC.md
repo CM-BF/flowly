@@ -498,6 +498,8 @@ AutomationJob {
 - 验收测试已就绪时，每个交付的候选都要有两套计数，并且要有 `final`，否则 `ACCEPTANCE_REQUIRED`。
 - 胜者必须是当前激活的候选（judge 最后激活胜者并在它上面跑完测试），否则 `WINNER_NOT_ACTIVE`。Flowly 不再重新复制，工作区里留下的正是 final 计数所测的那棵树。
 - 以上拒绝都不记录任何东西。
+- 激活和验收测试的恢复（§5.4.3）只拒绝文件系统根目录、home 目录和系统目录（/etc、/usr、/var、/tmp、/home、/Users 等），一层的工作目录（/app、/workspace）可以替换。第一次 canary 时 /app 被当成“根目录级”拒绝，judge 的 25 次激活全部失败。
+- 锦标赛在后台运行的步骤（规划、候选、judge 的等待和兜底）出错时，锦标赛标为 failed，按 5.5.3 退回普通流程，绝不让插件进程退出（同一次 canary 里，兜底激活失败曾使插件进程退出）。在 judge 阶段失败时，先把 pristine 放回工作区，再交给 implementer。
 - judge 的回合结束却没有提交时，Flowly 提醒一次；再没有，就激活第一个交付的候选并交付，活动里写明“未经比较”。
 - 候选、planner、judge 的权限请求都没人回答，Flowly 以 deny 回复并让回合继续（与 §5.4.1 的作者相同）。
 
