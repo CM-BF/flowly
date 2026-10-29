@@ -298,6 +298,12 @@ export function AutomationSettingsGroup({
       const { tournament: _drop, ...rest } = previous ?? { ...defaults, enabled: false };
       return size ? { ...rest, tournament: { ...(previous?.tournament ?? {}), size } } : rest;
     });
+  const tournamentPlans = (plans: "none" | "approaches") =>
+    onChange((previous) => {
+      if (!previous?.tournament) return previous ?? { ...defaults, enabled: false };
+      const { plans: _drop, ...tournament } = previous.tournament;
+      return { ...previous, tournament: plans === "approaches" ? { ...tournament, plans } : tournament };
+    });
   const unattended = (on: boolean) =>
     onChange((previous) => {
       const { unattended: _drop, ...rest } = previous ?? { ...defaults, enabled: false };
@@ -386,8 +392,21 @@ export function AutomationSettingsGroup({
                 onChange={(v) => tournament(v === "off" ? null : Number(v))}
               />
               <Label muted size={font.sm}>
-                {t("Several implementers each build the card from a different plan, in separate copies. Candidates with failing acceptance tests drop out; a judge compares the rest where they differ, and only the winner reaches the workspace. No review rounds. Costs about one extra implementation per candidate.")}
+                {t("Several implementers each build the card on their own, in separate copies. Candidates with failing acceptance tests drop out; a judge compares the rest where they differ, and only the winner reaches the workspace. No review rounds. Costs about one extra implementation per candidate.")}
               </Label>
+              {!!current.tournament && (
+                <>
+                  <Choices
+                    title={t("Candidates")}
+                    value={current.tournament.plans ?? "none"}
+                    options={[{ value: "none", label: t("Independent") }, { value: "approaches", label: t("Different approaches") }]}
+                    onChange={tournamentPlans}
+                  />
+                  <Label muted size={font.sm}>
+                    {t("Independent: each candidate gets the card like a single implementer. Different approaches: a planner first fixes one reading of the card's open points for everyone and gives each candidate another way to build it.")}
+                  </Label>
+                </>
+              )}
             </>
           )}
           <Toggle

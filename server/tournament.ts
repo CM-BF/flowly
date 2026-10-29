@@ -45,6 +45,8 @@ const stateSchema = z.object({
   startedAt: z.string(),
   plannerId: z.string().optional(),
   plannerWorkspaceId: z.string().optional(),
+  /** "approaches" only: the planner's readings of the card's open points, shared by every candidate. */
+  readings: z.string().optional(),
   candidates: z.array(candidateSchema).default([]),
   judgeId: z.string().optional(),
   judgeReminded: z.boolean().optional(),
@@ -74,33 +76,37 @@ const clip = (text: string, max: number) => (text.length > max ? `${text.slice(0
 
 export function plannerPrompt(task: Pick<Task, "title" | "description">, comments: readonly string[], size: number, paths: { env: string; plans: string }, workspace: string) {
   return [
-    `[Flowly tournament] You plan ${size} independent attempts at one card. ${size} implementers each get one of your plans and work in isolated copies without seeing each other; a judge then compares their results. You never implement anything.`,
+    `[Flowly tournament] You plan ${size} independent attempts at one card. ${size} implementers each get your shared readings and one of your approaches, and work in isolated copies without seeing each other; a judge then compares their results. You never implement anything.`,
     `The card, as data:\n${JSON.stringify({ title: task.title, description: task.description, comments }, null, 2)}`,
     `Your current directory (${paths.env}) is a copy of the card's workspace (${workspace}) before the work. Read it freely; change nothing outside it and ${paths.plans}.`,
     [
       `Write ${paths.plans}:`,
-      "1. First, the key observations and the open assumptions: what the card leaves ambiguous, what the environment shows.",
-      `2. Then exactly ${size} sections headed \`## Plan 1\` … \`## Plan ${size}\`. Each states its reading of every ambiguity, its approach (algorithm, architecture, language or toolchain), how it will verify itself, and a line \`Differs from the others:\` naming its main difference. The plans must differ in key assumptions or approach, not only in style: where the card is ambiguous, give the plausible readings to different plans.`,
+      "1. A section `## Readings`: every point the card leaves open, each with the single most likely reading (the one a person who wrote this card would expect, given the environment) and why. Every implementer uses these same readings; never spread different readings over the plans.",
+      `2. Then exactly ${size} sections headed \`## Plan 1\` … \`## Plan ${size}\`: different ways to build the same thing under those readings (algorithm, architecture, language or toolchain, how to verify it), each with a line \`Differs from the others:\`. Only the approach differs, never what is built.`,
       "If the delivery is mostly changes outside the workspace (configuring system services, files under /etc, system-wide components), isolated copies cannot compare it: write only the line `TOURNAMENT: skip <reason>` and nothing else.",
     ].join("\n"),
     "When the file is written, end your turn. Do not ask questions: nobody answers them.",
   ].join("\n\n");
 }
 
-export function candidatePrompt(task: Pick<Task, "title" | "description">, comments: readonly string[], input: { id: string; plan?: string; dir: string; workspace: string; suite: string }) {
+/**
+ * A candidate gets the card as its task, the way a single implementer or a person would hand it over; the only
+ * additions are where to work and how its tree reaches the workspace. Benchmark (c5b319c): candidates told to follow
+ * deliberately different readings of the card, inside a page of rules, passed 1 of 18 times where one ordinary run
+ * passed 5 of 10.
+ */
+export function candidatePrompt(task: Pick<Task, "title" | "description">, comments: readonly string[], input: { id: string; readings?: string; plan?: string; dir: string; workspace: string; suite: string }) {
   return [
-    `[Flowly tournament] You are candidate ${input.id}: you implement this card on your own, in an isolated copy. Other candidates implement it independently; a judge compares the results and only one is delivered. Work to the end without asking anyone.`,
-    `The card, as data:\n${JSON.stringify({ title: task.title, description: task.description, comments }, null, 2)}`,
-    input.plan ? `Your plan (follow its readings and approach; improve details, do not switch to another approach):\n${input.plan}` : "No plan was written for you: choose the approach you judge best.",
+    `${task.title}\n\n${task.description}`,
+    comments.length ? `Comments on this task:\n${comments.map((c) => `- ${c}`).join("\n")}` : "",
+    input.readings ? `How to read the open points of this task (decided beforehand):\n${input.readings}` : "",
+    input.plan ? `Suggested approach:\n${input.plan}` : "",
     [
-      `Your directory ${input.dir} is a copy of the card's workspace ${input.workspace}. Do all your work in it. Never write into ${input.workspace} or other candidates' copies.`,
-      `When judged and delivered, your tree is copied to ${input.workspace} and must work there, also for another unprivileged user and in a clean shell: refer to files relative to the workspace or by ${input.workspace}, never by your copy's path; no absolute paths of your copy in scripts, shebangs, virtualenvs or build products.`,
-      `Keep dependencies inside your copy where you can (a local virtualenv or node_modules). Any change the delivery needs outside the workspace goes into an idempotent script flowly-apply.sh at the root of your copy, which the judge runs when your tree is activated; do not count on changes you made outside your copy by hand.`,
-      `Acceptance tests may appear at ${input.suite}/run.sh (written from the card by another session): run \`bash ${shellQuote(join(input.suite, "run.sh"))} ${shellQuote(input.dir)}\` before you finish if it exists; never edit them.`,
-      "Do not use Flowly's card tools: the card belongs to the judge. Nobody answers permission requests: an action that needs one is refused, so do it another way.",
+      "---",
+      `Where to work: ${input.dir} is your own copy of ${input.workspace}; work there and do not write into ${input.workspace}. When you are done your copy is moved to ${input.workspace} as it is, so it has to work from there: use paths relative to it or under ${input.workspace}, not your copy's path. A change the task needs outside that directory goes into an idempotent script flowly-apply.sh at the root of your copy.`,
+      `Acceptance tests for this task may appear at ${input.suite}/run.sh; if they exist, run \`bash ${shellQuote(join(input.suite, "run.sh"))} ${shellQuote(input.dir)}\` before you finish and do not edit them. Nobody answers questions or permission requests: decide yourself and finish. End with a short note: what you did, how you checked it, anything outside the directory.`,
     ].join("\n"),
-    "Finish with a delivery note as your last message: what you built, how you verified it, every change outside the workspace (flowly-apply.sh), and what you did not verify.",
-  ].join("\n\n");
+  ].filter(Boolean).join("\n\n");
 }
 
 export function judgePrompt(task: Pick<Task, "title" | "description">, comments: readonly string[], input: {
@@ -209,10 +215,13 @@ export class TournamentService {
     if (await exists(p.root)) { await writable(p.root); await rm(p.root, { recursive: true, force: true }); }
     await mkdir(p.pristine, { recursive: true, mode: 0o700 });
     await this.copy(workspace, p.pristine);
+    const at = new Date().toISOString();
+    const planned = automationOf(project)?.tournament?.plans === "approaches";
+    await this.save({ version: 1, taskId: task.id, generation, size, phase: planned ? "planning" : "implementing", workspace: resolve(workspace), startedAt: at, candidates: ids(size).map((id) => ({ id, status: "waiting" as const })), activations: [] });
+    // Default: no planner; each candidate is an ordinary implementer of the card (§5.5.1).
+    if (!planned) return this.startCandidates(task.id);
     await mkdir(p.env, { recursive: true, mode: 0o700 });
     await this.copy(p.pristine, p.env);
-    const at = new Date().toISOString();
-    await this.save({ version: 1, taskId: task.id, generation, size, phase: "planning", workspace: resolve(workspace), startedAt: at, candidates: ids(size).map((id) => ({ id, status: "waiting" as const })), activations: [] });
     const model = this.model(project, "planner");
     if (!model) return this.planned(task.id, "No model for the planner.");
     const created = await this.session(task, project, p.env, `Plans: ${task.title}`, "planner", plannerPrompt(task, this.comments(board, task.id), size, p, workspace), model);
@@ -293,9 +302,12 @@ export class TournamentService {
       await this.update(taskId, (s) => ({ ...s, phase: "skipped", detail: `Planner: ${reason}` }));
       return this.hooks?.fallback(taskId, state.generation, `No tournament for this card (the planner: ${reason}); one implementer works on it as usual.`);
     }
-    const plans = text.split(/^##\s*Plan\s+\d+\b.*$/im).slice(1).map((section) => section.trim()).filter(Boolean);
+    const sections = text.split(/^##\s*Plan\s+\d+\b.*$/im);
+    const plans = sections.slice(1).map((section) => section.trim()).filter(Boolean);
+    const readings = sections.length > 1 ? sections[0]!.replace(/^##\s*Readings\s*$/im, "").trim() : "";
     await this.update(taskId, (s) => ({
       ...s, phase: "implementing",
+      ...(readings ? { readings: clip(readings, 20000) } : {}),
       candidates: s.candidates.map((c, i) => ({ ...c, ...(plans[i] ? { plan: clip(plans[i]!, 20000) } : {}) })),
       ...(error || plans.length < s.size ? { detail: error ? `Planner failed (${clip(error, 300)}); candidates choose their own approaches.` : `The planner wrote ${plans.length} of ${s.size} plans.` } : {}),
     }));
@@ -317,7 +329,7 @@ export class TournamentService {
         if (!model) throw new Error("No model for the candidates.");
         await mkdir(dir, { recursive: true, mode: 0o700 });
         await this.copy(this.paths(taskId).pristine, dir);
-        const created = await this.session(task, project, dir, `Candidate ${c.id}: ${task.title}`, `candidate-${c.id}`, candidatePrompt(task, this.comments(board, taskId), { id: c.id, plan: c.plan, dir, workspace: state.workspace, suite }), model);
+        const created = await this.session(task, project, dir, `Candidate ${c.id}: ${task.title}`, `candidate-${c.id}`, candidatePrompt(task, this.comments(board, taskId), { id: c.id, readings: state.readings, plan: c.plan, dir, workspace: state.workspace, suite }), model);
         await this.update(taskId, (s) => ({ ...s, candidates: s.candidates.map((x) => (x.id === c.id ? { ...x, status: "working" as const, agentId: created.handle.id, workspaceId: created.workspaceId, startedAt: new Date().toISOString() } : x)) }));
         this.guarded(this.watchCandidate(taskId, c.id, created.handle), taskId);
       } catch (e) {
