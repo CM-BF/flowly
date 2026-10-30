@@ -128,7 +128,7 @@ const catalog: Catalog = {
   "Mode": "모드",
   "Adaptive": "적응형",
   "Managed": "관리형",
-  "Adaptive: one agent gets the card as its task, like a session you start yourself, with no review. When its context fills up, Flowly has it write down what is done and decided, and fresh sessions finish the rest.": "적응형: 에이전트 하나가 카드를 작업으로 받아, 직접 시작한 세션처럼 리뷰 없이 진행합니다. 컨텍스트가 차면 Flowly가 완료한 것과 결정한 것을 적게 하고, 새 세션들이 나머지를 마칩니다.",
+  "Adaptive: one agent gets the card as its task, like a session you start yourself, with no review. If the task is too large for one session, the agent can hand the rest to fresh sessions; Flowly reminds it once when its context fills up.": "적응형: 에이전트 하나가 카드를 작업으로 받아, 직접 시작한 세션처럼 리뷰 없이 진행합니다. 한 세션에 비해 작업이 너무 크면 에이전트가 나머지를 새 세션에 넘길 수 있고, 컨텍스트가 차면 Flowly가 한 번 알려 줍니다.",
   "Managed: a reviewer checks each delivery and can send it back; acceptance tests and tournaments are available.": "관리형: 리뷰어가 매 결과물을 확인하고 되돌려 보낼 수 있습니다. 인수 테스트와 토너먼트를 쓸 수 있습니다.",
   "Check command": "검사 명령",
   "For example: npm test": "예: npm test",

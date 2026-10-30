@@ -128,7 +128,7 @@ const catalog: Catalog = {
   "Mode": "模式",
   "Adaptive": "自适应",
   "Managed": "托管",
-  "Adaptive: one agent gets the card as its task, like a session you start yourself, with no review. When its context fills up, Flowly has it write down what is done and decided, and fresh sessions finish the rest.": "自适应：一个 agent 直接拿到卡片作为任务，就像你自己开的会话一样，不做评审。上下文快满时，Flowly 让它写下已完成的部分和已做的决定，由新的会话完成剩下的工作。",
+  "Adaptive: one agent gets the card as its task, like a session you start yourself, with no review. If the task is too large for one session, the agent can hand the rest to fresh sessions; Flowly reminds it once when its context fills up.": "自适应：一个 agent 直接拿到卡片作为任务，就像你自己开的会话一样，不做评审。任务太大、一个会话做不完时，agent 可以把剩下的工作交给新的会话；上下文快满时，Flowly 会提醒它一次。",
   "Managed: a reviewer checks each delivery and can send it back; acceptance tests and tournaments are available.": "托管：评审者检查每次交付，可以打回；可以使用验收测试和锦标赛。",
   "Check command": "检查命令",
   "For example: npm test": "例如：npm test",

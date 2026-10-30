@@ -128,7 +128,7 @@ const catalog: Catalog = {
   "Mode": "Modus",
   "Adaptive": "Adaptiv",
   "Managed": "Verwaltet",
-  "Adaptive: one agent gets the card as its task, like a session you start yourself, with no review. When its context fills up, Flowly has it write down what is done and decided, and fresh sessions finish the rest.": "Adaptiv: Ein Agent bekommt die Karte als Aufgabe, wie eine Sitzung, die du selbst startest, ohne Prüfung. Wenn sein Kontext voll wird, lässt Flowly ihn festhalten, was erledigt und entschieden ist, und neue Sitzungen erledigen den Rest.",
+  "Adaptive: one agent gets the card as its task, like a session you start yourself, with no review. If the task is too large for one session, the agent can hand the rest to fresh sessions; Flowly reminds it once when its context fills up.": "Adaptiv: Ein Agent bekommt die Karte als Aufgabe, wie eine Sitzung, die du selbst startest, ohne Prüfung. Ist die Aufgabe zu groß für eine Sitzung, kann der Agent den Rest an neue Sitzungen übergeben; Flowly erinnert ihn einmal daran, wenn sein Kontext voll wird.",
   "Managed: a reviewer checks each delivery and can send it back; acceptance tests and tournaments are available.": "Verwaltet: Ein Prüfer kontrolliert jede Lieferung und kann sie zurückschicken; Abnahmetests und Turniere sind verfügbar.",
   "Check command": "Prüfbefehl",
   "For example: npm test": "Zum Beispiel: npm test",

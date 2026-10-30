@@ -342,7 +342,7 @@ export function AutomationSettingsGroup({
           />
           <Label muted size={font.sm}>
             {adaptive
-              ? t("Adaptive: one agent gets the card as its task, like a session you start yourself, with no review. When its context fills up, Flowly has it write down what is done and decided, and fresh sessions finish the rest.")
+              ? t("Adaptive: one agent gets the card as its task, like a session you start yourself, with no review. If the task is too large for one session, the agent can hand the rest to fresh sessions; Flowly reminds it once when its context fills up.")
               : t("Managed: a reviewer checks each delivery and can send it back; acceptance tests and tournaments are available.")}
           </Label>
           <ModelDefaultGroup execution cwd={cwd}
