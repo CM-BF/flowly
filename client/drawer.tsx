@@ -1349,6 +1349,8 @@ const activityText: Record<string, string> = localizedLabels({
   automation_acceptance_failed: msg("The acceptance tests could not be written; reviewed without them"),
   automation_tournament_decided: msg("The tournament delivered its winner"),
   automation_tournament_skipped: msg("No tournament: one implementer works on the card"),
+  automation_adaptive_continued: msg("A fresh session continues the task"),
+  automation_check_failed: msg("The check command failed"),
   automation_review_risks: msg("Noted risks beyond the acceptance criteria"),
   review_level_set: msg("Set the review level"),
   automation_waiting: msg("Waits for its sub-cards"),

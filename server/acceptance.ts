@@ -197,7 +197,8 @@ export class AcceptanceService {
       const project = board.projects.find((p) => p.id === job.projectId);
       const settings = automationOf(project);
       const task = board.tasks.find((t) => t.id === job.taskId);
-      if (!settings?.acceptance || !task || !project) continue;
+      // Acceptance tests belong to managed mode; adaptive cards never start an author (§5.6.1).
+      if (!settings?.acceptance || settings.mode === "adaptive" || !task || !project) continue;
       const key = `${job.taskId}:${job.generation}`;
       if (this.starting.has(key)) continue;
       const state = await this.state(job.taskId).catch(() => null);

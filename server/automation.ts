@@ -85,6 +85,9 @@ import { ToolError } from "./tool-error";
 import { logFailure } from "./error-report";
 import type { AcceptanceService } from "./acceptance";
 import type { TournamentService } from "./tournament";
+import type { AdaptiveService } from "./adaptive";
+import { checkFailedPrompt, isAdaptive, thinPrompt, adaptiveDefaults } from "../shared/adaptive";
+import { commentsOf } from "../shared/comments";
 import { acceptanceDecision } from "../shared/automation";
 
 type Role = AutomationJob["role"];
@@ -121,6 +124,8 @@ export type AutomationDeps = {
   acceptance?: Pick<AcceptanceService, "tick" | "snapshot" | "restore" | "workspaceDirectory" | "guard" | "paths" | "state">;
   /** Tournament mode (AUTOMATION-SPEC §5.5): K candidates and a judge instead of one implementer and review rounds. */
   tournament?: Pick<TournamentService, "tick" | "holds">;
+  /** Adaptive mode (AUTOMATION-SPEC §5.6): native-like start, context watch, split over fresh sessions. */
+  adaptive?: Pick<AdaptiveService, "begin" | "started" | "watch" | "afterTurn" | "check" | "delivered" | "remember" | "isSession" | "record">;
 };
 
 /** Short tail for event notes and the job's detail. */
@@ -212,6 +217,12 @@ export class AutomationService {
     for (const job of plan.start) await this.begin(job, fallback);
     // Authors start after their job is claimed, outside the board lock (§5.4.1).
     if (this.deps.acceptance) await this.deps.acceptance.tick(await this.store.read(), this.paseo).catch((e) => logFailure("Flowly acceptance pass failed:", e));
+    if (this.deps.adaptive) {
+      const current = await this.store.read();
+      this.deps.adaptive.remember(current.automation.filter((j) => isLive(j) && j.implementerId && isAdaptive(automationOf(current.projects.find((p) => p.id === j.projectId)))).map((j) => j.implementerId!));
+      await this.deps.adaptive.watch(current, this.api(), (agentId, text) => this.api().agents.ref(agentId).send(text, { activeTurnBehavior: "steer", messageId: randomUUID() }))
+        .catch((e) => logFailure("Flowly adaptive watch failed:", e));
+    }
     if (this.deps.tournament) await this.deps.tournament.tick(await this.store.read(), this.paseo, this.tournamentHooks, () => this.store.read()).catch((e) => logFailure("Flowly tournament pass failed:", e));
     await this.watchHistory();
   }
@@ -767,8 +778,86 @@ export class AutomationService {
       if (pending) await this.deliver(pending);
       return;
     }
+    if (outcome.kind === "completed" && job.role === "implementer" && isAdaptive(settings) && this.deps.adaptive) {
+      await this.adaptiveTurnEnd(job, agentId, ended.at, settings);
+      return;
+    }
     const applied = await this.apply(job, agentId, ended.at, outcome);
     if (applied?.instruction) await this.deliver(applied);
+  }
+
+  /**
+   * An adaptive implementer's turn ended (§5.6): a checkpoint with items goes on in a fresh session (the next item or
+   * the integrator); otherwise the project's check runs, if any, and the card is delivered without review.
+   */
+  private async adaptiveTurnEnd(seen: AutomationJob, agentId: string, endedAt: string, settings: AutomationSettings) {
+    const paseo = this.api();
+    const board = await this.store.read();
+    const task = board.tasks.find((t) => t.id === seen.taskId);
+    if (!task) return;
+    const card = { title: task.title, description: task.description, comments: commentsOf(board.events, task.id).map((e) => e.note ?? "").filter(Boolean) };
+    const next = await this.deps.adaptive!.afterTurn(task.id, agentId, settings, card, paseo);
+    const live = (b: Board) => { const j = jobOf(b, seen.taskId); return j && isLive(j) && j.generation === seen.generation && j.implementerId === agentId && (!j.turnAt || endedAt > j.turnAt) ? j : null; };
+    if (next.kind === "fresh") {
+      const fresh = await this.store.transaction((b) => {
+        const j = live(b);
+        if (!j) return { value: null, changed: false };
+        const now = this.now();
+        j.retired = [...(j.retired ?? []), { agentId, role: "implementer" as const, at: now, reason: "adaptive_split" }].slice(-50);
+        delete j.implementerId;
+        j.state = "working";
+        j.turnAt = endedAt;
+        j.updatedAt = now;
+        j.nudges = 0;
+        j.pendingOp = randomUUID();
+        j.pendingRole = "implementer";
+        this.instruct(j, "implementer", next.prompt, next.prompt, "start");
+        this.store.event(b, { taskId: j.taskId, actor: "system", agentId, action: "automation_adaptive_continued", note: clip(`${next.reason}: a fresh session continues the task.`, 500) });
+        return { value: { ...j }, changed: true };
+      });
+      if (fresh) await this.deliver(fresh);
+      return;
+    }
+    // The project's own check is the only gate (§5.6.4).
+    const rounds = settings.check?.rounds ?? adaptiveDefaults.checkRounds;
+    const done = (await this.deps.adaptive!.record(task.id).catch(() => null))?.checks.filter((c) => !c.ok).length ?? 0;
+    if (settings.check) {
+      const cwd = (await paseo.workspaces.ref(task.workspaceId).refresh().catch(() => null))?.workspaceDirectory;
+      const result = cwd ? await this.deps.adaptive!.check(task.id, settings, cwd).catch((e) => ({ ok: false, exit: null, tail: String(e) })) : null;
+      if (result && !result.ok && done < rounds) {
+        const rework = await this.store.transaction((b) => {
+          const j = live(b);
+          if (!j) return { value: null, changed: false };
+          j.turnAt = endedAt;
+          j.updatedAt = this.now();
+          this.instruct(j, "implementer", checkFailedPrompt(settings.check!.command, result.exit, result.tail, done + 1, rounds), undefined, "changes");
+          this.store.event(b, { taskId: j.taskId, actor: "system", agentId, action: "automation_check_failed", note: clip(`\`${settings.check!.command}\` exited ${result.exit ?? "on timeout"}: ${result.tail.slice(-400)}`, 1000) });
+          return { value: { ...j }, changed: true };
+        });
+        if (rework) await this.deliver(rework);
+        return;
+      }
+    }
+    const delivered = await this.store.transaction((b) => {
+      const j = live(b), t = b.tasks.find((x) => x.id === seen.taskId);
+      if (!j || !t) return { value: false, changed: false };
+      const now = this.now();
+      j.state = "delivered";
+      j.turnAt = endedAt;
+      j.updatedAt = now;
+      j.nudges = 0;
+      delete j.verdict; delete j.code; delete j.instruction; delete j.pendingOp; delete j.pendingRole;
+      this.store.event(b, { taskId: t.id, actor: "system", agentId, action: "automation_delivered", note: "Adaptive mode: delivered without review" });
+      if (t.status !== "in_review") {
+        const from = t.status;
+        t.status = "in_review";
+        t.revision++;
+        t.updatedAt = now;
+        this.store.event(b, { taskId: t.id, actor: "system", action: "status_changed", rule: "AUTO", from, to: "in_review", agentId, note: "The agent finished its turn" });
+      }
+      return { value: true, changed: true };
+    });
+    if (delivered) await this.deps.adaptive!.delivered(task.id);
   }
 
   /** Commits a turn decision; null when the job moved on meanwhile. */
@@ -1577,11 +1666,22 @@ export class AutomationService {
       job.turnAt = now;
       job.updatedAt = now;
       const settings = automationOf(board.projects.find((p) => p.id === job.projectId))!;
+      if (isAdaptive(settings)) {
+        // Adaptive (§5.6.1): the card itself is the task, like a native agent's; always a fresh session.
+        const task = board.tasks.find((t) => t.id === job.taskId)!;
+        const thin = [thinPrompt({ title: task.title, description: task.description, comments: commentsOf(board.events, task.id).map((e) => e.note ?? "").filter(Boolean) }, (settings.adaptive?.maxDepth ?? adaptiveDefaults.maxDepth) > 0), job.feedback].filter(Boolean).join("\n\n");
+        if (job.implementerId) { job.retired = [...(job.retired ?? []), { agentId: job.implementerId, role: "implementer" as const, at: now, reason: "adaptive_fresh" }].slice(-50); delete job.implementerId; }
+        job.pendingOp = randomUUID();
+        job.pendingRole = "implementer";
+        this.instruct(job, "implementer", thin, thin, "start");
+      } else
       this.instruct(job, "implementer", [opening(settings, !!job.implementerId), job.feedback].filter(Boolean).join("\n\n"), [opening(settings, false), job.feedback].filter(Boolean).join("\n\n"), job.implementerId ? "again" : "start");
       this.store.event(board, { taskId: job.taskId, actor: "system", action: "automation_started" });
       return { value: { ...job }, changed: true };
     });
     if (!claimed) return;
+    if (this.deps.adaptive && isAdaptive(automationOf((await this.store.read()).projects.find((p) => p.id === claimed.projectId))))
+      await this.deps.adaptive.begin(claimed.taskId, claimed.generation, automationOf((await this.store.read()).projects.find((p) => p.id === claimed.projectId))!);
     const board = await this.store.read();
     const blockers = board.links.filter((l) => l.kind === "blocks" && l.to === claimed.taskId).map((l) => l.from);
     if (blockers.length) {
@@ -1731,8 +1831,8 @@ export class AutomationService {
       const project = task && board.projects.find((p) => p.id === task.projectId);
       if (!current || !task || !project || !["starting", "working", "reviewing"].includes(current.state) || this.unconfirmedFor(current, role)) return;
       if (role === "reviewer" && await this.acceptancePending(current, project)) return;
-      // A tournament card's implementer waits: the candidates and the judge do its work (§5.5).
-      if (role === "implementer" && this.deps.tournament && automationOf(project)?.tournament && await this.deps.tournament.holds(current.taskId, current.generation)) return;
+      // A tournament card's implementer waits (managed mode only): the candidates and the judge do its work (§5.5).
+      if (role === "implementer" && this.deps.tournament && automationOf(project)?.tournament && !isAdaptive(automationOf(project)) && await this.deps.tournament.holds(current.taskId, current.generation)) return;
       const { text, fresh } = current.instruction!;
       const id = role === "reviewer" ? current.reviewerId : current.implementerId;
       const peerId = role === "reviewer" ? current.implementerId : current.reviewerId;
@@ -1874,10 +1974,14 @@ export class AutomationService {
       if (features.error) throw new Error(features.error);
       featureValues = supportedFeatures(featureValues, features.features ?? []);
     }
+    // Adaptive implementers (§5.6.1) are sessions like any native agent: no Flowly instructions, skill or context file,
+    // and a Flowly MCP server that offers only flowly_request_split.
+    const thin = role === "implementer" && isAdaptive(settings) && !!this.deps.adaptive;
+    if (thin) await this.deps.adaptive!.started(task.id, preparation.agentId);
     const options = {
       config: {
         provider: `${model.provider}/${model.model}`,
-        systemPrompt: preparation.instructions,
+        ...(thin ? {} : { systemPrompt: preparation.instructions }),
         mcpServers: { flowly: preparation.mcp },
         ...(mode ? { modeId: mode } : {}),
         ...(model.thinking ? { thinkingOptionId: model.thinking } : {}),
@@ -1885,7 +1989,7 @@ export class AutomationService {
       },
       agentId: preparation.agentId,
       idempotencyKey: `ultra-kanban-session:${preparation.agentId}`,
-      env: { FLOWLY_CONTEXT_FILE: preparation.contextFile, FLOWLY_CLI: preparation.cliPath, FLOWLY_SKILL: preparation.skillPath },
+      ...(thin ? {} : { env: { FLOWLY_CONTEXT_FILE: preparation.contextFile, FLOWLY_CLI: preparation.cliPath, FLOWLY_SKILL: preparation.skillPath } }),
       title: (role === "reviewer" ? `${reviewTitle(job)}: ${task.title}` : task.title).slice(0, 120),
       // Flowly handles provider limits of its automation sessions itself (§4.5); the rate-fallback plugin leaves them alone.
       labels: { "flowly-task": task.id, "flowly-automation": role, "paseo-rate-fallback": "off" },

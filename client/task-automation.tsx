@@ -28,7 +28,7 @@ import { invalidateCardViews, useTaskDetail } from "./card-detail-query";
 import { useOverviewQuery } from "./queries";
 import { PulseDot } from "./motion";
 import { ModelDefaultGroup } from "./model-default";
-import { Button, Choices, Label, Toggle, font, message, space, toneColor, useTheme, type Tone } from "./ui";
+import { Button, Choices, Label, TextBox, Toggle, font, message, radius, space, toneColor, useTheme, type Tone } from "./ui";
 import { t } from "../shared/i18n";
 
 const isFinished = (task: Pick<Task, "status">) => task.status === "done" || task.status === "cancelled";
@@ -157,7 +157,9 @@ export function TaskAutomation({ task, project, active, unavailable = false }: {
   );
 }
 
-const defaults = { enabled: true, maxRunning: 2, maxReviewRounds: 3, fullAccess: true, nudgeLimit: 2, failureLimit: 2 } satisfies AutomationSettings;
+// A project turning automation on for the first time starts adaptive (AUTOMATION-SPEC §5.6); settings saved before the
+// mode existed carry no mode and stay managed.
+const defaults = { enabled: true, mode: "adaptive", maxRunning: 2, maxReviewRounds: 3, fullAccess: true, nudgeLimit: 2, failureLimit: 2 } satisfies AutomationSettings;
 
 /** Panel review (AUTOMATION-SPEC §5.1): when serial review rounds escalate to several reviewers at once. */
 function PanelSettings({
@@ -304,6 +306,12 @@ export function AutomationSettingsGroup({
       const { plans: _drop, ...tournament } = previous.tournament;
       return { ...previous, tournament: plans === "approaches" ? { ...tournament, plans } : tournament };
     });
+  const adaptive = current.mode === "adaptive";
+  const check = (command: string) =>
+    onChange((previous) => {
+      const { check: _drop, ...rest } = previous ?? { ...defaults, enabled: false };
+      return command.trim() ? { ...rest, check: { ...(previous?.check ?? {}), command: command.trim() } } : rest;
+    });
   const unattended = (on: boolean) =>
     onChange((previous) => {
       const { unattended: _drop, ...rest } = previous ?? { ...defaults, enabled: false };
@@ -326,6 +334,17 @@ export function AutomationSettingsGroup({
             options={["1", "2", "3", "5"].map((n) => ({ value: n, label: n }))}
             onChange={(n) => set({ maxRunning: Number(n) })}
           />
+          <Choices
+            title={t("Mode")}
+            value={adaptive ? "adaptive" : "managed"}
+            options={[{ value: "adaptive", label: t("Adaptive") }, { value: "managed", label: t("Managed") }]}
+            onChange={(mode) => set({ mode })}
+          />
+          <Label muted size={font.sm}>
+            {adaptive
+              ? t("Adaptive: one agent gets the card as its task, like a session you start yourself, with no review. If the task is too large for one session, the agent can hand the rest to fresh sessions; Flowly reminds it once when its context fills up.")
+              : t("Managed: a reviewer checks each delivery and can send it back; acceptance tests and tournaments are available.")}
+          </Label>
           <ModelDefaultGroup execution cwd={cwd}
             title={t("Implementer")}
             description={t("The model that works on queued cards.")}
@@ -340,6 +359,9 @@ export function AutomationSettingsGroup({
             noneLabel={t("No fallback")}
             onChange={(next) => model("implementerFallback", next)}
           />
+          {adaptive && <CheckCommand value={current.check?.command ?? ""} onChange={check} />}
+          {!adaptive && (
+            <>
           <ModelDefaultGroup execution cwd={cwd}
             title={t("Reviewer")}
             description={t("A second agent reviews each delivery and can send it back with requested changes.")}
@@ -409,6 +431,8 @@ export function AutomationSettingsGroup({
               )}
             </>
           )}
+            </>
+          )}
           <Toggle
             title={t("Full access")}
             detail={t("Agents run without asking for permissions (Claude bypass, Codex full access), whatever Permissions the implementer, the reviewer or the project default model chose. Off: those Permissions apply, agents may stop to ask, and the card shows it.")}
@@ -423,6 +447,26 @@ export function AutomationSettingsGroup({
           />
         </>
       )}
+    </View>
+  );
+}
+
+/** Adaptive mode's only gate (AUTOMATION-SPEC §5.6.4): a command Flowly runs in the workspace after each delivery. */
+function CheckCommand({ value, onChange }: { value: string; onChange: (command: string) => void }) {
+  const { colors } = useTheme();
+  return (
+    <View style={{ gap: space[1] }}>
+      <Label size={font.md}>{t("Check command")}</Label>
+      <TextBox
+        accessibilityLabel={t("Check command")}
+        value={value}
+        onChangeText={onChange}
+        commitDelay={400}
+        placeholder={t("For example: npm test")}
+        placeholderTextColor={colors.foregroundMuted}
+        style={{ minHeight: 34, paddingHorizontal: space[2], borderRadius: radius.sm, borderWidth: 1, borderColor: colors.border, fontSize: font.md, color: colors.foreground, outlineStyle: "none" } as never}
+      />
+      <Label muted size={font.sm}>{t("Optional. Flowly runs it in the card's workspace after each delivery; if it fails, the agent gets its output and fixes the cause. Empty: no check.")}</Label>
     </View>
   );
 }

@@ -45,6 +45,7 @@ import { handoffGetInputSchema } from "../shared/handoff-api";
 import { sessionHistoryQuerySchema, sessionHistoryPageSchema } from "../shared/session-history";
 import { handoffUpdateSchema, handoffWriteResultSchema } from "../shared/handoff";
 import { judgementInputSchema, reviewInputSchema, reviewResultSchema } from "../shared/automation-schema";
+import { progressFormat } from "../shared/adaptive";
 import { reviewerOfCard } from "../shared/automation";
 import { createCardInputSchema, createCardResultSchema, updateCardInputSchema, updateCardResultSchema } from "../shared/tools";
 import { AgentService } from "./agent-service";
@@ -193,6 +194,20 @@ export class ToolServer {
           name: "flowly",
           version: "0.2.0",
         });
+        // Adaptive implementers (AUTOMATION-SPEC §5.6.1) see one tool and nothing else of Flowly.
+        if (this.agents.adaptive?.isSession(identity.agentId)) {
+          const adaptive = this.agents.adaptive;
+          mcp.registerTool(
+            "flowly_split",
+            {
+              description: `Hand the remaining work of a task too large for one session to fresh sessions. Pass your plan in plan, in this format:\n\n${progressFormat}\n\nAfter your turn ends, each item gets its own fresh session (with the task, what is done and every decision), in order; then a fresh session integrates and runs the full tests. Finish the step you are on, then end your turn. Use it only when you need it; small tasks need no split.`,
+              inputSchema: z.strictObject({ plan: z.string().trim().min(1).max(40000) }),
+              annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+            },
+            (input) => call(() => adaptive.split(identity.taskId, identity.agentId, input.plan)),
+          );
+          return mcp;
+        }
         mcp.registerTool(
           "flowly_get_task",
           {
