@@ -5,7 +5,7 @@ import type { AutomationSettings } from "./automation-schema";
  * split over fresh sessions that share one decision record. Pure helpers: prompts, the trigger and progress.md.
  */
 
-export const adaptiveDefaults = { threshold: 0.6, cap: 300_000, maxItems: 8, maxDepth: 2, checkRounds: 2, checkTimeoutSec: 600 } as const;
+export const adaptiveDefaults = { threshold: 0.6, cap: 300_000, maxItems: 8, maxDepth: 2, maxSessions: 20, checkRounds: 2, checkTimeoutSec: 600 } as const;
 
 export const isAdaptive = (settings: Pick<AutomationSettings, "mode"> | null | undefined) => settings?.mode === "adaptive";
 

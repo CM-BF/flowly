@@ -96,6 +96,8 @@ export const automationSettingsSchema = z.strictObject({
     /** Items per split (extra items are merged into the last one) and how many times a split may split again. */
     maxItems: z.number().int().min(1).max(12).optional(),
     maxDepth: z.number().int().min(0).max(3).optional(),
+    /** Sessions per card job, all splits together (a card whose text keeps asking for splits must still end). */
+    maxSessions: z.number().int().min(1).max(100).optional(),
   }).optional(),
   /** Adaptive mode's only gate: a command Flowly runs in the workspace after a delivery; a failure goes back for rework. */
   check: z.strictObject({ command: z.string().trim().min(1).max(2000), timeoutSec: z.number().int().min(10).max(7200).optional(), rounds: z.number().int().min(0).max(5).optional() }).optional(),

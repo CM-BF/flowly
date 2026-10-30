@@ -188,3 +188,31 @@ test("after a checkpoint the dispatcher retires the session and starts the next 
   await vi.waitFor(() => expect(x.created).toHaveLength(3));
   expect(x.created[2]!.prompt).toContain("run the full tests");
 });
+
+test("splits stop at the depth limit and at the card's session budget, so a card that keeps asking for splits still ends", async () => {
+  const service = new AdaptiveService(await temp());
+  const f = fakePaseo({ used: 20_000, max: 258_400, compactions: 0, busy: false });
+  service.attach(f.paseo);
+  await service.begin("t1", 1, { adaptive: { maxSessions: 6 } });
+  await service.started("t1", "s1");
+  const plan = (n: number) => Array.from({ length: n }, (_, i) => `## Item ${i + 1}: part ${i + 1}\nDo it.`).join("\n");
+  // 1 session + 5 items + 1 integrator > 6: refused, nothing recorded.
+  await expect(service.split("t1", "s1", plan(5))).rejects.toMatchObject({ code: "SPLIT_REFUSED", message: expect.stringContaining("1 of its 6 sessions") });
+  await service.split("t1", "s1", plan(2));
+  expect(await service.afterTurn("t1", "s1", settings, card, f.paseo)).toMatchObject({ kind: "fresh", reason: expect.stringContaining("Item 1 of 2") });
+  await service.started("t1", "s2");
+  // Depth 1 may split once more, within the budget: 2 sessions + 1 queued + 2 new + 1 integrator = 6.
+  await service.split("t1", "s2", plan(2));
+  expect(await service.afterTurn("t1", "s2", settings, card, f.paseo)).toMatchObject({ kind: "fresh" });
+  await service.started("t1", "s3");
+  // Depth 2: no further split.
+  await expect(service.split("t1", "s3", plan(1))).rejects.toMatchObject({ code: "SPLIT_REFUSED", message: expect.stringContaining("cannot split again") });
+  for (const id of ["s4", "s5", "s6"]) {
+    expect(await service.afterTurn("t1", (await service.record("t1"))!.sessions.at(-1)!.agentId, settings, card, f.paseo)).toMatchObject({ kind: "fresh" });
+    await service.started("t1", id);
+  }
+  // Six sessions used: whatever is left is delivered, nothing new starts.
+  const last = await service.afterTurn("t1", "s6", settings, card, f.paseo);
+  expect(last.kind).toBe("deliver");
+  expect((await service.record("t1"))!.sessions).toHaveLength(6);
+});

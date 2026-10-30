@@ -42,6 +42,7 @@ const recordSchema = z.object({
   /** The guards in force for this card: items per split, splits of splits. */
   maxItems: z.number().int().default(adaptiveDefaults.maxItems),
   maxDepth: z.number().int().default(adaptiveDefaults.maxDepth),
+  maxSessions: z.number().int().default(adaptiveDefaults.maxSessions),
   sessions: z.array(sessionSchema).default([]),
   /** The fresh session the dispatcher starts next (its role is known before its id). */
   pending: z.object({ role: z.enum(["implementer", "item", "integrator"]), item: z.number().int().optional(), depth: z.number().int() }).optional(),
@@ -103,7 +104,7 @@ export class AdaptiveService {
     const existing = await this.record(taskId).catch(() => null);
     if (existing?.generation === generation) return;
     await mkdir(this.paths(taskId).root, { recursive: true, mode: 0o700 });
-    const record: AdaptiveRecord = { version: 1, taskId, generation, startedAt: this.now(), maxItems: settings?.adaptive?.maxItems ?? adaptiveDefaults.maxItems, maxDepth: settings?.adaptive?.maxDepth ?? adaptiveDefaults.maxDepth, sessions: [], pending: { role: "implementer", depth: 0 }, splits: [], checks: [] };
+    const record: AdaptiveRecord = { version: 1, taskId, generation, startedAt: this.now(), maxItems: settings?.adaptive?.maxItems ?? adaptiveDefaults.maxItems, maxDepth: settings?.adaptive?.maxDepth ?? adaptiveDefaults.maxDepth, maxSessions: settings?.adaptive?.maxSessions ?? adaptiveDefaults.maxSessions, sessions: [], pending: { role: "implementer", depth: 0 }, splits: [], checks: [] };
     const file = this.paths(taskId).record, tmp = `${file}.${randomUUID()}.tmp`;
     await writeFile(tmp, JSON.stringify(record, null, 2), { mode: 0o600 });
     await rename(tmp, file);
@@ -154,7 +155,7 @@ export class AdaptiveService {
       const session = record?.sessions.find((s) => s.agentId === agentId);
       if (!record || record.generation !== job.generation || !session) continue;
       const usage = await this.observe(job.taskId, agentId, paseo, agent);
-      if (session.reminded || session.split || session.depth >= record.maxDepth) continue;
+      if (session.reminded || session.split || session.depth >= record.maxDepth || record.sessions.length + 2 > record.maxSessions) continue;
       const over = !!usage.max && usage.used !== undefined && usage.used >= adaptiveLimit(settings!, usage.max);
       if (!over && usage.compactions === 0) continue;
       const reason = usage.compactions > 0 ? "compaction" as const : "usage" as const;
@@ -176,6 +177,10 @@ export class AdaptiveService {
     if (session.depth >= record.maxDepth) throw new SplitRefused(`This session already continues a split ${session.depth} level${session.depth === 1 ? "" : "s"} deep and cannot split again; finish your part.`);
     const progress = parseProgress(plan, record.maxItems);
     if (!progress.items.length) throw new SplitRefused(`The plan has no items. Write it in this format:\n\n${progressFormat}`);
+    // The card's session budget covers what is queued, the new items and one more integrator.
+    const queued = record.queue ? record.queue.items.length - record.queue.next : 0;
+    if (record.sessions.length + queued + progress.items.length + 1 > record.maxSessions)
+      throw new SplitRefused(`This card has used ${record.sessions.length} of its ${record.maxSessions} sessions${queued ? ` and ${queued} more are queued` : ""}, so it cannot split into ${progress.items.length} more; finish your part in this session.`);
     await writeFile(this.paths(taskId).progress, plan, { mode: 0o600 });
     const usage = this.paseo ? await this.observe(taskId, agentId, this.paseo).catch(() => null) : null;
     await this.update(taskId, (r) => ({ ...r, sessions: r.sessions.map((s) => s.agentId === agentId ? { ...s, split: { at: this.now(), items: progress.items.length, ...(usage?.used !== undefined ? { used: usage.used } : {}), ...(usage?.max ? { max: usage.max } : {}) } } : s) }));
@@ -214,6 +219,11 @@ export class AdaptiveService {
     const record = (await this.record(taskId))!;
     const path = this.paths(taskId).progress;
     const queue = record.queue;
+    // Past the session budget nothing new starts: what is in the workspace is delivered (§5.6.3).
+    if (queue && record.sessions.length >= record.maxSessions) {
+      await this.update(taskId, (r) => ({ ...r, queue: undefined }));
+      return { kind: "deliver", note: `The card used all ${record.maxSessions} sessions; ${queue.items.length - queue.next} split items were not started.` };
+    }
     if (queue && queue.next < queue.items.length) {
       const index = queue.next;
       // The decisions are re-read: earlier item sessions append theirs to the file.
