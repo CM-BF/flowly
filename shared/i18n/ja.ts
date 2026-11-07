@@ -449,6 +449,7 @@ const catalog: Catalog = {
   "Unread": "未読",
   "Provider unavailable": "プロバイダーを利用できません",
   "Unable to open this link.": "このリンクを開けません。",
+  "Path copied": "パスをコピーしました",
   "Choose an available model.": "利用できるモデルを選択してください。",
   "Prepared session is unavailable or belongs to a different workspace.": "準備済みのセッションが利用できないか、別のワークスペースのものです。",
   "Recovered the existing session. Its initial instruction was not sent again; check its output before continuing.": "既存のセッションを復元しました。最初の指示は再送していません。続ける前に出力を確認してください。",

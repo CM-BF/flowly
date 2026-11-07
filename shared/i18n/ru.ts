@@ -449,6 +449,7 @@ const catalog: Catalog = {
   "Unread": "Непрочитано",
   "Provider unavailable": "Провайдер недоступен",
   "Unable to open this link.": "Не удаётся открыть эту ссылку.",
+  "Path copied": "Путь скопирован",
   "Choose an available model.": "Выберите доступную модель.",
   "Prepared session is unavailable or belongs to a different workspace.": "Подготовленная сессия недоступна или относится к другому рабочему пространству.",
   "Recovered the existing session. Its initial instruction was not sent again; check its output before continuing.": "Существующая сессия восстановлена. Её начальная инструкция повторно не отправлялась; перед продолжением проверьте её вывод.",

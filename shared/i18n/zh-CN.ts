@@ -449,6 +449,7 @@ const catalog: Catalog = {
   "Unread": "未读",
   "Provider unavailable": "提供方不可用",
   "Unable to open this link.": "无法打开此链接。",
+  "Path copied": "已复制路径",
   "Choose an available model.": "选择一个可用的模型。",
   "Prepared session is unavailable or belongs to a different workspace.": "预先准备的会话不可用，或属于其他工作区。",
   "Recovered the existing session. Its initial instruction was not sent again; check its output before continuing.": "已恢复现有会话。它的初始指令没有再次发送；继续前请先查看它的输出。",
