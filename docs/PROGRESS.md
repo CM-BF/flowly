@@ -1129,3 +1129,11 @@ Phase 2 spec: [PHASE-02-SPEC.md](PHASE-02-SPEC.md). Three current-card tools; au
 - 已运行：typecheck、npm test（148 files / 1291 passed / 1 skipped）、make check；web 紧凑宽度截图。未运行：Android 真机（未连接）。[验证记录](verification/mobile-header-2026-10-31/report.md)。
 - 引导：不改导览。`card-display` 提示在紧凑布局改为指向 “Filters → Card display”（桌面仍是 Sort 菜单），新字符串已加入 9 个目录，ONBOARDING-SPEC 提示表同步。What's new / 遥测：无。
 - 润色（同日）：Low/Normal 优先级图标改为 `ArrowDown`/`Minus`（原信号格图标几乎看不见）；分组标题折叠摘要贴行尾右对齐（`SectionHeader`、`Disclosure`）；Ideas/Memory 来源行的状态不再折行。typecheck、npm test（1291 passed, 1 skipped）、make check 均 exit 0；impeccable detect 无发现。真机未验证。证据：`docs/verification/mobile-header-2026-10-31/report.md`。
+
+## 2026-11-05 看板卡片可访问名称与稳定 testID（自动化定位）
+
+- 来源卡：看板卡片补齐可访问名称，让 UI 自动化验证可定位。此前卡片可访问名称不含泳道、无 testID，Playwright `getByText` 只命中宿主侧栏同名会话条目，pager/横向滚动落点不定时点卡片经常点空；按 [UI-UX-SPEC §2](UI-UX-SPEC.md#2-board-toolbar-and-secondary-controls) 2026-11-04 automation names 条（本次新增）落契约。
+- `client/card-label.ts`（新，纯模块）：`taskCardLabel` 拼卡片可访问名称——"Open task {title}. {lane}."开头（lane 即业务状态，覆盖“泳道+状态”），后接原有全部事实段；`workpadText` 一并移入。`client/card.tsx` 渲染处加 `testID="card-{taskId}"`；`client/board.tsx` 传入 `lane={nameOf(status)}`，状态菜单行加 `lane-tab-{status}`、紧凑状态行加 `lane-chooser`；`client/lane-pager.tsx` 页加 `lane-page-{status}`；`Row`（`client/ui.tsx`）支持 `testID`。`priorityLabels` 移到 `shared/model.ts`（与 statusLabels/taskTypeLabels 同处），`client/status.tsx` 原位 re-export，调用方不变。
+- `docs/promo/shot-lib.mjs`：`open()` 的 Flowly 入口与项目 tab 改为按横向带（侧栏 / 插件 tab 行）精确文本定点点击，找不到即抛错，不再静默停在错误项目；看板就绪等待改为 testID/aria-label（不依赖语言）。新增 `openCard(s, title)`（仅凭标题：`getByRole("button", { name: /^Open task {title}\./ })` 点击并等待 `task-drawer-motion` 显示该标题）与 `closeCard(s)`（Esc + 等 pointer-events 失效）。
+- 测试：`client/card-label.test.ts`（标题+泳道开头、无泳道省略、信号段顺序、优先级/类型段）。验证脚本 `docs/verification/board-card-open-2026-11-05/run.mjs`：真机 web 上仅凭标题连续 5 次打开并关闭指定卡片侧栏（真实 flowly 项目——本机 daemon 未建过 Tinylink fixture），详见该目录 report。
+- 引导：无 UI/入口变化，不加导览、提示或 What's new。遥测：不加字段。无新用户可见字符串（lane 名为已有本地化数据）。性能：仅多一个字符串段与既有 testID 属性，卡片 memo 比较含 lane 字符串。

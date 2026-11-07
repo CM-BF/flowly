@@ -33,6 +33,12 @@ export const isWorkStatus = (status: string): status is (typeof workStatuses)[nu
 /** Retired status: only found in history (events, receipts) written before board v4. */
 export const legacyStatus = "in_progress" as const;
 export const priorities = ["low", "normal", "high", "urgent"] as const;
+export const priorityLabels: Record<(typeof priorities)[number], string> = localizedLabels({
+  urgent: msg("Urgent"),
+  high: msg("High"),
+  normal: msg("Normal"),
+  low: msg("Low"),
+});
 /** What kind of work a card is (TASK-TYPE-SPEC). Optional on a task. */
 export const taskTypes = ["feature", "bugfix", "research", "refactor", "docs", "chore"] as const;
 export const taskTypeLabels: Record<TaskType, string> = localizedLabels({

@@ -1333,6 +1333,7 @@ function BoardContent(
     <LiveTaskCard
       key={t.id}
       {...derivedFor(t)}
+      lane={nameOf(t.status)}
       selected={taskId === t.id}
       display={display}
       flash={flashing.has(t.id)}
@@ -2018,6 +2019,7 @@ function BoardContent(
                       <Row
                         title={nameOf(mobileStatus)}
                         label={t("Choose task status")}
+                        testID="lane-chooser"
                         leading={<StatusIcon status={mobileStatus} size={16} />}
                         trailing={
                           <View style={{ flexDirection: "row", alignItems: "center", gap: space[2] }}>
@@ -2337,6 +2339,7 @@ function BoardContent(
                 <Row
                   key={s}
                   title={nameOf(s)}
+                  testID={`lane-tab-${s}`}
                   leading={<StatusIcon status={s} size={16} />}
                   selected={s === mobileStatus}
                   trailing={
