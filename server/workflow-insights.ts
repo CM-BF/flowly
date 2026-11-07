@@ -196,16 +196,30 @@ export class WorkflowInsightsService {
   } | null = null;
 
   private pendingBackfill = false;
+  /** Backfills and analyses started without being awaited; idle() waits for them. */
+  private pending = new Set<Promise<unknown>>();
+  private track(job: Promise<unknown>) {
+    this.pending.add(job);
+    void job.then(
+      () => this.pending.delete(job),
+      () => this.pending.delete(job),
+    );
+  }
+  /** Resolves once no background backfill or queued analysis is left, including ones they started. */
+  async idle() {
+    while (this.pending.size) await Promise.allSettled([...this.pending]);
+  }
+
   attach(paseo: PaseoApi) {
     this.paseo = paseo;
     if (this.pendingBackfill) {
       this.pendingBackfill = false;
-      void this.backfillAll(paseo).catch(log("backfill"));
+      this.track(this.backfillAll(paseo).catch(log("backfill")));
     }
   }
   /** The switch was turned on: backfill now, or as soon as a Paseo connection is known. */
   requestBackfillAll() {
-    if (this.paseo) void this.backfillAll(this.paseo).catch(log("backfill"));
+    if (this.paseo) this.track(this.backfillAll(this.paseo).catch(log("backfill")));
     else this.pendingBackfill = true;
   }
 
@@ -372,7 +386,7 @@ export class WorkflowInsightsService {
     // A project that never ran nor collected (a new install, or on by default after an update):
     // start collecting now and read the last week once; its first run waits one interval (INSIGHTS-REDESIGN-SPEC §3.1).
     for (const p of board.projects.filter(projectIncluded))
-      if (!this.lastRun(state, p.id) && !state.collectingSince[p.id] && !this.backfilling.has(p.id)) void this.backfill(p.id, paseo).catch(log("backfill"));
+      if (!this.lastRun(state, p.id) && !state.collectingSince[p.id] && !this.backfilling.has(p.id)) this.track(this.backfill(p.id, paseo).catch(log("backfill")));
     const due = board.projects
       .filter(projectIncluded)
       .map((p) => ({ p, last: this.lastRun(state, p.id), since: state.collectingSince[p.id] ?? null }))
@@ -391,7 +405,7 @@ export class WorkflowInsightsService {
       () => undefined,
       () => undefined,
     );
-    void job.catch(log("run")).finally(() => this.running.delete(projectId));
+    this.track(job.catch(log("run")).finally(() => this.running.delete(projectId)));
     return { queued: true };
   }
 

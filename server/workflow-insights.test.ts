@@ -20,9 +20,8 @@ afterEach(async () => {
   await Promise.all(roots.splice(0).map((p) => rm(p, { recursive: true, force: true })));
 });
 const NOW = Date.parse("2026-10-19T12:00:00.000Z");
-const settle = async (service: WorkflowInsightsService, projectId = "p") => {
-  for (let i = 0; i < 100 && (await service.view(projectId)).running; i++) await new Promise((r) => setTimeout(r, 10));
-};
+// Waits for the background backfills and queued analyses themselves, not for a fixed time.
+const settle = (service: WorkflowInsightsService) => service.idle();
 
 async function setup() {
   const root = await realpath(await mkdtemp(join(tmpdir(), "flowly-workflow-")));
