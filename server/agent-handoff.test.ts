@@ -72,7 +72,7 @@ test("unavailable source persistence cannot create a board delivery", async () =
 });
 
 test("only an accepted review prepares source text; closed replay cannot introduce new findings", async () => {
-  const x = await setup({ auto: true }), automation = new AutomationService(x.store, { clock: () => Date.now(), globalModel: async () => ({ provider: "claude", model: "claude-haiku-4-5" }), prepare: async (): Promise<ToolPreparation> => ({ agentId: "reviewer", contextFile: "/c", cliPath: "/cli", skillPath: "/s", instructions: "", mcp: { type: "http", url: "http://invalid", headers: {} } }) });
+  const x = await setup({ auto: true }), automation = new AutomationService(x.store, { clock: () => Date.now(), globalModel: async () => ({ provider: "claude", model: "claude-haiku-4-5" }), prepare: async (): Promise<ToolPreparation> => ({ agentId: "reviewer", contextFile: "/c", cliPath: "/cli", skillPath: "/s", instructions: "" }) });
   stopped.push(() => automation.stop()); x.service.automation = automation;
   await x.store.mutate((board) => { board.tasks[0].status = "in_review"; board.automation.push(job({ role: "reviewer", state: "reviewing", implementerId: "second", reviewerId: "actor", reviewRounds: 1 })); });
   const originalPrepare = x.handoffs.prepareReview.bind(x.handoffs), prepare = vi.spyOn(x.handoffs, "prepareReview");

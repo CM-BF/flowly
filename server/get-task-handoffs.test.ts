@@ -1,12 +1,12 @@
 import { afterEach, expect, test, vi } from "vitest";
 import { rm } from "node:fs/promises";
 import { agentFixture } from "./agent-fixture";
-import { readHead } from "./workpad";
+import { readHead } from "./git-head";
 import type { AutomationJob } from "../shared/automation";
 import type { Board, Status, Workpad } from "../shared/model";
 
 // get_task must not run git status per link: readHead is the call that does (HEAD, branch and status).
-vi.mock("./workpad", async (importOriginal) => ({ ...(await importOriginal<typeof import("./workpad")>()), readHead: vi.fn(async () => null) }));
+vi.mock("./git-head", async (importOriginal) => ({ ...(await importOriginal<typeof import("./git-head")>()), readHead: vi.fn(async () => null) }));
 
 const roots: string[] = [];
 afterEach(async () => {
@@ -21,12 +21,11 @@ const job = (taskId: string, state: AutomationJob["state"]): AutomationJob => ({
 const pad = (taskId: string, extra: Partial<Workpad> = {}, size = 0): Workpad => ({
   taskId, projectId: "p", revision: 1,
   acceptance: Array.from({ length: size }, (_, i) => ({ id: `a${i}`, text: `${"Acceptance ".repeat(14)}${i}`, done: true, by: "agent" as const, at: stamp })),
-  validation: Array.from({ length: size }, (_, i) => ({ id: `v${i}`, text: `${"Validation ".repeat(9)}${i}`, command: "npm test", state: "pass" as const, evidence: "e".repeat(200), by: "agent" as const, at: stamp })),
-  confusions: [], env: null, head: null, updatedAt: stamp, updatedBy: "agent", ...extra,
+  updatedAt: stamp, updatedBy: "agent", ...extra,
 });
-const head = (branch: string) => ({ sha: "abcdef123456", branch, dirty: false, at: stamp });
 
-type Card = { id: string; status: Status; relation: "sub_card" | "blocked_by" | "sub_card_of"; archived?: boolean; job?: AutomationJob["state"]; delivered?: string; pad?: Workpad };
+/** `branch`: the branch recorded on the card's delivery event (needs `delivered`). */
+type Card = { id: string; status: Status; relation: "sub_card" | "blocked_by" | "sub_card_of"; archived?: boolean; job?: AutomationJob["state"]; delivered?: string; branch?: string; pad?: Workpad };
 
 /** The fixture card t with linked cards; each linked card has its own workspace `<id>-ws`. */
 async function setup(cards: Card[]) {
@@ -39,7 +38,7 @@ async function setup(cards: Card[]) {
       const link = c.relation === "sub_card" ? { kind: "subtask" as const, from: c.id, to: "t" } : c.relation === "sub_card_of" ? { kind: "subtask" as const, from: "t", to: c.id } : { kind: "blocks" as const, from: c.id, to: "t" };
       board.links.push({ id: `${c.id}-link`, projectId: "p", createdBy: "human", createdAt: stamp, ...link });
       if (c.job) board.automation.push(job(c.id, c.job));
-      if (c.delivered) board.events.push({ id: `${c.id}-delivery`, taskId: c.id, actor: "agent", agentId: `${c.id}-agent`, action: "status_changed", from: "development", to: "in_review", note: c.delivered, at: stamp });
+      if (c.delivered) board.events.push({ id: `${c.id}-delivery`, taskId: c.id, actor: "agent", agentId: `${c.id}-agent`, action: "status_changed", from: "development", to: "in_review", note: c.delivered, ...(c.branch ? { branch: c.branch } : {}), at: stamp });
       if (c.pad) board.workpads.push(c.pad);
     }
   });
@@ -131,15 +130,15 @@ test("a write's current context carries links without handoffs and reads no link
   expect(x.git).not.toHaveBeenCalled();
 });
 
-test("a delivered card's handoff takes its branch from the HEAD stored at delivery, without git status", async () => {
-  const x = await setup([{ id: "review", status: "in_review", relation: "sub_card", delivered: "Delivered.", pad: pad("review", { head: head("kanban/review-delivered") }) }]);
+test("a delivered card's handoff takes its branch from the one recorded at delivery, without git status", async () => {
+  const x = await setup([{ id: "review", status: "in_review", relation: "sub_card", delivered: "Delivered.", branch: "kanban/review-delivered" }]);
   const context = await x.service.get(x.identity);
   expect(linkOf(context, "review").handoff).toMatchObject({ branch: "kanban/review-delivered", directory: `${x.root}/review-ws` });
   expect(readHead).not.toHaveBeenCalled();
   expect(x.git).not.toHaveBeenCalled();
 });
 
-test("without a stored HEAD the branch is read with one rev-parse, never git status", async () => {
+test("without a recorded branch the branch is read with one rev-parse, never git status", async () => {
   const x = await setup([{ id: "review", status: "in_review", relation: "sub_card", delivered: "Delivered." }]);
   const context = await x.service.get(x.identity);
   expect(linkOf(context, "review").handoff).toMatchObject({ branch: "kanban/live-branch" });
@@ -150,8 +149,8 @@ test("without a stored HEAD the branch is read with one rev-parse, never git sta
 test.each([
   { stored: true, branch: "kanban/parent-integration" },
   { stored: false, branch: "kanban/live-branch" },
-])("a sub-card's sub_card_of link carries the parent's branch (stored HEAD: $stored)", async ({ stored, branch }) => {
-  const x = await setup([{ id: "parent", status: "development", relation: "sub_card_of", job: "waiting", ...(stored ? { pad: pad("parent", { head: head(branch) }) } : {}) }]);
+])("a sub-card's sub_card_of link carries the parent's branch (recorded at delivery: $stored)", async ({ stored, branch }) => {
+  const x = await setup([{ id: "parent", status: "development", relation: "sub_card_of", job: "waiting", ...(stored ? { delivered: "Delivered earlier.", branch } : {}) }]);
   const context = await x.service.get(x.identity);
   const link = linkOf(context, "parent");
   expect(link).toMatchObject({ relation: "sub_card_of", branch });
@@ -160,7 +159,7 @@ test.each([
 });
 
 test("a Done blocker carries the branch it was delivered on, without a handoff or git", async () => {
-  const x = await setup([{ id: "landed", status: "done", relation: "blocked_by", pad: pad("landed", { head: head("kanban/landed") }) }]);
+  const x = await setup([{ id: "landed", status: "done", relation: "blocked_by", delivered: "Delivered.", branch: "kanban/landed" }]);
   const context = await x.service.get(x.identity);
   expect(linkOf(context, "landed")).toMatchObject({ relation: "blocked_by", resolved: true, branch: "kanban/landed" });
   expect(linkOf(context, "landed").handoff).toBeUndefined();

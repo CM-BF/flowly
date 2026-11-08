@@ -63,7 +63,7 @@ test("cache invalidates independently for title, description, acceptance, tags a
   await x.service.forReview("a", x.api);
   const changes: ((t: Task, b: Board) => void)[] = [
     (t) => { t.title += " changed"; }, (t) => { t.description += " description"; },
-    (t, b) => { b.workpads.push({ taskId: "a", projectId: "p", revision: 1, acceptance: [{ id: "ac", text: "Verify storage", done: false, by: "agent", at: t.updatedAt }], validation: [], confusions: [], env: null, head: null, updatedAt: t.updatedAt, updatedBy: "agent" }); },
+    (t, b) => { b.workpads.push({ taskId: "a", projectId: "p", revision: 1, acceptance: [{ id: "ac", text: "Verify storage", done: false, by: "agent", at: t.updatedAt }], updatedAt: t.updatedAt, updatedBy: "agent" }); },
     (t) => { t.tags = [{ tag: "ui", by: "human", at: t.updatedAt }]; },
     (_t, b) => { b.tasks.find((t) => t.id === "b")!.title += " parent"; },
   ];

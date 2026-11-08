@@ -154,7 +154,7 @@ test("automation: a parent that dispatched sub-cards waits without a slot and wa
   const automation = new AutomationService(x.store, {
     clock: () => now,
     globalModel: async () => ({ provider: "claude", model: "claude-haiku-4-5" }),
-    prepare: async (taskId): Promise<ToolPreparation> => ({ agentId: `${taskId}-agent-${++prepared}`, contextFile: "/c", cliPath: "/cli", skillPath: "/s", instructions: "", mcp: { type: "http", url: "http://x", headers: {} } }),
+    prepare: async (taskId): Promise<ToolPreparation> => ({ agentId: `${taskId}-agent-${++prepared}`, contextFile: "/c", cliPath: "/cli", skillPath: "/s", instructions: "" }),
   });
   services.push(automation);
   automation.attach(x.paseo as PaseoApi);

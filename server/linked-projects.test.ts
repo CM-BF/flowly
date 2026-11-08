@@ -36,7 +36,16 @@ async function setup() {
   return { repoA, repoB, web, service };
 }
 
-vi.mock("./paseo-cli", () => ({ resolvePaseoCli: async () => "/__flowly-test__/paseo" }));
+// Never the real CLI: every call resolves to a path that cannot run, so a missed stub fails instead of reaching the daemon.
+vi.mock("./paseo-cli", async (original) => {
+  const actual = await original<typeof import("./paseo-cli")>();
+  const sentinel = "/__flowly-test__/paseo";
+  return {
+    ...actual,
+    resolvePaseoCli: async () => sentinel,
+    runPaseo: (args: string[], options: { timeout: number; maxBuffer: number }, cli?: string) => actual.runPaseo(args, options, cli ?? sentinel),
+  };
+});
 
 // The service shells out to `paseo project create`; register the fixture instead.
 vi.mock("node:child_process", async (original) => {

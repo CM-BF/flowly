@@ -1002,6 +1002,9 @@ function SessionPreviewView({
         starting={active?.status === "initializing"}
         loadingSession={current.isPending}
         notices={notices}
+        requests={requests}
+        requestsDisabled={!canWrite || busy}
+        onRespond={respond}
         lift={keyboard.translate}
         inset={keyboard.inset}
         onStreamError={setError}
@@ -1033,7 +1036,6 @@ function SessionPreviewView({
           {!!error && (
             <Notice>{error}</Notice>
           )}
-          <PendingRequests requests={requests} disabled={!canWrite || busy} compact={compact} onRespond={respond} />
           {showMoves && (
             <NextMoves key={suggestion.id} moves={moves} disabled={!canWrite} onPick={pickMove} onDismiss={hideMoves} />
           )}

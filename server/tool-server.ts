@@ -25,6 +25,8 @@ import {
   rememberInputSchema,
   recallInputSchema,
   recallResultSchema,
+  agentSearchInputSchema,
+  agentSearchResultSchema,
   artifactInputSchema,
   artifactRemovalSchema,
   readExternalInputSchema,
@@ -51,11 +53,14 @@ import { createCardInputSchema, createCardResultSchema, updateCardInputSchema, u
 import { AgentService } from "./agent-service";
 import { BoardStore } from "./store";
 import { BoardService } from "./service";
-import { ToolSecrets, writePrivate } from "./tool-context";
+import { ToolSecrets, writePrivate, type ContextMethod } from "./tool-context";
 import { ToolError, toolFailure } from "./tool-error";
 import { cliSource } from "./cli-source";
 import { skillText, workingInstructions } from "./skill-source";
 import { logFailure } from "./error-report";
+
+/** The launch-only `flowly` MCP server entry handed to the session_open hook. */
+export type LaunchMcp = { type: "http"; url: string; headers: Record<string, string> };
 
 const maxBody = 262144;
 
@@ -238,7 +243,7 @@ export class ToolServer {
           "flowly_update_status",
           {
             description:
-              "Move this card to one of allowedStatuses from get_task (design, development, test, blocked or in_review when they are lanes of this project; lanes lists the names the user sees). Use the work stage that matches what you are doing now: design for plans/specs/research, development for implementation, test for verification; you decide where to start and may skip or go back. Keep it current: switch when the work changes, and at the start of each turn correct the stage the card was automatically resumed in if it does not match the work. Copy revisions and request from get_task, include a note. Your own card's Done/cancelled are human decisions; direct sub-cards are accepted or cancelled only through flowly_update_card. Delivering to in_review with open workpad items returns WORKPAD_OPEN, and with missing card setup (unorganized metadata of a task.brief card, no type, no tags or no workpad) SETUP_INCOMPLETE; both change nothing. The first attempt is always refused, even with acknowledgeOpen=true. A stale handoff or missing successor ACK returns HANDOFF_STALE at in_review/blocked, combined with the same first refusal. Update it with flowly_update_handoff. Review that refusal, finish what you can, then retry with acknowledgeOpen=true and a note explaining every remaining item. Changed card/workpad/HEAD or a new turn requires a new refusal. When you deliver (in_review), pass outputs=[{target,title,note}] for the PR/MR links, reports and evidence from this call, or outputs=[] if none; omission returns a reminder. Outputs are registered atomically with this write. Also pass nextMoves: the 1-3 messages the user is most likely to send you next (same items as flowly_suggest_next_moves, recommended first; a moveTo=\"done\" move is only accepted together with in_review), or [] when nothing needs the user. Leave it out on mid-work stage changes. A delivery (in_review or blocked) that leaves this turn without next moves, or without any idea on the card, gets a reminders list in its result, and so does any write while the card setup is missing: text only, the write succeeded. A refused call records nothing: resend it with the same nextMoves. Retry identical uncertain requests only.",
+              "Move this card to one of allowedStatuses from get_task (design, development, test, blocked or in_review when they are lanes of this project; lanes lists the names the user sees). Use the work stage that matches what you are doing now: design for plans/specs/research, development for implementation, test for verification; you decide where to start and may skip or go back. Keep it current: switch when the work changes, and at the start of each turn correct the stage the card was automatically resumed in if it does not match the work. Copy revisions and request from get_task, include a note. Your own card's Done/cancelled are human decisions; direct sub-cards are accepted or cancelled only through flowly_update_card. Delivering to in_review with missing card setup (unorganized metadata of a task.brief card, no type, no tags or no acceptance list) returns SETUP_INCOMPLETE and changes nothing; the first attempt is always refused, even with acknowledgeOpen=true. A stale handoff or missing successor ACK returns HANDOFF_STALE at in_review/blocked, combined with the same first refusal; update it with flowly_update_handoff. Set what you can, then retry with acknowledgeOpen=true and a note explaining what is still missing; a changed card or acceptance list, or a new turn, requires a new refusal. With the project's Auto review on, Flowly checks the delivery against get_task guardrails when your turn ends and sends it back with a message starting [Flowly auto review when something fails. If a finding is wrong, deliver with disputes=[{id, reason}] (ids from guardrails.lastReview) instead of arguing in the note; the user decides. When you deliver (in_review), pass outputs=[{target,title,note}] for the PR/MR links, reports and evidence from this call, or outputs=[] if none; omission returns a reminder. Outputs are registered atomically with this write. Also pass nextMoves: the 1-3 messages the user is most likely to send you next (same items as flowly_suggest_next_moves, recommended first; a moveTo=\"done\" move is only accepted together with in_review), or [] when nothing needs the user. Leave it out on mid-work stage changes. A delivery (in_review or blocked) that leaves this turn without next moves, or without any idea on the card, gets a reminders list in its result, and so does any write while the card setup is missing: text only, the write succeeded. A refused call records nothing: resend it with the same nextMoves. Retry identical uncertain requests only.",
             inputSchema: statusInputSchema,
             outputSchema: toolResultSchema,
             annotations: {
@@ -308,7 +313,7 @@ export class ToolServer {
           "flowly_remember",
           {
             description:
-              "Propose something for the project's memory that would make a later, different card's agent re-ask the user, retry a dead end or hit the same problem: a decision the user made with its reason, including a rejected option (decision); a dead end, or the general lesson behind a bug you fixed, not the fix (pitfall); how the user wants work done here that the repository does not say (convention); people, external systems and environments (contact). It is a candidate: the user confirms it before any session sees it. Not this card's progress (that is the summary), not open or deferred items (those are ideas), not what code, git or docs already say, and never a secret (say where it is kept). Only what holds beyond this card: if every later card that would need it works on the same feature, file or bug, leave it to the code and the summary. At most 3 per delivery, usually none; check memory.candidates in get_task first. To correct an entry, propose a new one with supersedes=<its id>; you cannot edit or delete entries. Returns MEMORY_DISABLED, MEMORY_DUPLICATE, MEMORY_LIMIT or MEMORY_SECRET when refused. Does not change card status or task revision. Copy revisions/request from get_task.",
+              "Remember something for the project that would make a later, different card's agent re-ask the user, retry a dead end or hit the same problem: a decision the user made with its reason, including a rejected option (decision); a dead end, or the general lesson behind a bug you fixed, not the fix (pitfall); how the user wants work done here that the repository does not say (convention); people, external systems and environments (contact). It takes effect at once for new sessions on this project, so only propose what holds beyond this card. Not this card's progress (that is the summary), not open or deferred items (those are ideas), not what code, git or docs already say, and never a secret (say where it is kept). Only what holds beyond this card: if every later card that would need it works on the same feature, file or bug, leave it to the code and the summary. At most 3 per delivery, usually none; check get_task memory and flowly_recall first. To correct an entry, propose a new one with supersedes=<its id>; you cannot edit or delete entries. Returns MEMORY_DISABLED, MEMORY_DUPLICATE, MEMORY_LIMIT or MEMORY_SECRET when refused. Does not change card status or task revision. Copy revisions/request from get_task.",
             inputSchema: rememberInputSchema,
             outputSchema: toolResultSchema,
             annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
@@ -319,12 +324,23 @@ export class ToolServer {
           "flowly_recall",
           {
             description:
-              "Search the project's memory: decisions, conventions, pitfalls and contacts the user confirmed on earlier cards. get_task memory already lists the entries chosen for this card; use this when you start on an area they do not cover. Read-only; no request needed.",
+              "Search the project's memory and guardrails: decisions, conventions, pitfalls and contacts from earlier cards, and the guidelines learned from what the user sent cards back for. get_task memory and guardrails already list what applies to this card; use this when you start on an area they do not cover. Read-only; no request needed.",
             inputSchema: recallInputSchema,
             outputSchema: recallResultSchema,
             annotations: { readOnlyHint: true, openWorldHint: false },
           },
           (input) => call(() => this.agents.recall(identity, input)),
+        );
+        mcp.registerTool(
+          "flowly_search",
+          {
+            description:
+              "Search earlier cards in this project: their titles, descriptions, summaries, progress notes, workpads, ideas and deliverables (PR links, Jira keys, file paths). Use it when you start on an area to find related or duplicate work and how it was verified. Project memory is not included; use flowly_recall for it. Read-only; no request needed.",
+            inputSchema: agentSearchInputSchema,
+            outputSchema: agentSearchResultSchema,
+            annotations: { readOnlyHint: true, openWorldHint: false },
+          },
+          (input) => wrap(() => this.agents.searchCards(identity, input)),
         );
         mcp.registerTool(
           "flowly_add_artifact",
@@ -409,7 +425,7 @@ export class ToolServer {
           "flowly_update_workpad",
           {
             description:
-              "Do this at the start of the work, before you change code (get_task setup.workpadMissing), and after each milestone. Replace this card's workpad: acceptance criteria (done or not), validation checks (pass, fail or unrun, with the command and the commit they ran on) and confusions (what in the card was unclear). The plan comes from your own todo list; do not repeat it here. Send all three lists every time; items you leave out are removed. Copy workpad.revision from get_task as workpadRevision (0 when there is none). On WORKPAD_CONFLICT the user changed it: re-read, keep their checks, retry. WORKPAD_DISABLED (workpadEnabled=false in get_task): the user turned it off for this project; report criteria and checks in your notes instead and do not retry. Does not change card status or task revision. Copy revisions/request from get_task.",
+              "Do this at the start of the work, before you change code (get_task setup.workpadMissing): write 3-5 acceptance criteria and tick them as you meet them; the reviewer reads them as your own claim, not as proof. Replace this card's acceptance list: send the whole list every time; items you leave out are removed. Only acceptance is accepted: validation, confusions or any other field returns WORKPAD_INVALID. The plan comes from your own todo list; do not repeat it here. Copy workpad.revision from get_task as workpadRevision (0 when there is none). On WORKPAD_CONFLICT the user changed it: re-read, keep their ticks, retry. WORKPAD_DISABLED (workpadEnabled=false in get_task): the user turned it off for this project; list your criteria in your notes instead and do not retry. Does not change card status or task revision. Copy revisions/request from get_task.",
             inputSchema: workpadInputSchema,
             outputSchema: toolResultSchema,
             annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
@@ -473,7 +489,7 @@ export class ToolServer {
         );
         return mcp;
       },
-      // A full workpad with multi-byte text can exceed 64 KiB (WORKPAD-SPEC §3).
+      // A request with multi-byte text can exceed 64 KiB (WORKPAD-SPEC §3).
       { responseMode: "json", maxRequestBodySize: maxBody },
     );
     const nodeHandler = toNodeHandler(this.handler, {
@@ -556,7 +572,7 @@ export class ToolServer {
     }
     const body = z
       .strictObject({
-        action: z.enum(["get", "handoff", "session_history", "status", "progress", "idea", "idea_update", "idea_remove", "remember", "recall", "artifact", "artifact_remove", "tags", "type", "metadata", "next_moves", "workpad", "external", "ticket", "review", "create_card", "update_card"]),
+        action: z.enum(["get", "handoff", "session_history", "status", "progress", "idea", "idea_update", "idea_remove", "remember", "recall", "search", "artifact", "artifact_remove", "tags", "type", "metadata", "next_moves", "workpad", "external", "ticket", "review", "create_card", "update_card"]),
         input: z.unknown(),
       })
       .parse(JSON.parse(Buffer.concat(chunks).toString("utf8")));
@@ -572,6 +588,8 @@ export class ToolServer {
           ? await this.agents.readExternal(identity, readExternalInputSchema.parse(body.input))
           : body.action === "recall"
             ? await this.agents.recall(identity, recallInputSchema.parse(body.input))
+            : body.action === "search"
+              ? await this.agents.searchCards(identity, agentSearchInputSchema.parse(body.input))
             : body.action === "review"
               ? await this.agents.review(identity, reviewInputSchema.parse(body.input))
               : body.action === "create_card"
@@ -584,7 +602,7 @@ export class ToolServer {
   private async prepare(
     identity: ToolIdentity,
     context: string,
-    method: "mcp" | "cli",
+    method: ContextMethod,
   ): Promise<ToolPreparation> {
     await this.start();
     const contextFile = await this.secrets.writeContext(identity, method),
@@ -601,12 +619,15 @@ export class ToolServer {
         contextFile,
         skillPath,
       ),
-      mcp: {
-        type: "http",
-        url: `${this.url}mcp`,
-        headers: {
-          Authorization: `Bearer ${this.secrets.credential(identity)}`,
-        },
+    };
+  }
+  /** The `flowly` MCP server of one session, added at launch only (never saved in its agent config). */
+  private mcpServer(identity: ToolIdentity): LaunchMcp {
+    return {
+      type: "http",
+      url: `${this.url}mcp`,
+      headers: {
+        Authorization: `Bearer ${this.secrets.credential(identity)}`,
       },
     };
   }
@@ -627,7 +648,7 @@ export class ToolServer {
         operationId,
       );
       // The injected memory counts as used by this card (PROJECT-MEMORY-SPEC §3.2).
-      void this.agents.memory?.markUsed(ctx.memoryIds, taskId).catch(() => undefined);
+      void this.agents.memory?.markUsed(ctx.memoryIds, taskId).catch((e) => logFailure("Flowly note use not recorded:", e, taskId));
       const existing = await paseo.agents.ref(identity.agentId).refresh();
       if (
         existing?.agent &&
@@ -638,12 +659,13 @@ export class ToolServer {
           "SESSION_MISMATCH",
           "Prepared agent ID now belongs to an unavailable/different session.",
         );
+      // The session_open hook adds the MCP server when the session opens (PASEO-SESSION-TOOLS-SPEC §4).
       const continuity = await this.agents.handoffs?.context(taskId, undefined, { recordAccess: false });
       if (continuity?.unavailable) throw new ToolError("HANDOFF_UNAVAILABLE", continuity.unavailable);
       const continuation = board.automation.find(job => job.taskId === taskId)?.rotation?.carry.continuation;
       const extra = continuity && continuity.revision > 0
         ? `\n\nCard continuity (bounded preview; not a complete transcript): ${JSON.stringify(continuity)}\nRead flowly_get_task handoff=full through every page, verify actual workspace state and acknowledge all unresolved IDs before delivering. Missing coverage is unknown, not evidence that no requirement exists.` : "";
-      return this.prepare(identity, ctx.context + extra + (continuation ? `\n\nAn earlier instruction was waiting when this comment arrived. It remains unfinished; inspect it together with the new comment and current card: ${JSON.stringify(continuation)}` : ""), "mcp");
+      return this.prepare(identity, ctx.context + extra + (continuation ? `\n\nAn earlier instruction was waiting when this comment arrived. It remains unfinished; inspect it together with the new comment and current card: ${JSON.stringify(continuation)}` : ""), "launch-mcp");
     });
     this.preparation = job.then(
       () => undefined,
@@ -662,14 +684,44 @@ export class ToolServer {
     if (current.task.archivedAt || current.project.archivedAt)
       throw new ToolError("ARCHIVED", "Task/project is archived.");
     const ctx = await new BoardService(this.store).context(taskId, paseo, undefined, { reviewer: reviewerOfCard(board, taskId, agentId) });
-    void this.agents.memory?.markUsed(ctx.memoryIds, taskId).catch(() => undefined);
-    return this.prepare(identity, ctx.context, "cli");
+    void this.agents.memory?.markUsed(ctx.memoryIds, taskId).catch((e) => logFailure("Flowly note use not recorded:", e, taskId));
+    const prepared = await this.prepare(identity, ctx.context, "cli"),
+      methods = await this.secrets.contextMethods(agentId);
+    if (methods.includes("mcp") || methods.includes("launch-mcp")) return prepared;
+    // Launch injection is recorded only once the provider is known to take MCP
+    // servers; a stored (not loaded) agent's snapshot cannot tell (§4.3).
+    const ref = paseo.agents.ref(agentId),
+      snapshot = (await ref.refresh())?.agent;
+    if (snapshot?.status === "running") {
+      // Loaded, so its capabilities are real; its turn is never interrupted and the next open adds MCP.
+      if (snapshot.capabilities?.supportsMcpServers === true)
+        await this.secrets.writeContext(identity, "launch-mcp");
+    } else if (snapshot?.status === "idle") {
+      // Reopen now so the session_open hook adds MCP; Paseo refuses an
+      // unsupported provider before replacing the session, which stays as it was.
+      await this.secrets.writeContext(identity, "launch-mcp");
+      const reloaded = await ref.reload().catch((e) => {
+        logFailure("Kanban session reload for MCP failed:", e, agentId);
+        return null;
+      });
+      if (reloaded?.agent?.capabilities?.supportsMcpServers !== true)
+        await this.secrets.dropContextMethod(identity, "launch-mcp");
+    }
+    return prepared;
   }
-  async sessionContext(
+  /**
+   * What an opening interactive session gets: its context file (none for an
+   * adaptive implementer), and the
+   * `flowly` MCP server when launch injection is recorded for it (`launch-mcp`)
+   * and its saved config does not already have the server (`mcp`). Adding a
+   * duplicate, or a server its provider cannot take, would make the open fail
+   * (PASEO-SESSION-TOOLS-SPEC §4.3).
+   */
+  async sessionLaunch(
     agentId: string,
     workspaceId: string | null,
     paseo: PaseoApi,
-  ) {
+  ): Promise<{ contextFile: string | null; mcp: LaunchMcp | null } | null> {
     this.attach(paseo);
     if (!workspaceId) return null;
     const board = await this.store.read(),
@@ -681,10 +733,14 @@ export class ToolServer {
     // instructions". Other sessions in a card's workspace stay untouched.
     if (!(await this.secrets.hasContext(agentId))) return null;
     await this.start();
-    return this.secrets.writeContext(
-      { agentId, workspaceId, taskId: task.id },
-      "cli",
-    );
+    const identity = { agentId, workspaceId, taskId: task.id },
+      methods = await this.secrets.contextMethods(agentId),
+      inject = methods.includes("launch-mcp") && !methods.includes("mcp"),
+      // An adaptive implementer (AUTOMATION-SPEC §5.6.1) is a session like any native agent: only its `flowly`
+      // MCP server (which offers flowly_split alone), never the Flowly CLI, skill or context file.
+      thin = !!this.agents.adaptive?.isSession(agentId),
+      contextFile = thin ? null : await this.secrets.writeContext(identity, "cli");
+    return { contextFile, mcp: inject ? this.mcpServer(identity) : null };
   }
   async accessState(taskId: string, agentId: string, paseo: PaseoApi) {
     this.attach(paseo);
@@ -701,7 +757,14 @@ export class ToolServer {
         await readFile(this.secrets.contextFile(agentId), "utf8"),
       );
       if (data.identity.taskId === taskId)
-        methods = z.array(z.string()).parse(data.methods || []);
+        methods = [
+          ...new Set(
+            z
+              .array(z.string())
+              .parse(data.methods || [])
+              .map((m) => (m === "launch-mcp" ? "mcp" : m)),
+          ),
+        ];
     } catch (e) {
       if ((e as NodeJS.ErrnoException).code !== "ENOENT") throw e;
     }

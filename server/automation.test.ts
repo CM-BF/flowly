@@ -15,6 +15,11 @@ test("a queued card gets an unattended session in its own workspace with the car
   expect(x.created).toHaveLength(1);
   expect(x.created[0]).toMatchObject({ workspaceId: "w-a", provider: "claude/claude-haiku-4-5", modeId: "bypassPermissions", labels: { "flowly-task": "a", "flowly-automation": "implementer" } });
   expect(x.created[0].prompt).toMatch(/^\[Flowly automation\]/);
+  // The card's instructions and CLI environment are in the create config; the flowly MCP server is not: the
+  // session_open hook adds it at each launch, never saved in the agent config (PASEO-SESSION-TOOLS-SPEC §4).
+  expect(x.created[0].config).toMatchObject({ systemPrompt: "card a" });
+  expect(x.created[0].config).not.toHaveProperty("mcpServers");
+  expect(x.created[0].env).toMatchObject({ FLOWLY_CONTEXT_FILE: "/ctx" });
   expect(await x.job("a")).toMatchObject({ state: "working", implementerId: x.created[0].agentId });
   await expect(x.automation.queue("a")).rejects.toThrow(/already queued or running/);
 });

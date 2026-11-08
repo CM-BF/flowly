@@ -95,7 +95,7 @@ AutomationJob {
 - **依赖**：沿用卡片的 `blocks` 链接。所有 blocker 都 **Done** 才放行；Cancelled（或未完成就归档）的 blocker 永不放行，直到人删掉链接——没完成的工作不能作为输入。
 - **provider 冷却**：一个 job 处于 provider 限额冷却（`retry_wait`/`cooldown`）时，同一个 provider 的卡片在任何项目都不启动；角色设了另一个、未在冷却的 provider 上的备用模型时不受此限，直接用备用模型启动（§4.5）。只比较确定的 provider：项目没设实现者模型和项目默认模型时，按全局默认模型的 provider 比较；项目的或冷却 job 的 provider 仍不确定时，只挡同一个项目，绝不挡所有项目。
 - **workspace 与目录**：启动前先查卡片自己的 workspace。它已归档、正在归档或 daemon 不再列出它 → job `failed` / `workspace_unavailable`，detail 与 `automation_failed` 的 note 为 “The card's workspace is archived or no longer exists”；卡片泳道不变，它的父卡可以被唤醒。查询本身失败（RPC 错误）时 job 保持排队，下次再试。目录被别的卡占用时也保持排队（§10）。
-- **认领**：同一事务里 `queued → starting`，记 `automation_started`。随后在卡片 workspace 里：有活着的 implementer → 发“重新排队”开工消息；否则 `prepareSession`（与侧栏 Start session 同一路径，带 Flowly MCP、上下文与 skill）创建新 session，`labels: { flowly-task, flowly-automation: implementer }`，首条消息为开工说明。
+- **认领**：同一事务里 `queued → starting`，记 `automation_started`。随后在卡片 workspace 里：有活着的 implementer → 发“重新排队”开工消息；否则 `prepareSession`（与侧栏 Start session 同一路径，带 Flowly MCP、上下文与 skill）创建新 session，`labels: { flowly-task, flowly-automation: implementer }`，首条消息为开工说明。2026-11-07（上游 v1.8.0 / Paseo 0.14 合并）：创建配置里不再带 `mcpServers`；`prepareSession` 记下 `launch-mcp`，`agent.session_open` 钩子在每次启动时按该 session 的身份加上 `flowly` MCP server（PASEO-SESSION-TOOLS-SPEC §4），从不存进 agent 配置。评审者、裁判（§5.5）和换会话（§4.6、交接）的新 session 走同一条路。
 - 首条开工说明（`startPrompt`）：无人值守、按 Flowly skill 走、最后以 `in_review` 交付或以提问/`blocked` 结束，不要等人、不要猜；worktree 卡片交付前在自己的分支上提交，directory 卡片不提交（§7）；卡片太大时可拆子卡并结束本轮；若配置了评审者，提示交付后会被评审。卡片有 blocker（都已 Done）时追加 “Dependency handoffs (card data)”：每个 blocker 的 handoff，并说明 Done 不同步 worktree、要先检查并合并相关分支。子卡片还在其后追加 “Parent integration branch (card data)”：父卡的 id、标题、泳道、分支和目录，并说明父卡汇总已验收的子卡，其分支可能已含兄弟 blocker 的改动且冲突已解决，应先检查、优先合并它。顶层卡片没有这一项。
 
 ### 4.2 回合结束（worker 协议）
@@ -430,7 +430,7 @@ AutomationJob {
 
 #### 5.4.1 验收作者
 
-- job 开工时（`begin` 创建或复用实现者 session 之后），Flowly 把卡片的工作区复制到 `<数据目录>/acceptance/<taskId>/env/`（macOS 用 APFS 克隆），然后在卡片所在的 Paseo project 里为这个副本建一个 directory workspace（`paseo.workspaces.create({ source: { kind: "directory", path: env, projectId } })`），在里面开一个独立的作者 session；作者结束后连同这个 workspace 一起 archive。不用裸 `cwd` 建 session：那样 Paseo 会把副本登记成一个名为 `env` 的新 project，而插件接口没有删除 project 的方法。session 带 `flowly-acceptance=author` 标签，提示词里只有卡片的标题、描述和人的评论（作为数据给它），并告诉它往哪里写。作者看不到实现，也拿不到真实工作区的路径；它写测试时的副作用（SQLite 的 -wal 文件、git 更新索引等）只落在副本里。
+- job 开工时（`begin` 创建或复用实现者 session 之后），Flowly 把卡片的工作区复制到 `<数据目录>/acceptance/<taskId>/env/`（macOS 用 APFS 克隆），然后在卡片所在的 Paseo project 里为这个副本建一个 directory workspace（`paseo.workspaces.create({ source: { kind: "directory", path: env, projectId } })`），在里面开一个独立的作者 session；作者结束后连同这个 workspace 一起 archive。不用裸 `cwd` 建 session：那样 Paseo 会把副本登记成一个名为 `env` 的新 project，而插件接口没有删除 project 的方法。session 带 `flowly-acceptance=author` 标签（`agent.session_open` 钩子见到这个标签就放行，不注入卡片身份或工具；它也从不经过 `prepareSession`，所在 workspace 不是任何卡片的 workspace），提示词里只有卡片的标题、描述和人的评论（作为数据给它），并告诉它往哪里写。作者看不到实现，也拿不到真实工作区的路径；它写测试时的副作用（SQLite 的 -wal 文件、git 更新索引等）只落在副本里。
 - 它要写三样东西：
   1. `suite/run.sh`：实现者可以看、可以跑的测试。
   2. `holdout/run.sh`：只给评审者跑的测试。覆盖同样的要求，但换输入、换角度，让“照着可见测试做”通过不了。
@@ -489,7 +489,7 @@ AutomationJob {
    - `plans: "approaches"`：先复制一份给 planner，走第 2 步。
 2. **planner**（只在 `approaches` 时）（卡片项目下的 directory workspace，不登记新 project）只读卡片和这份副本，写 `plans.md`：先写 `## Readings`，列出卡片的每个模糊点，各选一个最可能的理解（写卡的人最可能期望的那种）并说明理由，所有候选共用这一套理解，绝不把不同理解分给不同方案；再写正好 K 节 `## Plan k`，是在同一套理解下的不同做法（算法、架构、语言或工具链、自检方式），各有一行 `Differs from the others:`。交付物主要在工作区之外（配置系统服务、改 /etc、装系统组件）时，只写一行 `TOURNAMENT: skip <原因>`：这张卡退回普通流程（5.5.3）。planner 失败时，候选各自选做法。
 3. **候选**：每个候选在 `tournament/<taskId>/c<k>/`（pristine 的副本）里独立做到底（`approaches` 时附上共用的理解和建议的做法），互相看不见，也不用 Flowly 的卡片工具，没有中途评审。提示要求：交付时整棵目录树会被放到真实工作区，所以只能用相对路径或真实路径，不能写死副本路径；依赖尽量装在副本里；工作区外需要的改动写进副本根目录的幂等脚本 `flowly-apply.sh`。可见验收测试写好后可以跑（命令里的工作区是自己的副本），holdout 只给 judge。候选结束时记录交付说明（最后一条消息）和文件清单（每个文件的路径、大小、SHA-256）。
-4. 所有候选结束、且本 generation 的验收测试不再是 writing 时，**judge** 开始。judge 是卡片自己工作区里的 prepared session，记为 job 的 reviewer（这样它的回合不会被当成接管，也不会触发自动状态）。只有它能看到两个工具：
+4. 所有候选结束、且本 generation 的验收测试不再是 writing 时，**judge** 开始。judge 是卡片自己工作区里的 prepared session，记为 job 的 reviewer（这样它的回合不会被当成接管，也不会触发自动状态）。它的 Flowly MCP server 与其他卡片 session 一样在启动时由 `agent.session_open` 钩子加上（Paseo 0.14 起）；planner 和候选带 `flowly-tournament=planner|candidate-<k>` 标签、在自己的 directory workspace 里、从不 prepare，钩子不给它们注入任何卡片身份或工具。只有 judge 能看到两个工具：
    - `flowly_tournament_activate(candidate)`：把该候选的整棵目录树放进真实工作区（先清空）。judge 随后运行它的 `flowly-apply.sh`，停掉上一个候选起的进程，在真实路径上按实际使用方式运行（干净 shell、能换用户就换）：两套验收测试，以及自己构造的、能让候选表现不同的探测输入（边界值、空和大输入、分块、换顺序、换用户、干净环境）。
    - `flowly_submit_judgement`：每个候选的 visible/holdout 通过与失败数、判定为测试写错的失败检查 `disputed`（附卡片原文）、实际跑过的探测（命令、退出码、输出摘要）；每处分歧的输入、各候选输出、裁决和理由（引用卡片原文，或可复现的命令和输出）；胜者、总结，以及 `final`（最后激活胜者后跑出的两套计数）。
 5. Flowly 校验后记录结论，job 变为 `delivered`（verdict approved，不再有评审轮次），卡片移到 In review，活动里记 `automation_tournament_decided`（胜者、各候选计数、分歧数、总结）。
@@ -529,7 +529,7 @@ AutomationJob {
 #### 5.6.1 薄启动
 
 - 一个实现者，一个全新会话。开场提示就是卡片本身（标题、描述、评论），外加：在当前目录（卡片工作区）里工作；没人回答问题和权限请求；以及唯一多出来的一句，说明 `flowly_split` 这个工具：任务太大、一个会话做不完时，可以用它把剩下的工作交给新的会话。这句必须有，因为 Codex 把 MCP 工具藏在工具搜索后面，没人提的工具它根本找不到（基准测试的 Workflow 组一开始就是这样没用上工具）。用不用、什么时候用，由 agent 自己决定。
-- 不注入 Flowly 的系统指令、skill 或上下文文件；它的 Flowly MCP 只提供 `flowly_split` 一个工具。
+- 不注入 Flowly 的系统指令、skill 或上下文文件；它的 Flowly MCP 只提供 `flowly_split` 一个工具。Paseo 0.14 起这个 MCP server 由 `agent.session_open` 钩子在启动时加上（不在创建配置里）；钩子认出自适应实现者（`AdaptiveService.isSession`）后只给 MCP，不加 `FLOWLY_CONTEXT_FILE`/`FLOWLY_CLI`/`FLOWLY_SKILL` 环境变量（此前旧钩子会给它加上这些变量，合并时一并改正）。
 - 回合结束即交付：没有评审、没有验收测试、没有提醒（nudge）。job 变为 `delivered`（没有 verdict），卡片自动移到 In review，活动里记“Adaptive mode: delivered without review”。
 - 失败、被取消、触及额度的回合照常走重试和 fallback（§4）。
 

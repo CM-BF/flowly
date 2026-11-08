@@ -17,6 +17,7 @@ import {
   dropSlot,
   edgeScroll,
   laneRevealOffset,
+  cardRevealOffset,
   placementUpdate,
   type ColumnBounds,
   type DropSlot,
@@ -173,7 +174,7 @@ export function DesktopColumns({
    * or with `center` centred, only when not fully visible (the open card's lane beside the drawer). A request older
    * than a second (`at`) is not replayed when the board mounts again, e.g. on leaving Insights.
    */
-  reveal?: { status: Status; n: number; at: number; center?: boolean };
+  reveal?: { status: Status; n: number; at: number; center?: boolean; taskId?: string };
   /** The scroll for request `n` ran: the parent clears it, so a later mount does not scroll to it again. */
   onRevealed?(n: number): void;
   renderCard(task: Task, drag: CardDrag, dragging: boolean): ReactNode;
@@ -198,7 +199,8 @@ export function DesktopColumns({
     lists = useRef<Partial<Record<Status, View | null>>>({}),
     frames = useRef<Partial<Record<Status, View | null>>>({}),
     listTops = useRef<Partial<Record<Status, number>>>({}),
-    scrollY = useRef<Partial<Record<Status, number>>>({});
+    scrollY = useRef<Partial<Record<Status, number>>>({}),
+    listScrolls = useRef<Partial<Record<Status, NativeScrollView | null>>>({});
   const live = useRef<DragState | null>(null);
   const sequence = useRef(0);
   const [dragging, setDragging] = useState<DragState | null>(null);
@@ -312,6 +314,15 @@ export function DesktopColumns({
           if (x === null) return;
           offset.current = x;
           scrollRef.current?.scrollTo({ x, animated: true });
+        });
+        // Then the card inside its lane's list, when opening a card (not for the overview chips).
+        const card = reveal.center && reveal.taskId ? cards.current[reveal.taskId] : undefined;
+        lists.current[reveal.status]?.measureInWindow((_lx, _ly, _lw, listHeight) => {
+          if (!card) return;
+          const y = cardRevealOffset(card, scrollY.current[reveal.status] || 0, listHeight, space[2]);
+          if (y === null) return;
+          scrollY.current[reveal.status] = y;
+          listScrolls.current[reveal.status]?.scrollTo({ y, animated: true });
         });
       });
       onRevealed?.(reveal.n);
@@ -515,6 +526,9 @@ export function DesktopColumns({
               >
               <ScrollView
                 {...verticalScroll}
+                ref={(node) => {
+                  listScrolls.current[status] = node;
+                }}
                 style={{ flex: 1, minHeight: 0 }}
                 nestedScrollEnabled
                 keyboardShouldPersistTaps="handled"

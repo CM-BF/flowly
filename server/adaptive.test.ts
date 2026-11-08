@@ -157,6 +157,10 @@ test("the dispatcher starts an adaptive card like a native agent and delivers it
   expect(s1.prompt).toContain("flowly_split");
   expect(s1.prompt).not.toMatch(/workpad|flowly_get_task/i);
   expect(adaptive.isSession(s1.agentId)).toBe(true);
+  // Like a native agent (§5.6.1): no Flowly instructions or environment; its Flowly MCP server comes at launch only.
+  expect(s1.config).not.toHaveProperty("systemPrompt");
+  expect(s1.config).not.toHaveProperty("mcpServers");
+  expect(s1.env).toBeUndefined();
   await x.endTurn(s1.agentId, "a");
   const board = await x.store.read();
   expect(board.tasks.find((t) => t.id === "a")!.status).toBe("in_review");

@@ -43,7 +43,7 @@ export type BoardOverview = ReturnType<typeof boardOverview>;
  * lane, centred beside the drawer: DRAWER-SPEC). `n` is 0 when none is pending; each press gets a new `n`, so a board
  * already on screen scrolls again. `at` is when it was asked: the board ignores a request older than a second.
  */
-export type LaneReveal = { status: Task["status"]; n: number; at: number; center?: boolean };
+export type LaneReveal = { status: Task["status"]; n: number; at: number; center?: boolean; taskId?: string };
 export const noReveal: LaneReveal = { status: "todo", n: 0, at: 0 };
 export const requestReveal = (current: LaneReveal, status: Task["status"]): LaneReveal => ({ status, n: current.n + 1, at: Date.now() });
 /**

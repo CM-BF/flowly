@@ -20,7 +20,7 @@ Four tiers, top to bottom. Every tier is omitted when empty.
 - Urgent/High keep the left stripe; it follows the Priority field.
 - Status order (as `CardSignals` in `client/card.tsx` renders it): Needs you, Held (2026-10-24), waiting on cards, automation, Sub-cards n/m followed by its roll-up (2026-10-24: hidden below, below needs you, below with errors, below held, below running, below unread), workspace problems, approvals, errors, running, unread, Dismissed, workpad checks, ideas, Archived, Legacy.
 - Parent breadcrumb (2026-10-24, CARD-TREE-SPEC §2.5): a sub-card shows a `CornerLeftUp` icon and its parent's title on one line, at most 40% of the width; its accessibility label is "Sub-card of {title}" with the full path.
-- The accessibility label of the card is unchanged and always lists every fact, whatever is hidden.
+- The accessibility label of the card always lists every fact, whatever is hidden. It names the card's lane right after the title (UI-UX-SPEC §2, automation names).
 
 ## 3. Options (Settings → Cards)
 

@@ -32,7 +32,7 @@ export async function cleanupAutomationFixtures() {
 type Agent = { id: string; workspaceId: string; archivedAt: string | null; status: string; provider?: string; activeTurn?: { turnId: string } | null; pendingPermissions?: unknown[]; lastError?: string };
 /** What the fake workspace refresh returns: a snapshot, null for a missing workspace, undefined for the default directory. */
 type WorkspaceSnapshot = { workspaceDirectory: string; archivingAt?: string | null } | null | undefined;
-type Created = { images?: { data: string; mimeType: string }[]; clientMessageId?: string; featureValues?: Record<string, boolean | string>; workspaceId: string; agentId: string; provider: string; modeId?: string; prompt: string; title: string; labels: Record<string, string> };
+type Created = { images?: { data: string; mimeType: string }[]; clientMessageId?: string; featureValues?: Record<string, boolean | string>; workspaceId: string; agentId: string; provider: string; modeId?: string; prompt: string; title: string; labels: Record<string, string>; config: Record<string, unknown>; env?: Record<string, string> };
 
 /** A board with cards a, b (todo) and a fake Paseo that records created sessions and sent messages. */
 export async function automationFixture(automation: Partial<AutomationSettings> | null = { enabled: true }, handoff?: AutomationDeps["handoff"], extra: Partial<AutomationDeps> = {}) {
@@ -123,7 +123,7 @@ export async function automationFixture(automation: Partial<AutomationSettings> 
           return snapshot === undefined ? { workspaceDirectory: join(root, workspaceId) } : snapshot;
         },
         agents: {
-          create: async (o: { agentId: string; images?: { data: string; mimeType: string }[]; clientMessageId?: string; config: { provider: string; modeId?: string; featureValues?: Record<string, boolean | string> }; prompt: string; title: string; labels: Record<string, string> }) => {
+          create: async (o: { agentId: string; images?: { data: string; mimeType: string }[]; clientMessageId?: string; config: { provider: string; modeId?: string; featureValues?: Record<string, boolean | string> }; env?: Record<string, string>; prompt: string; title: string; labels: Record<string, string> }) => {
             await hooks.create?.(o.agentId);
             if (failCreate > 0) {
               failCreate--;
@@ -131,7 +131,7 @@ export async function automationFixture(automation: Partial<AutomationSettings> 
             }
             agents.set(o.agentId, { id: o.agentId, workspaceId, archivedAt: null, status: "running", provider: o.config.provider.split("/")[0] });
             await hooks.created?.(o.agentId);
-            created.push({ images: o.images, clientMessageId: o.clientMessageId, featureValues: o.config.featureValues, workspaceId, agentId: o.agentId, provider: o.config.provider, modeId: o.config.modeId, prompt: o.prompt, title: o.title, labels: o.labels });
+            created.push({ images: o.images, clientMessageId: o.clientMessageId, featureValues: o.config.featureValues, workspaceId, agentId: o.agentId, provider: o.config.provider, modeId: o.config.modeId, prompt: o.prompt, title: o.title, labels: o.labels, config: o.config, env: o.env });
             return { id: o.agentId };
           },
         },
@@ -155,7 +155,7 @@ export async function automationFixture(automation: Partial<AutomationSettings> 
     prepare: async (taskId: string, op: string, _paseo?: PaseoApi, options?: { reviewer?: boolean }): Promise<ToolPreparation> => {
       await hooks.prepare?.(taskId, op, options);
       if (!prepared.has(op)) prepared.set(op, `${taskId}-agent-${prepared.size + 1}`);
-      return { agentId: prepared.get(op)!, contextFile: "/ctx", cliPath: "/cli", skillPath: "/skill", instructions: `card ${taskId}`, mcp: { type: "http", url: "http://x/mcp", headers: {} } };
+      return { agentId: prepared.get(op)!, contextFile: "/ctx", cliPath: "/cli", skillPath: "/skill", instructions: `card ${taskId}` };
     },
   };
   let automationService = new AutomationService(store, deps);
