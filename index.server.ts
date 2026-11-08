@@ -788,9 +788,11 @@ export default function contribute(host: PluginServerContext) {
     const identity = await managedTask(event.agent);
     if (!identity) {
       // A session Flowly does not manage (NATIVE-SESSION-SPEC §12): insights after a completed turn, when switched on.
+      // Settings first: the timeline is read only for a turn the insights would use.
       if (event.outcome.kind === "completed")
-        void turnTimeline(paseo, event.agent.id, event.timeline)
-          .then((timeline) => sessionInsights.enqueue(event.agent, timeline, paseo, endedAt))
+        void sessionInsights
+          .wants(event.agent)
+          .then(async (wanted) => wanted && sessionInsights.enqueue(event.agent, await turnTimeline(paseo, event.agent.id, event.timeline), paseo, endedAt))
           .catch((e) => logFailure("Flowly session insight failed:", e));
       return;
     }

@@ -134,11 +134,16 @@ export class SessionInsightService {
       .catch((e) => logFailure("Flowly session insight not updated:", e));
   }
 
+  /** Whether a turn of this session would be read at all: the hook checks before it reads the session's timeline. */
+  async wants(agent: OutsideAgent): Promise<boolean> {
+    if (!isOutsideCandidate(agent)) return false;
+    const settings = await this.settings();
+    return settings.enabled && (settings.parts.progress || settings.parts.nextMoves || settings.parts.ideas);
+  }
+
   /** Resolves when this session's queue is drained (tests); the hook does not wait. */
   async enqueue(agent: OutsideAgent, timeline: readonly { type: string }[], paseo: PaseoApi, endedAt = new Date().toISOString()): Promise<void> {
-    if (!isOutsideCandidate(agent)) return;
-    const settings = await this.settings();
-    if (!settings.enabled || !(settings.parts.progress || settings.parts.nextMoves || settings.parts.ideas)) return;
+    if (!(await this.wants(agent))) return;
     const text = turnText(timeline);
     if (!text.trim()) return;
     const batch = { text, endedAt, agent };

@@ -42,6 +42,7 @@ import { sizeOf, type CardItem, type GuardrailEntry } from "../shared/guardrails
 import type { BoardStore } from "./store";
 import { isSummarizer } from "../shared/summary";
 import { logFailure } from "./error-report";
+import { oversized } from "./provider-history";
 
 /** An agent delivery to In review that starts a review (AUTO-REVIEW-SPEC §3.1). */
 export type DeliveredReview = { taskId: string; projectId: string; eventId: string; agentId: string; from: HistoryStatus };
@@ -253,6 +254,8 @@ export async function readConversation(task: Pick<Task, "workspaceId">, paseo: P
   }
   const messages: { at: string; text: string }[] = [];
   for (const id of ids) {
+    // An oversized Codex history is never read: the read can make Paseo load the whole thread (AUTOMATION-SPEC §4.6).
+    if (await oversized(paseo, id)) continue;
     const res = await paseo.agents
       .ref(id)
       .timeline.refetch({ direction: "tail", limit: conversationLimits.perSession, projection: "projected" })
