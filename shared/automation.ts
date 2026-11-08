@@ -30,6 +30,13 @@ export const slotStates: readonly AutomationState[] = ["starting", "working", "r
 export const isLive = (job: Pick<AutomationJob, "state"> | undefined) => !!job && liveStates.includes(job.state);
 
 /**
+ * A card that agent automation drives is reviewed by automation alone (its reviewer, review levels, acceptance tests,
+ * tournament judge), never also by Auto review: two loops would each send the card back (AUTOMATION-SPEC §5.7).
+ */
+export const automationReviews = (board: Pick<Board, "automation">, project: Pick<Project, "automation"> | null | undefined, taskId: string) =>
+  !!automationOf(project) && isLive(jobOf(board, taskId));
+
+/**
  * Every dispatcher, recovery and side effect uses the same current ownership gate. A project
  * without the In review lane (a configuration saved before automation required it) is frozen:
  * its jobs are neither dispatched nor closed until the lane is back (AUTOMATION-SPEC §10).

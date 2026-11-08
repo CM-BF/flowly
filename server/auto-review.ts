@@ -43,6 +43,7 @@ import type { BoardStore } from "./store";
 import { isSummarizer } from "../shared/summary";
 import { logFailure } from "./error-report";
 import { oversized } from "./provider-history";
+import { automationReviews } from "../shared/automation";
 
 /** An agent delivery to In review that starts a review (AUTO-REVIEW-SPEC §3.1). */
 export type DeliveredReview = { taskId: string; projectId: string; eventId: string; agentId: string; from: HistoryStatus };
@@ -405,6 +406,7 @@ export class AutoReviewService {
     if (!task || !project || task.archivedAt || project.archivedAt) throw new Error("Task is unavailable or archived.");
     if (task.status !== "in_review") throw new Error("Only a card in In review can be reviewed again.");
     if (!autoReviewRuns(project)) throw new Error("Turn on Auto review in the project settings first.");
+    if (automationReviews(board, project, task.id)) throw new Error("Agent automation drives this card and reviews it itself; Auto review does not run on it.");
     if (task.review?.state === "running") throw new Error("A review of this card is already running.");
     const delivery = latestDelivery(board, task);
     if (!delivery) throw new Error("No agent delivered this card to In review, so there is no session to send rework to.");
@@ -457,6 +459,8 @@ export class AutoReviewService {
     const task = board.tasks.find((t) => t.id === delivery.taskId);
     const project = task && board.projects.find((p) => p.id === task.projectId);
     if (!task || !project || task.archivedAt || project.archivedAt || task.status !== "in_review" || !autoReviewRuns(project)) return;
+    // Queued for automation after the delivery: automation reviews it now (AUTOMATION-SPEC §5.7).
+    if (automationReviews(board, project, task.id)) return;
     const where = await this.deps.workspace(task, paseo).catch(() => null);
     const head = where ? await readHead(where.directory, this.git, this.now()) : null;
     const measured = where ? await (this.deps.shape ?? ((d: string, base?: string) => reviewShape(d, base, this.git)))(where.directory, task.baseRef).catch(() => null) : null;

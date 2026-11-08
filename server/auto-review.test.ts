@@ -713,3 +713,25 @@ test("review diff: the card's branch since the merge-base, then untracked files 
   expect(await reviewDiff(dir, {}, directory.git)).toContain("# Recent commits\n\n# New files (untracked)\ndiff --git a/docs/new.md");
   expect(directory.calls.slice(0, 3)).toEqual(["diff HEAD --no-color", "log -5 -p --no-color --format=commit %h %s", untracked]);
 });
+
+test("a card agent automation drives is reviewed by automation alone: no Auto review on its delivery, no Rerun (AUTOMATION-SPEC §5.7)", async () => {
+  const x = await setup({ exits: { "npm test": 1 } });
+  const at = new Date().toISOString();
+  await x.store.mutate((b) => {
+    b.projects[0]!.automation = { enabled: true } as NonNullable<(typeof b.projects)[number]["automation"]>;
+    b.automation.push({ taskId: "t", projectId: "p", state: "working", role: "implementer", implementerId: "actor", generation: 1, nudges: 0, failures: 0, reviewRounds: 0, queuedAt: at, updatedAt: at });
+  });
+  const board = await x.deliver("development");
+  expect(board.tasks[0]!.status).toBe("in_review");
+  expect(board.tasks[0]!.review).toBeUndefined();
+  expect(x.runs).toEqual([]);
+  expect(x.sent).toEqual([]);
+  await expect(x.reviews.rerun("t", x.paseo)).rejects.toThrow(/Agent automation/);
+  // Once the job has settled, the card is an ordinary one again: a person's Rerun runs Auto review.
+  await x.store.mutate((b) => {
+    b.automation[0]!.state = "delivered";
+  });
+  await x.reviews.rerun("t", x.paseo);
+  await x.reviews.idle();
+  expect(x.runs).toEqual(["npm test"]);
+});

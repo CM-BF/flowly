@@ -53,7 +53,7 @@
 
 ### 3.1 触发
 
-**agent** 调用 `flowly_update_status(in_review)`，通过 L1 并成功提交，项目开启了 Auto review，卡片未归档、不是设置卡片（§6.3），且有对这张卡生效的检查（§4.2）。人拖进 In review 不触发。
+**agent** 调用 `flowly_update_status(in_review)`，通过 L1 并成功提交，项目开启了 Auto review，卡片未归档、不是设置卡片（§6.3），且有对这张卡生效的检查（§4.2）。人拖进 In review 不触发。卡片有进行中的自动化任务时也不触发：它只由自动化自己的评审回路评审（AUTOMATION-SPEC §5.7），Rerun 同样被拒绝。
 
 评审在**交付的那个 session 这一轮结束后**才开始（`agent.turn_ended`）；交付时该 session 已空闲则立即开始。交付之后同一轮里 agent 还可能提交、改 workpad，这些会改变指纹让评审作废。等待中的交付只记在内存里：等待期间插件重启，这次交付不评审，卡片留在 In review，人可以按 Rerun。
 

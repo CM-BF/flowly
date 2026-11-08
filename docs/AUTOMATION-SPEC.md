@@ -172,7 +172,7 @@ AutomationJob {
 - **测量**：Flowly 从会话快照的 `persistence`（Codex 线程 id；基于 Codex 的自定义 provider 改了 `provider` 名，以 `persistence.metadata.provider == "codex"` 和 `metadata.threadId` 识别）找到 `CODEX_HOME/sessions/YYYY/MM/DD/rollout-…-<线程>.jsonl`（按 UUIDv7 时间戳定位日期目录，前后各一天；归档的在 `archived_sessions`），取文件大小（`server/provider-history.ts`）。其它 provider 测不到，按“未知”处理，不做任何动作。
 - **轮换**（`historyLimits.rotate` = 200 MB）：自动化要给一个空闲的会话发下一条指令（提醒、重试、修改要求、新一轮评审、唤醒）时，若它的历史达到这个大小，不再发给它：执行者或评审者换一个新会话，收到同一条指令，前面加上接管说明（历史太大、从卡片和 workspace 的现状继续、工具输出写到文件）。执行者：指令不含开工说明时补上（重试的“从头开始”说明换成“继续”），并带上父卡反馈和评审者尚未完成的修改要求（同备用模型接管，§4.5）。评审者：指令不是完整的评审说明（例如只是提醒或重试）时补上本轮的 `reviewPrompt`（轮次、视角、小组评审说明）并绑定本轮交付，所以新评审者的结论有效。提交轮换前再刷新一次会话快照：旧会话在测量期间开始了回合（人发了消息）就不轮换，避免两个会话同时在一个 workspace 里工作；以快照为准，所以丢失的回合结束钩子不会让轮换永远卡住。评审者要求的修改在下一次交付后（或人的反馈开始新周期时）清除，接管的会话不会把已经交付过的修改当成待办。记 `automation_rotated`。旧会话留下、不再受监督（同备用模型接管），评审者记入 `reviewers`（§5.1）。这发生在回合之间，不打断任何会话。
 - **提醒**（`historyLimits.warn` = 300 MB）：正在跑的自动化会话超过它时，在卡片上记一次 `automation_history_large`，自动化区显示 “Session history N MB: too large for Paseo to load safely; the next instruction goes to a new session”。每分钟最多检查一次，每个会话只记一次。**不打断**会话（产品不变量 “never archives or interrupts sessions”）；是否在更大时自动停止，等用户决定。
-- **不读、不唤起**：历史达到 200 MB 的会话，Flowly 不再读它的时间线（回合结束的限额检查、进度摘要、workflow insights 回填、会话图片、会话预览），也不做会让 Paseo 加载它的事：标记已读时不清 Paseo 的 attention（只记 Flowly 的已读回执，`syncNative` 同样跳过）；恢复 wrap up 过的卡片时不复活这样的已归档会话（记为 “left archived” 的恢复警告）；输入框排队的消息不自动发送（保留在队列里，`lastError` 说明原因），Send now 直接拒绝；会话预览改为提示 “This session's history is N MB, too large for Paseo to load safely, so Flowly does not show it.”。结果按分钟缓存。
+- **不读、不唤起**：历史达到 200 MB 的会话，Flowly 不再读它的时间线（回合结束的限额检查、回合结束补读的本回合内容（`server/turn-timeline.ts`：Paseo 0.13 起钩子的时间线是空的，补读前先查大小；不受 Flowly 管理的会话还要先确认 outside insights 开着）、进度摘要、workflow insights 回填、Auto review 读用户原话、自适应模式的压缩计数、会话图片、会话预览），也不做会让 Paseo 加载它的事：标记已读时不清 Paseo 的 attention（只记 Flowly 的已读回执，`syncNative` 同样跳过）；恢复 wrap up 过的卡片时不复活这样的已归档会话（记为 “left archived” 的恢复警告）；输入框排队的消息不自动发送（保留在队列里，`lastError` 说明原因），Send now 直接拒绝；会话预览改为提示 “This session's history is N MB, too large for Paseo to load safely, so Flowly does not show it.”。结果按分钟缓存。
 - **Skill**：工具输出要小，截图、DOM 和日志写到文件；不要通过自己的工具或 Codex 子代理批量转发浏览器命令（UI 验证用直接运行 headless 浏览器的脚本）。
 - **已知缺口**：Paseo 加载 Codex 父线程时也会整条读取它的子代理线程（最多 100 个）；Flowly 只测父线程，子代理线程的大小不计入。测量子线程要扫描日期目录并读每个 rollout 的首行，代价较大，暂不做；靠上面的 skill 规则避免。Paseo 本身的修复（流式读取、分页历史、崩溃循环熔断、worker 退出时结束插件进程）已整理成给 Paseo 的问题报告。
 
@@ -561,6 +561,12 @@ AutomationJob {
 - 交付时间。
 
 卡片活动里记 `automation_adaptive_continued`（下一个全新会话做什么）和 `automation_delivered`。基准测试据此检查：简单题上有没有多余的拆分；需要时 agent 会不会拆。
+
+### 5.7 与 Auto review 的关系（上游 v1.8 合并，2026-11-08）
+
+上游的 Auto review（AUTO-REVIEW-SPEC，新项目默认开启）在 agent 交付到 In review 时跑项目命令和自己的评审 session，失败时把卡片退回工作阶段（R1）或移到 Blocked（R2），并给交付的 session 发返工消息。自动化有自己的评审回路（§5.1–§5.6），两者同时跑会对同一次交付各评一次、各自退回卡片；自动化评审者交结论时卡片可能已被 Auto review 移走，结论被 `REVIEW_CLOSED` 拒绝。
+
+规则：**卡片有进行中的自动化任务（`isLive`，且项目开着 automation）时，只由自动化评审，Auto review 不跑**（`automationReviews`，`shared/automation.ts`）。具体是：交付时不触发；交付后才排进自动化的，排队中的评审开始时跳过；人在抽屉里按 Rerun 被拒绝并说明原因。自动化任务结束（delivered、stopped、failed 等）后卡片恢复为普通卡片，人可以按 Rerun 跑 Auto review。没有排进自动化的卡片（同一项目里人手动开的会话）照常走 Auto review。需要命令门禁的自动化项目用 `check.command`（§5.6.4）或评审级别里的检查，不靠 Auto review。
 
 ## 6. 界面
 

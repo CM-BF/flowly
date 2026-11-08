@@ -85,7 +85,7 @@ import type { AcceptanceService } from "./acceptance";
 import type { TournamentService } from "./tournament";
 import type { AdaptiveService } from "./adaptive";
 import type { ReviewInput } from "../shared/automation-schema";
-import { automationAllowed, automationOf, automationSessionRole, isLive, jobOf, reviewerOfCard, reviewsFor } from "../shared/automation";
+import { automationAllowed, automationOf, automationReviews, automationSessionRole, isLive, jobOf, reviewerOfCard, reviewsFor } from "../shared/automation";
 import { parentOf } from "../shared/links";
 import { createCardInputSchema, updateCardInputSchema, type CreateCardInput, type CreateCardResult, type UpdateCardInput } from "../shared/tools";
 import { taskInput, type TaskInput } from "../shared/model";
@@ -1303,8 +1303,9 @@ export class AgentService {
               ...(deliveredBranch && next === "in_review" ? { branch: deliveredBranch } : {}),
               ...(setupGap.length ? { setup: { missing: setupGap } } : {}),
             }));
-      // An agent delivery starts the project's automatic review once this write commits (AUTO-REVIEW-SPEC §3.1).
-      if (next === "in_review" && next !== previous && autoReviewRuns(project))
+      // An agent delivery starts the project's automatic review once this write commits (AUTO-REVIEW-SPEC §3.1),
+      // unless agent automation drives the card and reviews it itself (AUTOMATION-SPEC §5.7).
+      if (next === "in_review" && next !== previous && autoReviewRuns(project) && !automationReviews(board, project, task.id))
         review = { taskId: task.id, projectId: project.id, eventId: event.id, agentId: identity.agentId, from: previous };
       // The suggestion follows the status change or report it rode on, in the same write (NEXT-MOVES-SPEC §8.3).
       if (carried) recordMoves(carried);
