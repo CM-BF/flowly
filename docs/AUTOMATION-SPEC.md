@@ -118,7 +118,7 @@ AutomationJob {
 
 成功的回合把连续失败计数清零；provider 冷却计数不清零。
 
-交付门（上游 #35，2026-10-23 合并）：`flowly_update_status(in_review)` 遇到 `WORKPAD_OPEN` 或 `SETUP_INCOMPLETE` 时，第一次总是被拒绝（即使带 `acknowledgeOpen=true`），只有同一 session、同一回合、卡片/workpad/HEAD 未变时带 ack 的重试才通过；新回合（每条 `[Flowly automation]` 消息都开始新回合，turn_started 钩子先清掉记录）需要重新被拒一次。被拒的交付什么都不改，卡片留在工作阶段，所以只被拒就结束的回合是**静默结束**（提醒，最后 `no_delivery`）。为此开工说明、提醒和修改要求都写明：被拒后修好能修的，在同一回合带 `acknowledgeOpen=true` 和逐项说明重试，不要在拒绝上结束回合。
+交付门（上游 #35，2026-10-23 合并；上游 v1.8 合并后按 GUARDRAILS-SPEC §6.1 去掉了 `WORKPAD_OPEN`，2026-11-08）：`flowly_update_status(in_review)` 遇到 `SETUP_INCOMPLETE`（卡片设置缺项，含没有验收清单）或 `HANDOFF_STALE`（交接记录过期或接班者未确认，SESSION-HANDOFF-SPEC）时，第一次总是被拒绝（即使带 `acknowledgeOpen=true`），只有同一 session、同一回合、指纹未变时带 ack 的重试才通过；指纹是卡片 revision、workpad revision、设置缺项和交接缺口（`server/agent-service.ts`），不再包含 HEAD。新回合（每条 `[Flowly automation]` 消息都开始新回合，turn_started 钩子先清掉记录）需要重新被拒一次。被拒的交付什么都不改，卡片留在工作阶段，所以只被拒就结束的回合是**静默结束**（提醒，最后 `no_delivery`）。为此开工说明、提醒和修改要求都写明：被拒后修好能修的（`HANDOFF_STALE` 先用 `flowly_update_handoff` 更新交接），在同一回合带 `acknowledgeOpen=true` 和逐项说明重试，不要在拒绝上结束回合。
 
 回合结束方式（上游 #39 的清单第 5 条允许普通 session 用 `kind=result` 结束工作回合）：自动化下 `kind=result` 不算交付、提问或 blocker，仍是静默结束，所以清单第 5 条、skill 的 “Automated runs” 与评论规则都加了一句：`[Flowly automation]` 下结果不结束回合，要以 in_review、提问或 blocked 结束；worktree 卡片交付前先在自己的分支上提交，directory 卡片不提交（见 §7）。
 
@@ -625,5 +625,5 @@ AutomationJob {
 - 成功回合清零连续失败计数。明确的 429/rate-limit/quota/overload 失败使用 `cooldowns`（最多 5 次，1、2、4、8、15 分钟，§4.2），不消耗普通 failureLimit；`provider` 来自实际当前 session，冷却按 §4.1 只挡确定的同一 provider。超过上限等人处理，不把整个队列刷成 Blocked。
 - 自动化需要启用 In review（§2）；旧的无效配置冻结，不派发也不关闭 job。
 - **共享目录**：启动与父卡唤醒都检查 maxRunning 和工作区实际目录（realpath）。Flowly 不会向另一张卡的自动化 session 正在用的物理目录派发 worker：另一张**仍在进行**的卡（未归档、不在 Done/Cancelled）的 job 占名额时，或它的自动化 session 仍在运行、在回合中或等权限时（包括 stopped 或等权限的 job），都算占用。Done、Cancelled 或已归档卡片的 job 不再占用目录，即使它的 session 仍在运行（那个 session 已是人的）。每次占用判断只扫描一遍 workspace 分页列表，再按 id 复用；先排除既不占名额也没有 session 的旧 job，避免每张卡分别触发完整扫描。**这个保护只看自动化 job 的 session**：没有 job 的卡片上的普通 session（人自己开的，或在普通 session 里拆出子卡的父卡 agent）不被考虑，所以在非 git 项目（目录 workspace 共享项目根）里，普通 session 与自动化 worker 可能同时改同一份 checkout，这由用户自己协调（例如用 worktree 项目，或等普通 session 的回合结束再启动子卡）。人的直接操作也不受此调度规则控制。
-- `waiting`、`sub_cards`、`subSeen` 为子卡等待协议字段；父卡唤醒遵守同一项目开关、冻结、归属和名额。发送的是当前子卡 handoff（有界的交付、workpad 检查、目录、分支、未满足 blocker），原文失败后保留。
+- `waiting`、`sub_cards`、`subSeen` 为子卡等待协议字段；父卡唤醒遵守同一项目开关、冻结、归属和名额。发送的是当前子卡 handoff（有界的交付说明、验收清单、目录、分支、未满足 blocker），原文失败后保留。
 - daemon 发出的 `[Flowly automation]` 文本不计入人的 memory clue 或 next-move 选择率；摘要保留内容但标作 Flowly automation。
