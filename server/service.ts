@@ -3,7 +3,6 @@ import type { AutomationService } from "./automation";
 import { automationOf, isLive, jobOf } from "../shared/automation";
 import { ToolError } from "./tool-error";
 import { laneName, laneProblem } from "../shared/lanes";
-import { resolvePaseoCli } from "./paseo-cli";
 import { childrenOf, depthOf, linkContextLines, linksOf, subCardLimits } from "../shared/links";
 import { artifactContextLines, artifactsOf } from "../shared/artifacts";
 import { addLink } from "./links";
@@ -32,6 +31,7 @@ import { backgroundWorkspaces } from "./background-workspace";
 import type { z } from "zod";
 import type { removeProject as removeProjectRpc, restoreProjectCheck as restoreProjectCheckRpc } from "../shared/rpc";
 import { logFailure } from "./error-report";
+import { runPaseo } from "./paseo-cli";
 
 const execute = promisify(execFile);
 type RemoveResult = z.infer<typeof removeProjectRpc.output>;
@@ -145,7 +145,10 @@ export async function directory(path: string): Promise<string> {
   const expanded = path.startsWith("~/")
     ? resolve(homedir(), path.slice(2))
     : path;
-  const canonical = await realpath(resolve(expanded));
+  // A missing path is the caller's mistake (a typed or stale folder), answered like a file is.
+  const canonical = await realpath(resolve(expanded)).catch((e: NodeJS.ErrnoException) => {
+    throw e.code === "ENOENT" || e.code === "ENOTDIR" ? new Error("Expected an existing directory.") : e;
+  });
   if (!(await stat(canonical)).isDirectory())
     throw new Error("Expected an existing directory.");
   return canonical;
@@ -347,8 +350,7 @@ export class BoardService {
       if (!check) return removed;
       if (!check.paseoExists) return { ...removed, paseo: { removed: false, workspaces: 0, error: "" } };
       try {
-        const { stdout } = await execute(
-          await resolvePaseoCli(),
+        const stdout = await runPaseo(
           ["project", "delete", check.paseoProjectId, "--home", paseoHome(), "--json"],
           { timeout: 60000, maxBuffer: 1024 * 1024 },
         );
@@ -373,7 +375,7 @@ export class BoardService {
     if (!native) {
       // From here on the directory may be referenced by a native project; keep it on failure.
       onRegistered?.();
-      await execute(await resolvePaseoCli(), ["project", "create", primaryPath, "--home", paseoHome(), "--json"], {
+      await runPaseo(["project", "create", primaryPath, "--home", paseoHome(), "--json"], {
         timeout: 30000,
         maxBuffer: 1024 * 1024,
       });
@@ -455,6 +457,8 @@ export class BoardService {
           primaryPath,
           repos: [primaryPath],
           ...(links ? { links } : {}),
+          // Auto review is on for new projects (GUARDRAILS-SPEC D1); existing projects keep what they stored.
+          autoReview: { enabled: true, maxRounds: 2 },
           revision: 1,
           createdAt: now,
           updatedAt: now,
@@ -534,6 +538,7 @@ export class BoardService {
       const repoPaths = [project.primaryPath];
       const sourcePath = project.primaryPath;
       let workspaceId = input.workspaceId;
+      let baseRef: string | undefined;
       if (input.mode === "existing") {
         if (!workspaceId) throw new Error("Select a workspace.");
         const workspace = await paseo.workspaces.ref(workspaceId).refresh();
@@ -557,7 +562,7 @@ export class BoardService {
           throw new ToolError("CARD_INVALID", "Project root changed since this request reserved its workspace. Ask a person to reconcile the original workspace.");
         const mode = saved?.mode ?? input.mode;
         const branchName = saved?.mode === "worktree" ? saved.branchName : mode === "worktree" ? input.branchName?.trim() || generatedBranchName(input.title, input.operationId) : undefined;
-        const baseRef = saved?.mode === "worktree" ? saved.baseRef : mode === "worktree" ? await resolveWorktreeBaseRef(sourcePath, input.baseRef) : undefined;
+        baseRef = saved?.mode === "worktree" ? saved.baseRef : mode === "worktree" ? await resolveWorktreeBaseRef(sourcePath, input.baseRef) : undefined;
         const intent = createHash("sha256")
           .update(JSON.stringify({ projectId: project.paseoProjectId, sourcePath, mode, baseRef, branchName, title: input.title }))
           .digest("hex")
@@ -631,6 +636,7 @@ export class BoardService {
             updatedAt: now,
             archivedAt: null,
             ownsWorkspace: input.mode !== "existing",
+            ...(baseRef ? { baseRef } : {}),
             ...(idea ? { origin: { taskId: idea.taskId, ideaId: idea.id } } : {}),
             ...(agent ? { createdByAgent: { agentId: agent.agentId, taskId: agent.taskId } } : {}),
             ...(input.reviewLevel ? { reviewLevel: input.reviewLevel } : {}),

@@ -2,7 +2,7 @@ import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { afterEach, expect, test } from "vitest";
 import { handoffGitDirectories, handoffGitSnapshot } from "./handoff-git";
-import type { Git } from "./workpad";
+import type { Git } from "./git-head";
 
 const fixtures: string[] = [];
 afterEach(async () => { await Promise.all(fixtures.splice(0).map((path) => rm(path, { recursive: true, force: true }))); });

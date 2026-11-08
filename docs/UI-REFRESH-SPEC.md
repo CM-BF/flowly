@@ -137,7 +137,7 @@ Status: authorized by the user's 2026-10-14 request to redesign the whole Kanban
   - **Reasoning** (the current model's `thinkingOptions` from the SDK model catalog) and **Permissions** (the session's `availableModes`) apply on selection.
   - **Stop** interrupts a running session.
   - **Model** and provider **features** (e.g. Codex Fast mode) are shown read-only with "Change in Paseo".
-- Why: the plugin SDK (`PaseoApi`) exposes no session-settings API. The daemon's `setAgentModel/Feature` live only on the private DaemonClient or the agent-facing `/mcp/agents` endpoint, which plugins must not impersonate. The official Paseo CLI supports `agent update --thinking`, `agent mode` and `agent stop`, so the plugin daemon runs the bundled CLI (resolved from the app bundle, argument arrays, `--home` = daemon home).
+- Why: the plugin SDK (`PaseoApi`) exposes no session-settings API. The daemon's `setAgentModel/Feature` live only on the private DaemonClient or the agent-facing `/mcp/agents` endpoint, which plugins must not impersonate. The official Paseo CLI supports `agent update --thinking`, `agent mode` and `agent stop`, so the plugin daemon runs the bundled CLI (resolved from `PASEO_CLI`, which the desktop app sets for its daemon, or the app bundle; argument arrays, `--home` = daemon home). On Windows that is `paseo.cmd`, which Node will not start without a shell (EINVAL), and a shell would re-parse the arguments (titles are user text): `server/paseo-cli.ts` runs what the shim runs instead, `Paseo.exe` with the bundled runner and CLI entry (Paseo's `packages/desktop/bin/paseo.cmd`), or Node with `@getpaseo/cli/bin/paseo` for npm's shim, and fails with a clear error for any other layout. Native project create/delete (`server/service.ts`) use the same resolution instead of a bare `paseo` from `PATH`.
 - RPC `sessions.configure` validates:
   - the session belongs to the card's workspace, is not archived, and the mode is offered;
   - IDs must start with a letter or digit (no option injection).
@@ -278,7 +278,7 @@ Verified live: collapse widths 280→141→89→48→44 and expand 44→111→18
 
 ## 7ac. Prominent card priority (2026-10-15, user request)
 
-- Urgent and High cards have a 4 px stripe down the card's left edge (danger red / warning amber) and a tinted pill at the start of the card's signal row (icon + bold label in the same colour). Low shows a muted icon and the word "Low". Normal shows nothing.
+- Urgent and High cards have a 4 px stripe down the card's left edge (danger red / warning amber) and a tinted pill at the start of the card's signal row (icon + bold label in the same colour). Low shows a muted down arrow and the word "Low"; where Normal is shown explicitly (the drawer's priority chip) it is a muted dash. Normal shows nothing.
 - The High glyph is now an amber up arrow (`ArrowUp`, `statusWarning`) instead of a grey signal icon, everywhere `PriorityIcon` is used (card and drawer property chip). `priorityAccent()` in `client/status.tsx` defines which priorities are emphasized.
 - Verified on the live board (`docs/verification/card-priority.png`).
 

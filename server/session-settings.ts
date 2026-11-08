@@ -1,14 +1,10 @@
 import type { PaseoApi } from "@getpaseo/client";
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
 import type { BoardStore } from "./store";
 import { paseoHome } from "./service";
-import { resolvePaseoCli } from "./paseo-cli";
+import { resolvePaseoCli, runPaseo } from "./paseo-cli";
 
-const execute = promisify(execFile);
 type Run = (file: string, args: string[]) => Promise<string>;
-const defaultRun: Run = async (file, args) =>
-  (await execute(file, args, { timeout: 20000, maxBuffer: 1 << 20 })).stdout;
+const defaultRun: Run = (file, args) => runPaseo(args, { timeout: 20000, maxBuffer: 1 << 20 }, file);
 
 export type SessionSettingsInput = {
   taskId: string;

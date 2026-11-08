@@ -95,7 +95,7 @@ AutomationJob {
 - **依赖**：沿用卡片的 `blocks` 链接。所有 blocker 都 **Done** 才放行；Cancelled（或未完成就归档）的 blocker 永不放行，直到人删掉链接——没完成的工作不能作为输入。
 - **provider 冷却**：一个 job 处于 provider 限额冷却（`retry_wait`/`cooldown`）时，同一个 provider 的卡片在任何项目都不启动；角色设了另一个、未在冷却的 provider 上的备用模型时不受此限，直接用备用模型启动（§4.5）。只比较确定的 provider：项目没设实现者模型和项目默认模型时，按全局默认模型的 provider 比较；项目的或冷却 job 的 provider 仍不确定时，只挡同一个项目，绝不挡所有项目。
 - **workspace 与目录**：启动前先查卡片自己的 workspace。它已归档、正在归档或 daemon 不再列出它 → job `failed` / `workspace_unavailable`，detail 与 `automation_failed` 的 note 为 “The card's workspace is archived or no longer exists”；卡片泳道不变，它的父卡可以被唤醒。查询本身失败（RPC 错误）时 job 保持排队，下次再试。目录被别的卡占用时也保持排队（§10）。
-- **认领**：同一事务里 `queued → starting`，记 `automation_started`。随后在卡片 workspace 里：有活着的 implementer → 发“重新排队”开工消息；否则 `prepareSession`（与侧栏 Start session 同一路径，带 Flowly MCP、上下文与 skill）创建新 session，`labels: { flowly-task, flowly-automation: implementer }`，首条消息为开工说明。
+- **认领**：同一事务里 `queued → starting`，记 `automation_started`。随后在卡片 workspace 里：有活着的 implementer → 发“重新排队”开工消息；否则 `prepareSession`（与侧栏 Start session 同一路径，带 Flowly MCP、上下文与 skill）创建新 session，`labels: { flowly-task, flowly-automation: implementer }`，首条消息为开工说明。2026-11-07（上游 v1.8.0 / Paseo 0.14 合并）：创建配置里不再带 `mcpServers`；`prepareSession` 记下 `launch-mcp`，`agent.session_open` 钩子在每次启动时按该 session 的身份加上 `flowly` MCP server（PASEO-SESSION-TOOLS-SPEC §4），从不存进 agent 配置。评审者、裁判（§5.5）和换会话（§4.6、交接）的新 session 走同一条路。
 - 首条开工说明（`startPrompt`）：无人值守、按 Flowly skill 走、最后以 `in_review` 交付或以提问/`blocked` 结束，不要等人、不要猜；worktree 卡片交付前在自己的分支上提交，directory 卡片不提交（§7）；卡片太大时可拆子卡并结束本轮；若配置了评审者，提示交付后会被评审。卡片有 blocker（都已 Done）时追加 “Dependency handoffs (card data)”：每个 blocker 的 handoff，并说明 Done 不同步 worktree、要先检查并合并相关分支。子卡片还在其后追加 “Parent integration branch (card data)”：父卡的 id、标题、泳道、分支和目录，并说明父卡汇总已验收的子卡，其分支可能已含兄弟 blocker 的改动且冲突已解决，应先检查、优先合并它。顶层卡片没有这一项。
 
 ### 4.2 回合结束（worker 协议）
@@ -118,7 +118,7 @@ AutomationJob {
 
 成功的回合把连续失败计数清零；provider 冷却计数不清零。
 
-交付门（上游 #35，2026-10-23 合并）：`flowly_update_status(in_review)` 遇到 `WORKPAD_OPEN` 或 `SETUP_INCOMPLETE` 时，第一次总是被拒绝（即使带 `acknowledgeOpen=true`），只有同一 session、同一回合、卡片/workpad/HEAD 未变时带 ack 的重试才通过；新回合（每条 `[Flowly automation]` 消息都开始新回合，turn_started 钩子先清掉记录）需要重新被拒一次。被拒的交付什么都不改，卡片留在工作阶段，所以只被拒就结束的回合是**静默结束**（提醒，最后 `no_delivery`）。为此开工说明、提醒和修改要求都写明：被拒后修好能修的，在同一回合带 `acknowledgeOpen=true` 和逐项说明重试，不要在拒绝上结束回合。
+交付门（上游 #35，2026-10-23 合并；上游 v1.8 合并后按 GUARDRAILS-SPEC §6.1 去掉了 `WORKPAD_OPEN`，2026-11-08）：`flowly_update_status(in_review)` 遇到 `SETUP_INCOMPLETE`（卡片设置缺项，含没有验收清单）或 `HANDOFF_STALE`（交接记录过期或接班者未确认，SESSION-HANDOFF-SPEC）时，第一次总是被拒绝（即使带 `acknowledgeOpen=true`），只有同一 session、同一回合、指纹未变时带 ack 的重试才通过；指纹是卡片 revision、workpad revision、设置缺项和交接缺口（`server/agent-service.ts`），不再包含 HEAD。新回合（每条 `[Flowly automation]` 消息都开始新回合，turn_started 钩子先清掉记录）需要重新被拒一次。被拒的交付什么都不改，卡片留在工作阶段，所以只被拒就结束的回合是**静默结束**（提醒，最后 `no_delivery`）。为此开工说明、提醒和修改要求都写明：被拒后修好能修的（`HANDOFF_STALE` 先用 `flowly_update_handoff` 更新交接），在同一回合带 `acknowledgeOpen=true` 和逐项说明重试，不要在拒绝上结束回合。
 
 回合结束方式（上游 #39 的清单第 5 条允许普通 session 用 `kind=result` 结束工作回合）：自动化下 `kind=result` 不算交付、提问或 blocker，仍是静默结束，所以清单第 5 条、skill 的 “Automated runs” 与评论规则都加了一句：`[Flowly automation]` 下结果不结束回合，要以 in_review、提问或 blocked 结束；worktree 卡片交付前先在自己的分支上提交，directory 卡片不提交（见 §7）。
 
@@ -172,7 +172,7 @@ AutomationJob {
 - **测量**：Flowly 从会话快照的 `persistence`（Codex 线程 id；基于 Codex 的自定义 provider 改了 `provider` 名，以 `persistence.metadata.provider == "codex"` 和 `metadata.threadId` 识别）找到 `CODEX_HOME/sessions/YYYY/MM/DD/rollout-…-<线程>.jsonl`（按 UUIDv7 时间戳定位日期目录，前后各一天；归档的在 `archived_sessions`），取文件大小（`server/provider-history.ts`）。其它 provider 测不到，按“未知”处理，不做任何动作。
 - **轮换**（`historyLimits.rotate` = 200 MB）：自动化要给一个空闲的会话发下一条指令（提醒、重试、修改要求、新一轮评审、唤醒）时，若它的历史达到这个大小，不再发给它：执行者或评审者换一个新会话，收到同一条指令，前面加上接管说明（历史太大、从卡片和 workspace 的现状继续、工具输出写到文件）。执行者：指令不含开工说明时补上（重试的“从头开始”说明换成“继续”），并带上父卡反馈和评审者尚未完成的修改要求（同备用模型接管，§4.5）。评审者：指令不是完整的评审说明（例如只是提醒或重试）时补上本轮的 `reviewPrompt`（轮次、视角、小组评审说明）并绑定本轮交付，所以新评审者的结论有效。提交轮换前再刷新一次会话快照：旧会话在测量期间开始了回合（人发了消息）就不轮换，避免两个会话同时在一个 workspace 里工作；以快照为准，所以丢失的回合结束钩子不会让轮换永远卡住。评审者要求的修改在下一次交付后（或人的反馈开始新周期时）清除，接管的会话不会把已经交付过的修改当成待办。记 `automation_rotated`。旧会话留下、不再受监督（同备用模型接管），评审者记入 `reviewers`（§5.1）。这发生在回合之间，不打断任何会话。
 - **提醒**（`historyLimits.warn` = 300 MB）：正在跑的自动化会话超过它时，在卡片上记一次 `automation_history_large`，自动化区显示 “Session history N MB: too large for Paseo to load safely; the next instruction goes to a new session”。每分钟最多检查一次，每个会话只记一次。**不打断**会话（产品不变量 “never archives or interrupts sessions”）；是否在更大时自动停止，等用户决定。
-- **不读、不唤起**：历史达到 200 MB 的会话，Flowly 不再读它的时间线（回合结束的限额检查、进度摘要、workflow insights 回填、会话图片、会话预览），也不做会让 Paseo 加载它的事：标记已读时不清 Paseo 的 attention（只记 Flowly 的已读回执，`syncNative` 同样跳过）；恢复 wrap up 过的卡片时不复活这样的已归档会话（记为 “left archived” 的恢复警告）；输入框排队的消息不自动发送（保留在队列里，`lastError` 说明原因），Send now 直接拒绝；会话预览改为提示 “This session's history is N MB, too large for Paseo to load safely, so Flowly does not show it.”。结果按分钟缓存。
+- **不读、不唤起**：历史达到 200 MB 的会话，Flowly 不再读它的时间线（回合结束的限额检查、回合结束补读的本回合内容（`server/turn-timeline.ts`：Paseo 0.13 起钩子的时间线是空的，补读前先查大小；不受 Flowly 管理的会话还要先确认 outside insights 开着）、进度摘要、workflow insights 回填、Auto review 读用户原话、自适应模式的压缩计数、会话图片、会话预览），也不做会让 Paseo 加载它的事：标记已读时不清 Paseo 的 attention（只记 Flowly 的已读回执，`syncNative` 同样跳过）；恢复 wrap up 过的卡片时不复活这样的已归档会话（记为 “left archived” 的恢复警告）；输入框排队的消息不自动发送（保留在队列里，`lastError` 说明原因），Send now 直接拒绝；会话预览改为提示 “This session's history is N MB, too large for Paseo to load safely, so Flowly does not show it.”。结果按分钟缓存。
 - **Skill**：工具输出要小，截图、DOM 和日志写到文件；不要通过自己的工具或 Codex 子代理批量转发浏览器命令（UI 验证用直接运行 headless 浏览器的脚本）。
 - **已知缺口**：Paseo 加载 Codex 父线程时也会整条读取它的子代理线程（最多 100 个）；Flowly 只测父线程，子代理线程的大小不计入。测量子线程要扫描日期目录并读每个 rollout 的首行，代价较大，暂不做；靠上面的 skill 规则避免。Paseo 本身的修复（流式读取、分页历史、崩溃循环熔断、worker 退出时结束插件进程）已整理成给 Paseo 的问题报告。
 
@@ -430,7 +430,7 @@ AutomationJob {
 
 #### 5.4.1 验收作者
 
-- job 开工时（`begin` 创建或复用实现者 session 之后），Flowly 把卡片的工作区复制到 `<数据目录>/acceptance/<taskId>/env/`（macOS 用 APFS 克隆），然后在卡片所在的 Paseo project 里为这个副本建一个 directory workspace（`paseo.workspaces.create({ source: { kind: "directory", path: env, projectId } })`），在里面开一个独立的作者 session；作者结束后连同这个 workspace 一起 archive。不用裸 `cwd` 建 session：那样 Paseo 会把副本登记成一个名为 `env` 的新 project，而插件接口没有删除 project 的方法。session 带 `flowly-acceptance=author` 标签，提示词里只有卡片的标题、描述和人的评论（作为数据给它），并告诉它往哪里写。作者看不到实现，也拿不到真实工作区的路径；它写测试时的副作用（SQLite 的 -wal 文件、git 更新索引等）只落在副本里。
+- job 开工时（`begin` 创建或复用实现者 session 之后），Flowly 把卡片的工作区复制到 `<数据目录>/acceptance/<taskId>/env/`（macOS 用 APFS 克隆），然后在卡片所在的 Paseo project 里为这个副本建一个 directory workspace（`paseo.workspaces.create({ source: { kind: "directory", path: env, projectId } })`），在里面开一个独立的作者 session；作者结束后连同这个 workspace 一起 archive。不用裸 `cwd` 建 session：那样 Paseo 会把副本登记成一个名为 `env` 的新 project，而插件接口没有删除 project 的方法。session 带 `flowly-acceptance=author` 标签（`agent.session_open` 钩子见到这个标签就放行，不注入卡片身份或工具；它也从不经过 `prepareSession`，所在 workspace 不是任何卡片的 workspace），提示词里只有卡片的标题、描述和人的评论（作为数据给它），并告诉它往哪里写。作者看不到实现，也拿不到真实工作区的路径；它写测试时的副作用（SQLite 的 -wal 文件、git 更新索引等）只落在副本里。
 - 它要写三样东西：
   1. `suite/run.sh`：实现者可以看、可以跑的测试。
   2. `holdout/run.sh`：只给评审者跑的测试。覆盖同样的要求，但换输入、换角度，让“照着可见测试做”通过不了。
@@ -489,7 +489,7 @@ AutomationJob {
    - `plans: "approaches"`：先复制一份给 planner，走第 2 步。
 2. **planner**（只在 `approaches` 时）（卡片项目下的 directory workspace，不登记新 project）只读卡片和这份副本，写 `plans.md`：先写 `## Readings`，列出卡片的每个模糊点，各选一个最可能的理解（写卡的人最可能期望的那种）并说明理由，所有候选共用这一套理解，绝不把不同理解分给不同方案；再写正好 K 节 `## Plan k`，是在同一套理解下的不同做法（算法、架构、语言或工具链、自检方式），各有一行 `Differs from the others:`。交付物主要在工作区之外（配置系统服务、改 /etc、装系统组件）时，只写一行 `TOURNAMENT: skip <原因>`：这张卡退回普通流程（5.5.3）。planner 失败时，候选各自选做法。
 3. **候选**：每个候选在 `tournament/<taskId>/c<k>/`（pristine 的副本）里独立做到底（`approaches` 时附上共用的理解和建议的做法），互相看不见，也不用 Flowly 的卡片工具，没有中途评审。提示要求：交付时整棵目录树会被放到真实工作区，所以只能用相对路径或真实路径，不能写死副本路径；依赖尽量装在副本里；工作区外需要的改动写进副本根目录的幂等脚本 `flowly-apply.sh`。可见验收测试写好后可以跑（命令里的工作区是自己的副本），holdout 只给 judge。候选结束时记录交付说明（最后一条消息）和文件清单（每个文件的路径、大小、SHA-256）。
-4. 所有候选结束、且本 generation 的验收测试不再是 writing 时，**judge** 开始。judge 是卡片自己工作区里的 prepared session，记为 job 的 reviewer（这样它的回合不会被当成接管，也不会触发自动状态）。只有它能看到两个工具：
+4. 所有候选结束、且本 generation 的验收测试不再是 writing 时，**judge** 开始。judge 是卡片自己工作区里的 prepared session，记为 job 的 reviewer（这样它的回合不会被当成接管，也不会触发自动状态）。它的 Flowly MCP server 与其他卡片 session 一样在启动时由 `agent.session_open` 钩子加上（Paseo 0.14 起）；planner 和候选带 `flowly-tournament=planner|candidate-<k>` 标签、在自己的 directory workspace 里、从不 prepare，钩子不给它们注入任何卡片身份或工具。只有 judge 能看到两个工具：
    - `flowly_tournament_activate(candidate)`：把该候选的整棵目录树放进真实工作区（先清空）。judge 随后运行它的 `flowly-apply.sh`，停掉上一个候选起的进程，在真实路径上按实际使用方式运行（干净 shell、能换用户就换）：两套验收测试，以及自己构造的、能让候选表现不同的探测输入（边界值、空和大输入、分块、换顺序、换用户、干净环境）。
    - `flowly_submit_judgement`：每个候选的 visible/holdout 通过与失败数、判定为测试写错的失败检查 `disputed`（附卡片原文）、实际跑过的探测（命令、退出码、输出摘要）；每处分歧的输入、各候选输出、裁决和理由（引用卡片原文，或可复现的命令和输出）；胜者、总结，以及 `final`（最后激活胜者后跑出的两套计数）。
 5. Flowly 校验后记录结论，job 变为 `delivered`（verdict approved，不再有评审轮次），卡片移到 In review，活动里记 `automation_tournament_decided`（胜者、各候选计数、分歧数、总结）。
@@ -529,7 +529,7 @@ AutomationJob {
 #### 5.6.1 薄启动
 
 - 一个实现者，一个全新会话。开场提示就是卡片本身（标题、描述、评论），外加：在当前目录（卡片工作区）里工作；没人回答问题和权限请求；以及唯一多出来的一句，说明 `flowly_split` 这个工具：任务太大、一个会话做不完时，可以用它把剩下的工作交给新的会话。这句必须有，因为 Codex 把 MCP 工具藏在工具搜索后面，没人提的工具它根本找不到（基准测试的 Workflow 组一开始就是这样没用上工具）。用不用、什么时候用，由 agent 自己决定。
-- 不注入 Flowly 的系统指令、skill 或上下文文件；它的 Flowly MCP 只提供 `flowly_split` 一个工具。
+- 不注入 Flowly 的系统指令、skill 或上下文文件；它的 Flowly MCP 只提供 `flowly_split` 一个工具。Paseo 0.14 起这个 MCP server 由 `agent.session_open` 钩子在启动时加上（不在创建配置里）；钩子认出自适应实现者（`AdaptiveService.isSession`）后只给 MCP，不加 `FLOWLY_CONTEXT_FILE`/`FLOWLY_CLI`/`FLOWLY_SKILL` 环境变量（此前旧钩子会给它加上这些变量，合并时一并改正）。
 - 回合结束即交付：没有评审、没有验收测试、没有提醒（nudge）。job 变为 `delivered`（没有 verdict），卡片自动移到 In review，活动里记“Adaptive mode: delivered without review”。
 - 失败、被取消、触及额度的回合照常走重试和 fallback（§4）。
 
@@ -561,6 +561,12 @@ AutomationJob {
 - 交付时间。
 
 卡片活动里记 `automation_adaptive_continued`（下一个全新会话做什么）和 `automation_delivered`。基准测试据此检查：简单题上有没有多余的拆分；需要时 agent 会不会拆。
+
+### 5.7 与 Auto review 的关系（上游 v1.8 合并，2026-11-08）
+
+上游的 Auto review（AUTO-REVIEW-SPEC，新项目默认开启）在 agent 交付到 In review 时跑项目命令和自己的评审 session，失败时把卡片退回工作阶段（R1）或移到 Blocked（R2），并给交付的 session 发返工消息。自动化有自己的评审回路（§5.1–§5.6），两者同时跑会对同一次交付各评一次、各自退回卡片；自动化评审者交结论时卡片可能已被 Auto review 移走，结论被 `REVIEW_CLOSED` 拒绝。
+
+规则：**卡片有进行中的自动化任务（`isLive`，且项目开着 automation）时，只由自动化评审，Auto review 不跑**（`automationReviews`，`shared/automation.ts`）。具体是：交付时不触发；交付后才排进自动化的，排队中的评审开始时跳过；人在抽屉里按 Rerun 被拒绝并说明原因。自动化任务结束（delivered、stopped、failed 等）后卡片恢复为普通卡片，人可以按 Rerun 跑 Auto review。没有排进自动化的卡片（同一项目里人手动开的会话）照常走 Auto review。需要命令门禁的自动化项目用 `check.command`（§5.6.4）或评审级别里的检查，不靠 Auto review。
 
 ## 6. 界面
 
@@ -619,5 +625,5 @@ AutomationJob {
 - 成功回合清零连续失败计数。明确的 429/rate-limit/quota/overload 失败使用 `cooldowns`（最多 5 次，1、2、4、8、15 分钟，§4.2），不消耗普通 failureLimit；`provider` 来自实际当前 session，冷却按 §4.1 只挡确定的同一 provider。超过上限等人处理，不把整个队列刷成 Blocked。
 - 自动化需要启用 In review（§2）；旧的无效配置冻结，不派发也不关闭 job。
 - **共享目录**：启动与父卡唤醒都检查 maxRunning 和工作区实际目录（realpath）。Flowly 不会向另一张卡的自动化 session 正在用的物理目录派发 worker：另一张**仍在进行**的卡（未归档、不在 Done/Cancelled）的 job 占名额时，或它的自动化 session 仍在运行、在回合中或等权限时（包括 stopped 或等权限的 job），都算占用。Done、Cancelled 或已归档卡片的 job 不再占用目录，即使它的 session 仍在运行（那个 session 已是人的）。每次占用判断只扫描一遍 workspace 分页列表，再按 id 复用；先排除既不占名额也没有 session 的旧 job，避免每张卡分别触发完整扫描。**这个保护只看自动化 job 的 session**：没有 job 的卡片上的普通 session（人自己开的，或在普通 session 里拆出子卡的父卡 agent）不被考虑，所以在非 git 项目（目录 workspace 共享项目根）里，普通 session 与自动化 worker 可能同时改同一份 checkout，这由用户自己协调（例如用 worktree 项目，或等普通 session 的回合结束再启动子卡）。人的直接操作也不受此调度规则控制。
-- `waiting`、`sub_cards`、`subSeen` 为子卡等待协议字段；父卡唤醒遵守同一项目开关、冻结、归属和名额。发送的是当前子卡 handoff（有界的交付、workpad 检查、目录、分支、未满足 blocker），原文失败后保留。
+- `waiting`、`sub_cards`、`subSeen` 为子卡等待协议字段；父卡唤醒遵守同一项目开关、冻结、归属和名额。发送的是当前子卡 handoff（有界的交付说明、验收清单、目录、分支、未满足 blocker），原文失败后保留。
 - daemon 发出的 `[Flowly automation]` 文本不计入人的 memory clue 或 next-move 选择率；摘要保留内容但标作 Flowly automation。

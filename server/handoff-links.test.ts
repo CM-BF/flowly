@@ -69,8 +69,7 @@ test("a busy parent's location asks only for the bounded parent summary and neve
 
 test("link extras attach only a parent's pitfall summary, preserve its known branch, and expose no parent delivery or blockers", async () => {
   const b = board(); b.links.push(link("subtask", "current", "parent"));
-  b.events.push({ id: "private-delivery", taskId: "parent", actor: "agent", action: "status_changed", to: "in_review", note: "PRIVATE-PARENT-DELIVERY", at });
-  b.workpads.push({ taskId: "parent", projectId: "project", revision: 1, acceptance: [], validation: [], confusions: [], head: { branch: "integration-parent", sha: "a".repeat(40), dirty: false, at }, env: null, updatedAt: at, updatedBy: "human" });
+  b.events.push({ id: "private-delivery", taskId: "parent", actor: "agent", action: "status_changed", to: "in_review", note: "PRIVATE-PARENT-DELIVERY", branch: "integration-parent", at });
   const reader = vi.fn<ContinuityReader>(async (_id, kind) => linkedContinuity(record("parent"), kind)), git = vi.fn(async () => "");
   const result = await linkExtras(b, "current", paseo, git, reader), parent = result.handoffs.get("parent");
   expect(reader).toHaveBeenCalledExactlyOnceWith("parent", "parent"); expect(result.branches.get("parent")).toBe("integration-parent"); expect(git).not.toHaveBeenCalled();

@@ -1568,8 +1568,8 @@ export class AutomationService {
     await paseo.workspaces.ref(task.workspaceId).agents.create({
       config: {
         provider: `${model.provider}/${model.model}`,
+        // No `flowly` MCP server here: the session_open hook adds it at each launch, with the judge's two tools (PASEO-SESSION-TOOLS-SPEC §4).
         systemPrompt: preparation.instructions,
-        mcpServers: { flowly: preparation.mcp },
         ...(model.modeId ? { modeId: model.modeId } : {}),
         ...(model.thinking ? { thinkingOptionId: model.thinking } : {}),
       },
@@ -1975,14 +1975,14 @@ export class AutomationService {
       featureValues = supportedFeatures(featureValues, features.features ?? []);
     }
     // Adaptive implementers (§5.6.1) are sessions like any native agent: no Flowly instructions, skill or context file,
-    // and a Flowly MCP server that offers only flowly_request_split.
+    // and a Flowly MCP server that offers only flowly_split. The session_open hook adds that server at each launch
+    // (never saved in the agent config) and leaves out the Flowly environment for them (ToolServer.sessionLaunch).
     const thin = role === "implementer" && isAdaptive(settings) && !!this.deps.adaptive;
     if (thin) await this.deps.adaptive!.started(task.id, preparation.agentId);
     const options = {
       config: {
         provider: `${model.provider}/${model.model}`,
         ...(thin ? {} : { systemPrompt: preparation.instructions }),
-        mcpServers: { flowly: preparation.mcp },
         ...(mode ? { modeId: mode } : {}),
         ...(model.thinking ? { thinkingOptionId: model.thinking } : {}),
         ...(featureValues ? { featureValues } : {}),

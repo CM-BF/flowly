@@ -337,6 +337,7 @@ export class BoardStore {
       if (input.memory !== undefined) p.memory = input.memory;
       if (input.automation !== undefined) p.automation = input.automation;
       if (p.automation?.enabled && !laneEnabled(p, "in_review")) throw new Error("Agent automation requires the In review lane.");
+      if (input.autoReview !== undefined) p.autoReview = input.autoReview;
       if (input.agentModel !== undefined) {
         if (input.agentModel) p.agentModel = input.agentModel;
         else delete p.agentModel;

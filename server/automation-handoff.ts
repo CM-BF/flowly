@@ -3,17 +3,17 @@ import { laneName } from "../shared/lanes";
 import { linksOf, type LinkView } from "../shared/links";
 import { jobOf, risksOrigin, subCardActive, type SubCardLine } from "../shared/automation";
 import type { Board, Task } from "../shared/model";
-import { defaultGit, readHead, type Git } from "./workpad";
+import { defaultGit, readHead, type Git } from "./git-head";
 import type { ContinuityKind, ContinuityReader } from "./handoff-links";
 
 /** get_task's handoffs together carry at most `total` characters of evidence and reviewer risks, one link's evidence at most `perLink`. */
 export const handoffBudget = { total: 16_000, perLink: 6_000 } as const;
 
-/** A card's delivery note and workpad checks as bounded card data (never instructions). */
+/** A card's delivery note and acceptance list as bounded card data (never instructions). The workpad holds no checks since GUARDRAILS-SPEC §7.1. */
 function handoffEvidence(board: Board, taskId: string) {
   const pad = board.workpads.find((w) => w.taskId === taskId);
   const delivery = [...board.events].reverse().find((e) => e.taskId === taskId && e.actor === "agent" && e.to === "in_review");
-  return JSON.stringify({ delivery: delivery?.note?.slice(0, 1500), acceptance: pad?.acceptance.slice(0, 8), validation: pad?.validation.slice(0, 8), confusions: pad?.confusions.slice(0, 4) }).slice(0, handoffBudget.perLink);
+  return JSON.stringify({ delivery: delivery?.note?.slice(0, 1500), acceptance: pad?.acceptance.slice(0, 8) }).slice(0, handoffBudget.perLink);
 }
 
 const unmetBlockers = (board: Board, taskId: string) =>
@@ -58,11 +58,9 @@ function handoffRisks(board: Board, taskId: string, left: number): { cost: numbe
   return { cost, value: { risks: job.risks, ...(origin ? { risksNote: `Reviewer risks ${origin}.` } : {}) } };
 }
 
-/** The branch a card's work is on as last recorded (its delivery or workpad write); no git. */
-const storedBranch = (board: Board, taskId: string) => {
-  const pad = board.workpads.find((w) => w.taskId === taskId);
-  return pad?.head?.branch || pad?.env?.head?.branch || undefined;
-};
+/** The branch a card's work was last delivered on (its latest agent delivery event); no git. */
+const storedBranch = (board: Board, taskId: string) =>
+  [...board.events].reverse().find((e) => e.taskId === taskId && e.actor === "agent" && e.to === "in_review")?.branch || undefined;
 
 const directoryOf = (task: Task, paseo: PaseoApi) => paseo.workspaces.ref(task.workspaceId).refresh().then((w) => w?.workspaceDirectory || undefined, () => undefined);
 
@@ -91,8 +89,8 @@ const wantsHandoff = (board: Board, v: LinkView) =>
  * What get_task adds to its links (SUB-CARDS-SPEC §8), bounded as a whole: a handoff for each delivered or settled
  * sub-card and blocker, In review and most recently updated first, whose evidence shares one budget (the rest
  * point to the card's directory and branch instead); the parent's branch on sub_card_of, and the branch a Done
- * blocker was delivered on. Branches come from the stored HEAD; only a card without one costs a `rev-parse`.
- * Linked workspaces are read only for handoffs and a parent without a stored branch.
+ * blocker was delivered on. Branches come from the latest delivery event; only a card without one costs a `rev-parse`.
+ * Linked workspaces are read only for handoffs and a parent or Done blocker without a delivered branch.
  */
 export async function linkExtras(board: Board, taskId: string, paseo: PaseoApi, git: Git, continuity?: ContinuityReader) {
   const views = linksOf(board, taskId).filter((v) => v.other);
@@ -140,7 +138,8 @@ export async function linkExtras(board: Board, taskId: string, paseo: PaseoApi, 
       const other = v.other!;
       const known = v.relation === "sub_card_of" || (v.relation === "blocked_by" && other.status === "done");
       if (!known || handoffs.has(other.id)) return;
-      const branch = storedBranch(board, other.id) ?? (v.relation === "sub_card_of" ? await liveBranch(await directoryOf(other, paseo), git) : undefined);
+      // No delivery event with a branch (delivered before deliveries recorded one, or pruned past the card's event cap): read it live.
+      const branch = storedBranch(board, other.id) ?? (await liveBranch(await directoryOf(other, paseo), git));
       if (branch) branches.set(other.id, branch);
     }),
   );

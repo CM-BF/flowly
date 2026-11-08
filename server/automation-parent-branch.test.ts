@@ -1,9 +1,9 @@
 import { afterEach, expect, test, vi } from "vitest";
 import { automationFixture as setup, cleanupAutomationFixtures } from "./automation-fixture";
-import { defaultGit, readHead } from "./workpad";
+import { defaultGit, readHead } from "./git-head";
 
-vi.mock("./workpad", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("./workpad")>()),
+vi.mock("./git-head", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./git-head")>()),
   readHead: vi.fn(async () => ({ sha: "abcdef123456", branch: "sw/full-handoff", dirty: false, at: new Date().toISOString() })),
   defaultGit: vi.fn(async () => "sw/parent-live\n"),
 }));
@@ -20,10 +20,7 @@ test.each([true, false])("dependency starts read the live parent's integration b
     board.tasks.find((t) => t.id === "b")!.status = "done";
     for (const [kind, from, to] of [["subtask", "a", "parent"], ["subtask", "b", "parent"], ["blocks", "b", "a"]] as const)
       board.links.push({ id: `${from}-${kind}-${to}`, projectId: "p", kind, from, to, createdBy: "human", createdAt: x.at() });
-    if (stored) board.workpads.push({
-      taskId: "parent", projectId: "p", revision: 1, acceptance: [], validation: [], confusions: [],
-      head: { sha: "abcdef123456", branch: "sw/parent-stored", dirty: true, at: x.at() }, env: null, updatedAt: x.at(), updatedBy: "agent",
-    });
+    if (stored) board.events.push({ id: "parent-delivery", taskId: "parent", actor: "agent", action: "status_changed", from: "development", to: "in_review", branch: "sw/parent-stored", at: x.at() });
   });
   await x.automation.queue("a");
   await x.automation.kick();

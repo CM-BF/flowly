@@ -25,6 +25,7 @@
 | `N` | 打开“新建任务”表单（默认 Todo） | 存在当前项目且未归档 |
 | `P` | 打开项目切换弹层 | — |
 | `/` 或 `F` | 打开筛选/搜索弹层 | 存在当前项目 |
+| `S` | 打开 / 关闭 Search 页（SEARCH-SPEC §5） | 存在当前项目 |
 | `A` | 打开 Needs attention 弹层 | — |
 | `?` | 打开快捷键帮助弹层 | — |
 | `I` / `B` / `M` | 打开或关闭项目 Insights / Ideas / Memory 页 | 存在当前项目且对应功能开启 |
@@ -35,6 +36,7 @@
 | `Esc` | 侧栏在 session 预览中 → 返回卡片详情；侧栏在详情 → 关闭侧栏；没有打开的卡片时：Card tree 有链路高亮 → 清除；否则离开 Insights / Ideas / Memory / Card tree 页 | 侧栏已打开或有项目页 |
 | `J` / `K` | 当前列下一张 / 上一张卡片（打开其侧栏）；没有选中卡片时选中第一列第一张 | 有可见卡片 |
 | `H` / `L` | 左 / 右侧最近的非空列，同一行号（越界取最后一张） | 有可见卡片 |
+| `←` / `→` | 智能体多问题提问：上一题 / 下一题（不循环；挂在问题表单自身，不走看板快捷键，见 SESSION-QUESTION-SPEC §2） | 焦点在问题表单内且不在输入框 |
 
 - 大写字母（`CapsLock`）与小写等价；带 `Cmd/Ctrl/Alt` 的组合一律不处理，留给宿主快捷键。按住 `Shift` 的字母（如 `Shift+N`）不处理，`⇧H`/`⇧L` 除外；`?` 这类本身需要 Shift 的字符照常处理。数字键只认不带 Shift 的 `0`–`3`。
 - 自动重复（按住）和 IME 组合中（`isComposing`）的事件忽略。
@@ -64,6 +66,7 @@
 | `Flowly: New task` | 打开看板并打开新建任务表单 |
 | `Flowly: Switch project` | 打开看板并打开项目切换 |
 | `Flowly: Search and filter tasks` | 打开看板并打开筛选/搜索 |
+| `Flowly: Search` | 打开看板并打开 Search 页（intent `search`，SEARCH-SPEC §5） |
 | `Flowly: Needs attention` | 打开看板并打开 Attention |
 | `Flowly: Keyboard shortcuts` | 打开看板并打开快捷键帮助 |
 | `Flowly: Welcome tour` | 打开看板并打开欢迎导览 |
@@ -71,7 +74,7 @@
 
 数据契约：`openScreen({ screenId: "board", params: { intent, at } })`。
 
-- `intent ∈ {"new-task","projects","filters","attention","shortcuts","welcome","tree"}`；`at` 为 `Date.now()` 的十进制字符串。
+- `intent ∈ {"new-task","projects","filters","attention","shortcuts","welcome","search","tree"}`；`at` 为 `Date.now()` 的十进制字符串。
 - 看板对每个 `(intent, at)` 只消费一次；`at` 距当前超过 5 秒（`intentMaxAgeMs`，例如刷新页面后 URL 里残留）或格式无效、未知 intent 时忽略，不报错。
 - 与 session chip 链接参数（`taskId/sessionId/workspaceId/requestId`）互不冲突；intent 参数不进入 `parseSessionLink`。
 - `new-task` 在没有项目或项目已归档时不打开表单（与按钮的禁用状态一致）；`tree` 在没有项目时不做任何事；其余 intent 在数据加载完成后执行。

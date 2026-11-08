@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import type { PaseoApi } from "@getpaseo/client";
 import type { LocaleCode } from "../shared/i18n";
-import { SUMMARIZER_LABELS, isSummarizer, type SummaryModelChoice, truncateTranscript, turnText } from "../shared/summary";
+import { SUMMARIZER_LABELS, readOnlyConfig, isSummarizer, type SummaryModelChoice, truncateTranscript, turnText } from "../shared/summary";
 import {
   SESSION_IDEAS_MAX,
   SESSION_INSIGHTS_MAX,
@@ -23,7 +23,7 @@ import {
 } from "../shared/session-insights";
 import { sessionSummaryRow } from "../shared/native-session";
 import { within } from "./summaries";
-import { runSummaryModels } from "./summary-models";
+import { runSummaryModels, isWorkspaceGone } from "./summary-models";
 import type { NextMoveRows } from "./next-move-rows";
 import { generatedBranchName, resolveWorktreeBaseRef } from "./service";
 import { logFailure } from "./error-report";
@@ -134,11 +134,16 @@ export class SessionInsightService {
       .catch((e) => logFailure("Flowly session insight not updated:", e));
   }
 
+  /** Whether a turn of this session would be read at all: the hook checks before it reads the session's timeline. */
+  async wants(agent: OutsideAgent): Promise<boolean> {
+    if (!isOutsideCandidate(agent)) return false;
+    const settings = await this.settings();
+    return settings.enabled && (settings.parts.progress || settings.parts.nextMoves || settings.parts.ideas);
+  }
+
   /** Resolves when this session's queue is drained (tests); the hook does not wait. */
   async enqueue(agent: OutsideAgent, timeline: readonly { type: string }[], paseo: PaseoApi, endedAt = new Date().toISOString()): Promise<void> {
-    if (!isOutsideCandidate(agent)) return;
-    const settings = await this.settings();
-    if (!settings.enabled || !(settings.parts.progress || settings.parts.nextMoves || settings.parts.ideas)) return;
+    if (!(await this.wants(agent))) return;
     const text = turnText(timeline);
     if (!text.trim()) return;
     const batch = { text, endedAt, agent };
@@ -200,10 +205,12 @@ export class SessionInsightService {
         transcript: truncateTranscript(batch.text), openIdeas: open.map((i) => i.title),
         openIdeaCount: open.length, parts, language,
     });
-    const { model, output } = await runSummaryModels(paseo, settings.model, {
+    // Paseo removes a merged/archived workspace's directory (autoArchiveAfterMerge) right after the turn
+    // ends: the child cannot be created and the session is gone with it, so skip instead of failing.
+    const result = await runSummaryModels(paseo, settings.model, {
       create: (model) => paseo.workspaces.ref(agent.workspaceId!).agents.create({
         parent: agent.id,
-        config: { provider: model },
+        config: readOnlyConfig(model),
         title: `Flowly insights · ${agent.title || "session"}`.slice(0, 120),
         labels: { ...SUMMARIZER_LABELS, "flowly-session": agent.id },
         prompt,
@@ -212,7 +219,12 @@ export class SessionInsightService {
       parse: (text) => parseInsightOutput(text, parts),
       remove: this.remove,
       timeoutMs: this.timeoutMs,
+    }).catch((error) => {
+      if (!isWorkspaceGone(error)) throw error;
+      return null;
     });
+    if (!result) return;
+    const { model, output } = result;
     const now = new Date().toISOString();
     // The person already started another turn: the suggestions are for the past one (the summary still counts).
     const stale = (this.started.get(agent.id) ?? "") > batch.endedAt;

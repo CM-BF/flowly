@@ -257,7 +257,7 @@ function CardPreview({ display }: { display: ReturnType<typeof cardDisplay> }) {
           ideas={1}
           externalKey="SHOP-142"
           parentTitle={t("Checkout redesign")}
-          workpad={{ kind: "checks", done: 2, total: 3, count: 0 }}
+          workpad={{ kind: "acceptance", done: 2, total: 3 }}
           display={display}
           onOpen={noop}
           onActions={noop}

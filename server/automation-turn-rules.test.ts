@@ -45,7 +45,7 @@ test("a reviewer reads the reviewer checklist and cannot work the card; its verd
   const automation = new AutomationService(x.store, {
     clock: () => Date.now(),
     globalModel: async () => ({ provider: "claude", model: "claude-haiku-4-5" }),
-    prepare: async (taskId): Promise<ToolPreparation> => ({ agentId: `${taskId}-agent`, contextFile: "/c", cliPath: "/cli", skillPath: "/s", instructions: "", mcp: { type: "http", url: "http://x", headers: {} } }),
+    prepare: async (taskId): Promise<ToolPreparation> => ({ agentId: `${taskId}-agent`, contextFile: "/c", cliPath: "/cli", skillPath: "/s", instructions: "" }),
   });
   services.push(automation);
   automation.attach(x.paseo as PaseoApi);
@@ -62,7 +62,7 @@ test("a reviewer reads the reviewer checklist and cannot work the card; its verd
   const refused: [Parameters<typeof x.service.write>[1], Record<string, unknown>][] = [
     ["status", { status: "test", note: "Running the checks" }],
     ["progress", { kind: "result", note: "Checks pass", outputs: [] }],
-    ["workpad", { workpadRevision: 1, acceptance: [{ text: "Reviewer edit", done: true }], validation: [], confusions: [] }],
+    ["workpad", { workpadRevision: 1, acceptance: [{ text: "Reviewer edit", done: true }] }],
     ["tags", { add: ["review"], remove: [] }],
     ["artifact", { role: "output", target: "https://example.com/review" }],
   ];

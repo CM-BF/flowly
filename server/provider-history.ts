@@ -183,7 +183,7 @@ export function forgetHistory() {
 export async function oversized(paseo: PaseoApi, agentId: string, now = Date.now(), measure = historyBytes): Promise<number | null> {
   const hit = checked.get(agentId);
   if (hit && now - hit.at < 60_000) return hit.bytes !== null && hit.bytes >= historyLimits.rotate ? hit.bytes : null;
-  const agent = (await paseo.agents.ref(agentId).refresh().catch(() => null))?.agent as HistoryAgent | undefined;
+  const agent = (await Promise.resolve().then(() => paseo.agents.ref(agentId).refresh()).catch(() => null))?.agent as HistoryAgent | undefined;
   const bytes = agent ? await measure(agent).catch(() => null) : null;
   checked.set(agentId, { at: now, bytes });
   return bytes !== null && bytes >= historyLimits.rotate ? bytes : null;

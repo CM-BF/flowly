@@ -9,6 +9,7 @@ import { automationOf, isLive } from "../shared/automation";
 import type { AutomationSettings } from "../shared/automation-schema";
 import type { Board } from "../shared/model";
 import { logFailure } from "./error-report";
+import { oversized } from "./provider-history";
 import { ToolError } from "./tool-error";
 
 /**
@@ -126,7 +127,8 @@ export class AdaptiveService {
   private async observe(taskId: string, agentId: string, paseo: PaseoApi, agent?: Agent | null): Promise<Usage> {
     const snapshot = agent ?? ((await paseo.agents.ref(agentId).refresh().catch(() => null))?.agent as Agent | undefined);
     const used = snapshot?.lastUsage?.contextWindowUsedTokens, max = snapshot?.lastUsage?.contextWindowMaxTokens;
-    const timeline = await paseo.agents.ref(agentId).timeline.refetch({ limit: 500 }).catch(() => null);
+    // An oversized Codex history is never read (AUTOMATION-SPEC §4.6); the context size above still counts.
+    const timeline = (await oversized(paseo, agentId)) ? null : await paseo.agents.ref(agentId).timeline.refetch({ limit: 500 }).catch(() => null);
     const compactions = (timeline?.entries ?? []).filter((e: { item?: { type?: string; trigger?: string } }) => e.item?.type === "compaction" && e.item.trigger !== "manual").length;
     await this.update(taskId, (r) => ({
       ...r,

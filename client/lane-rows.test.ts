@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { laneRows } from "./lane-rows";
+import { laneRows, settledPage } from "./lane-rows";
 
 const card = (id: string) => ({ id });
 const shape = (rows: ReturnType<typeof laneRows<{ id: string }>>) => rows.map((r) => (r.kind === "task" ? r.task.id : r.kind));
@@ -65,4 +65,13 @@ test("a changed Levels count or footer state hands the list new rows", async () 
   const empty = laneRows([], [], false, { count: 2, shown: false });
   const emptier = laneRows([], [], false, { count: 1, shown: false });
   expect(sameRows(empty, emptier)).toBe(emptier);
+});
+
+test("a released lane pager rests on the nearest page within its lanes", () => {
+  expect(settledPage(0, 390, 7)).toBe(0);
+  expect(settledPage(390 * 2 + 120, 390, 7)).toBe(2);
+  expect(settledPage(390 * 2 + 250, 390, 7)).toBe(3);
+  expect(settledPage(-40, 390, 7)).toBe(0);
+  expect(settledPage(390 * 9, 390, 7)).toBe(6);
+  expect(settledPage(500, 0, 7)).toBe(0);
 });

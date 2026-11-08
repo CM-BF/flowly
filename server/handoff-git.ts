@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { opendir, stat } from "node:fs/promises";
 import { join, resolve } from "node:path";
-import { defaultGit, type Git } from "./workpad";
+import { defaultGit, type Git } from "./git-head";
 
 /** Metadata only: no diff bodies, credentials or file contents enter a handoff. */
 export interface HandoffGitSnapshot {

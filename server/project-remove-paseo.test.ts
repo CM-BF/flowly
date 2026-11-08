@@ -6,7 +6,16 @@ import { join } from "node:path";
 import { BoardStore } from "./store";
 import { BoardService } from "./service";
 
-vi.mock("./paseo-cli", () => ({ resolvePaseoCli: async () => "/__flowly-test__/paseo" }));
+// Never the real CLI: every call resolves to a path that cannot run, so a missed stub fails instead of reaching the daemon.
+vi.mock("./paseo-cli", async (original) => {
+  const actual = await original<typeof import("./paseo-cli")>();
+  const sentinel = "/__flowly-test__/paseo";
+  return {
+    ...actual,
+    resolvePaseoCli: async () => sentinel,
+    runPaseo: (args: string[], options: { timeout: number; maxBuffer: number }, cli?: string) => actual.runPaseo(args, options, cli ?? sentinel),
+  };
+});
 
 // `paseo project delete` is the only native project removal; record calls instead of running it.
 const calls: string[][] = [];

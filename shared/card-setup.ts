@@ -5,20 +5,19 @@ export const setupItems = ["metadata", "type", "tags", "workpad"] as const;
 export type SetupItem = (typeof setupItems)[number];
 
 /**
- * The card's missing setup: no type, no tags (from anyone), or no workpad with content while the project has the
- * workpad on. An empty workpad (all three lists empty) counts as missing.
+ * The card's missing setup: no type, no tags (from anyone), or no acceptance list while the project has the workpad
+ * on (`workpad` keeps its name; GUARDRAILS-SPEC §6.1).
  */
 export function setupMissing(
   task: Pick<Task, "type" | "tags" | "brief" | "intakeOrganized">,
-  workpad: Pick<Workpad, "acceptance" | "validation" | "confusions"> | null | undefined,
+  workpad: Pick<Workpad, "acceptance"> | null | undefined,
   workpadOn: boolean,
 ): SetupItem[] {
   const out: SetupItem[] = [];
   if (task.brief && !task.intakeOrganized) out.push("metadata");
   if (!task.type) out.push("type");
   if (!task.tags?.length) out.push("tags");
-  if (workpadOn && !(workpad && (workpad.acceptance.length || workpad.validation.length || workpad.confusions.length)))
-    out.push("workpad");
+  if (workpadOn && !workpad?.acceptance.length) out.push("workpad");
   return out;
 }
 
@@ -39,7 +38,7 @@ const itemText: Record<SetupItem, string> = {
   metadata: "unorganized task brief (flowly_update_metadata: supply both a concise title and a faithful description from task.brief)",
   type: "no type (flowly_set_type: feature, bugfix, research, refactor, docs or chore)",
   tags: "no tags (flowly_set_tags: 1-4 module or direction tags, reuse projectTags)",
-  workpad: "no workpad (flowly_update_workpad: the acceptance criteria and the checks you will run, before you implement)",
+  workpad: "no acceptance list (flowly_update_workpad: 3-5 acceptance criteria, before you implement)",
 };
 const itemsText = (missing: readonly SetupItem[]) => missing.map((m) => itemText[m]).join("; ");
 
@@ -49,7 +48,7 @@ export const setupReminder = (missing: readonly SetupItem[]) =>
 
 /** The delivery refusal's setup line (§3.4). */
 export const setupIncompleteMessage = (missing: readonly SetupItem[]) =>
-  `Card setup is incomplete: ${itemsText(missing)}. The first attempt is always refused, even with acknowledgeOpen=true. Set them now and deliver again. Only after reviewing this refusal, retry with acknowledgeOpen=true and a note that explains why each one is still missing. A changed card/workpad/HEAD or a new turn requires a new refusal.`;
+  `Card setup is incomplete: ${itemsText(missing)}. The first attempt is always refused, even with acknowledgeOpen=true. Set them now and deliver again. Only after reviewing this refusal, retry with acknowledgeOpen=true and a note that explains why each one is still missing. A changed card or acceptance list, or a new turn, requires a new refusal.`;
 
 /** The first-context line (§3.2); empty when nothing is missing. */
 export const setupContextLine = (missing: readonly SetupItem[]) =>

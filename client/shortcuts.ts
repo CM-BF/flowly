@@ -21,7 +21,9 @@ export type ShortcutAction =
   | "edit"
   | "insights"
   | "ideas"
+  | "guardrails"
   | "memory"
+  | "search"
   | "tree"
   | "level-1"
   | "level-2"
@@ -30,7 +32,7 @@ export type ShortcutAction =
 
 export type BoardIntent = Extract<
   ShortcutAction,
-  "new-task" | "projects" | "filters" | "attention" | "shortcuts" | "welcome" | "tree"
+  "new-task" | "projects" | "filters" | "attention" | "shortcuts" | "welcome" | "search" | "tree"
 >;
 
 /** The Levels value a level shortcut sets (CARD-TREE-SPEC §2.3); null is All. */
@@ -44,11 +46,13 @@ export const shortcutLevel: Record<"level-1" | "level-2" | "level-3" | "level-al
 export const shortcutHelp: readonly { keys: string[]; title: string }[] = [
   { keys: ["N"], title: msg("New task") },
   { keys: ["P"], title: msg("Switch project") },
+  { keys: ["S"], title: msg("Search") },
   { keys: ["/", "F"], title: msg("Search and filter") },
   { keys: ["A"], title: msg("Needs attention") },
   { keys: ["I"], title: msg("Project insights") },
   { keys: ["B"], title: msg("Project ideas") },
-  { keys: ["M"], title: msg("Project memory") },
+  { keys: ["G"], title: msg("Guardrails") },
+  { keys: ["M"], title: msg("Memory") },
   { keys: ["T"], title: msg("Open card tree") },
   { keys: ["1"], title: msg("Show top-level cards only") },
   { keys: ["2"], title: msg("Show down to level 2") },
@@ -58,7 +62,8 @@ export const shortcutHelp: readonly { keys: string[]; title: string }[] = [
   { keys: ["H", "L"], title: msg("Card in left / right column") },
   { keys: ["⇧H", "⇧L"], title: msg("Move the open card to the left / right column") },
   { keys: ["E"], title: msg("Edit the open card") },
-  { keys: ["Esc"], title: msg("Back from session, then close sidebar, then clear the chain, then leave Insights, Ideas, Memory or Card tree") },
+  { keys: ["←", "→"], title: msg("Previous / next agent question") },
+  { keys: ["Esc"], title: msg("Back from session, then close sidebar, then clear the chain, then leave a project page") },
   { keys: ["?"], title: msg("Show keyboard shortcuts") },
 ];
 
@@ -74,7 +79,9 @@ const letters: Record<string, ShortcutAction> = {
   e: "edit",
   i: "insights",
   b: "ideas",
+  g: "guardrails",
   m: "memory",
+  s: "search",
   t: "tree",
   "1": "level-1",
   "2": "level-2",
@@ -153,6 +160,7 @@ const intents: readonly BoardIntent[] = [
   "attention",
   "shortcuts",
   "welcome",
+  "search",
   "tree",
 ];
 export const intentMaxAgeMs = 5_000;

@@ -20,7 +20,7 @@ const tagged = (...tags: string[]) => ({ tags: tags.map((tag) => ({ tag, by: "hu
 const sub = (from: string, to: string): Link => ({ id: `${from}-sub-${to}`, projectId: "p", kind: "subtask", from, to, createdBy: "human", createdAt: at });
 const pad = (taskId: string, criteria: string[]): Workpad => ({
   taskId, projectId: "p", revision: 1, acceptance: criteria.map((text, i) => ({ id: `a${i}`, text, done: false, by: "agent", at })),
-  validation: [], confusions: [], env: null, head: null, updatedAt: at, updatedBy: "agent",
+  updatedAt: at, updatedBy: "agent",
 });
 const board = (tasks: Task[], links: Link[] = [], workpads: Workpad[] = []) => ({ tasks, links, workpads }) as Pick<Board, "tasks" | "links" | "workpads">;
 const level = (b: ReturnType<typeof board>, id: string) => resolveReviewLevel(b, b.tasks.find((t) => t.id === id)!);
