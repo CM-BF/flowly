@@ -566,7 +566,23 @@ export function automationExecution(model: AgentModel, project: AgentModel | nul
 
 // Messages the daemon sends to sessions. Agent-facing text stays English (I18N-SPEC).
 export const automationTag = "[Flowly automation]";
-export const isAutomationMessage = (text: string) => text.trimStart().startsWith(automationTag);
+/**
+ * Whether a message is Flowly's own and never the user's words: the dispatcher's `[Flowly automation]`, the tournament
+ * judge's `[Flowly tournament]`, the acceptance author's `[Flowly acceptance]` and adaptive mode's `[Flowly]` (§5.4–§5.6).
+ * Auto review's `[Flowly auto review · …]` rework message is upstream's and keeps its own handling.
+ */
+export const isAutomationMessage = (text: string) => /^\[Flowly(?: automation| tournament| acceptance)?\]/.test(text.trimStart());
+
+/**
+ * An adaptive session's first turn opens with the prompt Flowly began it with (the card as its task, a split item or the
+ * integration, §5.6.1), which carries no Flowly tag: this is that turn's items without that opening message. Any other
+ * turn is returned as it is. The turn is the session's first while the board holds one `agent.turn_started` of it.
+ */
+export function withoutAdaptiveOpening<T extends { type?: unknown }>(board: Pick<Board, "events">, agentId: string, items: readonly T[]): readonly T[] {
+  if (board.events.filter((e) => e.agentId === agentId && e.action === "agent.turn_started").length > 1) return items;
+  const opening = items.findIndex((i) => i.type === "user_message");
+  return opening < 0 ? items : [...items.slice(0, opening), ...items.slice(opening + 1)];
+}
 const tag = automationTag;
 /** What makes a card Deep (§5.3.6): mistakes that are expensive to undo because other work or stored data depends on them. */
 export const deepCriteria =

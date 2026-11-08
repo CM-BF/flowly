@@ -66,7 +66,7 @@ import { AutomationService } from "./server/automation";
 import { AcceptanceService } from "./server/acceptance";
 import { TournamentService } from "./server/tournament";
 import { AdaptiveService } from "./server/adaptive";
-import { reviewerJob } from "./shared/automation";
+import { reviewerJob, withoutAdaptiveOpening } from "./shared/automation";
 import { agentModelFromValues } from "./shared/agent-defaults";
 import { GuardrailsService } from "./server/guardrails";
 import { guardrailsLedger } from "./shared/guardrails";
@@ -808,13 +808,15 @@ export default function contribute(host: PluginServerContext) {
     // Agent habits (WORKFLOW-INSIGHTS-SPEC §12.4): the model this turn ran on, and whether the user's message took one of the suggestions that were open.
     const model = await sessionModel(paseo, event.agent);
     const timeline = await turn;
-    const texts = userTexts(timeline);
+    // What the user said in this turn: Flowly's untagged opening prompt of an adaptive session is not theirs (AUTOMATION-SPEC §5.6.1).
+    const own = adaptive.isSession(identity.agentId) ? withoutAdaptiveOpening(await store.read(), identity.agentId, timeline) : timeline;
+    const texts = userTexts(own);
     // A rework turn: opened by the user's own words while the card was In review (GUARDRAILS-SPEC §4.1).
     let rework: string | null = null;
     await store.mutate((board) => {
-      recordLifecycle(store, board, identity, "agent.turn_ended", event.outcome, { model, pick: turnPick(board.events, identity.agentId, texts), byUser: startedByUser(timeline) });
+      recordLifecycle(store, board, identity, "agent.turn_ended", event.outcome, { model, pick: turnPick(board.events, identity.agentId, texts), byUser: startedByUser(own) });
       if (auto && handoffRole !== "retired" && handoffRole !== "finalizing") applyTurnEnded(store, board, identity, event.outcome);
-      rework = memory.reworkQuote(identity, timeline, board);
+      rework = memory.reworkQuote(identity, own, board);
     });
     // After the status rules: automation reads where the card ended up (AUTOMATION-SPEC §4.2).
     void automation.turnEnded(identity.agentId).catch((e) =>
@@ -825,7 +827,7 @@ export default function contribute(host: PluginServerContext) {
     // The user's own words of this turn, kept for the finished-card review (PROJECT-MEMORY-SPEC §4.0); never blocks the hook.
     void store
       .read()
-      .then((board) => memory.recordTurn(identity, timeline, board))
+      .then((board) => memory.recordTurn(identity, own, board))
       .catch((e) => logFailure("Flowly memory clue not recorded:", e));
     // The session's plan for the workpad (WORKPAD-SPEC §2.2); never blocks the hook.
     if (handoffRole !== "retired" && handoffRole !== "finalizing") void workpads.recordTurn(identity, timeline).catch((e) =>
