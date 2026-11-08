@@ -90,7 +90,7 @@ const wantsHandoff = (board: Board, v: LinkView) =>
  * sub-card and blocker, In review and most recently updated first, whose evidence shares one budget (the rest
  * point to the card's directory and branch instead); the parent's branch on sub_card_of, and the branch a Done
  * blocker was delivered on. Branches come from the latest delivery event; only a card without one costs a `rev-parse`.
- * Linked workspaces are read only for handoffs and a parent without a delivered branch.
+ * Linked workspaces are read only for handoffs and a parent or Done blocker without a delivered branch.
  */
 export async function linkExtras(board: Board, taskId: string, paseo: PaseoApi, git: Git, continuity?: ContinuityReader) {
   const views = linksOf(board, taskId).filter((v) => v.other);
@@ -138,7 +138,8 @@ export async function linkExtras(board: Board, taskId: string, paseo: PaseoApi, 
       const other = v.other!;
       const known = v.relation === "sub_card_of" || (v.relation === "blocked_by" && other.status === "done");
       if (!known || handoffs.has(other.id)) return;
-      const branch = storedBranch(board, other.id) ?? (v.relation === "sub_card_of" ? await liveBranch(await directoryOf(other, paseo), git) : undefined);
+      // No delivery event with a branch (delivered before deliveries recorded one, or pruned past the card's event cap): read it live.
+      const branch = storedBranch(board, other.id) ?? (await liveBranch(await directoryOf(other, paseo), git));
       if (branch) branches.set(other.id, branch);
     }),
   );

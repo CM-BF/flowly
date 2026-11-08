@@ -78,7 +78,9 @@ test("handoffs only for linked cards that are delivered or settled, not Done, Ca
   const withHandoff = context.links.filter((l) => l.handoff).map((l) => l.taskId).sort();
   expect(withHandoff).toEqual(["blocker", "parked", "review"]);
   expect(linkOf(context, "review").handoff!.evidence).toContain("Delivered the parser.");
-  expect(x.refreshed.filter((id) => id !== "w").sort()).toEqual(["blocker-ws", "parked-ws", "review-ws"]);
+  // A Done blocker with no delivered branch is read for its live branch only (no handoff).
+  expect(x.refreshed.filter((id) => id !== "w").sort()).toEqual(["blocker-ws", "landed-ws", "parked-ws", "review-ws"]);
+  expect(linkOf(context, "landed")).toMatchObject({ branch: "kanban/live-branch" });
 });
 
 test("the handoff evidence of all links together stays within one budget; the rest point to the card instead", async () => {
@@ -165,6 +167,14 @@ test("a Done blocker carries the branch it was delivered on, without a handoff o
   expect(linkOf(context, "landed").handoff).toBeUndefined();
   expect(x.git).not.toHaveBeenCalled();
   expect(x.refreshed.filter((id) => id !== "w")).toEqual([]);
+});
+
+test("a Done blocker whose delivery recorded no branch (before the upgrade, or pruned) gets its live branch", async () => {
+  const x = await setup([{ id: "older", status: "done", relation: "blocked_by", delivered: "Delivered." }]);
+  const context = await x.service.get(x.identity);
+  expect(linkOf(context, "older")).toMatchObject({ relation: "blocked_by", resolved: true, branch: "kanban/live-branch" });
+  expect(x.git).toHaveBeenCalledTimes(1);
+  expect(readHead).not.toHaveBeenCalled();
 });
 
 test("a card linked as both sub-card and blocker spends and emits its handoff evidence once", async () => {
